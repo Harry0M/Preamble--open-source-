@@ -22,10 +22,15 @@ Preamble is **100% on-device**. No data collection, no analytics, no ads, no tra
 ## 📸 Screenshots
 
 <p align="center">
-  <img src="screenshots/settings.png" width="200" alt="Settings" />
-  <img src="screenshots/theme_picker.png" width="200" alt="Theme Picker" />
-  <img src="screenshots/calendar.png" width="200" alt="Calendar" />
-  <img src="screenshots/stats.png" width="200" alt="Stats" />
+  <img src="screenshots/homescreen.jpeg" width="200" alt="Home Screen" />
+  <img src="screenshots/calendar.jpeg" width="200" alt="Calendar" />
+  <img src="screenshots/stats.jpeg" width="200" alt="Stats" />
+  <img src="screenshots/settings.jpeg" width="200" alt="Settings" />
+</p>
+<p align="center">
+  <img src="screenshots/add task.jpeg" width="200" alt="Add Task" />
+  <img src="screenshots/add task by voice.jpeg" width="200" alt="Voice Input" />
+  <img src="screenshots/theme_picker.jpeg" width="200" alt="Theme Picker" />
 </p>
 
 ## 🏗 Architecture
