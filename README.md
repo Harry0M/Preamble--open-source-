@@ -19,6 +19,15 @@ A beautiful, privacy-first task management app for Android — built entirely wi
 
 Preamble is **100% on-device**. No data collection, no analytics, no ads, no tracking, no cloud sync. Your tasks stay on your phone.
 
+## 📸 Screenshots
+
+<p align="center">
+  <img src="screenshots/settings.png" width="200" alt="Settings" />
+  <img src="screenshots/theme_picker.png" width="200" alt="Theme Picker" />
+  <img src="screenshots/calendar.png" width="200" alt="Calendar" />
+  <img src="screenshots/stats.png" width="200" alt="Stats" />
+</p>
+
 ## 🏗 Architecture
 
 | Layer | Technology |
