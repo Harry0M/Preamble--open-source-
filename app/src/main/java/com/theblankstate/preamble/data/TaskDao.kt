@@ -1,0 +1,46 @@
+package com.theblankstate.preamble.data
+
+import androidx.room.Dao
+import androidx.room.Delete
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Update
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface TaskDao {
+
+    @Query("SELECT * FROM tasks WHERE createdDate = :date ORDER BY isCompleted ASC, createdTimestamp DESC")
+    fun getTasksByDate(date: String): Flow<List<Task>>
+
+    @Query("SELECT * FROM tasks WHERE createdDate IN (:dates) ORDER BY createdDate DESC, isCompleted ASC, createdTimestamp DESC")
+    fun getTasksForDates(dates: List<String>): Flow<List<Task>>
+
+    @Query("SELECT COUNT(*) FROM tasks WHERE isCompleted = 1")
+    fun getCompletedTasksCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM tasks")
+    fun getTotalTasksCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM tasks WHERE createdDate = :date")
+    suspend fun getTaskCountForDate(date: String): Int
+
+    @Query("SELECT COUNT(*) FROM tasks WHERE createdDate = :date AND isCompleted = 1")
+    suspend fun getCompletedCountForDate(date: String): Int
+
+    @Query("SELECT * FROM tasks WHERE createdDate = :date AND isCompleted = 0 ORDER BY createdTimestamp DESC")
+    suspend fun getPendingTasksForDate(date: String): List<Task>
+
+    @Query("SELECT DISTINCT createdDate FROM tasks ORDER BY createdDate DESC")
+    suspend fun getAllDatesWithTasks(): List<String>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTask(task: Task)
+
+    @Update
+    suspend fun updateTask(task: Task)
+
+    @Delete
+    suspend fun deleteTask(task: Task)
+}
