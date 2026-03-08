@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "195921517707",
+    "project_id": "preambl-fbea6",
+    "storage_bucket": "preambl-fbea6.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:195921517707:android:e3236118d156209830088e",
+        "android_client_info": {
+          "package_name": "com.theblankstate.preamble"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "195921517707-5r9flmh8kh2gjoff9l35akn33dm665vk.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB-VXa4W0ZvEc4ddzvZ8wdNy8FM-LqX8V0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "195921517707-5r9flmh8kh2gjoff9l35akn33dm665vk.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -1,7 +1,5 @@
 package com.theblankstate.preamble.ui.components
 
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
 import android.content.Intent
 import android.os.Bundle
 import android.speech.RecognitionListener
@@ -16,8 +14,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -29,8 +25,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -38,8 +38,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -56,7 +61,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
 import java.util.Locale
 import kotlin.math.sin
 
@@ -71,6 +78,8 @@ fun AddTaskSheet(
     var selectedDate by remember { mutableStateOf<String?>(null) }
     var isListening by remember { mutableStateOf(false) }
     var wantsToListen by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val context = LocalContext.current
 
@@ -82,7 +91,6 @@ fun AddTaskSheet(
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 5000L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
         }
@@ -97,22 +105,23 @@ fun AddTaskSheet(
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() {
-                // Don't set isListening=false here; wait for onResults
+                isListening = false
+                wantsToListen = false
             }
             override fun onError(error: Int) {
-                if (wantsToListen && (error == SpeechRecognizer.ERROR_NO_MATCH
-                    || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT)) {
-                    // Auto-restart: user hasn't stopped, just no match yet
-                    speechRecognizer.startListening(createSpeechIntent())
-                } else {
-                    isListening = false
-                    wantsToListen = false
+                isListening = false
+                wantsToListen = false
+                if (wantsToListen) {
+                    try {
+                        speechRecognizer.startListening(createSpeechIntent())
+                    } catch (_: Exception) {}
                 }
             }
             override fun onResults(results: Bundle?) {
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                if (!matches.isNullOrEmpty()) {
-                    taskTitle = matches[0]
+                val spoken = matches?.firstOrNull()
+                if (!spoken.isNullOrBlank()) {
+                    taskTitle = spoken
                 }
                 isListening = false
                 wantsToListen = false
@@ -176,9 +185,9 @@ fun AddTaskSheet(
                     shape = CircleShape,
                     containerColor = if (isListening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
                 ) {
-                    Text(
-                        text = if (isListening) "⏹" else "🎙",
-                        style = MaterialTheme.typography.titleMedium
+                    Icon(
+                        imageVector = if (isListening) Icons.Filled.Stop else Icons.Filled.Mic,
+                        contentDescription = if (isListening) "Stop" else "Voice Input"
                     )
                 }
             }
@@ -202,18 +211,7 @@ fun AddTaskSheet(
 
             Row(modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(
-                    onClick = {
-                        val cal = Calendar.getInstance()
-                        TimePickerDialog(
-                            context,
-                            { _, hour, minute ->
-                                selectedTime = String.format(Locale.US, "%02d:%02d", hour, minute)
-                            },
-                            cal.get(Calendar.HOUR_OF_DAY),
-                            cal.get(Calendar.MINUTE),
-                            true
-                        ).show()
-                    },
+                    onClick = { showTimePicker = true },
                     shape = CircleShape,
                     modifier = Modifier.weight(1f)
                 ) {
@@ -224,20 +222,7 @@ fun AddTaskSheet(
                 Spacer(modifier = Modifier.width(8.dp))
 
                 OutlinedButton(
-                    onClick = {
-                        val cal = Calendar.getInstance()
-                        DatePickerDialog(
-                            context,
-                            { _, year, month, day ->
-                                selectedDate = String.format(Locale.US, "%d-%02d-%02d", year, month + 1, day)
-                            },
-                            cal.get(Calendar.YEAR),
-                            cal.get(Calendar.MONTH),
-                            cal.get(Calendar.DAY_OF_MONTH)
-                        ).apply {
-                            datePicker.minDate = cal.timeInMillis + 86400000L
-                        }.show()
-                    },
+                    onClick = { showDatePicker = true },
                     shape = CircleShape,
                     modifier = Modifier.weight(1f)
                 ) {
@@ -264,6 +249,64 @@ fun AddTaskSheet(
         }
     }
 
+    // Material 3 TimePicker Dialog
+    if (showTimePicker) {
+        val cal = Calendar.getInstance()
+        val timePickerState = rememberTimePickerState(
+            initialHour = cal.get(Calendar.HOUR_OF_DAY),
+            initialMinute = cal.get(Calendar.MINUTE),
+            is24Hour = true
+        )
+        DatePickerDialog(
+            onDismissRequest = { showTimePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    selectedTime = String.format(Locale.US, "%02d:%02d", timePickerState.hour, timePickerState.minute)
+                    showTimePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
+            }
+        ) {
+            TimePicker(
+                state = timePickerState,
+                modifier = Modifier.padding(16.dp)
+            )
+        }
+    }
+
+    // Material 3 DatePicker Dialog
+    if (showDatePicker) {
+        val tomorrow = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
+        val tomorrowMillis = tomorrow.timeInMillis
+
+        val datePickerState = rememberDatePickerState(
+            selectableDates = object : SelectableDates {
+                override fun isSelectableDate(utcTimeMillis: Long): Boolean {
+                    return utcTimeMillis >= tomorrowMillis - 86400000L
+                }
+            }
+        )
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    datePickerState.selectedDateMillis?.let { millis ->
+                        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                        selectedDate = sdf.format(Date(millis))
+                    }
+                    showDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
@@ -276,10 +319,10 @@ fun WaveAnimation(modifier: Modifier = Modifier, color: Color) {
         initialValue = 0f,
         targetValue = (2 * Math.PI).toFloat(),
         animationSpec = infiniteRepeatable(
-            animation = tween(1000),
+            animation = tween(700),
             repeatMode = RepeatMode.Restart
         ),
-        label = "phase"
+        label = "wave_phase"
     )
 
     Canvas(modifier = modifier) {
@@ -287,18 +330,19 @@ fun WaveAnimation(modifier: Modifier = Modifier, color: Color) {
         val h = size.height
         val midY = h / 2f
         val barCount = 30
-        val barWidth = w / (barCount * 2f)
+        val gap = w / barCount
+        val barWidth = gap * 0.4f
 
         for (i in 0 until barCount) {
-            val x = (i.toFloat() / barCount) * w
+            val x = i * gap + gap / 2
             val amplitude = midY * 0.8f
-            val barHeight = amplitude * kotlin.math.abs(sin(phase + i * 0.5f)) + 4.dp.toPx()
+            val barH = amplitude * kotlin.math.abs(sin(phase + i * 0.3f)) + 3.dp.toPx()
 
             drawLine(
-                color = color.copy(alpha = 0.4f + 0.6f * (barHeight / (amplitude + 4.dp.toPx()))),
-                start = Offset(x + barWidth / 2, midY - barHeight / 2),
-                end = Offset(x + barWidth / 2, midY + barHeight / 2),
-                strokeWidth = barWidth * 0.6f,
+                color = color,
+                start = Offset(x, midY - barH / 2),
+                end = Offset(x, midY + barH / 2),
+                strokeWidth = barWidth,
                 cap = StrokeCap.Round
             )
         }

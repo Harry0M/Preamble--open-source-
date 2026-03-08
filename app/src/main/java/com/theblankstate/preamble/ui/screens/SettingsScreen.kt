@@ -18,6 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,18 +32,25 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.theblankstate.preamble.notification.TaskNotificationManager
 import com.theblankstate.preamble.ui.components.ColorPickerComponent
+import com.theblankstate.preamble.auth.AuthManager
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val scope = rememberCoroutineScope()
 
     var notificationEnabled by remember { mutableStateOf(areNotificationsEnabled(context)) }
     var alarmToneName by remember { mutableStateOf(getCurrentAlarmToneName(context)) }
     var showReviewSheet by remember { mutableStateOf(false) }
+
+    // Auth state
+    val currentUser by AuthManager.currentUser.collectAsState()
+    var signInLoading by remember { mutableStateOf(false) }
 
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -101,6 +109,58 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
+            // ── Account ──
+            SectionTitle("Account")
+            SettingsCard {
+                if (currentUser != null) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                currentUser?.displayName ?: "User",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                currentUser?.email ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        OutlinedButton(
+                            onClick = { AuthManager.signOut() },
+                            shape = CircleShape
+                        ) { Text("Sign Out") }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable(enabled = !signInLoading) {
+                                signInLoading = true
+                                scope.launch {
+                                    AuthManager.signInWithGoogle(context)
+                                    signInLoading = false
+                                }
+                            }
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Sign in with Google", style = MaterialTheme.typography.bodyLarge)
+                        if (signInLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                        } else {
+                            Text("→", style = MaterialTheme.typography.titleLarge)
+                        }
+                    }
+                }
+            }
+
+
             // ── Appearance ──
             SectionTitle("Appearance")
             SettingsCard {

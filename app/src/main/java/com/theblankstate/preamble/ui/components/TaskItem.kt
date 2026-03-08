@@ -1,22 +1,28 @@
 package com.theblankstate.preamble.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -31,12 +37,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TaskItem(
     task: Task,
     onToggle: () -> Unit,
-    onLongClick: () -> Unit,
+    onDelete: () -> Unit,
+    isEditable: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     val cardAlpha by animateFloatAsState(
@@ -48,7 +54,6 @@ fun TaskItem(
         if (task.isCompleted || task.deadlineTime == null) false
         else {
             try {
-                val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
                 val deadlineDateStr = "${task.createdDate} ${task.deadlineTime}"
                 val fullSdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
                 val deadlineDate = fullSdf.parse(deadlineDateStr)
@@ -65,6 +70,8 @@ fun TaskItem(
     val primaryContainerColor = MaterialTheme.colorScheme.primaryContainer
     val onPrimaryContainerColor = MaterialTheme.colorScheme.onPrimaryContainer
 
+    var showMenu by remember { mutableStateOf(false) }
+
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -74,17 +81,15 @@ fun TaskItem(
                 if (isOverdue) Modifier.background(errorContainerColor.copy(alpha = 0.3f))
                 else Modifier
             )
-            .combinedClickable(
-                onClick = { onToggle() },
-                onLongClick = { onLongClick() }
-            )
+            .clickable(enabled = isEditable) { onToggle() }
             .padding(vertical = 12.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Checkbox(
             checked = task.isCompleted,
-            onCheckedChange = null,
-            modifier = Modifier.padding(end = 12.dp)
+            onCheckedChange = if (isEditable) { _ -> onToggle() } else null,
+            modifier = Modifier.padding(end = 12.dp),
+            enabled = isEditable
         )
         Text(
             text = task.title,
@@ -123,6 +128,33 @@ fun TaskItem(
                     ),
                     color = if (isOverdue) onErrorContainerColor else onPrimaryContainerColor
                 )
+            }
+        }
+        if (isEditable) {
+            Box {
+                IconButton(
+                    onClick = { showMenu = true },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Default.MoreVert,
+                        contentDescription = "Options",
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                        onClick = {
+                            showMenu = false
+                            onDelete()
+                        }
+                    )
+                }
             }
         }
     }

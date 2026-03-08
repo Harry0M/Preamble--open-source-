@@ -73,6 +73,9 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.sin
 
+import android.widget.Toast
+import com.theblankstate.preamble.ai.AiChatViewModel
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -82,6 +85,7 @@ fun HomeScreen(
     onAddTask: (title: String, date: String?, deadlineTime: String?) -> Unit,
     onToggleTask: (Task) -> Unit,
     onDeleteTask: (Task) -> Unit,
+    aiChatViewModel: AiChatViewModel? = null,
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
@@ -116,11 +120,17 @@ fun HomeScreen(
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 val spoken = matches?.firstOrNull()
                 if (!spoken.isNullOrBlank()) {
-                    onAddTask(spoken, null, null)
-                    voiceText = "Saved: $spoken"
+                    if (aiChatViewModel != null) {
+                        aiChatViewModel.processVoiceCommand(spoken) { result ->
+                            voiceText = result
+                            Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        onAddTask(spoken, null, null)
+                        voiceText = "Saved: $spoken"
+                    }
                 }
                 isVoiceListening = false
-                voiceText = ""
             }
             override fun onPartialResults(partialResults: Bundle?) {
                 val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
@@ -210,39 +220,15 @@ fun HomeScreen(
                 }
             }
         ) { padding ->
-            if (tasks.isEmpty()) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(32.dp)
-                    ) {
-                        Text(
-                            text = "No tasks for today",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Tap + to add your first task",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Today's progress bar (only when tasks exist)
+                if (tasks.isNotEmpty()) {
                     item {
                         val completed = tasks.count { it.isCompleted }
                         val total = tasks.size
@@ -288,39 +274,64 @@ fun HomeScreen(
                         TaskItem(
                             task = task,
                             onToggle = { onToggleTask(task) },
-                            onLongClick = { taskToDelete = task },
+                            onDelete = { taskToDelete = task },
+                            isEditable = true,
                             modifier = Modifier.animateItem()
                         )
                     }
-
-                    pastTasks.forEach { (date, tasksForDate) ->
-                        if (tasksForDate.isNotEmpty()) {
-                            item {
-                                Text(
-                                    text = date,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
-                                )
-                            }
-
-                            items(
-                                items = tasksForDate,
-                                key = { it.id }
-                            ) { task ->
-                                TaskItem(
-                                    task = task,
-                                    onToggle = { onToggleTask(task) },
-                                    onLongClick = { taskToDelete = task },
-                                    modifier = Modifier.animateItem()
-                                )
-                            }
+                } else {
+                    item {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 32.dp)
+                        ) {
+                            Text(
+                                text = "No tasks for today",
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Tap + to add your first task",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
+                            )
                         }
                     }
+                }
 
-                    item {
-                        Spacer(modifier = Modifier.height(80.dp))
+                // Past tasks — always shown, read-only
+                pastTasks.forEach { (date, tasksForDate) ->
+                    if (tasksForDate.isNotEmpty()) {
+                        item {
+                            Text(
+                                text = date,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+                            )
+                        }
+
+                        items(
+                            items = tasksForDate,
+                            key = { it.id }
+                        ) { task ->
+                            TaskItem(
+                                task = task,
+                                onToggle = { },
+                                onDelete = { },
+                                isEditable = false,
+                                modifier = Modifier.animateItem()
+                            )
+                        }
                     }
+                }
+
+                item {
+                    Spacer(modifier = Modifier.height(80.dp))
                 }
             }
         }

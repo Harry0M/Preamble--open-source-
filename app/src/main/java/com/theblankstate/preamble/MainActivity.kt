@@ -14,10 +14,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Analytics
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -36,7 +36,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.theblankstate.preamble.ai.AiChatViewModel
 import com.theblankstate.preamble.notification.TaskNotificationManager
+
 import com.theblankstate.preamble.ui.screens.CalendarScreen
 import com.theblankstate.preamble.ui.screens.HomeScreen
 import com.theblankstate.preamble.ui.screens.OnboardingScreen
@@ -118,6 +120,13 @@ fun PreambleApp(viewModel: TaskViewModel) {
     val pastTasks by viewModel.pastTasks.collectAsState()
     val stats by viewModel.statsState.collectAsState()
 
+    val aiChatViewModel: AiChatViewModel = viewModel(
+        factory = AiChatViewModel.Factory(
+            androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application,
+            viewModel
+        )
+    )
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
@@ -172,6 +181,7 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 onAddTask = { title, date, deadlineTime -> viewModel.addTask(title, date, deadlineTime) },
                 onToggleTask = { viewModel.toggleTask(it) },
                 onDeleteTask = { viewModel.deleteTask(it) },
+                aiChatViewModel = aiChatViewModel,
                 modifier = Modifier.padding(innerPadding)
             )
             1 -> StatsScreen(
