@@ -3,6 +3,7 @@ package com.theblankstate.preamble.notification
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import androidx.core.app.RemoteInput
 import com.theblankstate.preamble.PreambleApplication
 import kotlinx.coroutines.CoroutineScope
@@ -13,6 +14,15 @@ class NotificationReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
+            TaskNotificationManager.ACTION_NOTIFICATION_DISMISSED -> {
+                // Only re-show if user hasn't disabled notification in settings
+                if (TaskNotificationService.isEnabled(context)) {
+                    Log.d("NotifReceiver", "Notification dismissed — re-showing")
+                    TaskNotificationService.reshow(context)
+                } else {
+                    Log.d("NotifReceiver", "Notification disabled by user — not re-showing")
+                }
+            }
             TaskNotificationManager.ACTION_QUICK_ADD -> handleQuickAdd(context, intent)
             Intent.ACTION_BOOT_COMPLETED -> handleBoot(context)
         }
@@ -28,7 +38,7 @@ class NotificationReceiver : BroadcastReceiver() {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     app.repository.addTask(taskText)
-                    TaskNotificationManager.updateNotification(context)
+                    // Notification auto-updates via TaskNotificationService
                 } finally {
                     pendingResult.finish()
                 }
@@ -40,13 +50,10 @@ class NotificationReceiver : BroadcastReceiver() {
 
     private fun handleBoot(context: Context) {
         val pendingResult = goAsync()
-        val app = context.applicationContext as PreambleApplication
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                TaskNotificationManager.updateNotification(context)
-            } finally {
-                pendingResult.finish()
-            }
+        // Only restart if user has notification enabled
+        if (TaskNotificationService.isEnabled(context)) {
+            TaskNotificationService.start(context)
         }
+        pendingResult.finish()
     }
 }

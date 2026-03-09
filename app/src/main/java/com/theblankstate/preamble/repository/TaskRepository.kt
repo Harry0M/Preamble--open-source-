@@ -2,13 +2,19 @@ package com.theblankstate.preamble.repository
 
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.TaskDao
+import com.theblankstate.preamble.sync.FirebaseTaskSyncManager
 import kotlinx.coroutines.flow.Flow
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-class TaskRepository(private val dao: TaskDao) {
+class TaskRepository(
+    private val dao: TaskDao,
+    private val syncManager: FirebaseTaskSyncManager? = null
+) {
+
+    val tasksFlow: Flow<List<Task>> = dao.getAllTasksFlow()
 
     fun getTasksForDate(date: String): Flow<List<Task>> = dao.getTasksByDate(date)
 
@@ -20,21 +26,41 @@ class TaskRepository(private val dao: TaskDao) {
 
     suspend fun addTask(title: String, date: String? = null, deadlineTime: String? = null): Task {
         val taskDate = date ?: todayString()
-        val task = Task(title = title, createdDate = taskDate, deadlineTime = deadlineTime)
+        val now = System.currentTimeMillis()
+        val task = Task(
+            title = title,
+            createdDate = taskDate,
+            deadlineTime = deadlineTime,
+            createdTimestamp = now,
+            updatedTimestamp = now
+        )
         dao.insertTask(task)
+        syncManager?.pushTask(task)
         return task
     }
 
     suspend fun toggleTask(task: Task) {
         val updated = task.copy(
             isCompleted = !task.isCompleted,
-            completedTimestamp = if (!task.isCompleted) System.currentTimeMillis() else null
+            completedTimestamp = if (!task.isCompleted) System.currentTimeMillis() else null,
+            updatedTimestamp = System.currentTimeMillis()
         )
         dao.updateTask(updated)
+        syncManager?.pushTask(updated)
     }
 
     suspend fun deleteTask(task: Task) {
         dao.deleteTask(task)
+        syncManager?.deleteTask(task.id)
+    }
+
+    suspend fun syncNow() {
+        syncManager?.syncAllLocalToRemote()
+    }
+
+    suspend fun flushAndClearLocalOnLogout() {
+        syncManager?.flushPendingWrites()
+        dao.clearAllTasks()
     }
 
     suspend fun calculateStreak(): Int {
@@ -140,6 +166,10 @@ class TaskRepository(private val dao: TaskDao) {
 
     suspend fun getPendingTasksToday(): List<Task> {
         return dao.getPendingTasksForDate(todayString())
+    }
+
+    suspend fun getPendingTasksForDate(date: String): List<Task> {
+        return dao.getPendingTasksForDate(date)
     }
 
     companion object {

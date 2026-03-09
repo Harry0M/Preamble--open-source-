@@ -1,0 +1,311 @@
+package com.theblankstate.preamble.sync
+
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.util.Log
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.database.DatabaseError
+import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
+import com.theblankstate.preamble.data.Task
+import com.theblankstate.preamble.data.TaskDao
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.ConcurrentHashMap
+
+class FirebaseTaskSyncManager(
+    context: Context,
+    private val dao: TaskDao
+) {
+    private val auth = FirebaseAuth.getInstance()
+    private val database = getDatabaseInstance()
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
+
+    private val pendingUpserts = ConcurrentHashMap.newKeySet<String>()
+    private val pendingDeletes = ConcurrentHashMap.newKeySet<String>()
+    private val recentLocalWrites = ConcurrentHashMap<String, Long>()
+
+    private var activeUid: String? = null
+    private var activeTasksListener: ValueEventListener? = null
+    private var activeTasksRefPath: String? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var started = false
+
+    private val authStateListener = FirebaseAuth.AuthStateListener { firebaseAuth ->
+        appScope.launch {
+            handleAuthChanged(firebaseAuth.currentUser?.uid)
+        }
+    }
+
+    fun start() {
+        if (started) return
+        started = true
+        registerNetworkCallback()
+        auth.addAuthStateListener(authStateListener)
+        appScope.launch {
+            handleAuthChanged(auth.currentUser?.uid)
+        }
+    }
+
+    suspend fun pushTask(task: Task) {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            Log.d(TAG, "Skipping pushTask(${task.id}) because no authenticated user")
+            return
+        }
+        rememberLocalWrite(task.id)
+        pendingDeletes.remove(task.id)
+        pendingUpserts.add(task.id)
+        try {
+            taskRef(uid, task.id).setValue(RemoteTask.fromLocal(task)).await()
+        } catch (exception: Exception) {
+            Log.e(TAG, "pushTask failed for uid=$uid taskId=${task.id}", exception)
+        } finally {
+            pendingUpserts.remove(task.id)
+        }
+    }
+
+    suspend fun deleteTask(taskId: String) {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            Log.d(TAG, "Skipping deleteTask($taskId) because no authenticated user")
+            return
+        }
+        rememberLocalWrite(taskId)
+        pendingUpserts.remove(taskId)
+        pendingDeletes.add(taskId)
+        try {
+            taskRef(uid, taskId).removeValue().await()
+        } catch (exception: Exception) {
+            Log.e(TAG, "deleteTask failed for uid=$uid taskId=$taskId", exception)
+        } finally {
+            pendingDeletes.remove(taskId)
+        }
+    }
+
+    suspend fun syncAllLocalToRemote() {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            Log.d(TAG, "Skipping syncAllLocalToRemote because no authenticated user")
+            return
+        }
+        val localTasks = dao.getAllTasks()
+        localTasks.forEach { task ->
+            rememberLocalWrite(task.id)
+            pendingUpserts.add(task.id)
+            try {
+                taskRef(uid, task.id).setValue(RemoteTask.fromLocal(task)).await()
+            } catch (exception: Exception) {
+                Log.e(TAG, "syncAllLocalToRemote failed for uid=$uid taskId=${task.id}", exception)
+            } finally {
+                pendingUpserts.remove(task.id)
+            }
+        }
+    }
+
+    suspend fun flushPendingWrites(timeoutMs: Long = 8000L): Boolean {
+        val uid = auth.currentUser?.uid ?: return true
+        return withTimeoutOrNull(timeoutMs) {
+            try {
+                val flushRef = usersTasksRef(uid).child("_flush_marker")
+                flushRef.setValue(System.currentTimeMillis()).await()
+                flushRef.removeValue().await()
+                true
+            } catch (exception: Exception) {
+                Log.e(TAG, "flushPendingWrites failed for uid=$uid", exception)
+                false
+            }
+        } ?: false
+    }
+
+    private suspend fun handleAuthChanged(uid: String?) {
+        if (uid == activeUid) return
+        detachRealtimeListener()
+        activeUid = uid
+        if (uid == null) return
+        attachRealtimeListener(uid)
+        syncAllLocalToRemote()
+    }
+
+    private fun attachRealtimeListener(uid: String) {
+        val refPath = "users/$uid/tasks"
+        val ref = database.getReference(refPath)
+        Log.d(TAG, "Attaching realtime listener at path=$refPath")
+
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+                val remoteTasks = snapshot.children.mapNotNull { child ->
+                    val key = child.key ?: return@mapNotNull null
+                    if (key == "_flush_marker") return@mapNotNull null
+                    val remote = child.getValue(RemoteTask::class.java) ?: return@mapNotNull null
+                    remote.toLocal(key)
+                }
+
+                appScope.launch {
+                    mergeRemoteIntoLocal(remoteTasks)
+                }
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                Log.e(TAG, "Realtime listener cancelled at path=$refPath code=${error.code} message=${error.message}")
+            }
+        }
+
+        ref.addValueEventListener(listener)
+        activeTasksListener = listener
+        activeTasksRefPath = refPath
+    }
+
+    private fun detachRealtimeListener() {
+        val listener = activeTasksListener ?: return
+        val refPath = activeTasksRefPath ?: return
+        Log.d(TAG, "Detaching realtime listener from path=$refPath")
+        database.getReference(refPath).removeEventListener(listener)
+        activeTasksListener = null
+        activeTasksRefPath = null
+    }
+
+    private suspend fun mergeRemoteIntoLocal(remoteTasks: List<Task>) {
+        val localTasks = dao.getAllTasks()
+        val localById = localTasks.associateBy { it.id }
+        val remoteById = remoteTasks.associateBy { it.id }
+
+        val upserts = remoteTasks.filter { remote ->
+            if (pendingUpserts.contains(remote.id) || pendingDeletes.contains(remote.id)) {
+                false
+            } else {
+                val local = localById[remote.id]
+                local == null || remote.updatedTimestamp >= local.updatedTimestamp
+            }
+        }
+
+        if (upserts.isNotEmpty()) {
+            dao.insertTasks(upserts)
+        }
+
+        val now = System.currentTimeMillis()
+        val deletions = localTasks.filter { local ->
+            remoteById[local.id] == null &&
+                !pendingUpserts.contains(local.id) &&
+                !pendingDeletes.contains(local.id) &&
+                !isRecentLocalWrite(local.id, now)
+        }
+
+        deletions.forEach { dao.deleteTask(it) }
+    }
+
+    private fun registerNetworkCallback() {
+        if (networkCallback != null) return
+
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                appScope.launch {
+                    syncAllLocalToRemote()
+                }
+            }
+        }
+
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+
+        try {
+            connectivityManager.registerNetworkCallback(request, callback)
+            networkCallback = callback
+        } catch (exception: Exception) {
+            Log.w(TAG, "Failed to register network callback", exception)
+        }
+    }
+
+    private fun rememberLocalWrite(taskId: String) {
+        recentLocalWrites[taskId] = System.currentTimeMillis()
+    }
+
+    private fun isRecentLocalWrite(taskId: String, now: Long): Boolean {
+        val last = recentLocalWrites[taskId] ?: return false
+        return now - last < LOCAL_WRITE_GRACE_MS
+    }
+
+    private fun usersTasksRef(uid: String) = database.getReference("users").child(uid).child("tasks")
+
+    private fun taskRef(uid: String, taskId: String) = usersTasksRef(uid).child(taskId)
+
+    companion object {
+        private const val TAG = "FirebaseTaskSync"
+        private const val LOCAL_WRITE_GRACE_MS = 15_000L
+        private const val DATABASE_URL = "https://preambl-fbea6-default-rtdb.firebaseio.com"
+
+        @Volatile
+        private var persistenceInitialized = false
+
+        private fun getDatabaseInstance(): FirebaseDatabase {
+            return FirebaseDatabase.getInstance(DATABASE_URL)
+        }
+
+        fun enableOfflinePersistence() {
+            if (persistenceInitialized) return
+            synchronized(this) {
+                if (persistenceInitialized) return
+                try {
+                    getDatabaseInstance().setPersistenceEnabled(true)
+                } catch (exception: Exception) {
+                    Log.w(TAG, "Failed to enable Firebase offline persistence", exception)
+                }
+                persistenceInitialized = true
+            }
+        }
+    }
+}
+
+data class RemoteTask(
+    var id: String = "",
+    var title: String = "",
+    var isCompleted: Boolean = false,
+    var createdDate: String = "",
+    var createdTimestamp: Long = 0L,
+    var completedTimestamp: Long? = null,
+    var deadlineTime: String? = null,
+    var updatedTimestamp: Long = 0L
+) {
+    fun toLocal(fallbackId: String): Task? {
+        val resolvedId = id.ifBlank { fallbackId }
+        if (resolvedId.isBlank() || title.isBlank() || createdDate.isBlank()) return null
+
+        val safeCreated = if (createdTimestamp > 0L) createdTimestamp else System.currentTimeMillis()
+        val safeUpdated = if (updatedTimestamp > 0L) updatedTimestamp else safeCreated
+
+        return Task(
+            id = resolvedId,
+            title = title,
+            isCompleted = isCompleted,
+            createdDate = createdDate,
+            createdTimestamp = safeCreated,
+            completedTimestamp = completedTimestamp,
+            deadlineTime = deadlineTime,
+            updatedTimestamp = safeUpdated
+        )
+    }
+
+    companion object {
+        fun fromLocal(task: Task): RemoteTask {
+            return RemoteTask(
+                id = task.id,
+                title = task.title,
+                isCompleted = task.isCompleted,
+                createdDate = task.createdDate,
+                createdTimestamp = task.createdTimestamp,
+                completedTimestamp = task.completedTimestamp,
+                deadlineTime = task.deadlineTime,
+                updatedTimestamp = task.updatedTimestamp
+            )
+        }
+    }
+}

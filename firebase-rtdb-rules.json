@@ -1,0 +1,46 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid",
+        "tasks": {
+          "$taskId": {
+            ".validate": "newData.hasChildren(['id', 'title', 'isCompleted', 'createdDate', 'createdTimestamp', 'updatedTimestamp'])",
+            "id": {
+              ".validate": "newData.isString()"
+            },
+            "title": {
+              ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 500"
+            },
+            "isCompleted": {
+              ".validate": "newData.isBoolean()"
+            },
+            "createdDate": {
+              ".validate": "newData.isString() && newData.val().matches(/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/)"
+            },
+            "createdTimestamp": {
+              ".validate": "newData.isNumber() && newData.val() > 0"
+            },
+            "updatedTimestamp": {
+              ".validate": "newData.isNumber() && newData.val() > 0"
+            },
+            "completedTimestamp": {
+              ".validate": "newData.isNumber() || !newData.exists()"
+            },
+            "deadlineTime": {
+              ".validate": "newData.isString() || !newData.exists()"
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        }
+      }
+    },
+    "$other": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}

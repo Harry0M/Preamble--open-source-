@@ -30,6 +30,7 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import com.theblankstate.preamble.PreambleApplication
 import com.theblankstate.preamble.notification.TaskNotificationManager
 import com.theblankstate.preamble.ui.components.ColorPickerComponent
 import com.theblankstate.preamble.auth.AuthManager
@@ -44,26 +45,37 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
 
-    var notificationEnabled by remember { mutableStateOf(areNotificationsEnabled(context)) }
+    var hasSystemNotificationPermission by remember { mutableStateOf(areNotificationsEnabled(context)) }
+    var notificationPrefEnabled by remember {
+        mutableStateOf(
+            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                .getBoolean("notification_enabled", true)
+        )
+    }
+
     var alarmToneName by remember { mutableStateOf(getCurrentAlarmToneName(context)) }
     var showReviewSheet by remember { mutableStateOf(false) }
 
     // Auth state
     val currentUser by AuthManager.currentUser.collectAsState()
     var signInLoading by remember { mutableStateOf(false) }
+    var signOutLoading by remember { mutableStateOf(false) }
 
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            notificationEnabled = areNotificationsEnabled(context)
+            hasSystemNotificationPermission = areNotificationsEnabled(context)
         }
     }
 
     val notifPermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
-        notificationEnabled = granted
+        hasSystemNotificationPermission = granted
         if (granted) {
-            MainScope().launch { TaskNotificationManager.updateNotification(context) }
+            notificationPrefEnabled = true
+            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                .edit().putBoolean("notification_enabled", true).apply()
+            com.theblankstate.preamble.notification.TaskNotificationService.start(context)
         }
     }
 
@@ -131,9 +143,28 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             )
                         }
                         OutlinedButton(
-                            onClick = { AuthManager.signOut() },
+                            onClick = {
+                                if (signOutLoading) return@OutlinedButton
+                                signOutLoading = true
+                                scope.launch {
+                                    try {
+                                        val app = context.applicationContext as PreambleApplication
+                                        app.repository.flushAndClearLocalOnLogout()
+                                        AuthManager.signOut()
+                                    } finally {
+                                        signOutLoading = false
+                                    }
+                                }
+                            },
+                            enabled = !signOutLoading,
                             shape = CircleShape
-                        ) { Text("Sign Out") }
+                        ) {
+                            if (signOutLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("Sign Out")
+                            }
+                        }
                     }
                 } else {
                     Row(
@@ -201,24 +232,27 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             )
                         }
                         Switch(
-                            checked = notificationEnabled,
-                            onCheckedChange = { enabled ->
-                                if (enabled) {
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            checked = notificationPrefEnabled && hasSystemNotificationPermission,
+                            onCheckedChange = { enable ->
+                                if (enable) {
+                                    if (!hasSystemNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                                         notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                                     } else {
-                                        notificationEnabled = true
-                                        MainScope().launch { TaskNotificationManager.updateNotification(context) }
+                                        notificationPrefEnabled = true
+                                        context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                            .edit().putBoolean("notification_enabled", true).apply()
+                                        com.theblankstate.preamble.notification.TaskNotificationService.start(context)
                                     }
                                 } else {
-                                    val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                                    nm.cancelAll()
-                                    notificationEnabled = false
+                                    notificationPrefEnabled = false
+                                    context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                        .edit().putBoolean("notification_enabled", false).apply()
+                                    com.theblankstate.preamble.notification.TaskNotificationService.stop(context)
                                 }
                             }
                         )
                     }
-                    if (!notificationEnabled) {
+                    if (!hasSystemNotificationPermission) {
                         TextButton(
                             onClick = {
                                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -233,6 +267,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             shape = CircleShape
                         ) { Text("Grant Permission") }
                     }
+                    
                 }
             }
 
@@ -300,7 +335,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             .padding(vertical = 4.dp)
                     )
                     Text(
-                        "Preamble is fully open-source and respects your privacy. All data is stored on-device only. We do not collect, transmit, or share any personal data. No analytics, no ads, no tracking. No extra permissions beyond what the app needs.",
+                        "Preamble is fully open-source and respects your privacy. Tasks are always saved locally first; if you sign in, your tasks are securely synced to your own Firebase account for backup and realtime sync. We do not run ads or third-party analytics.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )

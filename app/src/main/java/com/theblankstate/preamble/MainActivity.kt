@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.theblankstate.preamble.ai.AiChatViewModel
 import com.theblankstate.preamble.notification.TaskNotificationManager
-
+import com.theblankstate.preamble.notification.TaskNotificationService
 import com.theblankstate.preamble.ui.screens.CalendarScreen
 import com.theblankstate.preamble.ui.screens.HomeScreen
 import com.theblankstate.preamble.ui.screens.OnboardingScreen
@@ -59,6 +59,15 @@ class MainActivity : ComponentActivity() {
 
         val prefs = getSharedPreferences("preamble_prefs", MODE_PRIVATE)
         val onboardingDone = prefs.getBoolean("onboarding_done", false)
+
+        // Start persistent notification service only if user hasn't disabled it
+        try {
+            if (TaskNotificationService.isEnabled(this)) {
+                TaskNotificationService.start(this)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Failed to start notification service", e)
+        }
 
         setContent {
             PreambleTheme {
@@ -107,9 +116,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun postNotification() {
-        MainScope().launch {
-            TaskNotificationManager.updateNotification(this@MainActivity)
-        }
+        // Notification is automatically managed by TaskNotificationService
     }
 }
 

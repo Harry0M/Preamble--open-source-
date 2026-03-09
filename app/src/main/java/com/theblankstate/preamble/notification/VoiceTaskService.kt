@@ -1,8 +1,11 @@
 package com.theblankstate.preamble.notification
 
+import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.speech.RecognitionListener
@@ -10,7 +13,9 @@ import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.util.Log
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
 import com.theblankstate.preamble.PreambleApplication
+import com.theblankstate.preamble.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -23,8 +28,42 @@ class VoiceTaskService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        createVoiceChannel()
+        startForegroundService()
         startListening()
         return START_NOT_STICKY
+    }
+
+    private fun createVoiceChannel() {
+        val channel = NotificationChannel(
+            VOICE_CHANNEL_ID,
+            "Voice Input",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Voice task recording"
+        }
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(channel)
+    }
+
+    private fun startForegroundService() {
+        val notification = NotificationCompat.Builder(this, VOICE_CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Listening...")
+            .setContentText("Preamble is recording your voice task")
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSilent(true)
+            .build()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                VOICE_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            )
+        } else {
+            startForeground(VOICE_NOTIFICATION_ID, notification)
+        }
     }
 
     private fun startListening() {
@@ -123,27 +162,23 @@ class VoiceTaskService : Service() {
                         }
                         CoroutineScope(Dispatchers.Main).launch {
                             Toast.makeText(this@VoiceTaskService, "AI processed: $title", Toast.LENGTH_SHORT).show()
-                            TaskNotificationManager.updateNotification(this@VoiceTaskService)
                         }
                     } else {
                         app.repository.addTask(title)
                         CoroutineScope(Dispatchers.Main).launch {
                             Toast.makeText(this@VoiceTaskService, "Task saved: $title", Toast.LENGTH_SHORT).show()
-                            TaskNotificationManager.updateNotification(this@VoiceTaskService)
                         }
                     }
                 } catch (e: Exception) {
                     app.repository.addTask(title)
                     CoroutineScope(Dispatchers.Main).launch {
                         Toast.makeText(this@VoiceTaskService, "Task saved: $title", Toast.LENGTH_SHORT).show()
-                        TaskNotificationManager.updateNotification(this@VoiceTaskService)
                     }
                 }
             } else {
                 app.repository.addTask(title)
                 CoroutineScope(Dispatchers.Main).launch {
                     Toast.makeText(this@VoiceTaskService, "Task saved: $title", Toast.LENGTH_SHORT).show()
-                    TaskNotificationManager.updateNotification(this@VoiceTaskService)
                 }
             }
         }
@@ -152,6 +187,12 @@ class VoiceTaskService : Service() {
     override fun onDestroy() {
         speechRecognizer?.destroy()
         speechRecognizer = null
+        stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
+    }
+
+    companion object {
+        private const val VOICE_CHANNEL_ID = "preamble_voice_input"
+        private const val VOICE_NOTIFICATION_ID = 1002
     }
 }

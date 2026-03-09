@@ -35,6 +35,18 @@ interface TaskDao {
     @Query("SELECT DISTINCT createdDate FROM tasks ORDER BY createdDate DESC")
     suspend fun getAllDatesWithTasks(): List<String>
 
+    @Query("SELECT * FROM tasks")
+    suspend fun getAllTasks(): List<Task>
+
+    @Query("SELECT * FROM tasks ORDER BY createdDate DESC, isCompleted ASC, createdTimestamp DESC")
+    fun getAllTasksFlow(): Flow<List<Task>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertTasks(tasks: List<Task>)
+
+    @Query("DELETE FROM tasks")
+    suspend fun clearAllTasks()
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTask(task: Task)
 

@@ -127,7 +127,6 @@ class TaskViewModel(
                 )
             }
             refreshStats()
-            updateNotification()
         }
     }
 
@@ -135,7 +134,6 @@ class TaskViewModel(
         viewModelScope.launch {
             repository.toggleTask(task)
             refreshStats()
-            updateNotification()
         }
     }
 
@@ -143,14 +141,11 @@ class TaskViewModel(
         viewModelScope.launch {
             repository.deleteTask(task)
             refreshStats()
-            updateNotification()
         }
     }
 
     private fun updateNotification() {
-        viewModelScope.launch {
-            TaskNotificationManager.updateNotification(appContext)
-        }
+        // Notification auto-updates via TaskNotificationService
     }
 
     class Factory(
