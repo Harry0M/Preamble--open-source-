@@ -333,6 +333,33 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                 Text("↻", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                             }
                         }
+
+                        HorizontalDivider()
+
+                        // Voice tasks sync toggle
+                        val syncVoice by GoogleTasksManager.syncVoiceTasks.collectAsState()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Sync Voice Tasks", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "Auto-add voice tasks to Google Tasks",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                            Switch(
+                                checked = syncVoice,
+                                onCheckedChange = {
+                                    GoogleTasksManager.setSyncVoiceTasks(context, it)
+                                }
+                            )
+                        }
                     } else {
                         // Not linked — single link button for both
                         Row(

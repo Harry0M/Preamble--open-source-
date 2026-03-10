@@ -18,11 +18,13 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 
 /**
  * Manages Google Tasks integration:
  * - Uses the same Google Sign-In as GoogleCalendarManager (shared scopes)
  * - Fetches tasks from all user's task lists
+ * - Creates, updates and syncs tasks (read-write)
  * - Converts Google Tasks to app Task model
  */
 object GoogleTasksManager {
@@ -31,6 +33,7 @@ object GoogleTasksManager {
     private const val PREFS_NAME = "google_tasks_prefs"
     private const val KEY_LINKED = "tasks_linked"
     private const val KEY_LAST_SYNC = "last_tasks_sync_timestamp"
+    private const val KEY_SYNC_VOICE = "sync_voice_to_google_tasks"
 
     private val _isLinked = MutableStateFlow(false)
     val isLinked: StateFlow<Boolean> = _isLinked.asStateFlow()
@@ -41,10 +44,20 @@ object GoogleTasksManager {
     private val _lastSyncTime = MutableStateFlow<Long>(0)
     val lastSyncTime: StateFlow<Long> = _lastSyncTime.asStateFlow()
 
+    private val _syncVoiceTasks = MutableStateFlow(false)
+    val syncVoiceTasks: StateFlow<Boolean> = _syncVoiceTasks.asStateFlow()
+
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _isLinked.value = prefs.getBoolean(KEY_LINKED, false)
         _lastSyncTime.value = prefs.getLong(KEY_LAST_SYNC, 0)
+        _syncVoiceTasks.value = prefs.getBoolean(KEY_SYNC_VOICE, false)
+    }
+
+    fun setSyncVoiceTasks(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_SYNC_VOICE, enabled).apply()
+        _syncVoiceTasks.value = enabled
     }
 
     /**
@@ -86,7 +99,7 @@ object GoogleTasksManager {
 
             val credential = GoogleAccountCredential.usingOAuth2(
                 context,
-                listOf(TasksScopes.TASKS_READONLY)
+                listOf(TasksScopes.TASKS)
             )
             credential.selectedAccount = account.account
 
@@ -218,6 +231,103 @@ object GoogleTasksManager {
             DateTime.parseRfc3339(value).value
         } catch (_: Throwable) {
             null
+        }
+    }
+
+    // ── Write Operations ──
+
+    /**
+     * Build a Tasks service with read-write scope.
+     */
+    private fun buildTasksService(context: Context): Tasks? {
+        val account = GoogleSignIn.getLastSignedInAccount(context) ?: return null
+        val credential = GoogleAccountCredential.usingOAuth2(
+            context, listOf(TasksScopes.TASKS)
+        )
+        credential.selectedAccount = account.account
+        return Tasks.Builder(
+            NetHttpTransport(),
+            GsonFactory.getDefaultInstance(),
+            credential
+        ).setApplicationName("Preamble").build()
+    }
+
+    /**
+     * Get the user's default (first) task list ID.
+     */
+    private fun getDefaultTaskListId(service: Tasks): String? {
+        return try {
+            service.tasklists().list().setMaxResults(1).execute().items?.firstOrNull()?.id
+        } catch (_: Throwable) { null }
+    }
+
+    /**
+     * Create a new task in Google Tasks.
+     * @param title Task title
+     * @param date Due date in "yyyy-MM-dd" format (optional)
+     * @return The Google Task ID (without "gtask_" prefix), or null on failure
+     */
+    suspend fun createGoogleTask(
+        context: Context,
+        title: String,
+        date: String? = null
+    ): String? = withContext(Dispatchers.IO) {
+        if (!_isLinked.value) return@withContext null
+        try {
+            val service = buildTasksService(context) ?: return@withContext null
+            val listId = getDefaultTaskListId(service) ?: return@withContext null
+
+            val gTask = com.google.api.services.tasks.model.Task()
+                .setTitle(title)
+                .setStatus("needsAction")
+
+            if (date != null) {
+                // Convert "yyyy-MM-dd" to RFC 3339 midnight UTC
+                val utcSdf = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+                    timeZone = TimeZone.getTimeZone("UTC")
+                }
+                val parsed = utcSdf.parse(date)
+                if (parsed != null) {
+                    gTask.due = DateTime(parsed, TimeZone.getTimeZone("UTC")).toStringRfc3339()
+                }
+            }
+
+            val created = service.tasks().insert(listId, gTask).execute()
+            Log.d(TAG, "Created Google Task: ${created.id}")
+            created.id
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to create Google Task", e)
+            null
+        }
+    }
+
+    /**
+     * Update completion status of a Google Task.
+     * @param googleTaskId The raw Google Task ID (without "gtask_" prefix)
+     * @param completed Whether the task is completed
+     */
+    suspend fun updateTaskCompletion(
+        context: Context,
+        googleTaskId: String,
+        completed: Boolean
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (!_isLinked.value) return@withContext false
+        try {
+            val service = buildTasksService(context) ?: return@withContext false
+            val listId = getDefaultTaskListId(service) ?: return@withContext false
+
+            val gTask = service.tasks().get(listId, googleTaskId).execute()
+            gTask.status = if (completed) "completed" else "needsAction"
+            if (!completed) {
+                // Clear completed timestamp when uncompleting
+                gTask.completed = null
+            }
+            service.tasks().update(listId, googleTaskId, gTask).execute()
+            Log.d(TAG, "Updated Google Task $googleTaskId → completed=$completed")
+            true
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to update Google Task $googleTaskId", e)
+            false
         }
     }
 }

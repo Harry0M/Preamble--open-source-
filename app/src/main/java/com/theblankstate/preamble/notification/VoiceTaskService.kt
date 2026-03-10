@@ -156,8 +156,23 @@ class VoiceTaskService : Service() {
                                     val date = call.arguments["date"]
                                     val time = call.arguments["deadline_time"] ?: call.arguments["time"]
                                     app.repository.addTask(taskTitle, date, time)
+                                    // Sync to Google Tasks if enabled
+                                    if (com.theblankstate.preamble.sync.GoogleTasksManager.syncVoiceTasks.value
+                                        && com.theblankstate.preamble.sync.GoogleTasksManager.isLinked.value) {
+                                        com.theblankstate.preamble.sync.GoogleTasksManager.createGoogleTask(
+                                            this@VoiceTaskService, taskTitle, date
+                                        )
+                                    }
                                 }
-                                else -> app.repository.addTask(title)
+                                else -> {
+                                    app.repository.addTask(title)
+                                    if (com.theblankstate.preamble.sync.GoogleTasksManager.syncVoiceTasks.value
+                                        && com.theblankstate.preamble.sync.GoogleTasksManager.isLinked.value) {
+                                        com.theblankstate.preamble.sync.GoogleTasksManager.createGoogleTask(
+                                            this@VoiceTaskService, title
+                                        )
+                                    }
+                                }
                             }
                         }
                         CoroutineScope(Dispatchers.Main).launch {
@@ -165,22 +180,34 @@ class VoiceTaskService : Service() {
                         }
                     } else {
                         app.repository.addTask(title)
+                        syncVoiceToGoogleIfEnabled(title)
                         CoroutineScope(Dispatchers.Main).launch {
                             Toast.makeText(this@VoiceTaskService, "Task saved: $title", Toast.LENGTH_SHORT).show()
                         }
                     }
                 } catch (e: Exception) {
                     app.repository.addTask(title)
+                    syncVoiceToGoogleIfEnabled(title)
                     CoroutineScope(Dispatchers.Main).launch {
                         Toast.makeText(this@VoiceTaskService, "Task saved: $title", Toast.LENGTH_SHORT).show()
                     }
                 }
             } else {
                 app.repository.addTask(title)
+                syncVoiceToGoogleIfEnabled(title)
                 CoroutineScope(Dispatchers.Main).launch {
                     Toast.makeText(this@VoiceTaskService, "Task saved: $title", Toast.LENGTH_SHORT).show()
                 }
             }
+        }
+    }
+
+    private suspend fun syncVoiceToGoogleIfEnabled(title: String, date: String? = null) {
+        if (com.theblankstate.preamble.sync.GoogleTasksManager.syncVoiceTasks.value
+            && com.theblankstate.preamble.sync.GoogleTasksManager.isLinked.value) {
+            com.theblankstate.preamble.sync.GoogleTasksManager.createGoogleTask(
+                this@VoiceTaskService, title, date
+            )
         }
     }
 

@@ -48,6 +48,7 @@ import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,6 +62,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.theblankstate.preamble.sync.GoogleTasksManager
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -71,11 +73,13 @@ import kotlin.math.sin
 @Composable
 fun AddTaskSheet(
     onDismiss: () -> Unit,
-    onAddTask: (title: String, date: String?, deadlineTime: String?) -> Unit
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean) -> Unit
 ) {
     var taskTitle by remember { mutableStateOf("") }
     var selectedTime by remember { mutableStateOf<String?>(null) }
     var selectedDate by remember { mutableStateOf<String?>(null) }
+    var syncToGoogle by remember { mutableStateOf(false) }
+    val googleLinked = GoogleTasksManager.isLinked.collectAsState().value
     var isListening by remember { mutableStateOf(false) }
     var wantsToListen by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
@@ -240,10 +244,30 @@ fun AddTaskSheet(
                 }
             }
 
+            // Sync to Google Tasks toggle (only visible when linked)
+            if (googleLinked) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "Sync to Google Tasks",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    androidx.compose.material3.Switch(
+                        checked = syncToGoogle,
+                        onCheckedChange = { syncToGoogle = it }
+                    )
+                }
+            }
+
             Button(
                 onClick = {
                     if (taskTitle.isNotBlank()) {
-                        onAddTask(taskTitle.trim(), selectedDate, selectedTime)
+                        onAddTask(taskTitle.trim(), selectedDate, selectedTime, syncToGoogle)
                     }
                 },
                 modifier = Modifier

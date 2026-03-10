@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.notification.TaskNotificationManager
 import com.theblankstate.preamble.repository.TaskRepository
+import com.theblankstate.preamble.sync.GoogleTasksManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -124,7 +125,7 @@ class TaskViewModel(
         }
     }
 
-    fun addTask(title: String, date: String? = null, deadlineTime: String? = null) {
+    fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false) {
         if (title.isBlank()) return
         viewModelScope.launch {
             repository.addTask(title, date, deadlineTime)
@@ -134,6 +135,10 @@ class TaskViewModel(
                     appContext, title, taskDate, deadlineTime
                 )
             }
+            // Sync to Google Tasks if requested
+            if (syncToGoogle && GoogleTasksManager.isLinked.value) {
+                GoogleTasksManager.createGoogleTask(appContext, title, date ?: TaskRepository.todayString())
+            }
             refreshStats()
         }
     }
@@ -141,6 +146,13 @@ class TaskViewModel(
     fun toggleTask(task: Task) {
         viewModelScope.launch {
             repository.toggleTask(task)
+            // If this is a Google Task, sync completion to Google
+            if (task.source == "google_tasks" && task.id.startsWith("gtask_")) {
+                val googleId = task.id.removePrefix("gtask_")
+                GoogleTasksManager.updateTaskCompletion(
+                    appContext, googleId, !task.isCompleted // toggled state
+                )
+            }
             refreshStats()
         }
     }

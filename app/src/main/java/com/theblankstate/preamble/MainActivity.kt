@@ -224,7 +224,7 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 tasks = tasks,
                 pastTasks = pastTasks,
                 streak = stats.streak,
-                onAddTask = { title, date, deadlineTime -> viewModel.addTask(title, date, deadlineTime) },
+                onAddTask = { title, date, deadlineTime, syncToGoogle -> viewModel.addTask(title, date, deadlineTime, syncToGoogle) },
                 onToggleTask = { viewModel.toggleTask(it) },
                 onDeleteTask = { viewModel.deleteTask(it) },
                 aiChatViewModel = aiChatViewModel,

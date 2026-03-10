@@ -65,7 +65,7 @@ object GoogleCalendarManager {
             .requestEmail()
             .requestScopes(
                 Scope(CalendarScopes.CALENDAR_READONLY),
-                Scope("https://www.googleapis.com/auth/tasks.readonly")
+                Scope("https://www.googleapis.com/auth/tasks")
             )
             .build()
         return GoogleSignIn.getClient(context, gso)

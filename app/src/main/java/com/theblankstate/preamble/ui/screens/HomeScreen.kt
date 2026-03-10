@@ -97,7 +97,7 @@ fun HomeScreen(
     tasks: List<Task>,
     pastTasks: Map<String, List<Task>> = emptyMap(),
     streak: Int,
-    onAddTask: (title: String, date: String?, deadlineTime: String?) -> Unit,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean) -> Unit,
     onToggleTask: (Task) -> Unit,
     onDeleteTask: (Task) -> Unit,
     aiChatViewModel: AiChatViewModel? = null,
@@ -143,7 +143,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null)
+                        onAddTask(spoken, null, null, false)
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -192,7 +192,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null)
+                        onAddTask(spoken, null, null, false)
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -628,8 +628,8 @@ fun HomeScreen(
     if (showAddSheet) {
         AddTaskSheet(
             onDismiss = { showAddSheet = false },
-            onAddTask = { title, date, deadlineTime ->
-                onAddTask(title, date, deadlineTime)
+            onAddTask = { title, date, deadlineTime, syncToGoogle ->
+                onAddTask(title, date, deadlineTime, syncToGoogle)
                 showAddSheet = false
             }
         )
