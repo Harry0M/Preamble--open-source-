@@ -47,7 +47,7 @@ import com.theblankstate.preamble.ui.screens.StatsScreen
 import com.theblankstate.preamble.ui.theme.PreambleTheme
 import com.theblankstate.preamble.ui.theme.ThemePreferences
 import com.theblankstate.preamble.viewmodel.TaskViewModel
-import kotlinx.coroutines.MainScope
+import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
@@ -98,6 +98,45 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("preamble_prefs", MODE_PRIVATE)
         if (prefs.getBoolean("onboarding_done", false)) {
             postNotification()
+            // Auto-sync Google Calendar & Tasks with 15-minute cooldown
+            autoSyncGoogleData()
+        }
+    }
+
+    /**
+     * Efficient auto-sync: only runs if 15+ minutes since last sync.
+     * Runs in background so UI is not blocked.
+     */
+    private fun autoSyncGoogleData() {
+        val app = application as PreambleApplication
+        val cooldownMs = 60 * 1000L // 60 seconds — near-instant sync on app resume
+
+        lifecycleScope.launch {
+            try {
+                val now = System.currentTimeMillis()
+
+                // Sync Google Calendar if linked and cooldown elapsed
+                if (com.theblankstate.preamble.sync.GoogleCalendarManager.isLinked.value) {
+                    val lastCalSync = com.theblankstate.preamble.sync.GoogleCalendarManager.lastSyncTime.value
+                    if (now - lastCalSync > cooldownMs) {
+                        val events = com.theblankstate.preamble.sync.GoogleCalendarManager.fetchCalendarEvents(this@MainActivity)
+                        app.repository.syncCalendarEvents(events)
+                        android.util.Log.d("MainActivity", "Auto-synced ${events.size} calendar events")
+                    }
+                }
+
+                // Sync Google Tasks if linked and cooldown elapsed
+                if (com.theblankstate.preamble.sync.GoogleTasksManager.isLinked.value) {
+                    val lastTaskSync = com.theblankstate.preamble.sync.GoogleTasksManager.lastSyncTime.value
+                    if (now - lastTaskSync > cooldownMs) {
+                        val gTasks = com.theblankstate.preamble.sync.GoogleTasksManager.fetchGoogleTasks(this@MainActivity)
+                        app.repository.syncGoogleTasks(gTasks)
+                        android.util.Log.d("MainActivity", "Auto-synced ${gTasks.size} Google tasks")
+                    }
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("MainActivity", "Auto-sync failed", e)
+            }
         }
     }
 

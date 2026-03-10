@@ -56,6 +56,8 @@ class FirebaseTaskSyncManager(
     }
 
     suspend fun pushTask(task: Task) {
+        // Don't push calendar events or Google Tasks to Firebase
+        if (task.source != "local") return
         val uid = auth.currentUser?.uid
         if (uid == null) {
             Log.d(TAG, "Skipping pushTask(${task.id}) because no authenticated user")
@@ -97,7 +99,7 @@ class FirebaseTaskSyncManager(
             Log.d(TAG, "Skipping syncAllLocalToRemote because no authenticated user")
             return
         }
-        val localTasks = dao.getAllTasks()
+        val localTasks = dao.getAllTasks().filter { it.source == "local" }
         localTasks.forEach { task ->
             rememberLocalWrite(task.id)
             pendingUpserts.add(task.id)
@@ -174,7 +176,8 @@ class FirebaseTaskSyncManager(
     }
 
     private suspend fun mergeRemoteIntoLocal(remoteTasks: List<Task>) {
-        val localTasks = dao.getAllTasks()
+        // Only load local-origin tasks for merging (skip calendar/google-tasks)
+        val localTasks = dao.getAllLocalTasks()
         val localById = localTasks.associateBy { it.id }
         val remoteById = remoteTasks.associateBy { it.id }
 
@@ -273,7 +276,8 @@ data class RemoteTask(
     var createdTimestamp: Long = 0L,
     var completedTimestamp: Long? = null,
     var deadlineTime: String? = null,
-    var updatedTimestamp: Long = 0L
+    var updatedTimestamp: Long = 0L,
+    var source: String = "local"
 ) {
     fun toLocal(fallbackId: String): Task? {
         val resolvedId = id.ifBlank { fallbackId }
@@ -290,7 +294,8 @@ data class RemoteTask(
             createdTimestamp = safeCreated,
             completedTimestamp = completedTimestamp,
             deadlineTime = deadlineTime,
-            updatedTimestamp = safeUpdated
+            updatedTimestamp = safeUpdated,
+            source = source
         )
     }
 
@@ -304,7 +309,8 @@ data class RemoteTask(
                 createdTimestamp = task.createdTimestamp,
                 completedTimestamp = task.completedTimestamp,
                 deadlineTime = task.deadlineTime,
-                updatedTimestamp = task.updatedTimestamp
+                updatedTimestamp = task.updatedTimestamp,
+                source = task.source
             )
         }
     }

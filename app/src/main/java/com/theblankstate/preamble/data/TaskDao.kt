@@ -8,6 +8,12 @@ import androidx.room.Query
 import androidx.room.Update
 import kotlinx.coroutines.flow.Flow
 
+data class DateStats(
+    val createdDate: String,
+    val total: Int,
+    val completed: Int
+)
+
 @Dao
 interface TaskDao {
 
@@ -55,4 +61,35 @@ interface TaskDao {
 
     @Delete
     suspend fun deleteTask(task: Task)
+
+    // ── Batch stats queries (avoids N+1 per-day queries) ──
+
+    @Query("SELECT createdDate, COUNT(*) as total, SUM(CASE WHEN isCompleted = 1 THEN 1 ELSE 0 END) as completed FROM tasks WHERE createdDate IN (:dates) GROUP BY createdDate")
+    suspend fun getStatsForDates(dates: List<String>): List<DateStats>
+
+    @Query("SELECT COUNT(*) FROM tasks WHERE createdDate = :date AND isCompleted = 0")
+    suspend fun getPendingCountForDate(date: String): Int
+
+    @Query("SELECT * FROM tasks WHERE source = 'local'")
+    suspend fun getAllLocalTasks(): List<Task>
+
+    // Calendar sync queries
+    @Query("SELECT * FROM tasks WHERE source = 'google_calendar'")
+    suspend fun getAllCalendarTasks(): List<Task>
+
+    @Query("DELETE FROM tasks WHERE source = 'google_calendar'")
+    suspend fun deleteAllCalendarTasks()
+
+    @Query("SELECT id FROM tasks WHERE source = 'google_calendar'")
+    suspend fun getAllCalendarTaskIds(): List<String>
+
+    // Google Tasks sync queries
+    @Query("SELECT * FROM tasks WHERE source = 'google_tasks'")
+    suspend fun getAllGoogleTasks(): List<Task>
+
+    @Query("DELETE FROM tasks WHERE source = 'google_tasks'")
+    suspend fun deleteAllGoogleTasks()
+
+    @Query("SELECT id FROM tasks WHERE source = 'google_tasks'")
+    suspend fun getAllGoogleTaskIds(): List<String>
 }

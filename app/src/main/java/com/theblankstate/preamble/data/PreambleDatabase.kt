@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Task::class], version = 4, exportSchema = false)
+@Database(entities = [Task::class], version = 5, exportSchema = false)
 abstract class PreambleDatabase : RoomDatabase() {
 
     abstract fun taskDao(): TaskDao
@@ -23,7 +23,7 @@ abstract class PreambleDatabase : RoomDatabase() {
                     PreambleDatabase::class.java,
                     "preamble_db"
                 )
-                .addMigrations(MIGRATION_3_4)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -110,6 +110,13 @@ abstract class PreambleDatabase : RoomDatabase() {
 
                 db.execSQL("DROP TABLE `tasks`")
                 db.execSQL("ALTER TABLE `tasks_new` RENAME TO `tasks`")
+            }
+        }
+
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Add 'source' column with default value 'local'
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `source` TEXT NOT NULL DEFAULT 'local'")
             }
         }
     }

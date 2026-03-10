@@ -83,7 +83,14 @@ fun AddTaskSheet(
     val focusRequester = remember { FocusRequester() }
     val context = LocalContext.current
 
-    val speechRecognizer = remember { SpeechRecognizer.createSpeechRecognizer(context) }
+    // Lazily create SpeechRecognizer only when user taps mic (saves ~3-5MB)
+    var speechRecognizerRef by remember { mutableStateOf<SpeechRecognizer?>(null) }
+
+    fun getOrCreateRecognizer(): SpeechRecognizer {
+        return speechRecognizerRef ?: SpeechRecognizer.createSpeechRecognizer(context).also {
+            speechRecognizerRef = it
+        }
+    }
 
     fun createSpeechIntent(): Intent {
         return Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
@@ -96,8 +103,8 @@ fun AddTaskSheet(
         }
     }
 
-    DisposableEffect(Unit) {
-        val listener = object : RecognitionListener {
+    val recognizerListener = remember {
+        object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
                 isListening = true
             }
@@ -111,11 +118,6 @@ fun AddTaskSheet(
             override fun onError(error: Int) {
                 isListening = false
                 wantsToListen = false
-                if (wantsToListen) {
-                    try {
-                        speechRecognizer.startListening(createSpeechIntent())
-                    } catch (_: Exception) {}
-                }
             }
             override fun onResults(results: Bundle?) {
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
@@ -134,8 +136,13 @@ fun AddTaskSheet(
             }
             override fun onEvent(eventType: Int, params: Bundle?) {}
         }
-        speechRecognizer.setRecognitionListener(listener)
-        onDispose { speechRecognizer.destroy() }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            speechRecognizerRef?.destroy()
+            speechRecognizerRef = null
+        }
     }
 
     ModalBottomSheet(
@@ -173,11 +180,13 @@ fun AddTaskSheet(
                     onClick = {
                         if (isListening || wantsToListen) {
                             wantsToListen = false
-                            speechRecognizer.stopListening()
+                            speechRecognizerRef?.stopListening()
                             isListening = false
                         } else {
                             wantsToListen = true
-                            speechRecognizer.startListening(createSpeechIntent())
+                            val recognizer = getOrCreateRecognizer()
+                            recognizer.setRecognitionListener(recognizerListener)
+                            recognizer.startListening(createSpeechIntent())
                             isListening = true
                         }
                     },

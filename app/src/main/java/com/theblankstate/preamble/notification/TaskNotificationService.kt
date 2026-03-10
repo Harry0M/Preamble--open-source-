@@ -22,7 +22,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
@@ -95,8 +97,13 @@ class TaskNotificationService : Service() {
         val existing = nm.getNotificationChannel(CHANNEL_ID)
 
         if (existing != null && existing.importance < NotificationManager.IMPORTANCE_DEFAULT) {
-            nm.deleteNotificationChannel(CHANNEL_ID)
-            Log.d(TAG, "Deleted old low-importance channel")
+            try {
+                nm.deleteNotificationChannel(CHANNEL_ID)
+                Log.d(TAG, "Deleted old low-importance channel")
+            } catch (e: SecurityException) {
+                Log.w(TAG, "Could not delete channel since it's used by a foreground service", e)
+                return // Use existing channel
+            }
         } else if (existing != null) {
             return
         }
@@ -141,14 +148,14 @@ class TaskNotificationService : Service() {
 
     // ── Active notification guard ─────────────────────────────────────────
     //
-    // Every 3 seconds, verify our notification is still in the status bar.
+    // Every 15 seconds, verify our notification is still in the status bar.
     // If the user swiped it away and the deleteIntent somehow didn't fire,
-    // this guarantees re-show within 3 s.
+    // this guarantees re-show. (Increased from 3s to 15s for battery/CPU savings)
 
     private fun startNotificationGuard() {
         serviceScope.launch {
             while (isActive) {
-                delay(3_000)
+                delay(15_000)
                 if (!isActive) break
                 // Only re-post if user hasn't disabled notification
                 if (!isNotificationPreferenceEnabled()) continue
@@ -169,26 +176,29 @@ class TaskNotificationService : Service() {
 
     // ── Live task observer ────────────────────────────────────────────────
 
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
     private fun startTaskObserver() {
         val app = applicationContext as PreambleApplication
 
+        // Observe only today's pending tasks, debounced to avoid rapid re-builds
         serviceScope.launch {
-            app.repository.tasksFlow
-                .distinctUntilChanged()
-                .collect { allTasks ->
+            val today = com.theblankstate.preamble.repository.TaskRepository.todayString()
+            app.repository.getTasksForDate(today)
+                .map { tasks -> tasks.filter { !it.isCompleted } }
+                .debounce(1_000) // Wait 1s after last change before rebuilding notification
+                .distinctUntilChanged { old, new -> old.size == new.size && old.map { it.id }.toSet() == new.map { it.id }.toSet() }
+                .collect { pending ->
                     if (!isActive) return@collect
-                    val today = com.theblankstate.preamble.repository.TaskRepository.todayString()
-                    val pending = allTasks.filter { it.createdDate == today && !it.isCompleted }
                     lastPendingCount = pending.size
                     lastPendingTasks = pending
                     promoteToForeground(buildNotification(pending.size, pending))
                 }
         }
 
-        // Fallback periodic refresh every 30 s
+        // Fallback periodic refresh every 60s (reduced from 30s)
         serviceScope.launch {
             while (isActive) {
-                delay(30_000)
+                delay(60_000)
                 if (!isActive) break
                 val today = com.theblankstate.preamble.repository.TaskRepository.todayString()
                 val pending = app.repository.getPendingTasksForDate(today)

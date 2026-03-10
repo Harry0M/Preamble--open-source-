@@ -1,6 +1,7 @@
 package com.theblankstate.preamble.ui.screens
 
 import android.Manifest
+import android.app.Activity
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
@@ -8,6 +9,7 @@ import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
@@ -33,8 +35,10 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.theblankstate.preamble.PreambleApplication
 import com.theblankstate.preamble.notification.TaskNotificationManager
 import com.theblankstate.preamble.ui.components.ColorPickerComponent
+import com.theblankstate.preamble.ui.theme.ThemePreferences
 import com.theblankstate.preamble.auth.AuthManager
-import kotlinx.coroutines.MainScope
+import com.theblankstate.preamble.sync.GoogleCalendarManager
+import com.theblankstate.preamble.sync.GoogleTasksManager
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 
@@ -60,6 +64,53 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val currentUser by AuthManager.currentUser.collectAsState()
     var signInLoading by remember { mutableStateOf(false) }
     var signOutLoading by remember { mutableStateOf(false) }
+
+    // Google Calendar & Tasks state (unified)
+    val calendarLinked by GoogleCalendarManager.isLinked.collectAsState()
+    val calendarSyncing by GoogleCalendarManager.isSyncing.collectAsState()
+    val calendarEmail by GoogleCalendarManager.linkedEmail.collectAsState()
+    val lastCalSyncTime by GoogleCalendarManager.lastSyncTime.collectAsState()
+    val tasksLinked by GoogleTasksManager.isLinked.collectAsState()
+    val tasksSyncing by GoogleTasksManager.isSyncing.collectAsState()
+    val lastTasksSyncTime by GoogleTasksManager.lastSyncTime.collectAsState()
+    val googleLinked = calendarLinked || tasksLinked
+    val googleSyncing = calendarSyncing || tasksSyncing
+    val lastSyncTime = maxOf(lastCalSyncTime, lastTasksSyncTime)
+    var googleLinkLoading by remember { mutableStateOf(false) }
+
+    // Google sign-in launcher (grants Calendar + Tasks scopes together)
+    val googleSignInLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val task = com.google.android.gms.auth.api.signin.GoogleSignIn.getSignedInAccountFromIntent(result.data)
+            try {
+                val account = task.getResult(com.google.android.gms.common.api.ApiException::class.java)
+                val email = account?.email ?: "Unknown"
+                GoogleCalendarManager.onSignInSuccess(context, email)
+                GoogleTasksManager.onSignInSuccess(context)
+                // Sync both Calendar + Tasks
+                scope.launch {
+                    try {
+                        val app = context.applicationContext as PreambleApplication
+                        val events = GoogleCalendarManager.fetchCalendarEvents(context)
+                        app.repository.syncCalendarEvents(events)
+                        val gTasks = GoogleTasksManager.fetchGoogleTasks(context)
+                        app.repository.syncGoogleTasks(gTasks)
+                        Toast.makeText(context, "Synced ${events.size} events + ${gTasks.size} tasks", Toast.LENGTH_SHORT).show()
+                    } catch (e: Throwable) {
+                        Toast.makeText(context, "Sync failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
+                    googleLinkLoading = false
+                }
+            } catch (e: Throwable) {
+                Toast.makeText(context, "Link failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                googleLinkLoading = false
+            }
+        } else {
+            googleLinkLoading = false
+        }
+    }
 
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -192,25 +243,153 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             }
 
 
+            // ── Google Calendar & Tasks (unified) ──
+            SectionTitle("Google Calendar & Tasks")
+            SettingsCard {
+                Column {
+                    if (googleLinked) {
+                        // Linked state — show account info + Sync Now + Unlink
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Linked",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Text(
+                                    calendarEmail ?: "Google Account",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (lastSyncTime > 0) {
+                                    val syncTimeStr = remember(lastSyncTime) {
+                                        java.text.SimpleDateFormat("dd MMM, hh:mm a", java.util.Locale.getDefault())
+                                            .format(java.util.Date(lastSyncTime))
+                                    }
+                                    Text(
+                                        "Last synced: $syncTimeStr",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                }
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        val app = context.applicationContext as PreambleApplication
+                                        app.repository.clearCalendarEvents()
+                                        app.repository.clearGoogleTasks()
+                                        GoogleCalendarManager.unlink(context)
+                                        GoogleTasksManager.unlink(context)
+                                        Toast.makeText(context, "Google Calendar & Tasks unlinked", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                shape = CircleShape
+                            ) {
+                                Text("Unlink")
+                            }
+                        }
+
+                        HorizontalDivider()
+
+                        // Sync Now — both Calendar + Tasks
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !googleSyncing) {
+                                    scope.launch {
+                                        try {
+                                            val app = context.applicationContext as PreambleApplication
+                                            val events = GoogleCalendarManager.fetchCalendarEvents(context)
+                                            app.repository.syncCalendarEvents(events)
+                                            val gTasks = GoogleTasksManager.fetchGoogleTasks(context)
+                                            app.repository.syncGoogleTasks(gTasks)
+                                            Toast.makeText(context, "Synced ${events.size} events + ${gTasks.size} tasks", Toast.LENGTH_SHORT).show()
+                                        } catch (e: Throwable) {
+                                            Toast.makeText(context, "Sync failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("Sync Now", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "Fetch calendar events & Google Tasks",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                            if (googleSyncing) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("↻", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    } else {
+                        // Not linked — single link button for both
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !googleLinkLoading) {
+                                    googleLinkLoading = true
+                                    val signInClient = GoogleCalendarManager.getSignInClient(context)
+                                    googleSignInLauncher.launch(signInClient.signInIntent)
+                                }
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text("Link Google Calendar & Tasks", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "Sync events, holidays & tasks from Google",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                            if (googleLinkLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("→", style = MaterialTheme.typography.titleLarge)
+                            }
+                        }
+                    }
+                }
+            }
+
             // ── Appearance ──
             SectionTitle("Appearance")
             SettingsCard {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("Theme Color", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Customize the app's primary color",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Theme Color", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "Customize the app's primary color",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                        ColorPickerComponent()
                     }
-                    ColorPickerComponent()
+
+                    HorizontalDivider()
+
+                    ThemeSelectorRow(context)
                 }
             }
 
@@ -515,3 +694,93 @@ private fun getCurrentAlarmToneName(context: Context): String {
         } catch (_: Exception) { "Default Alarm" }
     } else "Default Alarm"
 }
+
+
+@Composable
+private fun ThemeSelectorRow(context: Context) {
+    val currentMode by ThemePreferences.themeMode.collectAsState()
+    val colorfulCards by ThemePreferences.colorfulCards.collectAsState()
+    var showDialog by remember { mutableStateOf(false) }
+
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showDialog = true }
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("App Theme", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    currentMode.name.lowercase().replaceFirstChar { it.uppercase() },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+            }
+        }
+
+        if (currentMode == ThemePreferences.ThemeMode.LIGHT || (currentMode == ThemePreferences.ThemeMode.SYSTEM && !androidx.compose.foundation.isSystemInDarkTheme())) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Colorful Task Cards", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Use different light shaded backgrounds for task cards",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+                Switch(
+                    checked = colorfulCards,
+                    onCheckedChange = { ThemePreferences.setColorfulCards(context, it) }
+                )
+            }
+        }
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text("Choose Theme") },
+            text = {
+                Column {
+                    ThemePreferences.ThemeMode.values().forEach { mode ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    ThemePreferences.setThemeMode(context, mode)
+                                    showDialog = false
+                                }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
+                                selected = currentMode == mode,
+                                onClick = {
+                                    ThemePreferences.setThemeMode(context, mode)
+                                    showDialog = false
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(mode.name.lowercase().replaceFirstChar { it.uppercase() })
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showDialog = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+}
+

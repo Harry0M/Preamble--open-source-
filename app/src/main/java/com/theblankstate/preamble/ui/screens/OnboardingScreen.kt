@@ -46,6 +46,16 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.Icon
+import com.theblankstate.preamble.auth.AuthManager
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
+import androidx.compose.ui.res.painterResource
+import com.theblankstate.preamble.R
 
 data class OnboardingPage(
     val emoji: String,
@@ -55,7 +65,7 @@ data class OnboardingPage(
 )
 
 enum class IllustrationType {
-    EMOJI, NOTIFICATION_MOCKUP, VOICE_WAVE, PALETTE
+    EMOJI, NOTIFICATION_MOCKUP, VOICE_WAVE, PALETTE, LOGIN
 }
 
 @Composable
@@ -81,8 +91,14 @@ fun OnboardingScreen(onComplete: () -> Unit) {
         OnboardingPage(
             emoji = "",
             title = "Make It Yours",
-            description = "Choose your theme color from the full spectrum. Your app, your style. Let's get started!",
+            description = "Choose your theme color from the full spectrum. Your app, your style.",
             illustrationType = IllustrationType.PALETTE
+        ),
+        OnboardingPage(
+            emoji = "",
+            title = "Join Preamble",
+            description = "Back up and sync your tasks across devices.",
+            illustrationType = IllustrationType.LOGIN
         )
     )
 
@@ -135,21 +151,108 @@ fun OnboardingScreen(onComplete: () -> Unit) {
         Spacer(modifier = Modifier.height(16.dp))
 
         if (pagerState.currentPage == pages.size - 1) {
-            Button(
-                onClick = {
-                    val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-                    }
-                    permissionLauncher.launch(permissions.toTypedArray())
-                    onComplete()
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp),
-                shape = CircleShape
+            val context = LocalContext.current
+            var termsAccepted by remember { mutableStateOf(false) }
+            var showPrivacyDialog by remember { mutableStateOf(false) }
+            var showTermsDialog by remember { mutableStateOf(false) }
+
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text("Get Started", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = termsAccepted,
+                        onCheckedChange = { termsAccepted = it }
+                    )
+                    Text(
+                        text = "I agree to ",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        text = "Terms",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier.clickable { showTermsDialog = true }
+                    )
+                    Text(
+                        text = " and ",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Text(
+                        text = "Privacy",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                        modifier = Modifier.clickable { showPrivacyDialog = true }
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                        permissionLauncher.launch(permissions.toTypedArray())
+                        
+                        scope.launch {
+                            val result = AuthManager.signInWithGoogle(context)
+                            if (result.isSuccess) {
+                                onComplete()
+                            } else {
+                                Toast.makeText(context, "Sign in failed", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = CircleShape,
+                    enabled = termsAccepted
+                ) {
+                    Text("Sign in with Google", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                OutlinedButton(
+                    onClick = {
+                        val permissions = mutableListOf(Manifest.permission.RECORD_AUDIO)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                        permissionLauncher.launch(permissions.toTypedArray())
+                        onComplete()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp),
+                    shape = CircleShape,
+                    enabled = termsAccepted
+                ) {
+                    Text("Continue without account", fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+
+            if (showPrivacyDialog) {
+                AlertDialog(
+                    onDismissRequest = { showPrivacyDialog = false },
+                    title = { Text("Privacy Policy") },
+                    text = { Text("Preamble is fully open-source and respects your privacy. Tasks are always saved locally first; if you sign in, your tasks are securely synced to your own Firebase account for backup and realtime sync. We do not run ads or third-party analytics.") },
+                    confirmButton = { TextButton(onClick = { showPrivacyDialog = false }) { Text("Close") } }
+                )
+            }
+
+            if (showTermsDialog) {
+                AlertDialog(
+                    onDismissRequest = { showTermsDialog = false },
+                    title = { Text("Terms of Service") },
+                    text = { Text("Preamble is provided as-is under the Apache License 2.0. You may use, modify, and distribute it freely. The developers are not liable for any damages arising from use of this software.") },
+                    confirmButton = { TextButton(onClick = { showTermsDialog = false }) { Text("Close") } }
+                )
             }
         } else {
             Row(
@@ -226,6 +329,22 @@ private fun OnboardingPageContent(page: OnboardingPage) {
                     modifier = Modifier
                         .size(160.dp)
                 )
+            }
+            IllustrationType.LOGIN -> {
+                Box(
+                    modifier = Modifier
+                        .size(140.dp)
+                        .clip(CircleShape)
+                        .background(primary.copy(alpha = 0.1f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_notification),
+                        contentDescription = "Preamble Logo",
+                        modifier = Modifier.size(96.dp),
+                        tint = primary
+                    )
+                }
             }
         }
 

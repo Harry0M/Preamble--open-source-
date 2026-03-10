@@ -14,11 +14,20 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.draw.clip
+import com.theblankstate.preamble.ui.theme.ThemePreferences
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,8 +42,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.ViewAgenda
+import androidx.compose.material.icons.filled.ViewHeadline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -54,6 +66,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -67,6 +80,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.ui.components.AddTaskSheet
+import com.theblankstate.preamble.ui.components.RichDateBadge
+import com.theblankstate.preamble.ui.components.RichDateHeader
 import com.theblankstate.preamble.ui.components.TaskItem
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -95,12 +110,14 @@ fun HomeScreen(
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val context = LocalContext.current
 
-    val today = remember {
-        SimpleDateFormat("EEEE, dd MMMM", Locale.getDefault()).format(Date())
-    }
+    // Voice recognizer for FAB — lazily created only when user taps mic
+    var speechRecognizerRef by remember { mutableStateOf<SpeechRecognizer?>(null) }
 
-    // Voice recognizer for FAB
-    val speechRecognizer = remember { SpeechRecognizer.createSpeechRecognizer(context) }
+    fun getOrCreateRecognizer(): SpeechRecognizer {
+        return speechRecognizerRef ?: SpeechRecognizer.createSpeechRecognizer(context).also {
+            speechRecognizerRef = it
+        }
+    }
 
     DisposableEffect(Unit) {
         val listener = object : RecognitionListener {
@@ -140,9 +157,58 @@ fun HomeScreen(
             }
             override fun onEvent(eventType: Int, params: Bundle?) {}
         }
-        speechRecognizer.setRecognitionListener(listener)
-        onDispose { speechRecognizer.destroy() }
+        // Set listener only when recognizer exists (deferred)
+        speechRecognizerRef?.setRecognitionListener(listener)
+
+        // Store listener to apply when recognizer is created
+        onDispose {
+            speechRecognizerRef?.destroy()
+            speechRecognizerRef = null
+        }
     }
+
+    // Apply listener whenever recognizer is created
+    val recognizerListener = remember {
+        object : RecognitionListener {
+            override fun onReadyForSpeech(params: Bundle?) {
+                isVoiceListening = true
+                voiceText = "Listening..."
+            }
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(rmsdB: Float) {}
+            override fun onBufferReceived(buffer: ByteArray?) {}
+            override fun onEndOfSpeech() {}
+            override fun onError(error: Int) {
+                isVoiceListening = false
+                voiceText = ""
+            }
+            override fun onResults(results: Bundle?) {
+                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                val spoken = matches?.firstOrNull()
+                if (!spoken.isNullOrBlank()) {
+                    if (aiChatViewModel != null) {
+                        aiChatViewModel.processVoiceCommand(spoken) { result ->
+                            voiceText = result
+                            Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        onAddTask(spoken, null, null)
+                        voiceText = "Saved: $spoken"
+                    }
+                }
+                isVoiceListening = false
+            }
+            override fun onPartialResults(partialResults: Bundle?) {
+                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
+                if (!matches.isNullOrEmpty()) {
+                    voiceText = matches[0]
+                }
+            }
+            override fun onEvent(eventType: Int, params: Bundle?) {}
+        }
+    }
+
+
 
     Box(modifier = modifier.fillMaxSize()) {
         Scaffold(
@@ -152,14 +218,22 @@ fun HomeScreen(
                     title = {
                         Column {
                             Text("Preamble", style = MaterialTheme.typography.titleLarge)
-                            Text(
-                                today,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            RichDateHeader(
+                                modifier = Modifier.padding(top = 2.dp)
                             )
                         }
                     },
                     actions = {
+                        val isTimelineEnabled = ThemePreferences.timelineUi.collectAsState().value
+                        IconButton(
+                            onClick = { ThemePreferences.setTimelineUi(context, !isTimelineEnabled) }
+                        ) {
+                            Icon(
+                                imageVector = if (isTimelineEnabled) Icons.Filled.ViewHeadline else Icons.Filled.ViewAgenda,
+                                contentDescription = "Toggle Timeline View"
+                            )
+                        }
+
                         if (streak > 0) {
                             Surface(
                                 shape = MaterialTheme.shapes.small,
@@ -187,9 +261,11 @@ fun HomeScreen(
                     FloatingActionButton(
                         onClick = {
                             if (isVoiceListening) {
-                                speechRecognizer.stopListening()
+                                speechRecognizerRef?.stopListening()
                                 isVoiceListening = false
                             } else {
+                                val recognizer = getOrCreateRecognizer()
+                                recognizer.setRecognitionListener(recognizerListener)
                                 val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                                     putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                                     putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
@@ -198,7 +274,7 @@ fun HomeScreen(
                                     putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
                                     putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3000L)
                                 }
-                                speechRecognizer.startListening(intent)
+                                recognizer.startListening(intent)
                             }
                         },
                         shape = CircleShape,
@@ -220,6 +296,22 @@ fun HomeScreen(
                 }
             }
         ) { padding ->
+            val themeMode = ThemePreferences.themeMode.collectAsState().value
+            val isDarkTheme = isSystemInDarkTheme()
+            val isLightMode = themeMode == ThemePreferences.ThemeMode.LIGHT || (themeMode == ThemePreferences.ThemeMode.SYSTEM && !isDarkTheme)
+            val colorfulCards = ThemePreferences.colorfulCards.collectAsState().value
+
+            val cardColors = listOf(
+                Color(0xFFE3F2FD), // Blue
+                Color(0xFFF3E5F5), // Purple
+                Color(0xFFE8F5E9), // Green
+                Color(0xFFFFF3E0), // Orange
+                Color(0xFFFFEBEE), // Red
+                Color(0xFFFFFDE7)  // Yellow
+            )
+
+            val isTimelineEnabled = ThemePreferences.timelineUi.collectAsState().value
+
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -227,7 +319,7 @@ fun HomeScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Today's progress bar (only when tasks exist)
+                // Today's tasks with timeline view
                 if (tasks.isNotEmpty()) {
                     item {
                         val completed = tasks.count { it.isCompleted }
@@ -267,17 +359,86 @@ fun HomeScreen(
                         }
                     }
 
-                    items(
-                        items = tasks,
-                        key = { it.id }
-                    ) { task ->
-                        TaskItem(
-                            task = task,
-                            onToggle = { onToggleTask(task) },
-                            onDelete = { taskToDelete = task },
-                            isEditable = true,
-                            modifier = Modifier.animateItem()
-                        )
+                    if (isTimelineEnabled) {
+                        item {
+                            val bgColor = if (isLightMode) {
+                                if (colorfulCards) cardColors[0] else MaterialTheme.colorScheme.surfaceVariant
+                            } else Color.Transparent
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(IntrinsicSize.Min)
+                                    .padding(vertical = 4.dp)
+                            ) {
+                                // Timeline Left Column
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .width(40.dp)
+                                        .padding(end = 8.dp, top = 24.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.primary)
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Box(
+                                        modifier = Modifier
+                                            .width(2.dp)
+                                            .fillMaxHeight()
+                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                                    )
+                                }
+
+                                // Right Column (Card)
+                                Card(
+                                    modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+                                    colors = CardDefaults.cardColors(containerColor = bgColor)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        val todayDateStr = remember {
+                                            java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                                        }
+                                        RichDateBadge(
+                                            dateStr = todayDateStr,
+                                            isCompact = true,
+                                            modifier = Modifier.padding(bottom = 4.dp)
+                                        )
+
+                                        // Today's tasks: show all inside card with key{} for smart recomposition skipping
+                                        tasks.forEach { task ->
+                                            key(task.id) {
+                                                TaskItem(
+                                                    task = task,
+                                                    onToggle = { onToggleTask(task) },
+                                                    onDelete = { taskToDelete = task },
+                                                    isEditable = true
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        items(
+                            items = tasks,
+                            key = { it.id }
+                        ) { task ->
+                            TaskItem(
+                                task = task,
+                                onToggle = { onToggleTask(task) },
+                                onDelete = { taskToDelete = task },
+                                isEditable = true,
+                                modifier = Modifier.animateItem()
+                            )
+                        }
                     }
                 } else {
                     item {
@@ -304,28 +465,118 @@ fun HomeScreen(
                 }
 
                 // Past tasks — always shown, read-only
+                var colorIndex = 1 // Start at 1 because Today might take 0, though we'll use colorIndex for all
                 pastTasks.forEach { (date, tasksForDate) ->
                     if (tasksForDate.isNotEmpty()) {
-                        item {
-                            Text(
-                                text = date,
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
-                            )
-                        }
+                        if (isTimelineEnabled) {
+                            item {
+                                val bgColor = if (isLightMode) {
+                                    if (colorfulCards) cardColors[colorIndex % cardColors.size] else MaterialTheme.colorScheme.surfaceVariant
+                                } else Color.Transparent
+                                colorIndex++
 
-                        items(
-                            items = tasksForDate,
-                            key = { it.id }
-                        ) { task ->
-                            TaskItem(
-                                task = task,
-                                onToggle = { },
-                                onDelete = { },
-                                isEditable = false,
-                                modifier = Modifier.animateItem()
-                            )
+                                // Smart truncation: show first 3 tasks, expandable for rest
+                                val collapsedLimit = 3
+                                var isExpanded by remember { mutableStateOf(false) }
+                                val visibleTasks = if (isExpanded || tasksForDate.size <= collapsedLimit) {
+                                    tasksForDate
+                                } else {
+                                    tasksForDate.take(collapsedLimit)
+                                }
+                                val hiddenCount = tasksForDate.size - collapsedLimit
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(IntrinsicSize.Min)
+                                        .padding(vertical = 4.dp)
+                                ) {
+                                    // Timeline Left Column
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier
+                                            .width(40.dp)
+                                            .padding(end = 8.dp, top = 24.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.primary)
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .width(2.dp)
+                                                .fillMaxHeight()
+                                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                                        )
+                                    }
+
+                                    // Right Column (Card)
+                                    Card(
+                                        modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+                                        colors = CardDefaults.cardColors(containerColor = bgColor)
+                                    ) {
+                                        Column(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            RichDateBadge(
+                                                dateStr = date,
+                                                isCompact = true,
+                                                modifier = Modifier.padding(bottom = 4.dp)
+                                            )
+
+                                            // Render only visible tasks with key for skip optimization
+                                            visibleTasks.forEach { task ->
+                                                key(task.id) {
+                                                    TaskItem(
+                                                        task = task,
+                                                        onToggle = { },
+                                                        onDelete = { },
+                                                        isEditable = false
+                                                    )
+                                                }
+                                            }
+
+                                            // "Show more" button when collapsed
+                                            if (!isExpanded && hiddenCount > 0) {
+                                                Text(
+                                                    text = "+ $hiddenCount more tasks",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    color = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(top = 4.dp)
+                                                        .clickable { isExpanded = true },
+                                                    textAlign = TextAlign.Center
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            item {
+                                RichDateBadge(
+                                    dateStr = date,
+                                    modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+                                )
+                            }
+
+                            items(
+                                items = tasksForDate,
+                                key = { it.id }
+                            ) { task ->
+                                TaskItem(
+                                    task = task,
+                                    onToggle = { },
+                                    onDelete = { },
+                                    isEditable = false,
+                                    modifier = Modifier.animateItem()
+                                )
+                            }
                         }
                     }
                 }

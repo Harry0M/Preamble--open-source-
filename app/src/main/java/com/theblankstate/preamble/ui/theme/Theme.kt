@@ -91,11 +91,18 @@ fun PreambleTheme(
     content: @Composable () -> Unit
 ) {
     val customColor by ThemePreferences.themeColor.collectAsState()
+    val themeMode by ThemePreferences.themeMode.collectAsState()
+
+    val useDarkTheme = when (themeMode) {
+        ThemePreferences.ThemeMode.SYSTEM -> darkTheme
+        ThemePreferences.ThemeMode.LIGHT -> false
+        ThemePreferences.ThemeMode.DARK -> true
+    }
 
     val colorScheme = if (customColor != null) {
-        generateCustomColorScheme(customColor!!, darkTheme)
+        generateCustomColorScheme(customColor!!, useDarkTheme)
     } else {
-        if (darkTheme) MonochromeDarkColorScheme else MonochromeLightColorScheme
+        if (useDarkTheme) MonochromeDarkColorScheme else MonochromeLightColorScheme
     }
 
     MaterialTheme(

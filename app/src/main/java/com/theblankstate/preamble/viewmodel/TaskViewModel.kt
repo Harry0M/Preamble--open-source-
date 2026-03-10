@@ -17,6 +17,8 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class StatsState(
@@ -76,6 +78,9 @@ class TaskViewModel(
     private val _statsState = MutableStateFlow(StatsState())
     val statsState: StateFlow<StatsState> = _statsState.asStateFlow()
 
+    // Debounce stats refresh to avoid 730+ queries on rapid task changes
+    private var statsRefreshJob: Job? = null
+
     init {
         viewModelScope.launch {
             combine(
@@ -100,7 +105,10 @@ class TaskViewModel(
     }
 
     fun refreshStats() {
-        viewModelScope.launch {
+        // Debounce: cancel previous job, wait 500ms before running
+        statsRefreshJob?.cancel()
+        statsRefreshJob = viewModelScope.launch {
+            delay(500)
             val streak = repository.calculateStreak()
             val weekly = repository.getWeeklyStats()
             val daily = repository.getDailyStatsForRange(14)

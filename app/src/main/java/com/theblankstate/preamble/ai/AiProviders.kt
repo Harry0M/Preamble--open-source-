@@ -11,9 +11,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
+/**
+ * Shared OkHttpClient for all AI providers.
+ * Avoids creating 4 separate connection pools + thread pools (~2-3MB each).
+ */
+private val sharedAiClient: OkHttpClient by lazy {
+    OkHttpClient.Builder()
+        .readTimeout(60, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .build()
+}
+
 class MistralProvider(private val apiKey: String) : AiProvider {
     override val name = "Mistral"
-    private val client = OkHttpClient.Builder().readTimeout(60, TimeUnit.SECONDS).build()
+    private val client = sharedAiClient
     private val gson = Gson()
 
     override suspend fun chat(messages: List<ChatMessage>, tools: List<AiTool>): AiResponse =
@@ -60,7 +71,7 @@ class MistralProvider(private val apiKey: String) : AiProvider {
 
 class OpenAiProvider(private val apiKey: String) : AiProvider {
     override val name = "OpenAI"
-    private val client = OkHttpClient.Builder().readTimeout(60, TimeUnit.SECONDS).build()
+    private val client = sharedAiClient
     private val gson = Gson()
 
     override suspend fun chat(messages: List<ChatMessage>, tools: List<AiTool>): AiResponse =
@@ -107,7 +118,7 @@ class OpenAiProvider(private val apiKey: String) : AiProvider {
 
 class GeminiProvider(private val apiKey: String) : AiProvider {
     override val name = "Gemini"
-    private val client = OkHttpClient.Builder().readTimeout(60, TimeUnit.SECONDS).build()
+    private val client = sharedAiClient
     private val gson = Gson()
 
     override suspend fun chat(messages: List<ChatMessage>, tools: List<AiTool>): AiResponse =
@@ -192,7 +203,7 @@ class GeminiProvider(private val apiKey: String) : AiProvider {
 
 class ClaudeProvider(private val apiKey: String) : AiProvider {
     override val name = "Claude"
-    private val client = OkHttpClient.Builder().readTimeout(60, TimeUnit.SECONDS).build()
+    private val client = sharedAiClient
     private val gson = Gson()
 
     override suspend fun chat(messages: List<ChatMessage>, tools: List<AiTool>): AiResponse =

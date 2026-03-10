@@ -10,9 +10,23 @@ import kotlinx.coroutines.flow.asStateFlow
 object ThemePreferences {
     private const val PREFS_NAME = "theme_prefs"
     private const val KEY_COLOR = "primary_color"
+    private const val KEY_THEME_MODE = "theme_mode"
+    private const val KEY_COLORFUL_CARDS = "colorful_cards"
+    private const val KEY_TIMELINE_UI = "timeline_ui"
+
+    enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
     private val _themeColor = MutableStateFlow<Color?>(null)
     val themeColor: StateFlow<Color?> = _themeColor.asStateFlow()
+
+    private val _themeMode = MutableStateFlow(ThemeMode.SYSTEM)
+    val themeMode: StateFlow<ThemeMode> = _themeMode.asStateFlow()
+
+    private val _colorfulCards = MutableStateFlow(false)
+    val colorfulCards: StateFlow<Boolean> = _colorfulCards.asStateFlow()
+
+    private val _timelineUi = MutableStateFlow(true)
+    val timelineUi: StateFlow<Boolean> = _timelineUi.asStateFlow()
 
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -24,6 +38,9 @@ object ThemePreferences {
                 _themeColor.value = null
             }
         }
+        _themeMode.value = ThemeMode.valueOf(prefs.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name)
+        _colorfulCards.value = prefs.getBoolean(KEY_COLORFUL_CARDS, false)
+        _timelineUi.value = prefs.getBoolean(KEY_TIMELINE_UI, true)
     }
 
     fun setColor(context: Context, color: Color?) {
@@ -37,4 +54,29 @@ object ThemePreferences {
             prefs.edit().putString(KEY_COLOR, hexString).apply()
         }
     }
+
+    fun setThemeMode(context: Context, mode: ThemeMode) {
+        _themeMode.value = mode
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_THEME_MODE, mode.name)
+            .apply()
+    }
+
+    fun setColorfulCards(context: Context, enabled: Boolean) {
+        _colorfulCards.value = enabled
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_COLORFUL_CARDS, enabled)
+            .apply()
+    }
+
+    fun setTimelineUi(context: Context, enabled: Boolean) {
+        _timelineUi.value = enabled
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_TIMELINE_UI, enabled)
+            .apply()
+    }
+
 }

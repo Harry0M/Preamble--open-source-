@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -85,12 +87,18 @@ fun TaskItem(
             .padding(vertical = 12.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Checkbox(
-            checked = task.isCompleted,
-            onCheckedChange = if (isEditable) { _ -> onToggle() } else null,
-            modifier = Modifier.padding(end = 12.dp),
+        IconButton(
+            onClick = { if (isEditable) onToggle() },
+            modifier = Modifier.padding(end = 4.dp).size(24.dp),
             enabled = isEditable
-        )
+        ) {
+            Icon(
+                imageVector = if (task.isCompleted) Icons.Default.CheckCircle else Icons.Outlined.Circle,
+                contentDescription = if (task.isCompleted) "Completed" else "Uncompleted",
+                tint = if (task.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        
         Text(
             text = task.title,
             style = MaterialTheme.typography.bodyLarge.copy(

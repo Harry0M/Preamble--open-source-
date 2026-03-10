@@ -7,7 +7,7 @@ espressoCore = "3.7.0"
 lifecycleRuntimeKtx = "2.10.0"
 activityCompose = "1.12.4"
 kotlin = "2.0.21"
-composeBom = "2024.09.00"
+composeBom = "2025.05.00"
 room = "2.7.1"
 ksp = "2.0.21-1.0.25"
 navigationCompose = "2.8.4"
@@ -18,6 +18,10 @@ credentials = "1.5.0"
 credentialsPlayServicesAuth = "1.5.0"
 googleid = "1.2.0"
 coroutinesPlayServices = "1.8.1"
+playServicesAuth = "21.3.0"
+googleApiClient = "2.9.0"
+googleCalendarApi = "v3-rev20260225-2.0.0"
+googleTasksApi = "v1-rev20251102-2.0.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -45,6 +49,10 @@ androidx-credentials = { group = "androidx.credentials", name = "credentials", v
 androidx-credentials-play-services-auth = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentialsPlayServicesAuth" }
 googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
 kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutinesPlayServices" }
+play-services-auth = { group = "com.google.android.gms", name = "play-services-auth", version.ref = "playServicesAuth" }
+google-api-client-android = { group = "com.google.api-client", name = "google-api-client-android", version.ref = "googleApiClient" }
+google-api-services-calendar = { group = "com.google.apis", name = "google-api-services-calendar", version.ref = "googleCalendarApi" }
+google-api-services-tasks = { group = "com.google.apis", name = "google-api-services-tasks", version.ref = "googleTasksApi" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
