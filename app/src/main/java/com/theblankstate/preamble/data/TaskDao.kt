@@ -92,4 +92,7 @@ interface TaskDao {
 
     @Query("SELECT id FROM tasks WHERE source = 'google_tasks'")
     suspend fun getAllGoogleTaskIds(): List<String>
+
+    @Query("SELECT * FROM tasks WHERE title = :title AND isCompleted = 0 LIMIT 1")
+    suspend fun getPendingTaskByTitle(title: String): Task?
 }

@@ -49,6 +49,16 @@ class TaskRepository(
         syncManager?.pushTask(updated)
     }
 
+    suspend fun insertTask(task: Task) {
+        dao.insertTask(task)
+        syncManager?.pushTask(task)
+    }
+
+    suspend fun updateTask(task: Task) {
+        dao.updateTask(task)
+        syncManager?.pushTask(task)
+    }
+
     suspend fun deleteTask(task: Task) {
         dao.deleteTask(task)
         syncManager?.deleteTask(task.id)
@@ -217,8 +227,22 @@ class TaskRepository(
         val existingCalendarIds = dao.getAllCalendarTaskIds().toSet()
         val newEventIds = events.map { it.id }.toSet()
 
+        // Preserve local completion state for existing calendar events
+        val existingTasks = dao.getAllCalendarTasks().associateBy { it.id }
+        val eventsToInsert = events.map { event ->
+            val existing = existingTasks[event.id]
+            if (existing != null && existing.isCompleted) {
+                event.copy(
+                    isCompleted = true,
+                    completedTimestamp = existing.completedTimestamp
+                )
+            } else {
+                event
+            }
+        }
+
         // Insert or update events
-        dao.insertTasks(events)
+        dao.insertTasks(eventsToInsert)
 
         // Delete events that are no longer in the calendar
         val removedIds = existingCalendarIds - newEventIds
@@ -243,21 +267,44 @@ class TaskRepository(
 
     /**
      * Sync Google Tasks into the local database.
+     * Tasks deleted from Google are either:
+     * - Marked with deletedFromGoogle=true (default) — shown with tag
+     * - Auto-deleted from app if autoDeleteGoogleTasks setting is ON
      */
-    suspend fun syncGoogleTasks(tasks: List<Task>) {
+    suspend fun syncGoogleTasks(tasks: List<Task>, autoDeleteFromApp: Boolean = false) {
         val existingIds = dao.getAllGoogleTaskIds().toSet()
         val newIds = tasks.map { it.id }.toSet()
 
-        // Insert or update tasks
-        dao.insertTasks(tasks)
+        // Insert or update tasks (only those not marked as deleted locally)
+        for (task in tasks) {
+            // If task was previously marked deletedFromGoogle, restore it
+            dao.insertTask(task)
+        }
 
-        // Delete tasks no longer in Google
+        // Handle tasks removed from Google
         val removedIds = existingIds - newIds
         if (removedIds.isNotEmpty()) {
             val existing = dao.getAllGoogleTasks()
-            for (task in existing.filter { it.id in removedIds }) {
-                dao.deleteTask(task)
+            for (task in existing.filter { it.id in removedIds && !it.deletedFromGoogle }) {
+                if (autoDeleteFromApp) {
+                    // Auto-delete from app too
+                    dao.deleteTask(task)
+                    syncManager?.deleteTask(task.id)
+                } else {
+                    // Mark as deleted from Google, keep in app
+                    dao.updateTask(task.copy(deletedFromGoogle = true, updatedTimestamp = System.currentTimeMillis()))
+                }
             }
+        }
+    }
+
+    /**
+     * Quick sync: only upsert changed tasks, no deletion detection.
+     * Used for pull-to-refresh for fast incremental sync.
+     */
+    suspend fun quickSyncGoogleTasks(tasks: List<Task>) {
+        if (tasks.isNotEmpty()) {
+            dao.insertTasks(tasks)
         }
     }
 

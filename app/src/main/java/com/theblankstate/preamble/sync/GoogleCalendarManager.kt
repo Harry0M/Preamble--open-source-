@@ -236,8 +236,8 @@ object GoogleCalendarManager {
         // Create a stable ID based on the Google event ID so we can deduplicate
         val stableId = "gcal_${event.id}"
 
-        // Prefix with calendar emoji for recognition
-        val displayTitle = "📅 $title"
+        // Use true title, UI will visually decorate it based on isCalendarEvent
+        val displayTitle = title
 
         return Task(
             id = stableId,

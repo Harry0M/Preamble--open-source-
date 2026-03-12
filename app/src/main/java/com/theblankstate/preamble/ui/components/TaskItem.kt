@@ -4,14 +4,19 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -29,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -44,6 +50,7 @@ fun TaskItem(
     task: Task,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
+    onEdit: (() -> Unit)? = null,
     isEditable: Boolean = true,
     modifier: Modifier = Modifier
 ) {
@@ -99,24 +106,84 @@ fun TaskItem(
             )
         }
         
-        Text(
-            text = task.title,
-            style = MaterialTheme.typography.bodyLarge.copy(
-                textDecoration = if (task.isCompleted) {
-                    TextDecoration.LineThrough
-                } else {
-                    TextDecoration.None
+        Column(modifier = Modifier.weight(1f)) {
+            // Strip legacy emoji prefixes for backward compatibility
+            val strippedTitle = task.title.removePrefix("📅 ").trim()
+            
+            Text(
+                text = strippedTitle,
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    textDecoration = if (task.isCompleted) {
+                        TextDecoration.LineThrough
+                    } else {
+                        TextDecoration.None
+                    }
+                ),
+                color = when {
+                    task.isCompleted -> MaterialTheme.colorScheme.onSurfaceVariant
+                    isOverdue -> errorColor
+                    else -> MaterialTheme.colorScheme.onSurface
+                },
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            
+            if (task.isCalendarEvent || task.isGoogleTask) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    val iconTint = Color(0xFF4285F4) // Standard Google Blue
+                    
+                    if (task.isCalendarEvent) {
+                        Icon(
+                            imageVector = Icons.Default.Event,
+                            contentDescription = "Google Calendar Event",
+                            modifier = Modifier.size(14.dp),
+                            tint = iconTint
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Calendar",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = iconTint
+                        )
+                    } else if (task.isGoogleTask) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.Assignment,
+                            contentDescription = "Google Task",
+                            modifier = Modifier.size(14.dp),
+                            tint = iconTint
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Google Tasks",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = iconTint
+                        )
+                    }
                 }
-            ),
-            color = when {
-                task.isCompleted -> MaterialTheme.colorScheme.onSurfaceVariant
-                isOverdue -> errorColor
-                else -> MaterialTheme.colorScheme.onSurface
-            },
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
+            }
+
+            if (task.deletedFromGoogle) {
+                Box(
+                    modifier = Modifier
+                        .padding(top = 2.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f))
+                        .padding(horizontal = 6.dp, vertical = 1.dp)
+                ) {
+                    Text(
+                        text = "Deleted from Google Tasks",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+        }
         if (task.deadlineTime != null) {
             Box(
                 modifier = Modifier
@@ -155,6 +222,15 @@ fun TaskItem(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
+                    if (onEdit != null) {
+                        DropdownMenuItem(
+                            text = { Text("Edit") },
+                            onClick = {
+                                showMenu = false
+                                onEdit()
+                            }
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
                         onClick = {

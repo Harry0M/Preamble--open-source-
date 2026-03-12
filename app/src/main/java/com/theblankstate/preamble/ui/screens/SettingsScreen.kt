@@ -47,7 +47,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 fun SettingsScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val scope = rememberCoroutineScope()
+    val app = context.applicationContext as PreambleApplication
+    val scope = app.appScope
 
     var hasSystemNotificationPermission by remember { mutableStateOf(areNotificationsEnabled(context)) }
     var notificationPrefEnabled by remember {
@@ -96,7 +97,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                         val events = GoogleCalendarManager.fetchCalendarEvents(context)
                         app.repository.syncCalendarEvents(events)
                         val gTasks = GoogleTasksManager.fetchGoogleTasks(context)
-                        app.repository.syncGoogleTasks(gTasks)
+                        app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
                         Toast.makeText(context, "Synced ${events.size} events + ${gTasks.size} tasks", Toast.LENGTH_SHORT).show()
                     } catch (e: Throwable) {
                         Toast.makeText(context, "Sync failed: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -308,7 +309,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                             val events = GoogleCalendarManager.fetchCalendarEvents(context)
                                             app.repository.syncCalendarEvents(events)
                                             val gTasks = GoogleTasksManager.fetchGoogleTasks(context)
-                                            app.repository.syncGoogleTasks(gTasks)
+                                            app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
                                             Toast.makeText(context, "Synced ${events.size} events + ${gTasks.size} tasks", Toast.LENGTH_SHORT).show()
                                         } catch (e: Throwable) {
                                             Toast.makeText(context, "Sync failed: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -357,6 +358,33 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                 checked = syncVoice,
                                 onCheckedChange = {
                                     GoogleTasksManager.setSyncVoiceTasks(context, it)
+                                }
+                            )
+                        }
+
+                        HorizontalDivider()
+
+                        // Auto-delete from app when deleted from Google
+                        val autoDelete by GoogleTasksManager.autoDeleteGoogleTasks.collectAsState()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Auto-delete synced tasks", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "Delete from app when removed from Google Tasks",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                            Switch(
+                                checked = autoDelete,
+                                onCheckedChange = {
+                                    GoogleTasksManager.setAutoDeleteGoogleTasks(context, it)
                                 }
                             )
                         }

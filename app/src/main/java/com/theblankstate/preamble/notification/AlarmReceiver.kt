@@ -51,14 +51,29 @@ class AlarmReceiver : BroadcastReceiver() {
             nm.createNotificationChannel(channel)
         }
 
-        // Build dismiss intent
+        // Dismiss intent — just stops the alarm
         val dismissIntent = Intent(context, AlarmDismissReceiver::class.java).apply {
             putExtra("notification_id", notificationId)
+            putExtra("task_title", taskTitle)
+            action = "DISMISS"
         }
         val dismissPendingIntent = PendingIntent.getBroadcast(
             context,
             notificationId + 1,
             dismissIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Mark Complete intent — stops alarm AND marks task as completed
+        val completeIntent = Intent(context, AlarmDismissReceiver::class.java).apply {
+            putExtra("notification_id", notificationId)
+            putExtra("task_title", taskTitle)
+            action = "COMPLETE"
+        }
+        val completePendingIntent = PendingIntent.getBroadcast(
+            context,
+            notificationId + 2,
+            completeIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
@@ -74,6 +89,7 @@ class AlarmReceiver : BroadcastReceiver() {
             .setOngoing(true)
             .setDefaults(NotificationCompat.DEFAULT_LIGHTS)
             .addAction(R.drawable.ic_launcher_foreground, "Dismiss", dismissPendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "✓ Complete", completePendingIntent)
             .build()
 
         nm.notify(notificationId, notification)

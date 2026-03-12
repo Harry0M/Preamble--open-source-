@@ -11,6 +11,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import androidx.core.app.RemoteInput
 import androidx.core.app.ServiceCompat
@@ -223,10 +224,6 @@ class TaskNotificationService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // ── deleteIntent: fires when user swipes the notification away ──
-        // On Android 16 the notification IS swipeable for specialUse services.
-        // The deleteIntent triggers the receiver which immediately sends
-        // ACTION_RESHOW back to this service → instant re-post.
         val deleteIntent = PendingIntent.getBroadcast(
             this, 1,
             Intent(this, NotificationReceiver::class.java).apply {
@@ -264,14 +261,64 @@ class TaskNotificationService : Service() {
             "$pendingCount task${if (pendingCount > 1) "s" else ""} pending"
         else "All done for today!"
 
+        // ── Collapsed custom view ──
+        val collapsedView = RemoteViews(packageName, R.layout.notification_collapsed)
+        collapsedView.setTextViewText(R.id.notif_title, "Preamble")
+        collapsedView.setTextViewText(R.id.notif_subtitle, contentText)
+
+        // ── Expanded custom view with 2-column task grid ──
+        val expandedView = RemoteViews(packageName, R.layout.notification_expanded)
+        expandedView.setTextViewText(R.id.notif_exp_title, "Pending Tasks")
+        expandedView.setTextViewText(R.id.notif_exp_count, if (pendingCount > 0) "$pendingCount" else "")
+
+        // Left column IDs and right column IDs
+        val leftIds = intArrayOf(
+            R.id.task_left_1, R.id.task_left_2, R.id.task_left_3,
+            R.id.task_left_4, R.id.task_left_5
+        )
+        val rightIds = intArrayOf(
+            R.id.task_right_1, R.id.task_right_2, R.id.task_right_3,
+            R.id.task_right_4, R.id.task_right_5
+        )
+
+        // Hide all task slots first
+        leftIds.forEach { expandedView.setViewVisibility(it, android.view.View.GONE) }
+        rightIds.forEach { expandedView.setViewVisibility(it, android.view.View.GONE) }
+        expandedView.setViewVisibility(R.id.notif_more, android.view.View.GONE)
+        expandedView.setViewVisibility(R.id.notif_empty, android.view.View.GONE)
+
+        if (pendingCount == 0) {
+            expandedView.setViewVisibility(R.id.notif_empty, android.view.View.VISIBLE)
+        } else {
+            // Fill left column (indices 0-4), right column (indices 5-9)
+            val visibleTasks = pendingTasks.take(10)
+            for (i in visibleTasks.indices) {
+                val taskText = "• ${visibleTasks[i].title}"
+                if (i < 5) {
+                    expandedView.setTextViewText(leftIds[i], taskText)
+                    expandedView.setViewVisibility(leftIds[i], android.view.View.VISIBLE)
+                } else {
+                    expandedView.setTextViewText(rightIds[i - 5], taskText)
+                    expandedView.setViewVisibility(rightIds[i - 5], android.view.View.VISIBLE)
+                }
+            }
+            if (pendingCount > 10) {
+                expandedView.setTextViewText(R.id.notif_more, "+${pendingCount - 10} more")
+                expandedView.setViewVisibility(R.id.notif_more, android.view.View.VISIBLE)
+            }
+        }
+
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Preamble")
             .setContentText(contentText)
             .setContentIntent(openIntent)
-            .setDeleteIntent(deleteIntent)          // detect swipe → instant re-show
+            .setDeleteIntent(deleteIntent)
             .addAction(addAction)
             .addAction(voiceAction)
+            .setCustomContentView(collapsedView)
+            .setCustomBigContentView(expandedView)
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
             .setOngoing(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .setSilent(true)
@@ -280,14 +327,6 @@ class TaskNotificationService : Service() {
             .setAutoCancel(false)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-
-        if (pendingCount > 0 && pendingTasks.isNotEmpty()) {
-            val inboxStyle = NotificationCompat.InboxStyle()
-                .setBigContentTitle("Pending Tasks")
-            pendingTasks.take(5).forEach { inboxStyle.addLine("• ${it.title}") }
-            if (pendingCount > 5) inboxStyle.setSummaryText("+${pendingCount - 5} more")
-            builder.setStyle(inboxStyle)
-        }
 
         val notification = builder.build()
         notification.flags = notification.flags or

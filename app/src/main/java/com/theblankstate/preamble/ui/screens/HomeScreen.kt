@@ -62,6 +62,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -80,6 +81,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.ui.components.AddTaskSheet
+import com.theblankstate.preamble.ui.components.EditTaskSheet
 import com.theblankstate.preamble.ui.components.RichDateBadge
 import com.theblankstate.preamble.ui.components.RichDateHeader
 import com.theblankstate.preamble.ui.components.TaskItem
@@ -90,6 +92,13 @@ import kotlin.math.sin
 
 import android.widget.Toast
 import com.theblankstate.preamble.ai.AiChatViewModel
+import android.app.AlarmManager
+import android.content.Context
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.text.font.FontWeight
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -100,11 +109,16 @@ fun HomeScreen(
     onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean) -> Unit,
     onToggleTask: (Task) -> Unit,
     onDeleteTask: (Task) -> Unit,
+    onEditTask: ((Task, String, String?, String?) -> Unit)? = null,
+    onSyncGoogle: (() -> Unit)? = null,
+    isRefreshing: Boolean = false,
     aiChatViewModel: AiChatViewModel? = null,
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
     var taskToDelete by remember { mutableStateOf<Task?>(null) }
+    var taskToEdit by remember { mutableStateOf<Task?>(null) }
+    var showAlarmSheet by remember { mutableStateOf(false) }
     var isVoiceListening by remember { mutableStateOf(false) }
     var voiceText by remember { mutableStateOf("") }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -224,6 +238,14 @@ fun HomeScreen(
                         }
                     },
                     actions = {
+                        // Alarm icon — shows all active alarms
+                        IconButton(onClick = { showAlarmSheet = true }) {
+                            Icon(
+                                imageVector = Icons.Filled.Alarm,
+                                contentDescription = "Alarms"
+                            )
+                        }
+
                         val isTimelineEnabled = ThemePreferences.timelineUi.collectAsState().value
                         IconButton(
                             onClick = { ThemePreferences.setTimelineUi(context, !isTimelineEnabled) }
@@ -312,10 +334,16 @@ fun HomeScreen(
 
             val isTimelineEnabled = ThemePreferences.timelineUi.collectAsState().value
 
-            LazyColumn(
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = { onSyncGoogle?.invoke() },
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding),
+                    .padding(padding)
+            ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -418,6 +446,7 @@ fun HomeScreen(
                                                     task = task,
                                                     onToggle = { onToggleTask(task) },
                                                     onDelete = { taskToDelete = task },
+                                                    onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
                                                     isEditable = true
                                                 )
                                             }
@@ -435,6 +464,7 @@ fun HomeScreen(
                                 task = task,
                                 onToggle = { onToggleTask(task) },
                                 onDelete = { taskToDelete = task },
+                                onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
                                 isEditable = true,
                                 modifier = Modifier.animateItem()
                             )
@@ -622,6 +652,7 @@ fun HomeScreen(
                     color = MaterialTheme.colorScheme.primary
                 )
             }
+            } // PullToRefreshBox
         }
     }
 
@@ -685,6 +716,106 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    // Active alarms bottom sheet
+    if (showAlarmSheet) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        val nextAlarm = alarmManager.nextAlarmClock
+        // Collect all tasks with deadlineTime that are in the future
+        val allTasksWithAlarms = remember(tasks, pastTasks) {
+            val allTasks = mutableListOf<Task>()
+            allTasks.addAll(tasks)
+            pastTasks.values.forEach { allTasks.addAll(it) }
+            val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+            val now = System.currentTimeMillis()
+            allTasks.filter { task ->
+                task.deadlineTime != null && !task.isCompleted && try {
+                    val dt = sdf.parse("${task.createdDate} ${task.deadlineTime}")
+                    dt != null && dt.time > now
+                } catch (_: Exception) { false }
+            }.sortedBy { task ->
+                try { sdf.parse("${task.createdDate} ${task.deadlineTime}")?.time ?: 0L } catch (_: Exception) { 0L }
+            }
+        }
+
+        ModalBottomSheet(
+            onDismissRequest = { showAlarmSheet = false },
+            sheetState = rememberModalBottomSheetState()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp)
+                    .navigationBarsPadding()
+            ) {
+                Text(
+                    "Scheduled Alarms",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+
+                if (nextAlarm != null) {
+                    val nextTime = SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault())
+                        .format(Date(nextAlarm.triggerTime))
+                    Text(
+                        "Next system alarm: $nextTime",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(bottom = 12.dp)
+                    )
+                }
+
+                if (allTasksWithAlarms.isEmpty()) {
+                    Text(
+                        "No upcoming task alarms",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    allTasksWithAlarms.forEach { task ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Filled.Alarm,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
+                                Text(
+                                    task.title,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    "${task.createdDate}  ${task.deadlineTime}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (taskToEdit != null && onEditTask != null) {
+        EditTaskSheet(
+            task = taskToEdit!!,
+            onDismiss = { taskToEdit = null },
+            onUpdateTask = { newTitle, newDate, newDeadlineTime ->
+                onEditTask(taskToEdit!!, newTitle, newDate, newDeadlineTime)
+                taskToEdit = null
+            }
+        )
     }
 }
 

@@ -130,7 +130,7 @@ class MainActivity : ComponentActivity() {
                     val lastTaskSync = com.theblankstate.preamble.sync.GoogleTasksManager.lastSyncTime.value
                     if (now - lastTaskSync > cooldownMs) {
                         val gTasks = com.theblankstate.preamble.sync.GoogleTasksManager.fetchGoogleTasks(this@MainActivity)
-                        app.repository.syncGoogleTasks(gTasks)
+                        app.repository.syncGoogleTasks(gTasks, com.theblankstate.preamble.sync.GoogleTasksManager.autoDeleteGoogleTasks.value)
                         android.util.Log.d("MainActivity", "Auto-synced ${gTasks.size} Google tasks")
                     }
                 }
@@ -227,6 +227,9 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 onAddTask = { title, date, deadlineTime, syncToGoogle -> viewModel.addTask(title, date, deadlineTime, syncToGoogle) },
                 onToggleTask = { viewModel.toggleTask(it) },
                 onDeleteTask = { viewModel.deleteTask(it) },
+                onEditTask = { task, title, date, time -> viewModel.updateTask(task, title, date, time) },
+                onSyncGoogle = { viewModel.syncGoogleData() },
+                isRefreshing = viewModel.isRefreshing.collectAsState().value,
                 aiChatViewModel = aiChatViewModel,
                 modifier = Modifier.padding(innerPadding)
             )

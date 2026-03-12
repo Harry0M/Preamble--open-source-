@@ -34,6 +34,7 @@ object GoogleTasksManager {
     private const val KEY_LINKED = "tasks_linked"
     private const val KEY_LAST_SYNC = "last_tasks_sync_timestamp"
     private const val KEY_SYNC_VOICE = "sync_voice_to_google_tasks"
+    private const val KEY_AUTO_DELETE = "auto_delete_google_tasks"
 
     private val _isLinked = MutableStateFlow(false)
     val isLinked: StateFlow<Boolean> = _isLinked.asStateFlow()
@@ -47,17 +48,27 @@ object GoogleTasksManager {
     private val _syncVoiceTasks = MutableStateFlow(false)
     val syncVoiceTasks: StateFlow<Boolean> = _syncVoiceTasks.asStateFlow()
 
+    private val _autoDeleteGoogleTasks = MutableStateFlow(false)
+    val autoDeleteGoogleTasks: StateFlow<Boolean> = _autoDeleteGoogleTasks.asStateFlow()
+
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _isLinked.value = prefs.getBoolean(KEY_LINKED, false)
         _lastSyncTime.value = prefs.getLong(KEY_LAST_SYNC, 0)
         _syncVoiceTasks.value = prefs.getBoolean(KEY_SYNC_VOICE, false)
+        _autoDeleteGoogleTasks.value = prefs.getBoolean(KEY_AUTO_DELETE, false)
     }
 
     fun setSyncVoiceTasks(context: Context, enabled: Boolean) {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_SYNC_VOICE, enabled).apply()
         _syncVoiceTasks.value = enabled
+    }
+
+    fun setAutoDeleteGoogleTasks(context: Context, enabled: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_AUTO_DELETE, enabled).apply()
+        _autoDeleteGoogleTasks.value = enabled
     }
 
     /**
@@ -86,8 +97,9 @@ object GoogleTasksManager {
 
     /**
      * Fetch all Google Tasks from all task lists and return as app Tasks.
+     * @param updatedAfter If non-null, only fetch tasks updated after this RFC 3339 timestamp (for quick sync)
      */
-    suspend fun fetchGoogleTasks(context: Context): List<Task> = withContext(Dispatchers.IO) {
+    suspend fun fetchGoogleTasks(context: Context, updatedAfter: String? = null): List<Task> = withContext(Dispatchers.IO) {
         val account = GoogleSignIn.getLastSignedInAccount(context)
         if (account == null) {
             Log.e(TAG, "No signed-in account found")
@@ -132,6 +144,11 @@ object GoogleTasksManager {
                             .setShowCompleted(true)
                             .setShowHidden(true)
                             .setPageToken(pageToken)
+
+                        // For quick sync, only fetch tasks updated since last sync
+                        if (updatedAfter != null) {
+                            tasksRequest.updatedMin = updatedAfter
+                        }
 
                         val tasksResult = tasksRequest.execute()
                         val googleTasks = tasksResult.items ?: emptyList()
@@ -195,6 +212,7 @@ object GoogleTasksManager {
 
         // Determine date — Google Tasks due is date-only (no time support)
         // Parse with UTC timezone to avoid date shifting
+        val localSdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         val taskDate: String = if (gTask.due != null) {
             try {
                 // Extract just the date part to avoid timezone shifting
@@ -205,16 +223,19 @@ object GoogleTasksManager {
                 val dueMillis = parseRfc3339Millis(gTask.due) ?: updatedAt
                 utcSdf.format(Date(dueMillis))
             } catch (_: Exception) {
-                sdf.format(Date())
+                localSdf.format(Date())
             }
+        } else if (isCompleted && completedAt != null) {
+            // No due date but completed — show on the date it was completed
+            localSdf.format(Date(completedAt))
         } else {
-            // No due date — show on today's list
-            sdf.format(Date())
+            // No due date, not completed — show on today's list
+            localSdf.format(Date())
         }
 
         return Task(
             id = "gtask_${gTask.id}",
-            title = "✅ $title",
+            title = title,
             isCompleted = isCompleted,
             createdDate = taskDate,
             createdTimestamp = updatedAt,
@@ -306,6 +327,27 @@ object GoogleTasksManager {
      * @param googleTaskId The raw Google Task ID (without "gtask_" prefix)
      * @param completed Whether the task is completed
      */
+    /**
+     * Delete a Google Task by its raw Google Task ID.
+     * @param googleTaskId The raw Google Task ID (without "gtask_" prefix)
+     */
+    suspend fun deleteGoogleTask(
+        context: Context,
+        googleTaskId: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (!_isLinked.value) return@withContext false
+        try {
+            val service = buildTasksService(context) ?: return@withContext false
+            val listId = getDefaultTaskListId(service) ?: return@withContext false
+            service.tasks().delete(listId, googleTaskId).execute()
+            Log.d(TAG, "Deleted Google Task $googleTaskId")
+            true
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to delete Google Task $googleTaskId", e)
+            false
+        }
+    }
+
     suspend fun updateTaskCompletion(
         context: Context,
         googleTaskId: String,

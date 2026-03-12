@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.notification.TaskNotificationManager
 import com.theblankstate.preamble.repository.TaskRepository
+import com.theblankstate.preamble.sync.GoogleCalendarManager
 import com.theblankstate.preamble.sync.GoogleTasksManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -105,6 +106,34 @@ class TaskViewModel(
         refreshStats()
     }
 
+    // ── Pull-to-refresh Google sync ──
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
+
+    fun syncGoogleData() {
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            try {
+                val app = appContext.applicationContext as com.theblankstate.preamble.PreambleApplication
+                // Quick sync: only fetch tasks updated since last sync (incremental)
+                if (GoogleTasksManager.isLinked.value) {
+                    val lastSync = GoogleTasksManager.lastSyncTime.value
+                    val updatedAfter = if (lastSync > 0) {
+                        // RFC 3339 timestamp, 1 second before last sync to avoid missing edge cases
+                        val rfc3339 = com.google.api.client.util.DateTime(lastSync - 1000)
+                        rfc3339.toStringRfc3339()
+                    } else null
+                    val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext, updatedAfter)
+                    app.repository.quickSyncGoogleTasks(gTasks)
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("TaskViewModel", "Pull-to-refresh sync failed", e)
+            } finally {
+                _isRefreshing.value = false
+            }
+        }
+    }
+
     fun refreshStats() {
         // Debounce: cancel previous job, wait 500ms before running
         statsRefreshJob?.cancel()
@@ -128,16 +157,33 @@ class TaskViewModel(
     fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false) {
         if (title.isBlank()) return
         viewModelScope.launch {
-            repository.addTask(title, date, deadlineTime)
+            if (syncToGoogle && GoogleTasksManager.isLinked.value) {
+                // Create on Google first, then save locally with Google Task ID
+                val googleId = GoogleTasksManager.createGoogleTask(appContext, title, date ?: TaskRepository.todayString())
+                if (googleId != null) {
+                    val now = System.currentTimeMillis()
+                    val task = com.theblankstate.preamble.data.Task(
+                        id = "gtask_$googleId",
+                        title = title,
+                        createdDate = date ?: TaskRepository.todayString(),
+                        deadlineTime = deadlineTime,
+                        createdTimestamp = now,
+                        updatedTimestamp = now,
+                        source = "google_tasks"
+                    )
+                    repository.insertTask(task)
+                } else {
+                    // Google create failed — save locally only
+                    repository.addTask(title, date, deadlineTime)
+                }
+            } else {
+                repository.addTask(title, date, deadlineTime)
+            }
             if (deadlineTime != null) {
                 val taskDate = date ?: TaskRepository.todayString()
                 com.theblankstate.preamble.notification.TaskAlarmManager.scheduleAlarm(
                     appContext, title, taskDate, deadlineTime
                 )
-            }
-            // Sync to Google Tasks if requested
-            if (syncToGoogle && GoogleTasksManager.isLinked.value) {
-                GoogleTasksManager.createGoogleTask(appContext, title, date ?: TaskRepository.todayString())
             }
             refreshStats()
         }
@@ -159,7 +205,43 @@ class TaskViewModel(
 
     fun deleteTask(task: Task) {
         viewModelScope.launch {
+            // Cancel alarm if task had a deadline
+            if (task.deadlineTime != null) {
+                com.theblankstate.preamble.notification.TaskAlarmManager.cancelAlarm(
+                    appContext, task.title, task.createdDate, task.deadlineTime
+                )
+            }
             repository.deleteTask(task)
+            // Delete from Google Tasks if it's a synced task
+            if (task.source == "google_tasks" && task.id.startsWith("gtask_")) {
+                val googleId = task.id.removePrefix("gtask_")
+                GoogleTasksManager.deleteGoogleTask(appContext, googleId)
+            }
+            refreshStats()
+        }
+    }
+
+    fun updateTask(task: Task, newTitle: String, newDate: String?, newDeadlineTime: String?) {
+        viewModelScope.launch {
+            // Cancel old alarm if task had a deadline
+            if (task.deadlineTime != null) {
+                com.theblankstate.preamble.notification.TaskAlarmManager.cancelAlarm(
+                    appContext, task.title, task.createdDate, task.deadlineTime
+                )
+            }
+            val updated = task.copy(
+                title = newTitle,
+                createdDate = newDate ?: task.createdDate,
+                deadlineTime = newDeadlineTime,
+                updatedTimestamp = System.currentTimeMillis()
+            )
+            repository.updateTask(updated)
+            // Schedule new alarm if deadline is set
+            if (newDeadlineTime != null) {
+                com.theblankstate.preamble.notification.TaskAlarmManager.scheduleAlarm(
+                    appContext, newTitle, updated.createdDate, newDeadlineTime
+                )
+            }
             refreshStats()
         }
     }

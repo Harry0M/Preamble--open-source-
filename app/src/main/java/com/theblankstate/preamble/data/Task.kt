@@ -15,7 +15,9 @@ data class Task(
     val completedTimestamp: Long? = null,
     val deadlineTime: String? = null,
     val updatedTimestamp: Long = System.currentTimeMillis(),
-    val source: String = "local"  // "local" or "google_calendar"
+    val source: String = "local",  // "local", "google_calendar", "google_tasks"
+    val deletedFromGoogle: Boolean = false
 ) {
     val isCalendarEvent: Boolean get() = source == "google_calendar"
+    val isGoogleTask: Boolean get() = source == "google_tasks"
 }

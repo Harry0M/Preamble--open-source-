@@ -12,6 +12,48 @@ object TaskAlarmManager {
 
     private const val TAG = "TaskAlarmManager"
 
+    /**
+     * Cancel a scheduled alarm for a task.
+     * Uses the same requestCode calculation as scheduleAlarm to find the right PendingIntent.
+     */
+    fun cancelAlarm(context: Context, taskTitle: String, taskDate: String, deadlineTime: String) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+        val timeParts = deadlineTime.split(":")
+        if (timeParts.size != 2) return
+        val hour = timeParts[0].toIntOrNull() ?: return
+        val minute = timeParts[1].toIntOrNull() ?: return
+
+        val dateParts = taskDate.split("-")
+        if (dateParts.size != 3) return
+        val year = dateParts[0].toIntOrNull() ?: return
+        val month = dateParts[1].toIntOrNull() ?: return
+        val day = dateParts[2].toIntOrNull() ?: return
+
+        val cal = Calendar.getInstance().apply {
+            set(Calendar.YEAR, year)
+            set(Calendar.MONTH, month - 1)
+            set(Calendar.DAY_OF_MONTH, day)
+            set(Calendar.HOUR_OF_DAY, hour)
+            set(Calendar.MINUTE, minute)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val triggerTime = cal.timeInMillis
+
+        val intent = Intent(context, AlarmReceiver::class.java)
+        val requestCode = (taskTitle.hashCode() xor triggerTime.toInt()) and 0x7FFFFFFF
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, requestCode, intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
+        if (pendingIntent != null) {
+            alarmManager.cancel(pendingIntent)
+            pendingIntent.cancel()
+            Log.d(TAG, "Alarm cancelled for '$taskTitle' (requestCode=$requestCode)")
+        }
+    }
+
     fun scheduleAlarm(context: Context, taskTitle: String, taskDate: String, deadlineTime: String) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
