@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -55,6 +56,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -85,10 +87,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.theblankstate.preamble.data.Task
+import com.theblankstate.preamble.data.PredefinedTags
 import com.theblankstate.preamble.ui.components.AddTaskSheet
 import com.theblankstate.preamble.ui.components.EditTaskSheet
 import com.theblankstate.preamble.ui.components.RichDateBadge
 import com.theblankstate.preamble.ui.components.RichDateHeader
+import com.theblankstate.preamble.ui.components.EisenhowerGrid
+import com.theblankstate.preamble.ui.components.SubtaskList
+import com.theblankstate.preamble.ui.components.SwipeableTaskItem
 import com.theblankstate.preamble.ui.components.TaskItem
 import com.theblankstate.preamble.ui.components.PomodoroSheet
 import com.theblankstate.preamble.pomodoro.PomodoroTimerService
@@ -104,6 +110,7 @@ import android.app.AlarmManager
 import android.content.Context
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -115,10 +122,10 @@ fun HomeScreen(
     tasks: List<Task>,
     pastTasks: Map<String, List<Task>> = emptyMap(),
     streak: Int,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, priority: Int, description: String?) -> Unit,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, priority: Int, description: String?, tags: String?) -> Unit,
     onToggleTask: (Task) -> Unit,
     onDeleteTask: (Task) -> Unit,
-    onEditTask: ((Task, String, String?, String?, Int, String?) -> Unit)? = null,
+    onEditTask: ((Task, String, String?, String?, Int, String?, String?) -> Unit)? = null,
     onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?) -> Unit)? = null,
     onSyncGoogle: (() -> Unit)? = null,
     isRefreshing: Boolean = false,
@@ -126,9 +133,18 @@ fun HomeScreen(
     searchQuery: String = "",
     searchResults: List<Task> = emptyList(),
     onSearchQueryChanged: (String) -> Unit = {},
+    onUpdateTaskPriority: ((Task, Int) -> Unit)? = null,
+    subtaskCounts: Map<String, Pair<Int, Int>> = emptyMap(),
+    expandedTasks: Set<String> = emptySet(),
+    onToggleTaskExpanded: ((String) -> Unit)? = null,
+    onAddSubtask: ((String, String) -> Unit)? = null,
+    subtasksProvider: ((String) -> kotlinx.coroutines.flow.Flow<List<Task>>)? = null,
+    selectedTagFilter: String? = null,
+    onTagFilterChanged: ((String?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
+    var showEisenhowerView by remember { mutableStateOf(false) }
     var taskToDelete by remember { mutableStateOf<Task?>(null) }
     var taskToEdit by remember { mutableStateOf<Task?>(null) }
     var showAlarmSheet by remember { mutableStateOf(false) }
@@ -175,7 +191,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false, 0, null)
+                        onAddTask(spoken, null, null, false, 0, null, null)
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -224,7 +240,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false, 0, null)
+                        onAddTask(spoken, null, null, false, 0, null, null)
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -272,6 +288,16 @@ fun HomeScreen(
                             Icon(
                                 imageVector = Icons.Filled.Alarm,
                                 contentDescription = "Alarms"
+                            )
+                        }
+
+                        // Eisenhower Matrix toggle
+                        IconButton(onClick = { showEisenhowerView = !showEisenhowerView }) {
+                            Icon(
+                                imageVector = Icons.Filled.GridView,
+                                contentDescription = "Eisenhower Matrix",
+                                tint = if (showEisenhowerView) MaterialTheme.colorScheme.primary
+                                       else MaterialTheme.colorScheme.onSurface
                             )
                         }
 
@@ -415,6 +441,33 @@ fun HomeScreen(
                     )
                 }
 
+                // Tag filter chips
+                if (onTagFilterChanged != null && !isSearchActive) {
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        item {
+                            FilterChip(
+                                selected = selectedTagFilter == null,
+                                onClick = { onTagFilterChanged(null) },
+                                label = { Text("All", style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                        items(PredefinedTags.tags) { tag ->
+                            FilterChip(
+                                selected = selectedTagFilter == tag.name,
+                                onClick = {
+                                    onTagFilterChanged(if (selectedTagFilter == tag.name) null else tag.name)
+                                },
+                                label = { Text(tag.name, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                    }
+                }
+
             if (isSearchActive && searchQuery.isNotBlank()) {
                 // Show search results
                 LazyColumn(
@@ -431,10 +484,10 @@ fun HomeScreen(
                         )
                     }
                     items(searchResults, key = { it.id }) { task ->
-                        TaskItem(
+                        SwipeableTaskItem(
                             task = task,
                             onToggle = { onToggleTask(task) },
-                            onDelete = { onDeleteTask(task) },
+                            onDelete = { taskToDelete = task },
                             onEdit = if (onEditTask != null) {
                                 { taskToEdit = task }
                             } else null,
@@ -443,10 +496,32 @@ fun HomeScreen(
                                 pomodoroTaskTitle = task.title
                                 showPomodoroSheet = true
                             },
-                            isEditable = true
+                            isEditable = true,
+                            subtaskCount = subtaskCounts[task.id],
+                            isExpanded = expandedTasks.contains(task.id),
+                            onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } }
                         )
+                        // Show subtasks when expanded
+                        if (expandedTasks.contains(task.id) && subtasksProvider != null) {
+                            val subtasks by subtasksProvider(task.id).collectAsState(initial = emptyList())
+                            SubtaskList(
+                                subtasks = subtasks,
+                                onToggleSubtask = { onToggleTask(it) },
+                                onAddSubtask = { title -> onAddSubtask?.invoke(task.id, title) },
+                                onDeleteSubtask = { onDeleteTask(it) }
+                            )
+                        }
                     }
                 }
+            } else if (showEisenhowerView) {
+                EisenhowerGrid(
+                    tasks = tasks,
+                    onToggleTask = onToggleTask,
+                    onUpdatePriority = { task, priority ->
+                        onUpdateTaskPriority?.invoke(task, priority)
+                    },
+                    modifier = Modifier.fillMaxSize()
+                )
             } else {
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
@@ -557,7 +632,7 @@ fun HomeScreen(
                                         // Today's tasks: show all inside card with key{} for smart recomposition skipping
                                         tasks.forEach { task ->
                                             key(task.id) {
-                                                TaskItem(
+                                                SwipeableTaskItem(
                                                     task = task,
                                                     onToggle = { onToggleTask(task) },
                                                     onDelete = { taskToDelete = task },
@@ -567,8 +642,21 @@ fun HomeScreen(
                                                         pomodoroTaskTitle = task.title
                                                         showPomodoroSheet = true
                                                     },
-                                                    isEditable = true
+                                                    isEditable = true,
+                                                    subtaskCount = subtaskCounts[task.id],
+                                                    isExpanded = expandedTasks.contains(task.id),
+                                                    onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } }
                                                 )
+                                                // Show subtasks when expanded
+                                                if (expandedTasks.contains(task.id) && subtasksProvider != null) {
+                                                    val subtasks by subtasksProvider(task.id).collectAsState(initial = emptyList())
+                                                    SubtaskList(
+                                                        subtasks = subtasks,
+                                                        onToggleSubtask = { onToggleTask(it) },
+                                                        onAddSubtask = { title -> onAddSubtask?.invoke(task.id, title) },
+                                                        onDeleteSubtask = { onDeleteTask(it) }
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -580,19 +668,34 @@ fun HomeScreen(
                             items = tasks,
                             key = { it.id }
                         ) { task ->
-                            TaskItem(
-                                task = task,
-                                onToggle = { onToggleTask(task) },
-                                onDelete = { taskToDelete = task },
-                                onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
-                                onStartPomodoro = {
-                                    pomodoroTaskId = task.id
-                                    pomodoroTaskTitle = task.title
-                                    showPomodoroSheet = true
-                                },
-                                isEditable = true,
-                                modifier = Modifier.animateItem()
-                            )
+                            Column {
+                                SwipeableTaskItem(
+                                    task = task,
+                                    onToggle = { onToggleTask(task) },
+                                    onDelete = { taskToDelete = task },
+                                    onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
+                                    onStartPomodoro = {
+                                        pomodoroTaskId = task.id
+                                        pomodoroTaskTitle = task.title
+                                        showPomodoroSheet = true
+                                    },
+                                    isEditable = true,
+                                    modifier = Modifier.animateItem(),
+                                    subtaskCount = subtaskCounts[task.id],
+                                    isExpanded = expandedTasks.contains(task.id),
+                                    onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } }
+                                )
+                                // Show subtasks when expanded
+                                if (expandedTasks.contains(task.id) && subtasksProvider != null) {
+                                    val subtasks by subtasksProvider(task.id).collectAsState(initial = emptyList())
+                                    SubtaskList(
+                                        subtasks = subtasks,
+                                        onToggleSubtask = { onToggleTask(it) },
+                                        onAddSubtask = { title -> onAddSubtask?.invoke(task.id, title) },
+                                        onDeleteSubtask = { onDeleteTask(it) }
+                                    )
+                                }
+                            }
                         }
                     }
                 } else {
@@ -786,8 +889,8 @@ fun HomeScreen(
     if (showAddSheet) {
         AddTaskSheet(
             onDismiss = { showAddSheet = false },
-            onAddTask = { title, date, deadlineTime, syncToGoogle, priority, description ->
-                onAddTask(title, date, deadlineTime, syncToGoogle, priority, description)
+            onAddTask = { title, date, deadlineTime, syncToGoogle, priority, description, tags ->
+                onAddTask(title, date, deadlineTime, syncToGoogle, priority, description, tags)
                 showAddSheet = false
             },
             onAddRecurringTask = if (onAddRecurringTask != null) { { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate ->
@@ -943,8 +1046,8 @@ fun HomeScreen(
         EditTaskSheet(
             task = taskToEdit!!,
             onDismiss = { taskToEdit = null },
-            onUpdateTask = { newTitle, newDate, newDeadlineTime, newPriority, newDescription ->
-                onEditTask(taskToEdit!!, newTitle, newDate, newDeadlineTime, newPriority, newDescription)
+            onUpdateTask = { newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags ->
+                onEditTask(taskToEdit!!, newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags)
                 taskToEdit = null
             }
         )

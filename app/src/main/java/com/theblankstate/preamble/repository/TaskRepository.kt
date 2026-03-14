@@ -24,7 +24,7 @@ class TaskRepository(
 
     fun getTotalCount(): Flow<Int> = dao.getTotalTasksCount()
 
-    suspend fun addTask(title: String, date: String? = null, deadlineTime: String? = null, priority: Int = 0, description: String? = null): Task {
+    suspend fun addTask(title: String, date: String? = null, deadlineTime: String? = null, priority: Int = 0, description: String? = null, tags: String? = null): Task {
         val taskDate = date ?: todayString()
         val now = System.currentTimeMillis()
         val task = Task(
@@ -34,7 +34,8 @@ class TaskRepository(
             createdTimestamp = now,
             updatedTimestamp = now,
             priority = priority,
-            description = description
+            description = description,
+            tags = tags
         )
         dao.insertTask(task)
         syncManager?.pushTask(task)
@@ -62,11 +63,39 @@ class TaskRepository(
     }
 
     suspend fun deleteTask(task: Task) {
+        // Cascade delete subtasks if this task has any
+        dao.deleteAllSubtasks(task.id)
         dao.deleteTask(task)
         syncManager?.deleteTask(task.id)
     }
 
     fun searchTasks(query: String): Flow<List<Task>> = dao.searchTasks(query)
+
+    // ── Subtask methods ──
+
+    fun getSubtasksForParent(parentId: String): Flow<List<Task>> = dao.getSubtasksForParent(parentId)
+
+    suspend fun addSubtask(parentId: String, title: String): Task {
+        val now = System.currentTimeMillis()
+        val parent = dao.getAllTasks().find { it.id == parentId } ?: error("Parent not found")
+        val subtask = Task(
+            title = title,
+            createdDate = parent.createdDate,
+            createdTimestamp = now,
+            updatedTimestamp = now,
+            parentTaskId = parentId
+        )
+        dao.insertTask(subtask)
+        syncManager?.pushTask(subtask)
+        return subtask
+    }
+
+    suspend fun getSubtaskStats(parentIds: List<String>): Map<String, Pair<Int, Int>> {
+        if (parentIds.isEmpty()) return emptyMap()
+        return dao.getSubtaskStatsForParents(parentIds).associate {
+            it.parentTaskId to (it.completed to it.total)
+        }
+    }
 
     suspend fun addRecurringTask(
         title: String,

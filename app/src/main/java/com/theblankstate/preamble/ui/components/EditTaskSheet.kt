@@ -51,13 +51,14 @@ import java.util.Locale
 fun EditTaskSheet(
     task: Task,
     onDismiss: () -> Unit,
-    onUpdateTask: (newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int, newDescription: String?) -> Unit
+    onUpdateTask: (newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int, newDescription: String?, newTags: String?) -> Unit
 ) {
     var taskTitle by remember { mutableStateOf(task.title) }
     var taskDescription by remember { mutableStateOf(task.description ?: "") }
     var selectedTime by remember { mutableStateOf(task.deadlineTime) }
     var selectedDate by remember { mutableStateOf<String?>(task.createdDate) }
     var selectedPriority by remember { mutableStateOf(task.priority) }
+    var selectedTags by remember { mutableStateOf(task.tagList.toSet()) }
     var recurrenceType by remember { mutableStateOf(task.recurrenceType) }
     var recurrenceInterval by remember { mutableStateOf(task.recurrenceInterval ?: 1) }
     var recurrenceDays by remember { mutableStateOf(
@@ -158,6 +159,14 @@ fun EditTaskSheet(
                 shape = MaterialTheme.shapes.medium
             )
 
+            // Tags picker
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Tags", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(bottom = 4.dp))
+            TagPicker(
+                selectedTags = selectedTags,
+                onTagsChanged = { selectedTags = it }
+            )
+
             // Recurrence picker (shown for template tasks or editable tasks)
             if (task.isRecurrenceTemplate || task.recurrenceParentId == null) {
                 Spacer(modifier = Modifier.height(8.dp))
@@ -181,7 +190,8 @@ fun EditTaskSheet(
                             selectedDate,
                             selectedTime,
                             selectedPriority,
-                            taskDescription.trim().ifBlank { null }
+                            taskDescription.trim().ifBlank { null },
+                            if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null
                         )
                     }
                 },

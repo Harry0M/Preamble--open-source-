@@ -224,10 +224,10 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 tasks = tasks,
                 pastTasks = pastTasks,
                 streak = stats.streak,
-                onAddTask = { title, date, deadlineTime, syncToGoogle, priority, description -> viewModel.addTask(title, date, deadlineTime, syncToGoogle, priority, description) },
+                onAddTask = { title, date, deadlineTime, syncToGoogle, priority, description, tags -> viewModel.addTask(title, date, deadlineTime, syncToGoogle, priority, description, tags) },
                 onToggleTask = { viewModel.toggleTask(it) },
                 onDeleteTask = { viewModel.deleteTask(it) },
-                onEditTask = { task, title, date, time, priority, description -> viewModel.updateTask(task, title, date, time, priority, description) },
+                onEditTask = { task, title, date, time, priority, description, tags -> viewModel.updateTask(task, title, date, time, priority, description, tags) },
                 onAddRecurringTask = { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate ->
                     viewModel.addRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate)
                 },
@@ -237,6 +237,14 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 searchQuery = viewModel.searchQuery.collectAsState().value,
                 searchResults = viewModel.searchResults.collectAsState().value,
                 onSearchQueryChanged = { viewModel.setSearchQuery(it) },
+                onUpdateTaskPriority = { task, priority -> viewModel.updateTaskPriority(task, priority) },
+                subtaskCounts = viewModel.subtaskCounts.collectAsState().value,
+                expandedTasks = viewModel.expandedTasks.collectAsState().value,
+                onToggleTaskExpanded = { viewModel.toggleTaskExpanded(it) },
+                onAddSubtask = { parentId, title -> viewModel.addSubtask(parentId, title) },
+                subtasksProvider = { taskId -> viewModel.getSubtasksForTask(taskId) },
+                selectedTagFilter = viewModel.selectedTagFilter.collectAsState().value,
+                onTagFilterChanged = { viewModel.setTagFilter(it) },
                 modifier = Modifier.padding(innerPadding)
             )
             1 -> StatsScreen(

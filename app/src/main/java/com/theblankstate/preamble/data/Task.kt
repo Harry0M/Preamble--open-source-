@@ -23,10 +23,14 @@ data class Task(
     val recurrenceInterval: Int? = null,       // every N units
     val recurrenceDays: String? = null,        // comma-separated Calendar.DAY_OF_WEEK values e.g. "2,4,6"
     val recurrenceEndDate: String? = null,     // "yyyy-MM-dd"
-    val recurrenceParentId: String? = null     // ID of template task that generated this instance
+    val recurrenceParentId: String? = null,    // ID of template task that generated this instance
+    val parentTaskId: String? = null,          // ID of parent task (for subtasks)
+    val tags: String? = null                   // Comma-separated tag names e.g. "work,personal"
 ) {
     val isCalendarEvent: Boolean get() = source == "google_calendar"
     val isGoogleTask: Boolean get() = source == "google_tasks"
     val isRecurrenceTemplate: Boolean get() = recurrenceType != null && recurrenceParentId == null
     val isRecurrenceInstance: Boolean get() = recurrenceParentId != null
+    val isSubtask: Boolean get() = parentTaskId != null
+    val tagList: List<String> get() = tags?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
 }

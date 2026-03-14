@@ -305,7 +305,9 @@ data class RemoteTask(
     var recurrenceInterval: Int? = null,
     var recurrenceDays: String? = null,
     var recurrenceEndDate: String? = null,
-    var recurrenceParentId: String? = null
+    var recurrenceParentId: String? = null,
+    var parentTaskId: String? = null,
+    var tags: String? = null
 ) {
     fun toLocal(fallbackId: String): Task? {
         val resolvedId = id.ifBlank { fallbackId }
@@ -330,7 +332,9 @@ data class RemoteTask(
             recurrenceInterval = recurrenceInterval,
             recurrenceDays = recurrenceDays,
             recurrenceEndDate = recurrenceEndDate,
-            recurrenceParentId = recurrenceParentId
+            recurrenceParentId = recurrenceParentId,
+            parentTaskId = parentTaskId,
+            tags = tags
         )
     }
 
@@ -352,7 +356,9 @@ data class RemoteTask(
                 recurrenceInterval = task.recurrenceInterval,
                 recurrenceDays = task.recurrenceDays,
                 recurrenceEndDate = task.recurrenceEndDate,
-                recurrenceParentId = task.recurrenceParentId
+                recurrenceParentId = task.recurrenceParentId,
+                parentTaskId = task.parentTaskId,
+                tags = task.tags
             )
         }
     }

@@ -9,6 +9,7 @@ import com.theblankstate.preamble.notification.TaskNotificationManager
 import com.theblankstate.preamble.repository.TaskRepository
 import com.theblankstate.preamble.sync.GoogleCalendarManager
 import com.theblankstate.preamble.sync.GoogleTasksManager
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -44,6 +45,17 @@ class TaskViewModel(
 
     val todayTasks: StateFlow<List<Task>> = repository.getTasksForDate(today)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Subtask state
+    private val _subtaskCounts = MutableStateFlow<Map<String, Pair<Int, Int>>>(emptyMap())
+    val subtaskCounts: StateFlow<Map<String, Pair<Int, Int>>> = _subtaskCounts.asStateFlow()
+
+    private val _expandedTasks = MutableStateFlow<Set<String>>(emptySet())
+    val expandedTasks: StateFlow<Set<String>> = _expandedTasks.asStateFlow()
+
+    // Tag filter
+    private val _selectedTagFilter = MutableStateFlow<String?>(null)
+    val selectedTagFilter: StateFlow<String?> = _selectedTagFilter.asStateFlow()
 
     private val past10Dates = (1..10).map { i ->
         val cal = java.util.Calendar.getInstance()
@@ -122,6 +134,14 @@ class TaskViewModel(
         }
 
         refreshStats()
+
+        // Subtask count tracking
+        viewModelScope.launch {
+            todayTasks.collect { tasks ->
+                val parentIds = tasks.map { it.id }
+                _subtaskCounts.value = repository.getSubtaskStats(parentIds)
+            }
+        }
 
         // Auto-sync Google data on app launch (with 60s cooldown)
         autoSyncOnLaunch()
@@ -206,7 +226,7 @@ class TaskViewModel(
         }
     }
 
-    fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false, priority: Int = 0, description: String? = null) {
+    fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false, priority: Int = 0, description: String? = null, tags: String? = null) {
         if (title.isBlank()) return
         viewModelScope.launch {
             if (syncToGoogle && GoogleTasksManager.isLinked.value) {
@@ -223,15 +243,15 @@ class TaskViewModel(
                         updatedTimestamp = now,
                         source = "google_tasks",
                         priority = priority,
-                        description = description
+                        description = description,
+                        tags = tags
                     )
                     repository.insertTask(task)
                 } else {
-                    // Google create failed — save locally only
-                    repository.addTask(title, date, deadlineTime, priority, description)
+                    repository.addTask(title, date, deadlineTime, priority, description, tags)
                 }
             } else {
-                repository.addTask(title, date, deadlineTime, priority, description)
+                repository.addTask(title, date, deadlineTime, priority, description, tags)
             }
             if (deadlineTime != null) {
                 val taskDate = date ?: TaskRepository.todayString()
@@ -275,7 +295,7 @@ class TaskViewModel(
         }
     }
 
-    fun updateTask(task: Task, newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int = task.priority, newDescription: String? = task.description) {
+    fun updateTask(task: Task, newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int = task.priority, newDescription: String? = task.description, newTags: String? = task.tags) {
         viewModelScope.launch {
             // Cancel old alarm if task had a deadline
             if (task.deadlineTime != null) {
@@ -289,7 +309,8 @@ class TaskViewModel(
                 deadlineTime = newDeadlineTime,
                 updatedTimestamp = System.currentTimeMillis(),
                 priority = newPriority,
-                description = newDescription
+                description = newDescription,
+                tags = newTags
             )
             repository.updateTask(updated)
             // Sync title/date edits back to Google Tasks
@@ -305,6 +326,17 @@ class TaskViewModel(
                     appContext, newTitle, updated.createdDate, newDeadlineTime
                 )
             }
+            refreshStats()
+        }
+    }
+
+    fun updateTaskPriority(task: Task, newPriority: Int) {
+        viewModelScope.launch {
+            val updated = task.copy(
+                priority = newPriority,
+                updatedTimestamp = System.currentTimeMillis()
+            )
+            repository.updateTask(updated)
             refreshStats()
         }
     }
@@ -338,6 +370,34 @@ class TaskViewModel(
     private fun triggerRecurrenceGeneration() {
         val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.recurrence.RecurrenceWorker>().build()
         androidx.work.WorkManager.getInstance(appContext).enqueue(workRequest)
+    }
+
+    // ── Subtask methods ──
+
+    fun toggleTaskExpanded(taskId: String) {
+        _expandedTasks.update { current ->
+            if (taskId in current) current - taskId else current + taskId
+        }
+    }
+
+    fun getSubtasksForTask(taskId: String): Flow<List<Task>> {
+        return repository.getSubtasksForParent(taskId)
+    }
+
+    fun addSubtask(parentId: String, title: String) {
+        if (title.isBlank()) return
+        viewModelScope.launch {
+            repository.addSubtask(parentId, title)
+            val parentIds = todayTasks.value.map { it.id }
+            _subtaskCounts.value = repository.getSubtaskStats(parentIds)
+            refreshStats()
+        }
+    }
+
+    // ── Tag methods ──
+
+    fun setTagFilter(tag: String?) {
+        _selectedTagFilter.value = tag
     }
 
     class Factory(

@@ -41,6 +41,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SelectableDates
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -66,6 +68,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.theblankstate.preamble.sync.GoogleTasksManager
 import com.theblankstate.preamble.ai.AiChatViewModel
+import com.theblankstate.preamble.util.NaturalDateParser
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -76,7 +79,7 @@ import kotlin.math.sin
 @Composable
 fun AddTaskSheet(
     onDismiss: () -> Unit,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, priority: Int, description: String?) -> Unit,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, priority: Int, description: String?, tags: String?) -> Unit,
     onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?) -> Unit)? = null,
     aiChatViewModel: AiChatViewModel? = null
 ) {
@@ -85,6 +88,7 @@ fun AddTaskSheet(
     var selectedTime by remember { mutableStateOf<String?>(null) }
     var selectedDate by remember { mutableStateOf<String?>(null) }
     var selectedPriority by remember { mutableStateOf(0) }
+    var selectedTags by remember { mutableStateOf<Set<String>>(emptySet()) }
     var syncToGoogle by remember { mutableStateOf(false) }
     var recurrenceType by remember { mutableStateOf<String?>(null) }
     var recurrenceInterval by remember { mutableStateOf(1) }
@@ -244,6 +248,36 @@ fun AddTaskSheet(
                 )
             }
 
+            // NLP date/time suggestion chips
+            val parsedDateTime = remember(taskTitle) { NaturalDateParser.parse(taskTitle) }
+            AnimatedVisibility(visible = parsedDateTime != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (parsedDateTime?.date != null) {
+                        SuggestionChip(
+                            onClick = {
+                                selectedDate = parsedDateTime.date
+                                taskTitle = parsedDateTime.cleanedTitle
+                            },
+                            label = { Text(parsedDateTime.date, style = MaterialTheme.typography.labelSmall) },
+                            icon = { Icon(Icons.Default.DateRange, null, Modifier.size(16.dp)) }
+                        )
+                    }
+                    if (parsedDateTime?.time != null) {
+                        SuggestionChip(
+                            onClick = {
+                                selectedTime = parsedDateTime.time
+                                taskTitle = parsedDateTime.cleanedTitle
+                            },
+                            label = { Text(parsedDateTime.time, style = MaterialTheme.typography.labelSmall) },
+                            icon = { Icon(Icons.Default.Notifications, null, Modifier.size(16.dp)) }
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -295,6 +329,14 @@ fun AddTaskSheet(
                 minLines = 2,
                 maxLines = 4,
                 shape = MaterialTheme.shapes.medium
+            )
+
+            // Tags picker
+            Spacer(modifier = Modifier.height(8.dp))
+            Text("Tags", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(bottom = 4.dp))
+            TagPicker(
+                selectedTags = selectedTags,
+                onTagsChanged = { selectedTags = it }
             )
 
             // Recurrence picker
@@ -356,7 +398,8 @@ fun AddTaskSheet(
                                 selectedTime,
                                 syncToGoogle,
                                 selectedPriority,
-                                desc
+                                desc,
+                                if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null
                             )
                         }
                     }

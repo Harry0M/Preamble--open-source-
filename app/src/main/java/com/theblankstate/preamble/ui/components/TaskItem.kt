@@ -3,21 +3,30 @@ package com.theblankstate.preamble.ui.components
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.shape.CircleShape as FoundationCircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.MoreVert
@@ -25,11 +34,19 @@ import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +61,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.theblankstate.preamble.data.PredefinedTags
 import com.theblankstate.preamble.data.Task
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -57,6 +75,9 @@ fun TaskItem(
     onEdit: (() -> Unit)? = null,
     onStartPomodoro: (() -> Unit)? = null,
     isEditable: Boolean = true,
+    subtaskCount: Pair<Int, Int>? = null,
+    isExpanded: Boolean = false,
+    onToggleExpand: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val cardAlpha by animateFloatAsState(
@@ -180,6 +201,62 @@ fun TaskItem(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary
                     )
+                }
+            }
+
+            // Subtask count indicator
+            if (subtaskCount != null && subtaskCount.second > 0) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .padding(top = 2.dp)
+                        .clickable { onToggleExpand?.invoke() }
+                ) {
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = "Expand subtasks",
+                        modifier = Modifier.size(16.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "${subtaskCount.first}/${subtaskCount.second} steps",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    LinearProgressIndicator(
+                        progress = { subtaskCount.first.toFloat() / subtaskCount.second },
+                        modifier = Modifier.weight(1f).padding(start = 8.dp).height(4.dp),
+                    )
+                }
+            }
+
+            // Tag chips
+            if (!task.tags.isNullOrBlank()) {
+                Row(
+                    modifier = Modifier.padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    task.tagList.take(3).forEach { tag ->
+                        Surface(
+                            shape = RoundedCornerShape(4.dp),
+                            color = PredefinedTags.colorForTag(tag).copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = tag,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = PredefinedTags.colorForTag(tag),
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                    if (task.tagList.size > 3) {
+                        Text(
+                            text = "+${task.tagList.size - 3}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
@@ -314,6 +391,187 @@ fun TaskItem(
                     )
                 }
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SwipeableTaskItem(
+    task: Task,
+    onToggle: () -> Unit,
+    onDelete: () -> Unit,
+    onEdit: (() -> Unit)? = null,
+    onStartPomodoro: (() -> Unit)? = null,
+    isEditable: Boolean = true,
+    subtaskCount: Pair<Int, Int>? = null,
+    isExpanded: Boolean = false,
+    onToggleExpand: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
+) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> {
+                    onToggle()
+                    false // reset immediately
+                }
+                SwipeToDismissBoxValue.EndToStart -> {
+                    onDelete()
+                    false // reset immediately
+                }
+                SwipeToDismissBoxValue.Settled -> false
+            }
+        }
+    )
+
+    if (!isEditable) {
+        TaskItem(
+            task = task,
+            onToggle = onToggle,
+            onDelete = onDelete,
+            onEdit = onEdit,
+            onStartPomodoro = onStartPomodoro,
+            isEditable = false,
+            subtaskCount = subtaskCount,
+            isExpanded = isExpanded,
+            onToggleExpand = onToggleExpand,
+            modifier = modifier
+        )
+        return
+    }
+
+    SwipeToDismissBox(
+        state = dismissState,
+        modifier = modifier,
+        backgroundContent = {
+            val direction = dismissState.dismissDirection
+            val color = when (direction) {
+                SwipeToDismissBoxValue.StartToEnd -> Color(0xFF4CAF50) // Green for complete
+                SwipeToDismissBoxValue.EndToStart -> Color(0xFFEF4444) // Red for delete
+                else -> Color.Transparent
+            }
+            val alignment = when (direction) {
+                SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
+                SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
+                else -> Alignment.Center
+            }
+            val icon = when (direction) {
+                SwipeToDismissBoxValue.StartToEnd -> Icons.Default.CheckCircle
+                SwipeToDismissBoxValue.EndToStart -> Icons.Default.Delete
+                else -> Icons.Default.CheckCircle
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(color.copy(alpha = 0.2f))
+                    .padding(horizontal = 20.dp),
+                contentAlignment = alignment
+            ) {
+                if (direction != SwipeToDismissBoxValue.Settled) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = color,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
+            }
+        },
+        enableDismissFromStartToEnd = !task.isCompleted,
+        enableDismissFromEndToStart = true
+    ) {
+        TaskItem(
+            task = task,
+            onToggle = onToggle,
+            onDelete = onDelete,
+            onEdit = onEdit,
+            onStartPomodoro = onStartPomodoro,
+            isEditable = true,
+            subtaskCount = subtaskCount,
+            isExpanded = isExpanded,
+            onToggleExpand = onToggleExpand
+        )
+    }
+}
+
+@Composable
+fun SubtaskList(
+    subtasks: List<Task>,
+    onToggleSubtask: (Task) -> Unit,
+    onAddSubtask: (String) -> Unit,
+    onDeleteSubtask: (Task) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var newSubtaskTitle by remember { mutableStateOf("") }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 40.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        subtasks.forEach { subtask ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggleSubtask(subtask) }
+                    .padding(vertical = 4.dp, horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(
+                    checked = subtask.isCompleted,
+                    onCheckedChange = { onToggleSubtask(subtask) },
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = subtask.title,
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        textDecoration = if (subtask.isCompleted) TextDecoration.LineThrough else TextDecoration.None
+                    ),
+                    color = if (subtask.isCompleted) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        // Inline add subtask
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp, horizontal = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = "Add step",
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            OutlinedTextField(
+                value = newSubtaskTitle,
+                onValueChange = { newSubtaskTitle = it },
+                placeholder = { Text("Add step...", style = MaterialTheme.typography.bodySmall) },
+                modifier = Modifier.weight(1f).height(40.dp),
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(
+                    onDone = {
+                        if (newSubtaskTitle.isNotBlank()) {
+                            onAddSubtask(newSubtaskTitle.trim())
+                            newSubtaskTitle = ""
+                        }
+                    }
+                )
+            )
         }
     }
 }
