@@ -32,6 +32,12 @@ class AlarmDismissReceiver : BroadcastReceiver() {
                 }
             }
         }
+
+        // If action is SNOOZE, reschedule the alarm for 10 minutes later
+        if (intent.action == "SNOOZE" && taskTitle != null) {
+            val snoozeTimeMs = System.currentTimeMillis() + (10 * 60 * 1000L)
+            TaskAlarmManager.scheduleSnooze(context, taskTitle, snoozeTimeMs)
+        }
     }
 
     companion object {

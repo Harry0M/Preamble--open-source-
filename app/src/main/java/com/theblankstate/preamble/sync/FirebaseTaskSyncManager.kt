@@ -113,6 +113,27 @@ class FirebaseTaskSyncManager(
         }
     }
 
+    suspend fun forceSyncBidirectional() {
+        val uid = auth.currentUser?.uid
+        if (uid == null) {
+            Log.d(TAG, "Skipping forceSyncBidirectional — no authenticated user")
+            return
+        }
+        syncAllLocalToRemote()
+        try {
+            val snapshot = usersTasksRef(uid).get().await()
+            val remoteTasks = snapshot.children.mapNotNull { child ->
+                val key = child.key ?: return@mapNotNull null
+                if (key == "_flush_marker") return@mapNotNull null
+                val remote = child.getValue(RemoteTask::class.java) ?: return@mapNotNull null
+                remote.toLocal(key)
+            }
+            mergeRemoteIntoLocal(remoteTasks)
+        } catch (e: Exception) {
+            Log.e(TAG, "forceSyncBidirectional read failed", e)
+        }
+    }
+
     suspend fun flushPendingWrites(timeoutMs: Long = 8000L): Boolean {
         val uid = auth.currentUser?.uid ?: return true
         return withTimeoutOrNull(timeoutMs) {

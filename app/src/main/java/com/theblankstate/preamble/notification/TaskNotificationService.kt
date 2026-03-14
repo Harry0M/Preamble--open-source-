@@ -35,12 +35,13 @@ import kotlinx.coroutines.launch
  * Android 16 (API 36) deliberately lets users swipe away foreground-service
  * notifications for most service types (including specialUse).  We cannot
  * prevent the dismiss, but we can detect it instantly and re-post within
- * ~1 second using three layers:
+ * ~1 second using two optimized layers:
  *
  *  1. deleteIntent  → BroadcastReceiver fires → sends ACTION_RESHOW to this service
- *  2. Active monitor → coroutine checks every 3 s whether the notification is
- *     still in the status-bar; re-calls startForeground() if missing
- *  3. Flow observer  → any DB change triggers startForeground() again
+ *  2. Flow observer  → any DB change triggers update (debounced 1s)
+ *  3. Periodic refresh → every N seconds (configurable: 10s, 30s, 120s), only updates if tasks changed
+ *
+ * Optimization: Only rebuilds notification if task content actually changed, preventing jank.
  */
 class TaskNotificationService : Service() {
 
@@ -50,6 +51,10 @@ class TaskNotificationService : Service() {
     // Cache the latest task data so we can rebuild the notification instantly
     private var lastPendingCount = 0
     private var lastPendingTasks: List<com.theblankstate.preamble.data.Task> = emptyList()
+
+    // Cache the last built notification to avoid rebuilding when nothing changed
+    private var lastBuiltNotification: Notification? = null
+    private var lastTaskIds: Set<String> = emptySet()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -79,7 +84,6 @@ class TaskNotificationService : Service() {
         if (!isRunning) {
             isRunning = true
             startTaskObserver()
-            startNotificationGuard()
             Log.d(TAG, "Observers started")
         }
         return START_STICKY
@@ -147,34 +151,6 @@ class TaskNotificationService : Service() {
         }
     }
 
-    // ── Active notification guard ─────────────────────────────────────────
-    //
-    // Every 3 seconds, verify our notification is still in the status bar.
-    // If the user swiped it away and the deleteIntent somehow didn't fire,
-    // this guarantees re-show within 3 s.
-
-    private fun startNotificationGuard() {
-        serviceScope.launch {
-            while (isActive) {
-                delay(3_000)
-                if (!isActive) break
-                // Only re-post if user hasn't disabled notification
-                if (!isNotificationPreferenceEnabled()) continue
-                if (!isNotificationVisible()) {
-                    Log.d(TAG, "Guard: notification missing — re-posting")
-                    promoteToForeground(
-                        buildNotification(lastPendingCount, lastPendingTasks)
-                    )
-                }
-            }
-        }
-    }
-
-    private fun isNotificationVisible(): Boolean {
-        val nm = getSystemService(NotificationManager::class.java)
-        return nm.activeNotifications.any { it.id == NOTIFICATION_ID }
-    }
-
     // ── Live task observer ────────────────────────────────────────────────
 
     @OptIn(kotlinx.coroutines.FlowPreview::class)
@@ -190,24 +166,76 @@ class TaskNotificationService : Service() {
                 .distinctUntilChanged { old, new -> old.size == new.size && old.map { it.id }.toSet() == new.map { it.id }.toSet() }
                 .collect { pending ->
                     if (!isActive) return@collect
+
+                    // If RemoteInput grace period is active, delay the re-post until it expires
+                    // This keeps the RemoteInput text field open while still ensuring we update after
+                    val timeSinceLastRemoteInput = System.currentTimeMillis() - lastRemoteInputTimeMs
+                    if (timeSinceLastRemoteInput < REMOTE_INPUT_GRACE_PERIOD_MS) {
+                        val delayTime = REMOTE_INPUT_GRACE_PERIOD_MS - timeSinceLastRemoteInput
+                        Log.d(TAG, "Delaying notification re-post by ${delayTime}ms for RemoteInput grace period")
+                        delay(delayTime)
+                    }
+
                     lastPendingCount = pending.size
                     lastPendingTasks = pending
-                    promoteToForeground(buildNotification(pending.size, pending))
+                    lastTaskIds = pending.map { it.id }.toSet()
+
+                    val notification = buildNotification(pending.size, pending)
+                    lastBuiltNotification = notification
+                    promoteToForeground(notification)
                 }
         }
 
-        // Fallback periodic refresh every 30s
+        // Periodic refresh with smart change detection and configurable intervals
         serviceScope.launch {
             while (isActive) {
-                delay(30_000)
+                val mode = getNotificationUpdateMode()
+                val interval = NotificationUpdatePreference.getIntervalForMode(mode, lastPendingCount > 0)
+                delay(interval)
+
                 if (!isActive) break
+
+                // Only re-post if user hasn't disabled notification
+                if (!isNotificationPreferenceEnabled()) continue
+
                 val today = com.theblankstate.preamble.repository.TaskRepository.todayString()
                 val pending = app.repository.getPendingTasksForDate(today)
-                lastPendingCount = pending.size
-                lastPendingTasks = pending
-                promoteToForeground(buildNotification(pending.size, pending))
+
+                // Check if task content actually changed
+                if (isPendingTasksChanged(pending)) {
+                    Log.d(TAG, "Periodic refresh: tasks changed (${pending.size} tasks), updating notification")
+                    lastPendingCount = pending.size
+                    lastPendingTasks = pending
+                    lastTaskIds = pending.map { it.id }.toSet()
+
+                    val notification = buildNotification(pending.size, pending)
+                    lastBuiltNotification = notification
+                    promoteToForeground(notification)
+                } else {
+                    Log.d(TAG, "Periodic refresh: no changes, skipping notification update")
+                }
             }
         }
+    }
+
+    /**
+     * Compares current pending tasks with cached tasks.
+     * Returns true if count changed or task IDs changed.
+     */
+    private fun isPendingTasksChanged(newPending: List<com.theblankstate.preamble.data.Task>): Boolean {
+        if (newPending.size != lastPendingCount) return true
+        val newIds = newPending.map { it.id }.toSet()
+        return newIds != lastTaskIds
+    }
+
+    /**
+     * Gets the current notification update mode from SharedPreferences.
+     * Defaults to BALANCED if not set.
+     */
+    private fun getNotificationUpdateMode(): NotificationUpdatePreference {
+        val prefs = getSharedPreferences(NotificationUpdatePreference.PREF_NAME, Context.MODE_PRIVATE)
+        val modeString = prefs.getString(NotificationUpdatePreference.PREF_UPDATE_MODE, null)
+        return NotificationUpdatePreference.fromStringOrDefault(modeString)
     }
 
     // ── Build the notification ────────────────────────────────────────────
@@ -263,8 +291,44 @@ class TaskNotificationService : Service() {
 
         // ── Collapsed custom view ──
         val collapsedView = RemoteViews(packageName, R.layout.notification_collapsed)
-        collapsedView.setTextViewText(R.id.notif_title, "Preamble")
-        collapsedView.setTextViewText(R.id.notif_subtitle, contentText)
+
+        // Day name badge with per-day color
+        val calendar = java.util.Calendar.getInstance()
+        val dayOfWeek = calendar.get(java.util.Calendar.DAY_OF_WEEK)
+        val dayName = java.text.SimpleDateFormat("EEEE", java.util.Locale.getDefault()).format(calendar.time)
+        collapsedView.setTextViewText(R.id.notif_day_badge, dayName)
+
+        val dayBadgeBg = when (dayOfWeek) {
+            java.util.Calendar.MONDAY -> R.drawable.badge_monday
+            java.util.Calendar.TUESDAY -> R.drawable.badge_tuesday
+            java.util.Calendar.WEDNESDAY -> R.drawable.badge_wednesday
+            java.util.Calendar.THURSDAY -> R.drawable.badge_thursday
+            java.util.Calendar.FRIDAY -> R.drawable.badge_friday
+            java.util.Calendar.SATURDAY -> R.drawable.badge_saturday
+            java.util.Calendar.SUNDAY -> R.drawable.badge_sunday
+            else -> R.drawable.badge_monday
+        }
+        collapsedView.setInt(R.id.notif_day_badge, "setBackgroundResource", dayBadgeBg)
+
+        // Special day / festival badge
+        val specialDay = getSpecialDayInfo(calendar)
+        if (specialDay != null) {
+            collapsedView.setTextViewText(R.id.notif_festival_badge, specialDay)
+            collapsedView.setInt(R.id.notif_festival_badge, "setBackgroundResource", R.drawable.badge_festival)
+            collapsedView.setViewVisibility(R.id.notif_festival_badge, android.view.View.VISIBLE)
+        } else {
+            collapsedView.setViewVisibility(R.id.notif_festival_badge, android.view.View.GONE)
+        }
+
+        // Date text
+        val dateText = java.text.SimpleDateFormat("d MMMM", java.util.Locale.getDefault()).format(calendar.time)
+        collapsedView.setTextViewText(R.id.notif_date, dateText)
+
+        // Task count
+        val countText = if (pendingCount > 0)
+            "$pendingCount task${if (pendingCount > 1) "s" else ""}"
+        else "All done!"
+        collapsedView.setTextViewText(R.id.notif_task_count, countText)
 
         // ── Expanded custom view with 2-column task grid ──
         val expandedView = RemoteViews(packageName, R.layout.notification_expanded)
@@ -357,13 +421,41 @@ class TaskNotificationService : Service() {
         super.onDestroy()
     }
 
+    private fun getSpecialDayInfo(calendar: java.util.Calendar): String? {
+        val month = calendar.get(java.util.Calendar.MONTH) // 0-based
+        val day = calendar.get(java.util.Calendar.DAY_OF_MONTH)
+        val specialDays = mapOf(
+            (0 to 1) to "New Year",
+            (0 to 26) to "Republic Day",
+            (1 to 14) to "Valentine's Day",
+            (2 to 8) to "Women's Day",
+            (3 to 1) to "April Fools",
+            (3 to 22) to "Earth Day",
+            (4 to 1) to "May Day",
+            (5 to 5) to "Environment Day",
+            (5 to 21) to "Yoga Day",
+            (7 to 15) to "Independence Day",
+            (9 to 2) to "Gandhi Jayanti",
+            (9 to 31) to "Halloween",
+            (10 to 14) to "Children's Day",
+            (11 to 25) to "Christmas",
+            (11 to 31) to "New Year's Eve",
+        )
+        return specialDays[month to day]
+    }
+
     companion object {
         private const val TAG = "TaskNotifService"
         private const val CHANNEL_ID = "preamble_tasks_persistent"
         private const val PREFS_NAME = "preamble_prefs"
         private const val PREF_NOTIFICATION_ENABLED = "notification_enabled"
+        private const val REMOTE_INPUT_GRACE_PERIOD_MS = 2000L
         const val NOTIFICATION_ID = 1001
         const val ACTION_RESHOW = "com.theblankstate.preamble.ACTION_RESHOW_NOTIFICATION"
+
+        // Track when RemoteInput was last used to suppress notification updates during grace period
+        @Volatile
+        internal var lastRemoteInputTimeMs = 0L
 
         /** Check if user has notification enabled (for use by receivers) */
         fun isEnabled(context: Context): Boolean {

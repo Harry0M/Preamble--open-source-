@@ -131,4 +131,43 @@ object TaskAlarmManager {
             }
         }
     }
+
+    fun scheduleSnooze(context: Context, taskTitle: String, triggerTimeMs: Long) {
+        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+
+        if (triggerTimeMs <= System.currentTimeMillis()) {
+            Log.w(TAG, "Snooze time is in the past, skipping.")
+            return
+        }
+
+        Log.d(TAG, "Scheduling snooze for '$taskTitle' at ${triggerTimeMs}ms from epoch")
+
+        val intent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra("task_title", taskTitle)
+            action = "com.theblankstate.preamble.TASK_SNOOZE_${System.currentTimeMillis()}"
+        }
+
+        val requestCode = (taskTitle.hashCode() xor triggerTimeMs.toInt() xor 0x50002E) and 0x7FFFFFFF
+        val pendingIntent = PendingIntent.getBroadcast(
+            context, requestCode, intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        try {
+            val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerTimeMs, pendingIntent)
+            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
+            Log.d(TAG, "Snooze alarm scheduled via setAlarmClock (requestCode=$requestCode)")
+        } catch (e: Exception) {
+            Log.e(TAG, "setAlarmClock failed for snooze, trying fallback", e)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTimeMs, pendingIntent)
+                } else {
+                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTimeMs, pendingIntent)
+                }
+            } catch (e2: Exception) {
+                Log.e(TAG, "All snooze alarm methods failed", e2)
+            }
+        }
+    }
 }

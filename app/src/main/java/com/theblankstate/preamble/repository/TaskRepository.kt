@@ -68,6 +68,10 @@ class TaskRepository(
         syncManager?.syncAllLocalToRemote()
     }
 
+    suspend fun forceSyncFirebase() {
+        syncManager?.forceSyncBidirectional()
+    }
+
     suspend fun flushAndClearLocalOnLogout() {
         syncManager?.flushPendingWrites()
         dao.clearAllTasks()

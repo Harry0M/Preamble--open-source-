@@ -45,6 +45,10 @@ import com.theblankstate.preamble.ui.components.FeatureType
 import com.theblankstate.preamble.ui.components.FeatureUnlockSheet
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material3.Icon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -60,6 +64,15 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
         mutableStateOf(
             context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
                 .getBoolean("notification_enabled", true)
+        )
+    }
+
+    var notificationUpdateMode by remember {
+        mutableStateOf(
+            com.theblankstate.preamble.notification.NotificationUpdatePreference.fromStringOrDefault(
+                context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                    .getString("notification_update_mode", null)
+            )
         )
     }
 
@@ -454,9 +467,12 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
                         }
-                        Text(
-                            if (themeUnlocked) "✓" else "🔒",
-                            style = MaterialTheme.typography.titleLarge
+                        Icon(
+                            imageVector = if (themeUnlocked) Icons.Filled.CheckCircle else Icons.Outlined.Lock,
+                            contentDescription = if (themeUnlocked) "Unlocked" else "Locked",
+                            tint = if (themeUnlocked) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(24.dp)
                         )
                     }
 
@@ -481,9 +497,12 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
                         }
-                        Text(
-                            if (statsUnlocked) "✓" else "🔒",
-                            style = MaterialTheme.typography.titleLarge
+                        Icon(
+                            imageVector = if (statsUnlocked) Icons.Filled.CheckCircle else Icons.Outlined.Lock,
+                            contentDescription = if (statsUnlocked) "Unlocked" else "Locked",
+                            tint = if (statsUnlocked) MaterialTheme.colorScheme.primary
+                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
@@ -512,10 +531,13 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                         if (themeUnlocked) {
                             ColorPickerComponent()
                         } else {
-                            Text(
-                                "🔒",
-                                style = MaterialTheme.typography.titleLarge,
-                                modifier = Modifier.clickable { showThemeUnlockSheet = true }
+                            Icon(
+                                imageVector = Icons.Outlined.Lock,
+                                contentDescription = "Locked",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clickable { showThemeUnlockSheet = true }
                             )
                         }
                     }
@@ -541,7 +563,12 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                 )
                             }
-                            Text("🔒", style = MaterialTheme.typography.titleLarge)
+                            Icon(
+                                imageVector = Icons.Outlined.Lock,
+                                contentDescription = "Locked",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.size(24.dp)
+                            )
                         }
                     }
                 }
@@ -600,8 +627,61 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             shape = CircleShape
                         ) { Text("Grant Permission") }
                     }
+                    if (notificationPrefEnabled) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Update Frequency", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    when (notificationUpdateMode) {
+                                        com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE ->
+                                            "Changes visible within 10 seconds (more battery usage)"
+                                        com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED ->
+                                            "Changes visible within 30 seconds (recommended)"
+                                        com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER ->
+                                            "Updates every 2 min when no tasks (lowest battery use)"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            com.theblankstate.preamble.notification.NotificationUpdatePreference.values().forEach { mode ->
+                                FilterChip(
+                                    selected = notificationUpdateMode == mode,
+                                    onClick = {
+                                        notificationUpdateMode = mode
+                                        context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                            .edit()
+                                            .putString("notification_update_mode", mode.name)
+                                            .apply()
+                                    },
+                                    label = { Text(mode.displayName) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
+                        }
+                    }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    }
+                }
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                SettingsCard {
+                    Column {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

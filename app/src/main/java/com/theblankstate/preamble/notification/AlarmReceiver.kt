@@ -51,7 +51,7 @@ class AlarmReceiver : BroadcastReceiver() {
             nm.createNotificationChannel(channel)
         }
 
-        // Dismiss intent — just stops the alarm
+        // Dismiss/Stop intent — just stops the alarm
         val dismissIntent = Intent(context, AlarmDismissReceiver::class.java).apply {
             putExtra("notification_id", notificationId)
             putExtra("task_title", taskTitle)
@@ -77,6 +77,19 @@ class AlarmReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        // Snooze intent — stops alarm, reschedules for 10 minutes later
+        val snoozeIntent = Intent(context, AlarmDismissReceiver::class.java).apply {
+            putExtra("notification_id", notificationId)
+            putExtra("task_title", taskTitle)
+            action = "SNOOZE"
+        }
+        val snoozePendingIntent = PendingIntent.getBroadcast(
+            context,
+            notificationId + 3,
+            snoozeIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         val notification = NotificationCompat.Builder(context, "task_reminders")
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Task Reminder")
@@ -88,8 +101,9 @@ class AlarmReceiver : BroadcastReceiver() {
             .setAutoCancel(false)
             .setOngoing(true)
             .setDefaults(NotificationCompat.DEFAULT_LIGHTS)
-            .addAction(R.drawable.ic_launcher_foreground, "Dismiss", dismissPendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "Stop", dismissPendingIntent)
             .addAction(R.drawable.ic_launcher_foreground, "✓ Complete", completePendingIntent)
+            .addAction(R.drawable.ic_launcher_foreground, "⏰ Snooze", snoozePendingIntent)
             .build()
 
         nm.notify(notificationId, notification)

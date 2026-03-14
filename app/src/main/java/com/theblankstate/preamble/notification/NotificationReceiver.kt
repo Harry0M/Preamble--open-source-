@@ -38,8 +38,10 @@ class NotificationReceiver : BroadcastReceiver() {
             val app = context.applicationContext as PreambleApplication
             CoroutineScope(Dispatchers.IO).launch {
                 try {
+                    // Set grace period to suppress notification re-posts while user might type again
+                    TaskNotificationService.lastRemoteInputTimeMs = System.currentTimeMillis()
                     app.repository.addTask(taskText)
-                    // Notification auto-updates via TaskNotificationService
+                    // Notification auto-updates via TaskNotificationService (after grace period)
                 } finally {
                     pendingResult.finish()
                 }

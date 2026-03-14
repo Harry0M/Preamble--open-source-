@@ -9,27 +9,55 @@
     android:paddingTop="8dp"
     android:paddingBottom="8dp">
 
-    <LinearLayout
+    <!-- Day name badge (e.g. "Sunday") with unique color -->
+    <TextView
+        android:id="@+id/notif_day_badge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Sunday"
+        android:textSize="11sp"
+        android:textColor="#333333"
+        android:textStyle="bold"
+        android:paddingStart="10dp"
+        android:paddingEnd="10dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:layout_marginStart="4dp"
+        android:layout_marginEnd="6dp" />
+
+    <!-- Special day / festival badge (hidden by default) -->
+    <TextView
+        android:id="@+id/notif_festival_badge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textSize="10sp"
+        android:textColor="#5D4037"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="3dp"
+        android:paddingBottom="3dp"
+        android:layout_marginEnd="6dp"
+        android:visibility="gone" />
+
+    <!-- Today's date (e.g. "15 June") -->
+    <TextView
+        android:id="@+id/notif_date"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:orientation="vertical"
-        android:paddingStart="4dp">
+        android:text="15 June"
+        android:textAppearance="@style/TextAppearance.Compat.Notification"
+        android:textSize="12sp" />
 
-        <TextView
-            android:id="@+id/notif_title"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Preamble"
-            android:textAppearance="@style/TextAppearance.Compat.Notification.Title" />
-
-        <TextView
-            android:id="@+id/notif_subtitle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="All done for today!"
-            android:textAppearance="@style/TextAppearance.Compat.Notification"
-            android:layout_marginTop="1dp" />
-    </LinearLayout>
+    <!-- Task count -->
+    <TextView
+        android:id="@+id/notif_task_count"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="3 tasks"
+        android:textAppearance="@style/TextAppearance.Compat.Notification"
+        android:textSize="11sp"
+        android:textStyle="italic" />
 
 </LinearLayout>

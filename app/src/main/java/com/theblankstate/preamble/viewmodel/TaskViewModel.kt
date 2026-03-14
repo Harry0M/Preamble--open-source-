@@ -156,6 +156,10 @@ class TaskViewModel(
                     val calEvents = GoogleCalendarManager.fetchCalendarEvents(appContext)
                     app.repository.syncCalendarEvents(calEvents)
                 }
+                // If neither Google service is linked, sync with Firebase instead
+                if (!GoogleTasksManager.isLinked.value && !GoogleCalendarManager.isLinked.value) {
+                    app.repository.forceSyncFirebase()
+                }
             } catch (e: Throwable) {
                 android.util.Log.e("TaskViewModel", "Pull-to-refresh sync failed", e)
             } finally {
