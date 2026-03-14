@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -53,6 +54,23 @@ class TaskViewModel(
     val pastTasks: StateFlow<Map<String, List<Task>>> = repository.getTasksForDates(past10Dates)
         .map { tasks: List<Task> -> tasks.groupBy { it.createdDate } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    // Search
+    private val _searchQuery = MutableStateFlow("")
+    val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, kotlinx.coroutines.FlowPreview::class)
+    val searchResults: StateFlow<List<Task>> = _searchQuery
+        .debounce(300)
+        .flatMapLatest { query ->
+            if (query.isBlank()) flowOf(emptyList())
+            else repository.searchTasks(query)
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun setSearchQuery(query: String) {
+        _searchQuery.value = query
+    }
 
     private val _selectedDate = MutableStateFlow<String?>(null)
     
@@ -188,7 +206,7 @@ class TaskViewModel(
         }
     }
 
-    fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false) {
+    fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false, priority: Int = 0, description: String? = null) {
         if (title.isBlank()) return
         viewModelScope.launch {
             if (syncToGoogle && GoogleTasksManager.isLinked.value) {
@@ -203,15 +221,17 @@ class TaskViewModel(
                         deadlineTime = deadlineTime,
                         createdTimestamp = now,
                         updatedTimestamp = now,
-                        source = "google_tasks"
+                        source = "google_tasks",
+                        priority = priority,
+                        description = description
                     )
                     repository.insertTask(task)
                 } else {
                     // Google create failed — save locally only
-                    repository.addTask(title, date, deadlineTime)
+                    repository.addTask(title, date, deadlineTime, priority, description)
                 }
             } else {
-                repository.addTask(title, date, deadlineTime)
+                repository.addTask(title, date, deadlineTime, priority, description)
             }
             if (deadlineTime != null) {
                 val taskDate = date ?: TaskRepository.todayString()
@@ -255,7 +275,7 @@ class TaskViewModel(
         }
     }
 
-    fun updateTask(task: Task, newTitle: String, newDate: String?, newDeadlineTime: String?) {
+    fun updateTask(task: Task, newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int = task.priority, newDescription: String? = task.description) {
         viewModelScope.launch {
             // Cancel old alarm if task had a deadline
             if (task.deadlineTime != null) {
@@ -267,7 +287,9 @@ class TaskViewModel(
                 title = newTitle,
                 createdDate = newDate ?: task.createdDate,
                 deadlineTime = newDeadlineTime,
-                updatedTimestamp = System.currentTimeMillis()
+                updatedTimestamp = System.currentTimeMillis(),
+                priority = newPriority,
+                description = newDescription
             )
             repository.updateTask(updated)
             // Sync title/date edits back to Google Tasks
@@ -289,6 +311,33 @@ class TaskViewModel(
 
     private fun updateNotification() {
         // Notification auto-updates via TaskNotificationService
+    }
+
+    fun addRecurringTask(
+        title: String,
+        date: String? = null,
+        deadlineTime: String? = null,
+        priority: Int = 0,
+        description: String? = null,
+        recurrenceType: String,
+        recurrenceInterval: Int = 1,
+        recurrenceDays: String? = null,
+        recurrenceEndDate: String? = null
+    ) {
+        if (title.isBlank()) return
+        viewModelScope.launch {
+            repository.addRecurringTask(
+                title, date, deadlineTime, priority, description,
+                recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate
+            )
+            triggerRecurrenceGeneration()
+            refreshStats()
+        }
+    }
+
+    private fun triggerRecurrenceGeneration() {
+        val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.recurrence.RecurrenceWorker>().build()
+        androidx.work.WorkManager.getInstance(appContext).enqueue(workRequest)
     }
 
     class Factory(

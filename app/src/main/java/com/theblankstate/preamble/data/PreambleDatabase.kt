@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Task::class], version = 6, exportSchema = false)
+@Database(entities = [Task::class], version = 8, exportSchema = false)
 abstract class PreambleDatabase : RoomDatabase() {
 
     abstract fun taskDao(): TaskDao
@@ -23,7 +23,7 @@ abstract class PreambleDatabase : RoomDatabase() {
                     PreambleDatabase::class.java,
                     "preamble_db"
                 )
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -124,6 +124,23 @@ abstract class PreambleDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 // Add 'deletedFromGoogle' column with default 0 (false)
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `deletedFromGoogle` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `priority` INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `description` TEXT")
+            }
+        }
+
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `recurrenceType` TEXT")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `recurrenceInterval` INTEGER")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `recurrenceDays` TEXT")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `recurrenceEndDate` TEXT")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `recurrenceParentId` TEXT")
             }
         }
     }

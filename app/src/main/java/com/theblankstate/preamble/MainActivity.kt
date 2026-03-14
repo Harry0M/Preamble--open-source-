@@ -224,13 +224,19 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 tasks = tasks,
                 pastTasks = pastTasks,
                 streak = stats.streak,
-                onAddTask = { title, date, deadlineTime, syncToGoogle -> viewModel.addTask(title, date, deadlineTime, syncToGoogle) },
+                onAddTask = { title, date, deadlineTime, syncToGoogle, priority, description -> viewModel.addTask(title, date, deadlineTime, syncToGoogle, priority, description) },
                 onToggleTask = { viewModel.toggleTask(it) },
                 onDeleteTask = { viewModel.deleteTask(it) },
-                onEditTask = { task, title, date, time -> viewModel.updateTask(task, title, date, time) },
+                onEditTask = { task, title, date, time, priority, description -> viewModel.updateTask(task, title, date, time, priority, description) },
+                onAddRecurringTask = { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate ->
+                    viewModel.addRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate)
+                },
                 onSyncGoogle = { viewModel.syncGoogleData() },
                 isRefreshing = viewModel.isRefreshing.collectAsState().value,
                 aiChatViewModel = aiChatViewModel,
+                searchQuery = viewModel.searchQuery.collectAsState().value,
+                searchResults = viewModel.searchResults.collectAsState().value,
+                onSearchQueryChanged = { viewModel.setSearchQuery(it) },
                 modifier = Modifier.padding(innerPadding)
             )
             1 -> StatsScreen(

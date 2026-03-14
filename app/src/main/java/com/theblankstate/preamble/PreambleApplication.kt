@@ -17,9 +17,12 @@ import com.google.android.gms.ads.MobileAds
 import com.theblankstate.preamble.ads.FeatureGateManager
 import com.theblankstate.preamble.ads.RewardedAdManager
 import com.theblankstate.preamble.ads.AppOpenAdManager
+import com.theblankstate.preamble.recurrence.RecurrenceWorker
+import com.theblankstate.preamble.widget.WidgetUpdater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 class PreambleApplication : Application() {
@@ -53,6 +56,11 @@ class PreambleApplication : Application() {
         // kill the notification service in background
         scheduleNotificationKeepAlive()
         NotificationKeepAliveScheduler.schedule(this)
+        // Schedule recurring task instance generation
+        scheduleRecurrenceWorker()
+        generateRecurrenceInstancesNow()
+        // Observe task changes to refresh home screen widget
+        observeTaskChangesForWidget()
     }
 
     private fun scheduleNotificationKeepAlive() {
@@ -65,5 +73,31 @@ class PreambleApplication : Application() {
             ExistingPeriodicWorkPolicy.KEEP,
             request
         )
+    }
+
+    private fun scheduleRecurrenceWorker() {
+        val request = PeriodicWorkRequestBuilder<RecurrenceWorker>(
+            24, TimeUnit.HOURS
+        ).build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            RecurrenceWorker.WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
+    }
+
+    private fun generateRecurrenceInstancesNow() {
+        val workRequest = androidx.work.OneTimeWorkRequestBuilder<RecurrenceWorker>().build()
+        WorkManager.getInstance(this).enqueue(workRequest)
+    }
+
+    private fun observeTaskChangesForWidget() {
+        appScope.launch(Dispatchers.IO) {
+            val today = com.theblankstate.preamble.repository.TaskRepository.todayString()
+            repository.getTasksForDate(today).collect {
+                WidgetUpdater.refresh(this@PreambleApplication)
+            }
+        }
     }
 }

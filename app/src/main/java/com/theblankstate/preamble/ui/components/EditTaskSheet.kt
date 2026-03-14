@@ -1,5 +1,6 @@
 package com.theblankstate.preamble.ui.components
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +16,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -49,11 +51,19 @@ import java.util.Locale
 fun EditTaskSheet(
     task: Task,
     onDismiss: () -> Unit,
-    onUpdateTask: (newTitle: String, newDate: String?, newDeadlineTime: String?) -> Unit
+    onUpdateTask: (newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int, newDescription: String?) -> Unit
 ) {
     var taskTitle by remember { mutableStateOf(task.title) }
+    var taskDescription by remember { mutableStateOf(task.description ?: "") }
     var selectedTime by remember { mutableStateOf(task.deadlineTime) }
     var selectedDate by remember { mutableStateOf<String?>(task.createdDate) }
+    var selectedPriority by remember { mutableStateOf(task.priority) }
+    var recurrenceType by remember { mutableStateOf(task.recurrenceType) }
+    var recurrenceInterval by remember { mutableStateOf(task.recurrenceInterval ?: 1) }
+    var recurrenceDays by remember { mutableStateOf(
+        task.recurrenceDays?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.toSet() ?: emptySet()
+    ) }
+    var recurrenceEndDate by remember { mutableStateOf(task.recurrenceEndDate) }
     var showTimePicker by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
@@ -119,10 +129,60 @@ fun EditTaskSheet(
                 }
             }
 
+            // Priority selector
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val priorities = listOf(0 to "None", 1 to "Low", 2 to "Medium", 3 to "High")
+                priorities.forEach { (value, label) ->
+                    FilterChip(
+                        selected = selectedPriority == value,
+                        onClick = { selectedPriority = value },
+                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            // Description field
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = taskDescription,
+                onValueChange = { taskDescription = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Add details (optional)") },
+                minLines = 2,
+                maxLines = 4,
+                shape = MaterialTheme.shapes.medium
+            )
+
+            // Recurrence picker (shown for template tasks or editable tasks)
+            if (task.isRecurrenceTemplate || task.recurrenceParentId == null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                RecurrencePicker(
+                    recurrenceType = recurrenceType,
+                    recurrenceInterval = recurrenceInterval,
+                    recurrenceDays = recurrenceDays,
+                    recurrenceEndDate = recurrenceEndDate,
+                    onRecurrenceTypeChanged = { recurrenceType = it; if (it == null) { recurrenceInterval = 1; recurrenceDays = emptySet(); recurrenceEndDate = null } },
+                    onIntervalChanged = { recurrenceInterval = it },
+                    onDaysChanged = { recurrenceDays = it },
+                    onEndDateChanged = { recurrenceEndDate = it }
+                )
+            }
+
             Button(
                 onClick = {
                     if (taskTitle.isNotBlank()) {
-                        onUpdateTask(taskTitle.trim(), selectedDate, selectedTime)
+                        onUpdateTask(
+                            taskTitle.trim(),
+                            selectedDate,
+                            selectedTime,
+                            selectedPriority,
+                            taskDescription.trim().ifBlank { null }
+                        )
                     }
                 },
                 modifier = Modifier

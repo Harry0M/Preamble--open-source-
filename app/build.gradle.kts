@@ -111,6 +111,10 @@ dependencies {
     // AdMob
     implementation(libs.play.services.ads)
 
+    // Glance (Home Screen Widget)
+    implementation(libs.androidx.glance.appwidget)
+    implementation(libs.androidx.glance.material3)
+
     ksp(libs.androidx.room.compiler)
 
     // Navigation

@@ -42,7 +42,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.ViewHeadline
@@ -59,6 +61,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -87,6 +90,8 @@ import com.theblankstate.preamble.ui.components.EditTaskSheet
 import com.theblankstate.preamble.ui.components.RichDateBadge
 import com.theblankstate.preamble.ui.components.RichDateHeader
 import com.theblankstate.preamble.ui.components.TaskItem
+import com.theblankstate.preamble.ui.components.PomodoroSheet
+import com.theblankstate.preamble.pomodoro.PomodoroTimerService
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -99,6 +104,7 @@ import android.app.AlarmManager
 import android.content.Context
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.text.font.FontWeight
@@ -109,19 +115,27 @@ fun HomeScreen(
     tasks: List<Task>,
     pastTasks: Map<String, List<Task>> = emptyMap(),
     streak: Int,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean) -> Unit,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, priority: Int, description: String?) -> Unit,
     onToggleTask: (Task) -> Unit,
     onDeleteTask: (Task) -> Unit,
-    onEditTask: ((Task, String, String?, String?) -> Unit)? = null,
+    onEditTask: ((Task, String, String?, String?, Int, String?) -> Unit)? = null,
+    onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?) -> Unit)? = null,
     onSyncGoogle: (() -> Unit)? = null,
     isRefreshing: Boolean = false,
     aiChatViewModel: AiChatViewModel? = null,
+    searchQuery: String = "",
+    searchResults: List<Task> = emptyList(),
+    onSearchQueryChanged: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
     var taskToDelete by remember { mutableStateOf<Task?>(null) }
     var taskToEdit by remember { mutableStateOf<Task?>(null) }
     var showAlarmSheet by remember { mutableStateOf(false) }
+    var isSearchActive by remember { mutableStateOf(false) }
+    var showPomodoroSheet by remember { mutableStateOf(false) }
+    var pomodoroTaskId by remember { mutableStateOf<String?>(null) }
+    var pomodoroTaskTitle by remember { mutableStateOf<String?>(null) }
     var isVoiceListening by remember { mutableStateOf(false) }
     var voiceText by remember { mutableStateOf("") }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -161,7 +175,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false)
+                        onAddTask(spoken, null, null, false, 0, null)
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -210,7 +224,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false)
+                        onAddTask(spoken, null, null, false, 0, null)
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -242,6 +256,17 @@ fun HomeScreen(
                         }
                     },
                     actions = {
+                        // Search icon
+                        IconButton(onClick = {
+                            isSearchActive = !isSearchActive
+                            if (!isSearchActive) onSearchQueryChanged("")
+                        }) {
+                            Icon(
+                                imageVector = if (isSearchActive) Icons.Filled.Close else Icons.Filled.Search,
+                                contentDescription = if (isSearchActive) "Close Search" else "Search"
+                            )
+                        }
+
                         // Alarm icon — shows all active alarms
                         IconButton(onClick = { showAlarmSheet = true }) {
                             Icon(
@@ -283,6 +308,31 @@ fun HomeScreen(
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    // Pomodoro FAB
+                    val pomodoroState by PomodoroTimerService.state.collectAsState()
+                    FloatingActionButton(
+                        onClick = {
+                            pomodoroTaskId = null
+                            pomodoroTaskTitle = null
+                            showPomodoroSheet = true
+                        },
+                        shape = CircleShape,
+                        containerColor = if (pomodoroState.isRunning)
+                            MaterialTheme.colorScheme.tertiary
+                        else MaterialTheme.colorScheme.secondaryContainer
+                    ) {
+                        if (pomodoroState.isRunning) {
+                            val mins = pomodoroState.remainingSeconds / 60
+                            val secs = pomodoroState.remainingSeconds % 60
+                            Text(
+                                String.format(Locale.US, "%02d:%02d", mins, secs),
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        } else {
+                            Icon(Icons.Default.Timer, contentDescription = "Pomodoro")
+                        }
+                    }
+
                     // Voice FAB with lock badge
                     Box {
                     FloatingActionButton(
@@ -340,6 +390,64 @@ fun HomeScreen(
 
             val isTimelineEnabled = ThemePreferences.timelineUi.collectAsState().value
 
+            Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+                // Search bar
+                AnimatedVisibility(visible = isSearchActive) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = onSearchQueryChanged,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        placeholder = { Text("Search tasks...") },
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.extraLarge,
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { onSearchQueryChanged("") }) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Clear")
+                                }
+                            }
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Filled.Search, contentDescription = "Search")
+                        }
+                    )
+                }
+
+            if (isSearchActive && searchQuery.isNotBlank()) {
+                // Show search results
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    item {
+                        Text(
+                            "${searchResults.size} result${if (searchResults.size != 1) "s" else ""}",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                    }
+                    items(searchResults, key = { it.id }) { task ->
+                        TaskItem(
+                            task = task,
+                            onToggle = { onToggleTask(task) },
+                            onDelete = { onDeleteTask(task) },
+                            onEdit = if (onEditTask != null) {
+                                { taskToEdit = task }
+                            } else null,
+                            onStartPomodoro = {
+                                pomodoroTaskId = task.id
+                                pomodoroTaskTitle = task.title
+                                showPomodoroSheet = true
+                            },
+                            isEditable = true
+                        )
+                    }
+                }
+            } else {
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
                 onRefresh = {
@@ -347,7 +455,6 @@ fun HomeScreen(
                 },
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(padding)
             ) {
             LazyColumn(
                 modifier = Modifier
@@ -455,6 +562,11 @@ fun HomeScreen(
                                                     onToggle = { onToggleTask(task) },
                                                     onDelete = { taskToDelete = task },
                                                     onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
+                                                    onStartPomodoro = {
+                                                        pomodoroTaskId = task.id
+                                                        pomodoroTaskTitle = task.title
+                                                        showPomodoroSheet = true
+                                                    },
                                                     isEditable = true
                                                 )
                                             }
@@ -473,6 +585,11 @@ fun HomeScreen(
                                 onToggle = { onToggleTask(task) },
                                 onDelete = { taskToDelete = task },
                                 onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
+                                onStartPomodoro = {
+                                    pomodoroTaskId = task.id
+                                    pomodoroTaskTitle = task.title
+                                    showPomodoroSheet = true
+                                },
                                 isEditable = true,
                                 modifier = Modifier.animateItem()
                             )
@@ -624,6 +741,8 @@ fun HomeScreen(
                 }
             }
             } // PullToRefreshBox
+            } // else (not searching)
+            } // Column
         }
 
         // Voice wave overlay at the bottom — sits in outer Box, on top of Scaffold
@@ -667,10 +786,14 @@ fun HomeScreen(
     if (showAddSheet) {
         AddTaskSheet(
             onDismiss = { showAddSheet = false },
-            onAddTask = { title, date, deadlineTime, syncToGoogle ->
-                onAddTask(title, date, deadlineTime, syncToGoogle)
+            onAddTask = { title, date, deadlineTime, syncToGoogle, priority, description ->
+                onAddTask(title, date, deadlineTime, syncToGoogle, priority, description)
                 showAddSheet = false
             },
+            onAddRecurringTask = if (onAddRecurringTask != null) { { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate ->
+                onAddRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate)
+                showAddSheet = false
+            } } else null,
             aiChatViewModel = aiChatViewModel
         )
     }
@@ -820,10 +943,18 @@ fun HomeScreen(
         EditTaskSheet(
             task = taskToEdit!!,
             onDismiss = { taskToEdit = null },
-            onUpdateTask = { newTitle, newDate, newDeadlineTime ->
-                onEditTask(taskToEdit!!, newTitle, newDate, newDeadlineTime)
+            onUpdateTask = { newTitle, newDate, newDeadlineTime, newPriority, newDescription ->
+                onEditTask(taskToEdit!!, newTitle, newDate, newDeadlineTime, newPriority, newDescription)
                 taskToEdit = null
             }
+        )
+    }
+
+    if (showPomodoroSheet) {
+        PomodoroSheet(
+            onDismiss = { showPomodoroSheet = false },
+            taskId = pomodoroTaskId,
+            taskTitle = pomodoroTaskTitle
         )
     }
 }

@@ -24,6 +24,7 @@ googleApiClient = "2.9.0"
 googleCalendarApi = "v3-rev20260225-2.0.0"
 googleTasksApi = "v1-rev20251102-2.0.0"
 playServicesAds = "24.4.0"
+glance = "1.1.1"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -57,6 +58,8 @@ google-api-client-android = { group = "com.google.api-client", name = "google-ap
 google-api-services-calendar = { group = "com.google.apis", name = "google-api-services-calendar", version.ref = "googleCalendarApi" }
 google-api-services-tasks = { group = "com.google.apis", name = "google-api-services-tasks", version.ref = "googleTasksApi" }
 play-services-ads = { group = "com.google.android.gms", name = "play-services-ads", version.ref = "playServicesAds" }
+androidx-glance-appwidget = { group = "androidx.glance", name = "glance-appwidget", version.ref = "glance" }
+androidx-glance-material3 = { group = "androidx.glance", name = "glance-material3", version.ref = "glance" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

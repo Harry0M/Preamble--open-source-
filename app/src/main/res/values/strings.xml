@@ -1,3 +1,5 @@
 <resources>
     <string name="app_name">Preamble</string>
+    <string name="widget_name">Preamble Tasks</string>
+    <string name="widget_description">Shows today\'s pending tasks with quick completion</string>
 </resources>

@@ -17,10 +17,10 @@ data class DateStats(
 @Dao
 interface TaskDao {
 
-    @Query("SELECT * FROM tasks WHERE createdDate = :date ORDER BY isCompleted ASC, createdTimestamp DESC")
+    @Query("SELECT * FROM tasks WHERE createdDate = :date ORDER BY isCompleted ASC, priority DESC, createdTimestamp DESC")
     fun getTasksByDate(date: String): Flow<List<Task>>
 
-    @Query("SELECT * FROM tasks WHERE createdDate IN (:dates) ORDER BY createdDate DESC, isCompleted ASC, createdTimestamp DESC")
+    @Query("SELECT * FROM tasks WHERE createdDate IN (:dates) ORDER BY createdDate DESC, isCompleted ASC, priority DESC, createdTimestamp DESC")
     fun getTasksForDates(dates: List<String>): Flow<List<Task>>
 
     @Query("SELECT COUNT(*) FROM tasks WHERE isCompleted = 1")
@@ -35,8 +35,11 @@ interface TaskDao {
     @Query("SELECT COUNT(*) FROM tasks WHERE createdDate = :date AND isCompleted = 1")
     suspend fun getCompletedCountForDate(date: String): Int
 
-    @Query("SELECT * FROM tasks WHERE createdDate = :date AND isCompleted = 0 ORDER BY createdTimestamp DESC")
+    @Query("SELECT * FROM tasks WHERE createdDate = :date AND isCompleted = 0 ORDER BY priority DESC, createdTimestamp DESC")
     suspend fun getPendingTasksForDate(date: String): List<Task>
+
+    @Query("SELECT * FROM tasks WHERE createdDate = :date AND isCompleted = 0 ORDER BY priority DESC, createdTimestamp DESC")
+    fun observePendingTasksForDate(date: String): Flow<List<Task>>
 
     @Query("SELECT DISTINCT createdDate FROM tasks ORDER BY createdDate DESC")
     suspend fun getAllDatesWithTasks(): List<String>
@@ -44,7 +47,7 @@ interface TaskDao {
     @Query("SELECT * FROM tasks")
     suspend fun getAllTasks(): List<Task>
 
-    @Query("SELECT * FROM tasks ORDER BY createdDate DESC, isCompleted ASC, createdTimestamp DESC")
+    @Query("SELECT * FROM tasks ORDER BY createdDate DESC, isCompleted ASC, priority DESC, createdTimestamp DESC")
     fun getAllTasksFlow(): Flow<List<Task>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -95,4 +98,21 @@ interface TaskDao {
 
     @Query("SELECT * FROM tasks WHERE title = :title AND isCompleted = 0 LIMIT 1")
     suspend fun getPendingTaskByTitle(title: String): Task?
+
+    @Query("SELECT * FROM tasks WHERE (title LIKE '%' || :query || '%' OR description LIKE '%' || :query || '%') ORDER BY createdDate DESC, priority DESC, isCompleted ASC, createdTimestamp DESC")
+    fun searchTasks(query: String): Flow<List<Task>>
+
+    // ── Recurrence queries ──
+
+    @Query("SELECT * FROM tasks WHERE recurrenceType IS NOT NULL AND recurrenceParentId IS NULL")
+    suspend fun getAllRecurrenceTemplates(): List<Task>
+
+    @Query("SELECT MAX(createdDate) FROM tasks WHERE recurrenceParentId = :parentId")
+    suspend fun getLatestInstanceDate(parentId: String): String?
+
+    @Query("SELECT COUNT(*) FROM tasks WHERE recurrenceParentId = :parentId AND createdDate = :date")
+    suspend fun instanceExistsForDate(parentId: String, date: String): Int
+
+    @Query("SELECT * FROM tasks WHERE recurrenceParentId = :parentId ORDER BY createdDate DESC")
+    suspend fun getInstancesForTemplate(parentId: String): List<Task>
 }

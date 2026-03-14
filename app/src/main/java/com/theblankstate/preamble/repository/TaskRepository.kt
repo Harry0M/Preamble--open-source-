@@ -24,7 +24,7 @@ class TaskRepository(
 
     fun getTotalCount(): Flow<Int> = dao.getTotalTasksCount()
 
-    suspend fun addTask(title: String, date: String? = null, deadlineTime: String? = null): Task {
+    suspend fun addTask(title: String, date: String? = null, deadlineTime: String? = null, priority: Int = 0, description: String? = null): Task {
         val taskDate = date ?: todayString()
         val now = System.currentTimeMillis()
         val task = Task(
@@ -32,7 +32,9 @@ class TaskRepository(
             createdDate = taskDate,
             deadlineTime = deadlineTime,
             createdTimestamp = now,
-            updatedTimestamp = now
+            updatedTimestamp = now,
+            priority = priority,
+            description = description
         )
         dao.insertTask(task)
         syncManager?.pushTask(task)
@@ -62,6 +64,52 @@ class TaskRepository(
     suspend fun deleteTask(task: Task) {
         dao.deleteTask(task)
         syncManager?.deleteTask(task.id)
+    }
+
+    fun searchTasks(query: String): Flow<List<Task>> = dao.searchTasks(query)
+
+    suspend fun addRecurringTask(
+        title: String,
+        date: String? = null,
+        deadlineTime: String? = null,
+        priority: Int = 0,
+        description: String? = null,
+        recurrenceType: String,
+        recurrenceInterval: Int = 1,
+        recurrenceDays: String? = null,
+        recurrenceEndDate: String? = null
+    ): Task {
+        val taskDate = date ?: todayString()
+        val now = System.currentTimeMillis()
+        val template = Task(
+            title = title,
+            createdDate = taskDate,
+            deadlineTime = deadlineTime,
+            createdTimestamp = now,
+            updatedTimestamp = now,
+            priority = priority,
+            description = description,
+            recurrenceType = recurrenceType,
+            recurrenceInterval = recurrenceInterval,
+            recurrenceDays = recurrenceDays,
+            recurrenceEndDate = recurrenceEndDate
+        )
+        dao.insertTask(template)
+        syncManager?.pushTask(template)
+        return template
+    }
+
+    suspend fun deleteRecurringTaskAndInstances(template: Task) {
+        val today = todayString()
+        val instances = dao.getInstancesForTemplate(template.id)
+        for (instance in instances) {
+            if (instance.createdDate >= today && !instance.isCompleted) {
+                dao.deleteTask(instance)
+                syncManager?.deleteTask(instance.id)
+            }
+        }
+        dao.deleteTask(template)
+        syncManager?.deleteTask(template.id)
     }
 
     suspend fun syncNow() {

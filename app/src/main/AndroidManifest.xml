@@ -77,6 +77,31 @@
                 android:value="Persistent task notification" />
         </service>
 
+        <service
+            android:name=".pomodoro.PomodoroTimerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Pomodoro focus timer" />
+        </service>
+
+        <receiver
+            android:name=".pomodoro.PomodoroReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".widget.TaskWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/task_widget_info" />
+        </receiver>
+
     </application>
 
 </manifest>

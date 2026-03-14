@@ -8,14 +8,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape as FoundationCircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.Checkbox
@@ -51,6 +55,7 @@ fun TaskItem(
     onToggle: () -> Unit,
     onDelete: () -> Unit,
     onEdit: (() -> Unit)? = null,
+    onStartPomodoro: (() -> Unit)? = null,
     isEditable: Boolean = true,
     modifier: Modifier = Modifier
 ) {
@@ -106,6 +111,23 @@ fun TaskItem(
             )
         }
         
+        // Priority dot
+        if (task.priority > 0) {
+            val priorityColor = when (task.priority) {
+                3 -> Color(0xFFEF4444) // Red - High
+                2 -> Color(0xFFF97316) // Orange - Medium
+                1 -> Color(0xFF3B82F6) // Blue - Low
+                else -> Color.Transparent
+            }
+            Box(
+                modifier = Modifier
+                    .padding(end = 6.dp)
+                    .size(8.dp)
+                    .clip(FoundationCircleShape)
+                    .background(priorityColor)
+            )
+        }
+
         Column(modifier = Modifier.weight(1f)) {
             // Strip legacy emoji prefixes for backward compatibility
             val strippedTitle = task.title.removePrefix("📅 ").trim()
@@ -127,7 +149,40 @@ fun TaskItem(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
-            
+
+            // Description preview
+            if (!task.description.isNullOrBlank()) {
+                Text(
+                    text = task.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+
+            // Recurrence indicator
+            if (task.recurrenceParentId != null || task.isRecurrenceTemplate) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Repeat,
+                        contentDescription = "Recurring",
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = if (task.isRecurrenceTemplate) "Repeating" else "Recurring",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
             if (task.isCalendarEvent || task.isGoogleTask) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -228,6 +283,25 @@ fun TaskItem(
                             onClick = {
                                 showMenu = false
                                 onEdit()
+                            }
+                        )
+                    }
+                    if (onStartPomodoro != null) {
+                        DropdownMenuItem(
+                            text = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.Timer,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Focus Timer")
+                                }
+                            },
+                            onClick = {
+                                showMenu = false
+                                onStartPomodoro()
                             }
                         )
                     }

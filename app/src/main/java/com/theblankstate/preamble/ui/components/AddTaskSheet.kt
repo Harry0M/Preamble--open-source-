@@ -14,6 +14,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,6 +33,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -74,13 +76,20 @@ import kotlin.math.sin
 @Composable
 fun AddTaskSheet(
     onDismiss: () -> Unit,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean) -> Unit,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, priority: Int, description: String?) -> Unit,
+    onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?) -> Unit)? = null,
     aiChatViewModel: AiChatViewModel? = null
 ) {
     var taskTitle by remember { mutableStateOf("") }
+    var taskDescription by remember { mutableStateOf("") }
     var selectedTime by remember { mutableStateOf<String?>(null) }
     var selectedDate by remember { mutableStateOf<String?>(null) }
+    var selectedPriority by remember { mutableStateOf(0) }
     var syncToGoogle by remember { mutableStateOf(false) }
+    var recurrenceType by remember { mutableStateOf<String?>(null) }
+    var recurrenceInterval by remember { mutableStateOf(1) }
+    var recurrenceDays by remember { mutableStateOf<Set<Int>>(emptySet()) }
+    var recurrenceEndDate by remember { mutableStateOf<String?>(null) }
     val googleLinked = GoogleTasksManager.isLinked.collectAsState().value
     var isListening by remember { mutableStateOf(false) }
     var wantsToListen by remember { mutableStateOf(false) }
@@ -259,6 +268,50 @@ fun AddTaskSheet(
                 }
             }
 
+            // Priority selector
+            Spacer(modifier = Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                val priorities = listOf(0 to "None", 1 to "Low", 2 to "Medium", 3 to "High")
+                priorities.forEach { (value, label) ->
+                    FilterChip(
+                        selected = selectedPriority == value,
+                        onClick = { selectedPriority = value },
+                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+
+            // Description field
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedTextField(
+                value = taskDescription,
+                onValueChange = { taskDescription = it },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("Add details (optional)") },
+                minLines = 2,
+                maxLines = 4,
+                shape = MaterialTheme.shapes.medium
+            )
+
+            // Recurrence picker
+            if (onAddRecurringTask != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                RecurrencePicker(
+                    recurrenceType = recurrenceType,
+                    recurrenceInterval = recurrenceInterval,
+                    recurrenceDays = recurrenceDays,
+                    recurrenceEndDate = recurrenceEndDate,
+                    onRecurrenceTypeChanged = { recurrenceType = it; if (it == null) { recurrenceInterval = 1; recurrenceDays = emptySet(); recurrenceEndDate = null } },
+                    onIntervalChanged = { recurrenceInterval = it },
+                    onDaysChanged = { recurrenceDays = it },
+                    onEndDateChanged = { recurrenceEndDate = it }
+                )
+            }
+
             // Sync to Google Tasks toggle (only visible when linked)
             if (googleLinked) {
                 Row(
@@ -282,7 +335,30 @@ fun AddTaskSheet(
             Button(
                 onClick = {
                     if (taskTitle.isNotBlank()) {
-                        onAddTask(taskTitle.trim(), selectedDate, selectedTime, syncToGoogle)
+                        val desc = taskDescription.trim().ifBlank { null }
+                        if (recurrenceType != null && onAddRecurringTask != null) {
+                            val daysStr = if (recurrenceDays.isNotEmpty()) recurrenceDays.sorted().joinToString(",") else null
+                            onAddRecurringTask(
+                                taskTitle.trim(),
+                                selectedDate,
+                                selectedTime,
+                                selectedPriority,
+                                desc,
+                                recurrenceType!!,
+                                recurrenceInterval,
+                                daysStr,
+                                recurrenceEndDate
+                            )
+                        } else {
+                            onAddTask(
+                                taskTitle.trim(),
+                                selectedDate,
+                                selectedTime,
+                                syncToGoogle,
+                                selectedPriority,
+                                desc
+                            )
+                        }
                     }
                 },
                 modifier = Modifier
