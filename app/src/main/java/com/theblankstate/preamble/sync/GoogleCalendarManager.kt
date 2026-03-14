@@ -112,8 +112,9 @@ object GoogleCalendarManager {
     /**
      * Fetch all calendar events and return them as Tasks.
      * Fetches events from 1 year ago to 1 year ahead.
+     * @param updatedAfter If non-null, only fetch events updated after this timestamp (incremental sync)
      */
-    suspend fun fetchCalendarEvents(context: Context): List<Task> = withContext(Dispatchers.IO) {
+    suspend fun fetchCalendarEvents(context: Context, updatedAfter: Long? = null): List<Task> = withContext(Dispatchers.IO) {
         val account = GoogleSignIn.getLastSignedInAccount(context)
         if (account == null) {
             Log.e(TAG, "No signed-in account found")
@@ -166,6 +167,14 @@ object GoogleCalendarManager {
                             .setOrderBy("startTime")
                             .setMaxResults(250)
                             .setPageToken(pageToken)
+
+                        // For incremental sync, only fetch events updated since last sync
+                        if (updatedAfter != null) {
+                            eventsRequest.setUpdatedMin(DateTime(updatedAfter))
+                            // updatedMin requires orderBy=updated, not startTime
+                            eventsRequest.setOrderBy("updated")
+                            eventsRequest.setSingleEvents(false)
+                        }
 
                         val eventsResult = eventsRequest.execute()
                         val events = eventsResult.items ?: emptyList()

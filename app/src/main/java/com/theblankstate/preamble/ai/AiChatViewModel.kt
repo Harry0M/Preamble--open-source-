@@ -1,6 +1,7 @@
 package com.theblankstate.preamble.ai
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -76,6 +77,7 @@ class AiChatViewModel(
                     onResult("Task saved: $text")
                 }
             } catch (e: Exception) {
+                Log.e("AiChatViewModel", "Error processing voice command", e)
                 // Fallback: save as task
                 taskViewModel.addTask(text, null, null)
                 onResult("Task saved: $text")
@@ -129,6 +131,7 @@ class AiChatViewModel(
                     onResult(false)
                 }
             } catch (e: Exception) {
+                Log.e("AiChatViewModel", "Error processing task input", e)
                 onResult(false)
             } finally {
                 _isLoading.value = false

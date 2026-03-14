@@ -104,6 +104,37 @@ class TaskViewModel(
         }
 
         refreshStats()
+
+        // Auto-sync Google data on app launch (with 60s cooldown)
+        autoSyncOnLaunch()
+    }
+
+    private fun autoSyncOnLaunch() {
+        viewModelScope.launch {
+            try {
+                val app = appContext.applicationContext as com.theblankstate.preamble.PreambleApplication
+                // Full sync Google Tasks
+                if (GoogleTasksManager.isLinked.value) {
+                    val lastSync = GoogleTasksManager.lastSyncTime.value
+                    val now = System.currentTimeMillis()
+                    if (now - lastSync > 60_000) { // 60s cooldown
+                        val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext)
+                        app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
+                    }
+                }
+                // Full sync Google Calendar
+                if (GoogleCalendarManager.isLinked.value) {
+                    val lastSync = GoogleCalendarManager.lastSyncTime.value
+                    val now = System.currentTimeMillis()
+                    if (now - lastSync > 60_000) {
+                        val calEvents = GoogleCalendarManager.fetchCalendarEvents(appContext)
+                        app.repository.syncCalendarEvents(calEvents)
+                    }
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("TaskViewModel", "Auto-sync on launch failed", e)
+            }
+        }
     }
 
     // ── Pull-to-refresh Google sync ──
@@ -115,16 +146,15 @@ class TaskViewModel(
             _isRefreshing.value = true
             try {
                 val app = appContext.applicationContext as com.theblankstate.preamble.PreambleApplication
-                // Quick sync: only fetch tasks updated since last sync (incremental)
+                // Full sync Google Tasks (no updatedAfter filter)
                 if (GoogleTasksManager.isLinked.value) {
-                    val lastSync = GoogleTasksManager.lastSyncTime.value
-                    val updatedAfter = if (lastSync > 0) {
-                        // RFC 3339 timestamp, 1 second before last sync to avoid missing edge cases
-                        val rfc3339 = com.google.api.client.util.DateTime(lastSync - 1000)
-                        rfc3339.toStringRfc3339()
-                    } else null
-                    val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext, updatedAfter)
-                    app.repository.quickSyncGoogleTasks(gTasks)
+                    val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext)
+                    app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
+                }
+                // Full sync Google Calendar (no updatedAfter filter)
+                if (GoogleCalendarManager.isLinked.value) {
+                    val calEvents = GoogleCalendarManager.fetchCalendarEvents(appContext)
+                    app.repository.syncCalendarEvents(calEvents)
                 }
             } catch (e: Throwable) {
                 android.util.Log.e("TaskViewModel", "Pull-to-refresh sync failed", e)
@@ -236,6 +266,13 @@ class TaskViewModel(
                 updatedTimestamp = System.currentTimeMillis()
             )
             repository.updateTask(updated)
+            // Sync title/date edits back to Google Tasks
+            if (task.source == "google_tasks" && task.id.startsWith("gtask_")) {
+                val googleId = task.id.removePrefix("gtask_")
+                GoogleTasksManager.updateGoogleTask(
+                    appContext, googleId, newTitle, newDate ?: task.createdDate
+                )
+            }
             // Schedule new alarm if deadline is set
             if (newDeadlineTime != null) {
                 com.theblankstate.preamble.notification.TaskAlarmManager.scheduleAlarm(

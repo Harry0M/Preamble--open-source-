@@ -98,8 +98,8 @@ class MainActivity : ComponentActivity() {
         val prefs = getSharedPreferences("preamble_prefs", MODE_PRIVATE)
         if (prefs.getBoolean("onboarding_done", false)) {
             postNotification()
-            // Auto-sync Google Calendar & Tasks with 15-minute cooldown
             autoSyncGoogleData()
+            com.theblankstate.preamble.ads.AppOpenAdManager.showIfNotShownToday(this)
         }
     }
 
@@ -115,7 +115,7 @@ class MainActivity : ComponentActivity() {
             try {
                 val now = System.currentTimeMillis()
 
-                // Sync Google Calendar if linked and cooldown elapsed
+                // Full sync Google Calendar if linked and cooldown elapsed
                 if (com.theblankstate.preamble.sync.GoogleCalendarManager.isLinked.value) {
                     val lastCalSync = com.theblankstate.preamble.sync.GoogleCalendarManager.lastSyncTime.value
                     if (now - lastCalSync > cooldownMs) {
@@ -125,7 +125,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                // Sync Google Tasks if linked and cooldown elapsed
+                // Full sync Google Tasks if linked and cooldown elapsed
                 if (com.theblankstate.preamble.sync.GoogleTasksManager.isLinked.value) {
                     val lastTaskSync = com.theblankstate.preamble.sync.GoogleTasksManager.lastSyncTime.value
                     if (now - lastTaskSync > cooldownMs) {

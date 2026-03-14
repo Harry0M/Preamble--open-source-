@@ -244,15 +244,13 @@ class TaskRepository(
         // Insert or update events
         dao.insertTasks(eventsToInsert)
 
-        // Delete events that are no longer in the calendar
+        // Delete events that are no longer in the calendar (skip completed ones user marked locally)
         val removedIds = existingCalendarIds - newEventIds
-        for (id in removedIds) {
-            val existingTasks = dao.getAllCalendarTasks()
-            val toRemove = existingTasks.filter { it.id in removedIds }
+        if (removedIds.isNotEmpty()) {
+            val toRemove = existingTasks.values.filter { it.id in removedIds && !it.isCompleted }
             for (task in toRemove) {
                 dao.deleteTask(task)
             }
-            break // Only need one pass
         }
     }
 
@@ -306,6 +304,29 @@ class TaskRepository(
         if (tasks.isNotEmpty()) {
             dao.insertTasks(tasks)
         }
+    }
+
+    /**
+     * Quick sync for calendar events: only upsert, no deletion detection.
+     * Used for incremental pull-to-refresh sync where the API only returns
+     * recently-changed events, not the full set.
+     */
+    suspend fun quickSyncCalendarEvents(events: List<Task>) {
+        if (events.isEmpty()) return
+        // Preserve local completion state for existing calendar events
+        val existingTasks = dao.getAllCalendarTasks().associateBy { it.id }
+        val eventsToInsert = events.map { event ->
+            val existing = existingTasks[event.id]
+            if (existing != null && existing.isCompleted) {
+                event.copy(
+                    isCompleted = true,
+                    completedTimestamp = existing.completedTimestamp
+                )
+            } else {
+                event
+            }
+        }
+        dao.insertTasks(eventsToInsert)
     }
 
     /**

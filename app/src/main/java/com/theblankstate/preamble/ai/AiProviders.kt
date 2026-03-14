@@ -190,7 +190,7 @@ class GeminiProvider(private val apiKey: String) : AiProvider {
                         args[k] = v.asString
                     }
                     toolCalls.add(ToolCall(
-                        id = "gemini_${System.currentTimeMillis()}",
+                        id = java.util.UUID.randomUUID().toString(),
                         name = fc.get("name").asString,
                         arguments = args
                     ))

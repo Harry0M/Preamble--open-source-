@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import androidx.core.app.RemoteInput
 import com.theblankstate.preamble.PreambleApplication
+import com.theblankstate.preamble.notification.NotificationKeepAliveScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -50,6 +51,7 @@ class NotificationReceiver : BroadcastReceiver() {
 
     private fun handleBoot(context: Context) {
         val pendingResult = goAsync()
+        NotificationKeepAliveScheduler.schedule(context)
         // Only restart if user has notification enabled
         if (TaskNotificationService.isEnabled(context)) {
             TaskNotificationService.start(context)

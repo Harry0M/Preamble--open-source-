@@ -11,6 +11,26 @@ import java.util.Locale
  */
 object TaskTools {
 
+    private val DATE_PATTERN = Regex("""^\d{4}-\d{2}-\d{2}$""")
+    private val TIME_PATTERN = Regex("""^\d{2}:\d{2}$""")
+
+    private fun isValidDate(date: String): Boolean {
+        if (!DATE_PATTERN.matches(date)) return false
+        return try {
+            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            sdf.isLenient = false
+            sdf.parse(date) != null
+        } catch (_: Exception) { false }
+    }
+
+    private fun isValidTime(time: String): Boolean {
+        if (!TIME_PATTERN.matches(time)) return false
+        val parts = time.split(":")
+        val h = parts[0].toIntOrNull() ?: return false
+        val m = parts[1].toIntOrNull() ?: return false
+        return h in 0..23 && m in 0..59
+    }
+
     val tools = listOf(
         AiTool(
             name = "add_task",
@@ -63,6 +83,8 @@ object TaskTools {
                 val title = call.arguments["title"] ?: return "Error: title is required"
                 val date = call.arguments["date"]
                 val deadlineTime = call.arguments["deadline_time"]
+                if (date != null && !isValidDate(date)) return "Error: invalid date format '$date', expected YYYY-MM-DD"
+                if (deadlineTime != null && !isValidTime(deadlineTime)) return "Error: invalid time format '$deadlineTime', expected HH:mm"
                 viewModel.addTask(title, date, deadlineTime)
                 "Task \"$title\" added successfully" +
                         (if (date != null) " for $date" else "") +
@@ -108,6 +130,8 @@ object TaskTools {
                 val title = call.arguments["title"] ?: return "Error: title is required"
                 val time = call.arguments["time"] ?: return "Error: time is required"
                 val date = call.arguments["date"]
+                if (!isValidTime(time)) return "Error: invalid time format '$time', expected HH:mm"
+                if (date != null && !isValidDate(date)) return "Error: invalid date format '$date', expected YYYY-MM-DD"
                 viewModel.addTask(title, date, time)
                 "Reminder set: \"$title\" at $time" + (if (date != null) " on $date" else " today")
             }

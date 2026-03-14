@@ -11,6 +11,7 @@ import com.google.api.services.tasks.Tasks
 import com.google.api.services.tasks.TasksScopes
 import com.theblankstate.preamble.data.Task
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -35,6 +36,8 @@ object GoogleTasksManager {
     private const val KEY_LAST_SYNC = "last_tasks_sync_timestamp"
     private const val KEY_SYNC_VOICE = "sync_voice_to_google_tasks"
     private const val KEY_AUTO_DELETE = "auto_delete_google_tasks"
+    private const val MAX_RETRIES = 2
+    private const val RETRY_DELAY_MS = 1000L
 
     private val _isLinked = MutableStateFlow(false)
     val isLinked: StateFlow<Boolean> = _isLinked.asStateFlow()
@@ -258,6 +261,25 @@ object GoogleTasksManager {
     // ── Write Operations ──
 
     /**
+     * Retry a suspend block with exponential backoff for transient failures.
+     */
+    private suspend fun <T> retryOnFailure(block: suspend () -> T): T {
+        var lastException: Throwable? = null
+        for (attempt in 0..MAX_RETRIES) {
+            try {
+                return block()
+            } catch (e: Throwable) {
+                lastException = e
+                if (attempt < MAX_RETRIES) {
+                    Log.w(TAG, "Attempt $attempt failed, retrying...", e)
+                    delay(RETRY_DELAY_MS * (attempt + 1))
+                }
+            }
+        }
+        throw lastException!!
+    }
+
+    /**
      * Build a Tasks service with read-write scope.
      */
     private fun buildTasksService(context: Context): Tasks? {
@@ -295,29 +317,30 @@ object GoogleTasksManager {
     ): String? = withContext(Dispatchers.IO) {
         if (!_isLinked.value) return@withContext null
         try {
-            val service = buildTasksService(context) ?: return@withContext null
-            val listId = getDefaultTaskListId(service) ?: return@withContext null
+            retryOnFailure {
+                val service = buildTasksService(context) ?: error("No Tasks service")
+                val listId = getDefaultTaskListId(service) ?: error("No task list")
 
-            val gTask = com.google.api.services.tasks.model.Task()
-                .setTitle(title)
-                .setStatus("needsAction")
+                val gTask = com.google.api.services.tasks.model.Task()
+                    .setTitle(title)
+                    .setStatus("needsAction")
 
-            if (date != null) {
-                // Convert "yyyy-MM-dd" to RFC 3339 midnight UTC
-                val utcSdf = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
-                    timeZone = TimeZone.getTimeZone("UTC")
+                if (date != null) {
+                    val utcSdf = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+                        timeZone = TimeZone.getTimeZone("UTC")
+                    }
+                    val parsed = utcSdf.parse(date)
+                    if (parsed != null) {
+                        gTask.due = DateTime(parsed, TimeZone.getTimeZone("UTC")).toStringRfc3339()
+                    }
                 }
-                val parsed = utcSdf.parse(date)
-                if (parsed != null) {
-                    gTask.due = DateTime(parsed, TimeZone.getTimeZone("UTC")).toStringRfc3339()
-                }
+
+                val created = service.tasks().insert(listId, gTask).execute()
+                Log.d(TAG, "Created Google Task: ${created.id}")
+                created.id
             }
-
-            val created = service.tasks().insert(listId, gTask).execute()
-            Log.d(TAG, "Created Google Task: ${created.id}")
-            created.id
         } catch (e: Throwable) {
-            Log.e(TAG, "Failed to create Google Task", e)
+            Log.e(TAG, "Failed to create Google Task after retries", e)
             null
         }
     }
@@ -337,13 +360,54 @@ object GoogleTasksManager {
     ): Boolean = withContext(Dispatchers.IO) {
         if (!_isLinked.value) return@withContext false
         try {
-            val service = buildTasksService(context) ?: return@withContext false
-            val listId = getDefaultTaskListId(service) ?: return@withContext false
-            service.tasks().delete(listId, googleTaskId).execute()
-            Log.d(TAG, "Deleted Google Task $googleTaskId")
+            retryOnFailure {
+                val service = buildTasksService(context) ?: error("No Tasks service")
+                val listId = getDefaultTaskListId(service) ?: error("No task list")
+                service.tasks().delete(listId, googleTaskId).execute()
+                Log.d(TAG, "Deleted Google Task $googleTaskId")
+            }
             true
         } catch (e: Throwable) {
-            Log.e(TAG, "Failed to delete Google Task $googleTaskId", e)
+            Log.e(TAG, "Failed to delete Google Task $googleTaskId after retries", e)
+            false
+        }
+    }
+
+    /**
+     * Update a Google Task's title and due date.
+     * @param googleTaskId The raw Google Task ID (without "gtask_" prefix)
+     * @param title New title
+     * @param date Due date in "yyyy-MM-dd" format (optional)
+     */
+    suspend fun updateGoogleTask(
+        context: Context,
+        googleTaskId: String,
+        title: String,
+        date: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (!_isLinked.value) return@withContext false
+        try {
+            retryOnFailure {
+                val service = buildTasksService(context) ?: error("No Tasks service")
+                val listId = getDefaultTaskListId(service) ?: error("No task list")
+
+                val gTask = service.tasks().get(listId, googleTaskId).execute()
+                gTask.title = title
+                if (date != null) {
+                    val utcSdf = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+                        timeZone = TimeZone.getTimeZone("UTC")
+                    }
+                    val parsed = utcSdf.parse(date)
+                    if (parsed != null) {
+                        gTask.due = DateTime(parsed, TimeZone.getTimeZone("UTC")).toStringRfc3339()
+                    }
+                }
+                service.tasks().update(listId, googleTaskId, gTask).execute()
+                Log.d(TAG, "Updated Google Task $googleTaskId → title=$title, date=$date")
+            }
+            true
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to update Google Task $googleTaskId after retries", e)
             false
         }
     }
@@ -355,20 +419,21 @@ object GoogleTasksManager {
     ): Boolean = withContext(Dispatchers.IO) {
         if (!_isLinked.value) return@withContext false
         try {
-            val service = buildTasksService(context) ?: return@withContext false
-            val listId = getDefaultTaskListId(service) ?: return@withContext false
+            retryOnFailure {
+                val service = buildTasksService(context) ?: error("No Tasks service")
+                val listId = getDefaultTaskListId(service) ?: error("No task list")
 
-            val gTask = service.tasks().get(listId, googleTaskId).execute()
-            gTask.status = if (completed) "completed" else "needsAction"
-            if (!completed) {
-                // Clear completed timestamp when uncompleting
-                gTask.completed = null
+                val gTask = service.tasks().get(listId, googleTaskId).execute()
+                gTask.status = if (completed) "completed" else "needsAction"
+                if (!completed) {
+                    gTask.completed = null
+                }
+                service.tasks().update(listId, googleTaskId, gTask).execute()
+                Log.d(TAG, "Updated Google Task $googleTaskId → completed=$completed")
             }
-            service.tasks().update(listId, googleTaskId, gTask).execute()
-            Log.d(TAG, "Updated Google Task $googleTaskId → completed=$completed")
             true
         } catch (e: Throwable) {
-            Log.e(TAG, "Failed to update Google Task $googleTaskId", e)
+            Log.e(TAG, "Failed to update Google Task $googleTaskId after retries", e)
             false
         }
     }

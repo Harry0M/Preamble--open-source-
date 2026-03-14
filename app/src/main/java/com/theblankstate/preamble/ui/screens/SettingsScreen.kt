@@ -8,6 +8,7 @@ import android.content.Intent
 import android.media.RingtoneManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -39,6 +40,9 @@ import com.theblankstate.preamble.ui.theme.ThemePreferences
 import com.theblankstate.preamble.auth.AuthManager
 import com.theblankstate.preamble.sync.GoogleCalendarManager
 import com.theblankstate.preamble.sync.GoogleTasksManager
+import com.theblankstate.preamble.ads.FeatureGateManager
+import com.theblankstate.preamble.ui.components.FeatureType
+import com.theblankstate.preamble.ui.components.FeatureUnlockSheet
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 
@@ -51,6 +55,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val scope = app.appScope
 
     var hasSystemNotificationPermission by remember { mutableStateOf(areNotificationsEnabled(context)) }
+    var isBatteryOptimized by remember { mutableStateOf(!isIgnoringBatteryOptimizations(context)) }
     var notificationPrefEnabled by remember {
         mutableStateOf(
             context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
@@ -78,6 +83,11 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val googleSyncing = calendarSyncing || tasksSyncing
     val lastSyncTime = maxOf(lastCalSyncTime, lastTasksSyncTime)
     var googleLinkLoading by remember { mutableStateOf(false) }
+    var showThemeUnlockSheet by remember { mutableStateOf(false) }
+    var showStatsUnlockSheet by remember { mutableStateOf(false) }
+    val themeUnlocked by FeatureGateManager.themeUnlocked.collectAsState()
+    val statsUnlocked by FeatureGateManager.statsUnlocked.collectAsState()
+    val activity = context as? android.app.Activity
 
     // Google sign-in launcher (grants Calendar + Tasks scopes together)
     val googleSignInLauncher = rememberLauncherForActivityResult(
@@ -116,6 +126,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             hasSystemNotificationPermission = areNotificationsEnabled(context)
+            isBatteryOptimized = !isIgnoringBatteryOptimizations(context)
         }
     }
 
@@ -420,6 +431,64 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 }
             }
 
+            // ── Feature Unlock Status ──
+            SectionTitle("Feature Unlock")
+            SettingsCard {
+                Column {
+                    // Theme Status
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showThemeUnlockSheet = true }
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Theme Customization", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                if (themeUnlocked) "Unlocked — ${FeatureGateManager.formatRemaining(FeatureGateManager.themeRemainingMs())} remaining"
+                                else "Locked — Watch ad to unlock",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (themeUnlocked) MaterialTheme.colorScheme.primary
+                                       else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                        Text(
+                            if (themeUnlocked) "✓" else "🔒",
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                    }
+
+                    HorizontalDivider()
+
+                    // Stats Rank Status
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showStatsUnlockSheet = true }
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Global Rank", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                if (statsUnlocked) "Unlocked — ${FeatureGateManager.formatRemaining(FeatureGateManager.statsRemainingMs())} remaining"
+                                else "Locked — Watch ad to unlock",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (statsUnlocked) MaterialTheme.colorScheme.primary
+                                       else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                        Text(
+                            if (statsUnlocked) "✓" else "🔒",
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                    }
+                }
+            }
+
             // ── Appearance ──
             SectionTitle("Appearance")
             SettingsCard {
@@ -434,17 +503,47 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                         Column {
                             Text("Theme Color", style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                "Customize the app's primary color",
+                                if (themeUnlocked) "Customize the app's primary color"
+                                else "Watch ad to unlock customization",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
                         }
-                        ColorPickerComponent()
+                        if (themeUnlocked) {
+                            ColorPickerComponent()
+                        } else {
+                            Text(
+                                "🔒",
+                                style = MaterialTheme.typography.titleLarge,
+                                modifier = Modifier.clickable { showThemeUnlockSheet = true }
+                            )
+                        }
                     }
 
                     HorizontalDivider()
 
-                    ThemeSelectorRow(context)
+                    if (themeUnlocked) {
+                        ThemeSelectorRow(context)
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showThemeUnlockSheet = true }
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("App Theme", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "Locked — Watch ad to unlock",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                            Text("🔒", style = MaterialTheme.typography.titleLarge)
+                        }
+                    }
                 }
             }
 
@@ -501,7 +600,35 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             shape = CircleShape
                         ) { Text("Grant Permission") }
                     }
-                    
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Battery Optimization", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    if (isBatteryOptimized) {
+                                        "Status: Optimized - may stop the notification on some devices"
+                                    } else {
+                                        "Status: Unrestricted"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                            if (isBatteryOptimized) {
+                                TextButton(
+                                    onClick = { requestIgnoreBatteryOptimizations(context) },
+                                    shape = CircleShape
+                                ) { Text("Set to Unrestricted") }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -569,7 +696,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             .padding(vertical = 4.dp)
                     )
                     Text(
-                        "Preamble is fully open-source and respects your privacy. Tasks are always saved locally first; if you sign in, your tasks are securely synced to your own Firebase account for backup and realtime sync. We do not run ads or third-party analytics.",
+                        "Preamble is fully open-source and respects your privacy. Tasks are always saved locally first; if you sign in, your tasks are securely synced to your own Firebase account for backup and realtime sync. We show ads (Google AdMob) to support development. No third-party analytics.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
@@ -680,6 +807,22 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             }
         }
     }
+
+    // Feature unlock sheets
+    if (showThemeUnlockSheet && activity != null) {
+        FeatureUnlockSheet(
+            featureType = FeatureType.THEME,
+            activity = activity,
+            onDismiss = { showThemeUnlockSheet = false }
+        )
+    }
+    if (showStatsUnlockSheet && activity != null) {
+        FeatureUnlockSheet(
+            featureType = FeatureType.STATS,
+            activity = activity,
+            onDismiss = { showStatsUnlockSheet = false }
+        )
+    }
 }
 
 @Composable
@@ -738,6 +881,28 @@ private fun LibraryItem(name: String, desc: String, license: String) {
 private fun areNotificationsEnabled(context: Context): Boolean {
     val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     return nm.areNotificationsEnabled()
+}
+
+private fun isIgnoringBatteryOptimizations(context: Context): Boolean {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return true
+    val pm = context.getSystemService(PowerManager::class.java)
+    return pm.isIgnoringBatteryOptimizations(context.packageName)
+}
+
+private fun requestIgnoreBatteryOptimizations(context: Context) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+        data = Uri.parse("package:${context.packageName}")
+    }
+    try {
+        context.startActivity(intent)
+    } catch (e: Exception) {
+        try {
+            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        } catch (_: Exception) {
+            // No-op
+        }
+    }
 }
 
 private fun getCurrentAlarmToneName(context: Context): String {

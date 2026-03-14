@@ -149,14 +149,14 @@ class TaskNotificationService : Service() {
 
     // ── Active notification guard ─────────────────────────────────────────
     //
-    // Every 15 seconds, verify our notification is still in the status bar.
+    // Every 3 seconds, verify our notification is still in the status bar.
     // If the user swiped it away and the deleteIntent somehow didn't fire,
-    // this guarantees re-show. (Increased from 3s to 15s for battery/CPU savings)
+    // this guarantees re-show within 3 s.
 
     private fun startNotificationGuard() {
         serviceScope.launch {
             while (isActive) {
-                delay(15_000)
+                delay(3_000)
                 if (!isActive) break
                 // Only re-post if user hasn't disabled notification
                 if (!isNotificationPreferenceEnabled()) continue
@@ -196,10 +196,10 @@ class TaskNotificationService : Service() {
                 }
         }
 
-        // Fallback periodic refresh every 60s (reduced from 30s)
+        // Fallback periodic refresh every 30s
         serviceScope.launch {
             while (isActive) {
-                delay(60_000)
+                delay(30_000)
                 if (!isActive) break
                 val today = com.theblankstate.preamble.repository.TaskRepository.todayString()
                 val pending = app.repository.getPendingTasksForDate(today)
@@ -372,34 +372,40 @@ class TaskNotificationService : Service() {
         }
 
         fun start(context: Context) {
-            try {
-                val intent = Intent(context, TaskNotificationService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
-                Log.d(TAG, "start() sent")
-            } catch (e: Exception) {
-                Log.e(TAG, "start() failed", e)
-            }
+            val intent = Intent(context, TaskNotificationService::class.java)
+            startServiceSafely(context, intent, "start()")
         }
 
         /** Called by NotificationReceiver when user dismisses notification */
         fun reshow(context: Context) {
+            val intent = Intent(context, TaskNotificationService::class.java).apply {
+                action = ACTION_RESHOW
+            }
+            startServiceSafely(context, intent, "reshow()")
+        }
+
+        private fun startServiceSafely(context: Context, intent: Intent, label: String) {
             try {
-                val intent = Intent(context, TaskNotificationService::class.java).apply {
-                    action = ACTION_RESHOW
-                }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     context.startForegroundService(intent)
                 } else {
                     context.startService(intent)
                 }
-                Log.d(TAG, "reshow() sent")
+                Log.d(TAG, "$label sent")
+            } catch (e: RuntimeException) {
+                if (isForegroundStartNotAllowed(e)) {
+                    Log.w(TAG, "$label blocked by system", e)
+                } else {
+                    Log.e(TAG, "$label failed", e)
+                }
             } catch (e: Exception) {
-                Log.e(TAG, "reshow() failed", e)
+                Log.e(TAG, "$label failed", e)
             }
+        }
+
+        private fun isForegroundStartNotAllowed(e: RuntimeException): Boolean {
+            return Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                e.javaClass.name == "android.app.ForegroundServiceStartNotAllowedException"
         }
 
         fun stop(context: Context) {

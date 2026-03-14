@@ -24,6 +24,26 @@ import java.util.Locale
 class VoiceTaskService : Service() {
 
     private var speechRecognizer: SpeechRecognizer? = null
+    private var aiProvider: com.theblankstate.preamble.ai.AiProvider? = null
+
+    private fun getOrCreateProvider(): com.theblankstate.preamble.ai.AiProvider? {
+        aiProvider?.let { return it }
+        val apiKey = com.theblankstate.preamble.BuildConfig.AI_API_KEY
+        if (apiKey.isBlank()) return null
+        val providerName = com.theblankstate.preamble.BuildConfig.AI_PROVIDER
+        val provider = when (com.theblankstate.preamble.ai.AiProviderType.valueOf(providerName)) {
+            com.theblankstate.preamble.ai.AiProviderType.MISTRAL ->
+                com.theblankstate.preamble.ai.MistralProvider(apiKey)
+            com.theblankstate.preamble.ai.AiProviderType.OPENAI ->
+                com.theblankstate.preamble.ai.OpenAiProvider(apiKey)
+            com.theblankstate.preamble.ai.AiProviderType.GEMINI ->
+                com.theblankstate.preamble.ai.GeminiProvider(apiKey)
+            com.theblankstate.preamble.ai.AiProviderType.CLAUDE ->
+                com.theblankstate.preamble.ai.ClaudeProvider(apiKey)
+        }
+        aiProvider = provider
+        return provider
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -113,25 +133,12 @@ class VoiceTaskService : Service() {
 
     private fun saveTask(title: String) {
         val app = applicationContext as PreambleApplication
-        val apiKey = com.theblankstate.preamble.BuildConfig.AI_API_KEY
 
         CoroutineScope(Dispatchers.IO).launch {
-            if (apiKey.isNotBlank()) {
+            // Gate: skip AI if locked
+            val provider = getOrCreateProvider()
+            if (provider != null) {
                 try {
-                    val providerName = com.theblankstate.preamble.BuildConfig.AI_PROVIDER
-                    val provider: com.theblankstate.preamble.ai.AiProvider = when (
-                        com.theblankstate.preamble.ai.AiProviderType.valueOf(providerName)
-                    ) {
-                        com.theblankstate.preamble.ai.AiProviderType.MISTRAL ->
-                            com.theblankstate.preamble.ai.MistralProvider(apiKey)
-                        com.theblankstate.preamble.ai.AiProviderType.OPENAI ->
-                            com.theblankstate.preamble.ai.OpenAiProvider(apiKey)
-                        com.theblankstate.preamble.ai.AiProviderType.GEMINI ->
-                            com.theblankstate.preamble.ai.GeminiProvider(apiKey)
-                        com.theblankstate.preamble.ai.AiProviderType.CLAUDE ->
-                            com.theblankstate.preamble.ai.ClaudeProvider(apiKey)
-                    }
-
                     val today = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
                         .format(java.util.Date())
                     val systemMsg = com.theblankstate.preamble.ai.ChatMessage("system",
@@ -156,7 +163,6 @@ class VoiceTaskService : Service() {
                                     val date = call.arguments["date"]
                                     val time = call.arguments["deadline_time"] ?: call.arguments["time"]
                                     app.repository.addTask(taskTitle, date, time)
-                                    // Sync to Google Tasks if enabled
                                     if (com.theblankstate.preamble.sync.GoogleTasksManager.syncVoiceTasks.value
                                         && com.theblankstate.preamble.sync.GoogleTasksManager.isLinked.value) {
                                         com.theblankstate.preamble.sync.GoogleTasksManager.createGoogleTask(
@@ -186,6 +192,7 @@ class VoiceTaskService : Service() {
                         }
                     }
                 } catch (e: Exception) {
+                    Log.e("VoiceTaskService", "AI processing failed, saving as plain task", e)
                     app.repository.addTask(title)
                     syncVoiceToGoogleIfEnabled(title)
                     CoroutineScope(Dispatchers.Main).launch {

@@ -63,6 +63,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.theblankstate.preamble.sync.GoogleTasksManager
+import com.theblankstate.preamble.ai.AiChatViewModel
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -73,7 +74,8 @@ import kotlin.math.sin
 @Composable
 fun AddTaskSheet(
     onDismiss: () -> Unit,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean) -> Unit
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean) -> Unit,
+    aiChatViewModel: AiChatViewModel? = null
 ) {
     var taskTitle by remember { mutableStateOf("") }
     var selectedTime by remember { mutableStateOf<String?>(null) }
@@ -127,7 +129,20 @@ fun AddTaskSheet(
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 val spoken = matches?.firstOrNull()
                 if (!spoken.isNullOrBlank()) {
-                    taskTitle = spoken
+                    // Use AI to parse date/time from voice input if configured
+                    if (aiChatViewModel != null && aiChatViewModel.isConfigured()) {
+                        aiChatViewModel.processTaskInput(spoken) { handled ->
+                            if (handled) {
+                                // AI parsed and added the task — close sheet
+                                onDismiss()
+                            } else {
+                                // AI didn't parse — fill text field for manual add
+                                taskTitle = spoken
+                            }
+                        }
+                    } else {
+                        taskTitle = spoken
+                    }
                 }
                 isListening = false
                 wantsToListen = false

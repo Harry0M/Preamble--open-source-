@@ -11,6 +11,8 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
@@ -91,6 +93,7 @@ import java.util.Locale
 import kotlin.math.sin
 
 import android.widget.Toast
+import android.app.Activity
 import com.theblankstate.preamble.ai.AiChatViewModel
 import android.app.AlarmManager
 import android.content.Context
@@ -123,6 +126,7 @@ fun HomeScreen(
     var voiceText by remember { mutableStateOf("") }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val context = LocalContext.current
+    val activity = context as? Activity
 
     // Voice recognizer for FAB — lazily created only when user taps mic
     var speechRecognizerRef by remember { mutableStateOf<SpeechRecognizer?>(null) }
@@ -279,7 +283,8 @@ fun HomeScreen(
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Voice FAB
+                    // Voice FAB with lock badge
+                    Box {
                     FloatingActionButton(
                         onClick = {
                             if (isVoiceListening) {
@@ -306,6 +311,7 @@ fun HomeScreen(
                             imageVector = if (isVoiceListening) Icons.Filled.Stop else Icons.Filled.Mic,
                             contentDescription = if (isVoiceListening) "Stop" else "Voice Input"
                         )
+                    }
                     }
 
                     // Add task FAB
@@ -336,7 +342,9 @@ fun HomeScreen(
 
             PullToRefreshBox(
                 isRefreshing = isRefreshing,
-                onRefresh = { onSyncGoogle?.invoke() },
+                onRefresh = {
+                    onSyncGoogle?.invoke()
+                },
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
@@ -615,13 +623,14 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.height(80.dp))
                 }
             }
+            } // PullToRefreshBox
         }
 
-        // Voice wave overlay at the bottom
+        // Voice wave overlay at the bottom — sits in outer Box, on top of Scaffold
         AnimatedVisibility(
             visible = isVoiceListening,
-            enter = slideInVertically(initialOffsetY = { it }),
-            exit = slideOutVertically(targetOffsetY = { it }),
+            enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             Column(
@@ -652,7 +661,6 @@ fun HomeScreen(
                     color = MaterialTheme.colorScheme.primary
                 )
             }
-            } // PullToRefreshBox
         }
     }
 
@@ -662,7 +670,8 @@ fun HomeScreen(
             onAddTask = { title, date, deadlineTime, syncToGoogle ->
                 onAddTask(title, date, deadlineTime, syncToGoogle)
                 showAddSheet = false
-            }
+            },
+            aiChatViewModel = aiChatViewModel
         )
     }
 

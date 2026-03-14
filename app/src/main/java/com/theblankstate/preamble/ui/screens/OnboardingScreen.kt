@@ -241,7 +241,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                 AlertDialog(
                     onDismissRequest = { showPrivacyDialog = false },
                     title = { Text("Privacy Policy") },
-                    text = { Text("Preamble is fully open-source and respects your privacy. Tasks are always saved locally first; if you sign in, your tasks are securely synced to your own Firebase account for backup and realtime sync. We do not run ads or third-party analytics.") },
+                    text = { Text("Preamble is fully open-source and respects your privacy. Tasks are always saved locally first; if you sign in, your tasks are securely synced to your own Firebase account for backup and realtime sync. We show ads (Google AdMob) to support development. No third-party analytics.") },
                     confirmButton = { TextButton(onClick = { showPrivacyDialog = false }) { Text("Close") } }
                 )
             }
