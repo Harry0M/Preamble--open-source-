@@ -14,6 +14,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,11 +24,16 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.automirrored.filled.Notes
+import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
@@ -36,13 +42,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -65,9 +71,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import com.theblankstate.preamble.sync.GoogleTasksManager
 import com.theblankstate.preamble.ai.AiChatViewModel
+import com.theblankstate.preamble.sync.GoogleTasksManager
 import com.theblankstate.preamble.util.NaturalDateParser
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -97,8 +104,9 @@ fun AddTaskSheet(
     val googleLinked = GoogleTasksManager.isLinked.collectAsState().value
     var isListening by remember { mutableStateOf(false) }
     var wantsToListen by remember { mutableStateOf(false) }
-    var showTimePicker by remember { mutableStateOf(false) }
-    var showDatePicker by remember { mutableStateOf(false) }
+    var showScheduleSheet by remember { mutableStateOf(false) }
+    var showRepeatSheet by remember { mutableStateOf(false) }
+    var showDescription by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val context = LocalContext.current
 
@@ -177,6 +185,36 @@ fun AddTaskSheet(
         }
     }
 
+    val saveTask = {
+        if (taskTitle.isNotBlank()) {
+            val desc = taskDescription.trim().ifBlank { null }
+            if (recurrenceType != null && onAddRecurringTask != null) {
+                val daysStr = if (recurrenceDays.isNotEmpty()) recurrenceDays.sorted().joinToString(",") else null
+                onAddRecurringTask(
+                    taskTitle.trim(),
+                    selectedDate,
+                    selectedTime,
+                    selectedPriority,
+                    desc,
+                    recurrenceType!!,
+                    recurrenceInterval,
+                    daysStr,
+                    recurrenceEndDate
+                )
+            } else {
+                onAddTask(
+                    taskTitle.trim(),
+                    selectedDate,
+                    selectedTime,
+                    syncToGoogle,
+                    selectedPriority,
+                    desc,
+                    if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null
+                )
+            }
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState()
@@ -205,7 +243,9 @@ fun AddTaskSheet(
                         .focusRequester(focusRequester),
                     placeholder = { Text("What do you need to remember?") },
                     singleLine = true,
-                    shape = CircleShape
+                    shape = CircleShape,
+                    keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { saveTask() })
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 FloatingActionButton(
@@ -272,34 +312,93 @@ fun AddTaskSheet(
                                 taskTitle = parsedDateTime.cleanedTitle
                             },
                             label = { Text(parsedDateTime.time, style = MaterialTheme.typography.labelSmall) },
-                            icon = { Icon(Icons.Default.Notifications, null, Modifier.size(16.dp)) }
+                            icon = { Icon(Icons.Default.AccessTime, null, Modifier.size(16.dp)) }
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            Row(modifier = Modifier.fillMaxWidth()) {
-                OutlinedButton(
-                    onClick = { showTimePicker = true },
-                    shape = CircleShape,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                    Text(selectedTime ?: "Set Time")
+            // Icon row: Clock (schedule), Repeat, Details, Tags info chips
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Clock icon - opens schedule sheet (date + time + reminder)
+                IconButton(onClick = { showScheduleSheet = true }) {
+                    Icon(
+                        Icons.Default.AccessTime,
+                        contentDescription = "Schedule",
+                        tint = if (selectedTime != null || selectedDate != null)
+                            MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
-
-                OutlinedButton(
-                    onClick = { showDatePicker = true },
-                    shape = CircleShape,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
-                    Text(selectedDate ?: "Set Date")
+                // Repeat icon - opens repeat sheet
+                if (onAddRecurringTask != null) {
+                    IconButton(onClick = { showRepeatSheet = true }) {
+                        Icon(
+                            Icons.Default.Repeat,
+                            contentDescription = "Repeat",
+                            tint = if (recurrenceType != null)
+                                MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
+
+                // Details icon - toggles description field
+                IconButton(onClick = { showDescription = !showDescription }) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.Notes,
+                        contentDescription = "Details",
+                        tint = if (taskDescription.isNotBlank())
+                            MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                // Selected info chips
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    if (selectedDate != null) {
+                        SuggestionChip(
+                            onClick = { showScheduleSheet = true },
+                            label = { Text(selectedDate!!, style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                    if (selectedTime != null) {
+                        SuggestionChip(
+                            onClick = { showScheduleSheet = true },
+                            label = { Text(selectedTime!!, style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                    if (recurrenceType != null) {
+                        SuggestionChip(
+                            onClick = { showRepeatSheet = true },
+                            label = { Text(recurrenceType!!, style = MaterialTheme.typography.labelSmall) }
+                        )
+                    }
+                }
+            }
+
+            // Description field (toggled by details icon)
+            AnimatedVisibility(visible = showDescription) {
+                OutlinedTextField(
+                    value = taskDescription,
+                    onValueChange = { taskDescription = it },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    placeholder = { Text("Add details (optional)") },
+                    minLines = 2,
+                    maxLines = 4,
+                    shape = MaterialTheme.shapes.medium
+                )
             }
 
             // Priority selector
@@ -319,38 +418,18 @@ fun AddTaskSheet(
                 }
             }
 
-            // Description field
-            Spacer(modifier = Modifier.height(8.dp))
-            OutlinedTextField(
-                value = taskDescription,
-                onValueChange = { taskDescription = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Add details (optional)") },
-                minLines = 2,
-                maxLines = 4,
-                shape = MaterialTheme.shapes.medium
-            )
-
-            // Tags picker
+            // Tags picker - single line horizontal scroll
             Spacer(modifier = Modifier.height(8.dp))
             Text("Tags", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(bottom = 4.dp))
-            TagPicker(
-                selectedTags = selectedTags,
-                onTagsChanged = { selectedTags = it }
-            )
-
-            // Recurrence picker
-            if (onAddRecurringTask != null) {
-                Spacer(modifier = Modifier.height(8.dp))
-                RecurrencePicker(
-                    recurrenceType = recurrenceType,
-                    recurrenceInterval = recurrenceInterval,
-                    recurrenceDays = recurrenceDays,
-                    recurrenceEndDate = recurrenceEndDate,
-                    onRecurrenceTypeChanged = { recurrenceType = it; if (it == null) { recurrenceInterval = 1; recurrenceDays = emptySet(); recurrenceEndDate = null } },
-                    onIntervalChanged = { recurrenceInterval = it },
-                    onDaysChanged = { recurrenceDays = it },
-                    onEndDateChanged = { recurrenceEndDate = it }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                TagPickerInline(
+                    selectedTags = selectedTags,
+                    onTagsChanged = { selectedTags = it }
                 )
             }
 
@@ -361,7 +440,7 @@ fun AddTaskSheet(
                         .fillMaxWidth()
                         .padding(top = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
                         "Sync to Google Tasks",
@@ -375,35 +454,7 @@ fun AddTaskSheet(
             }
 
             Button(
-                onClick = {
-                    if (taskTitle.isNotBlank()) {
-                        val desc = taskDescription.trim().ifBlank { null }
-                        if (recurrenceType != null && onAddRecurringTask != null) {
-                            val daysStr = if (recurrenceDays.isNotEmpty()) recurrenceDays.sorted().joinToString(",") else null
-                            onAddRecurringTask(
-                                taskTitle.trim(),
-                                selectedDate,
-                                selectedTime,
-                                selectedPriority,
-                                desc,
-                                recurrenceType!!,
-                                recurrenceInterval,
-                                daysStr,
-                                recurrenceEndDate
-                            )
-                        } else {
-                            onAddTask(
-                                taskTitle.trim(),
-                                selectedDate,
-                                selectedTime,
-                                syncToGoogle,
-                                selectedPriority,
-                                desc,
-                                if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null
-                            )
-                        }
-                    }
-                },
+                onClick = { saveTask() },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 16.dp)
@@ -416,61 +467,105 @@ fun AddTaskSheet(
         }
     }
 
-    // Material 3 TimePicker Dialog
-    if (showTimePicker) {
+    // Schedule Dialog - Calendar + optional TimePicker
+    if (showScheduleSheet) {
         val cal = Calendar.getInstance()
-        val timePickerState = rememberTimePickerState(
-            initialHour = cal.get(Calendar.HOUR_OF_DAY),
-            initialMinute = cal.get(Calendar.MINUTE),
-            is24Hour = true
-        )
-        DatePickerDialog(
-            onDismissRequest = { showTimePicker = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    selectedTime = String.format(Locale.US, "%02d:%02d", timePickerState.hour, timePickerState.minute)
-                    showTimePicker = false
-                }) { Text("OK") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
-            }
-        ) {
-            TimePicker(
-                state = timePickerState,
-                modifier = Modifier.padding(16.dp)
-            )
-        }
-    }
-
-    // Material 3 DatePicker Dialog
-    if (showDatePicker) {
         val tomorrow = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
         val tomorrowMillis = tomorrow.timeInMillis
+        var showTimeDialog by remember { mutableStateOf(false) }
 
         val datePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = selectedDate?.let {
+                try { SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(it)?.time } catch (_: Exception) { null }
+            },
             selectableDates = object : SelectableDates {
                 override fun isSelectableDate(utcTimeMillis: Long): Boolean {
                     return utcTimeMillis >= tomorrowMillis - 86400000L
                 }
             }
         )
+
         DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
+            onDismissRequest = { showScheduleSheet = false },
             confirmButton = {
                 TextButton(onClick = {
                     datePickerState.selectedDateMillis?.let { millis ->
                         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
                         selectedDate = sdf.format(Date(millis))
                     }
-                    showDatePicker = false
-                }) { Text("OK") }
+                    showScheduleSheet = false
+                }) { Text("Done") }
             },
             dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+                Row {
+                    TextButton(onClick = { showScheduleSheet = false }) { Text("Cancel") }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(onClick = { showTimeDialog = true }) {
+                        Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(if (selectedTime != null) selectedTime!! else "Set Time")
+                    }
+                }
             }
         ) {
             DatePicker(state = datePickerState)
+        }
+
+        // Separate TimePicker dialog
+        if (showTimeDialog) {
+            val timePickerState = rememberTimePickerState(
+                initialHour = selectedTime?.split(":")?.getOrNull(0)?.toIntOrNull() ?: cal.get(Calendar.HOUR_OF_DAY),
+                initialMinute = selectedTime?.split(":")?.getOrNull(1)?.toIntOrNull() ?: cal.get(Calendar.MINUTE),
+                is24Hour = true
+            )
+            DatePickerDialog(
+                onDismissRequest = { showTimeDialog = false },
+                confirmButton = {
+                    TextButton(onClick = {
+                        selectedTime = String.format(Locale.US, "%02d:%02d", timePickerState.hour, timePickerState.minute)
+                        showTimeDialog = false
+                    }) { Text("OK") }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showTimeDialog = false }) { Text("Cancel") }
+                }
+            ) {
+                TimePicker(
+                    state = timePickerState,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        }
+    }
+
+    // Repeat Bottom Sheet
+    if (showRepeatSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showRepeatSheet = false },
+            sheetState = rememberModalBottomSheetState()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp)
+            ) {
+                Text(
+                    text = "Repeat",
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(bottom = 16.dp)
+                )
+                RecurrencePicker(
+                    recurrenceType = recurrenceType,
+                    recurrenceInterval = recurrenceInterval,
+                    recurrenceDays = recurrenceDays,
+                    recurrenceEndDate = recurrenceEndDate,
+                    onRecurrenceTypeChanged = { recurrenceType = it; if (it == null) { recurrenceInterval = 1; recurrenceDays = emptySet(); recurrenceEndDate = null } },
+                    onIntervalChanged = { recurrenceInterval = it },
+                    onDaysChanged = { recurrenceDays = it },
+                    onEndDateChanged = { recurrenceEndDate = it }
+                )
+            }
         }
     }
 

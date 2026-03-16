@@ -73,6 +73,7 @@ fun TaskItem(
     onToggle: () -> Unit,
     onDelete: () -> Unit,
     onEdit: (() -> Unit)? = null,
+    onDetail: (() -> Unit)? = null,
     onStartPomodoro: (() -> Unit)? = null,
     isEditable: Boolean = true,
     subtaskCount: Pair<Int, Int>? = null,
@@ -354,6 +355,15 @@ fun TaskItem(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
+                    if (onDetail != null) {
+                        DropdownMenuItem(
+                            text = { Text("Details") },
+                            onClick = {
+                                showMenu = false
+                                onDetail()
+                            }
+                        )
+                    }
                     if (onEdit != null) {
                         DropdownMenuItem(
                             text = { Text("Edit") },
@@ -402,6 +412,7 @@ fun SwipeableTaskItem(
     onToggle: () -> Unit,
     onDelete: () -> Unit,
     onEdit: (() -> Unit)? = null,
+    onDetail: (() -> Unit)? = null,
     onStartPomodoro: (() -> Unit)? = null,
     isEditable: Boolean = true,
     subtaskCount: Pair<Int, Int>? = null,
@@ -431,6 +442,7 @@ fun SwipeableTaskItem(
             onToggle = onToggle,
             onDelete = onDelete,
             onEdit = onEdit,
+            onDetail = onDetail,
             onStartPomodoro = onStartPomodoro,
             isEditable = false,
             subtaskCount = subtaskCount,
@@ -488,6 +500,7 @@ fun SwipeableTaskItem(
             onToggle = onToggle,
             onDelete = onDelete,
             onEdit = onEdit,
+            onDetail = onDetail,
             onStartPomodoro = onStartPomodoro,
             isEditable = true,
             subtaskCount = subtaskCount,

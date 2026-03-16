@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -44,5 +45,30 @@ fun TagPicker(
                 }
             )
         }
+    }
+}
+
+@Composable
+fun TagPickerInline(
+    selectedTags: Set<String>,
+    onTagsChanged: (Set<String>) -> Unit
+) {
+    PredefinedTags.tags.forEach { tag ->
+        FilterChip(
+            selected = tag.name in selectedTags,
+            onClick = {
+                val newTags = if (tag.name in selectedTags) selectedTags - tag.name
+                else selectedTags + tag.name
+                onTagsChanged(newTags)
+            },
+            label = { Text(tag.name, style = MaterialTheme.typography.labelSmall) },
+            leadingIcon = {
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .background(tag.color, CircleShape)
+                )
+            }
+        )
     }
 }

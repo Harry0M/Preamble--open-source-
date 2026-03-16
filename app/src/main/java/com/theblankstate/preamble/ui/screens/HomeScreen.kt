@@ -89,7 +89,7 @@ import androidx.compose.ui.unit.dp
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.PredefinedTags
 import com.theblankstate.preamble.ui.components.AddTaskSheet
-import com.theblankstate.preamble.ui.components.EditTaskSheet
+import com.theblankstate.preamble.ui.components.TaskDetailSheet
 import com.theblankstate.preamble.ui.components.RichDateBadge
 import com.theblankstate.preamble.ui.components.RichDateHeader
 import com.theblankstate.preamble.ui.components.EisenhowerGrid
@@ -491,6 +491,9 @@ fun HomeScreen(
                             onEdit = if (onEditTask != null) {
                                 { taskToEdit = task }
                             } else null,
+                            onDetail = if (onEditTask != null) {
+                                { taskToEdit = task }
+                            } else null,
                             onStartPomodoro = {
                                 pomodoroTaskId = task.id
                                 pomodoroTaskTitle = task.title
@@ -637,6 +640,7 @@ fun HomeScreen(
                                                     onToggle = { onToggleTask(task) },
                                                     onDelete = { taskToDelete = task },
                                                     onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
+                                                    onDetail = if (onEditTask != null) {{ taskToEdit = task }} else null,
                                                     onStartPomodoro = {
                                                         pomodoroTaskId = task.id
                                                         pomodoroTaskTitle = task.title
@@ -674,6 +678,7 @@ fun HomeScreen(
                                     onToggle = { onToggleTask(task) },
                                     onDelete = { taskToDelete = task },
                                     onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
+                                    onDetail = if (onEditTask != null) {{ taskToEdit = task }} else null,
                                     onStartPomodoro = {
                                         pomodoroTaskId = task.id
                                         pomodoroTaskTitle = task.title
@@ -1043,12 +1048,22 @@ fun HomeScreen(
     }
 
     if (taskToEdit != null && onEditTask != null) {
-        EditTaskSheet(
+        TaskDetailSheet(
             task = taskToEdit!!,
             onDismiss = { taskToEdit = null },
             onUpdateTask = { newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags ->
                 onEditTask(taskToEdit!!, newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags)
                 taskToEdit = null
+            },
+            onDelete = {
+                taskToDelete = taskToEdit
+                taskToEdit = null
+            },
+            onStartPomodoro = {
+                pomodoroTaskId = taskToEdit!!.id
+                pomodoroTaskTitle = taskToEdit!!.title
+                taskToEdit = null
+                showPomodoroSheet = true
             }
         )
     }
