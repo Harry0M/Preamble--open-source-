@@ -43,8 +43,20 @@ class TaskViewModel(
 
     private val today = TaskRepository.todayString()
 
-    val todayTasks: StateFlow<List<Task>> = repository.getTasksForDate(today)
+    // Tag filter
+    private val _selectedTagFilter = MutableStateFlow<String?>(null)
+    val selectedTagFilter: StateFlow<String?> = _selectedTagFilter.asStateFlow()
+
+    private val _allTodayTasks: StateFlow<List<Task>> = repository.getTasksForDate(today)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val todayTasks: StateFlow<List<Task>> = combine(
+        _allTodayTasks,
+        _selectedTagFilter
+    ) { tasks, tagFilter ->
+        if (tagFilter == null) tasks
+        else tasks.filter { it.tagList.contains(tagFilter) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Subtask state
     private val _subtaskCounts = MutableStateFlow<Map<String, Pair<Int, Int>>>(emptyMap())
@@ -52,10 +64,6 @@ class TaskViewModel(
 
     private val _expandedTasks = MutableStateFlow<Set<String>>(emptySet())
     val expandedTasks: StateFlow<Set<String>> = _expandedTasks.asStateFlow()
-
-    // Tag filter
-    private val _selectedTagFilter = MutableStateFlow<String?>(null)
-    val selectedTagFilter: StateFlow<String?> = _selectedTagFilter.asStateFlow()
 
     private val past10Dates = (1..10).map { i ->
         val cal = java.util.Calendar.getInstance()
