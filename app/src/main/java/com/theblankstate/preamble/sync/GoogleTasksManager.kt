@@ -245,7 +245,8 @@ object GoogleTasksManager {
             completedTimestamp = completedAt,
             deadlineTime = null, // Google Tasks has no time support
             updatedTimestamp = updatedAt,
-            source = "google_tasks"
+            source = "google_tasks",
+            tags = "Google Tasks"
         )
     }
 

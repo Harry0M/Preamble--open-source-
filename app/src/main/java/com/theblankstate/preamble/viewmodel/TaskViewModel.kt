@@ -192,16 +192,32 @@ class TaskViewModel(
             _isRefreshing.value = true
             try {
                 val app = appContext.applicationContext as com.theblankstate.preamble.PreambleApplication
-                // Full sync Google Tasks (no updatedAfter filter)
+
+                // Incremental sync Google Tasks (only changes since last sync)
                 if (GoogleTasksManager.isLinked.value) {
-                    val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext)
-                    app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
+                    val lastSync = GoogleTasksManager.lastSyncTime.value
+                    if (lastSync > 0) {
+                        val updatedAfterRfc = com.google.api.client.util.DateTime(lastSync).toStringRfc3339()
+                        val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext, updatedAfter = updatedAfterRfc)
+                        app.repository.quickSyncGoogleTasks(gTasks)
+                    } else {
+                        val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext)
+                        app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
+                    }
                 }
-                // Full sync Google Calendar (no updatedAfter filter)
+
+                // Incremental sync Google Calendar (only changes since last sync)
                 if (GoogleCalendarManager.isLinked.value) {
-                    val calEvents = GoogleCalendarManager.fetchCalendarEvents(appContext)
-                    app.repository.syncCalendarEvents(calEvents)
+                    val lastSync = GoogleCalendarManager.lastSyncTime.value
+                    if (lastSync > 0) {
+                        val calEvents = GoogleCalendarManager.fetchCalendarEvents(appContext, updatedAfter = lastSync)
+                        app.repository.quickSyncCalendarEvents(calEvents)
+                    } else {
+                        val calEvents = GoogleCalendarManager.fetchCalendarEvents(appContext)
+                        app.repository.syncCalendarEvents(calEvents)
+                    }
                 }
+
                 // If neither Google service is linked, sync with Firebase instead
                 if (!GoogleTasksManager.isLinked.value && !GoogleCalendarManager.isLinked.value) {
                     app.repository.forceSyncFirebase()
@@ -234,14 +250,41 @@ class TaskViewModel(
         }
     }
 
-    fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false, priority: Int = 0, description: String? = null, tags: String? = null) {
+    fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false, syncToCalendar: Boolean = false, priority: Int = 0, description: String? = null, tags: String? = null) {
         if (title.isBlank()) return
         viewModelScope.launch {
-            if (syncToGoogle && GoogleTasksManager.isLinked.value) {
+            if (syncToCalendar && GoogleCalendarManager.isLinked.value) {
+                // Create on Google Calendar first, then save locally
+                val eventId = GoogleCalendarManager.createCalendarEvent(
+                    appContext, title, date ?: TaskRepository.todayString(),
+                    deadlineTime, "primary", description
+                )
+                if (eventId != null) {
+                    val now = System.currentTimeMillis()
+                    val calTags = listOfNotNull(tags, "Google Calendar").joinToString(",")
+                    val task = com.theblankstate.preamble.data.Task(
+                        id = "gcal_$eventId",
+                        title = title,
+                        createdDate = date ?: TaskRepository.todayString(),
+                        deadlineTime = deadlineTime,
+                        createdTimestamp = now,
+                        updatedTimestamp = now,
+                        source = "google_calendar",
+                        priority = priority,
+                        description = description,
+                        tags = calTags,
+                        googleCalendarId = "primary"
+                    )
+                    repository.insertTask(task)
+                } else {
+                    repository.addTask(title, date, deadlineTime, priority, description, tags)
+                }
+            } else if (syncToGoogle && GoogleTasksManager.isLinked.value) {
                 // Create on Google first, then save locally with Google Task ID
                 val googleId = GoogleTasksManager.createGoogleTask(appContext, title, date ?: TaskRepository.todayString())
                 if (googleId != null) {
                     val now = System.currentTimeMillis()
+                    val gTags = listOfNotNull(tags, "Google Tasks").joinToString(",")
                     val task = com.theblankstate.preamble.data.Task(
                         id = "gtask_$googleId",
                         title = title,
@@ -252,7 +295,7 @@ class TaskViewModel(
                         source = "google_tasks",
                         priority = priority,
                         description = description,
-                        tags = tags
+                        tags = gTags
                     )
                     repository.insertTask(task)
                 } else {
@@ -299,6 +342,12 @@ class TaskViewModel(
                 val googleId = task.id.removePrefix("gtask_")
                 GoogleTasksManager.deleteGoogleTask(appContext, googleId)
             }
+            // Delete from Google Calendar if it's a synced event
+            if (task.source == "google_calendar" && task.id.startsWith("gcal_")) {
+                val eventId = task.id.removePrefix("gcal_")
+                val calendarId = task.googleCalendarId ?: "primary"
+                GoogleCalendarManager.deleteCalendarEvent(appContext, eventId, calendarId)
+            }
             refreshStats()
         }
     }
@@ -326,6 +375,15 @@ class TaskViewModel(
                 val googleId = task.id.removePrefix("gtask_")
                 GoogleTasksManager.updateGoogleTask(
                     appContext, googleId, newTitle, newDate ?: task.createdDate
+                )
+            }
+            // Sync edits back to Google Calendar
+            if (task.source == "google_calendar" && task.id.startsWith("gcal_")) {
+                val eventId = task.id.removePrefix("gcal_")
+                val calendarId = task.googleCalendarId ?: "primary"
+                GoogleCalendarManager.updateCalendarEvent(
+                    appContext, eventId, calendarId, newTitle,
+                    newDate ?: task.createdDate, newDeadlineTime, newDescription
                 )
             }
             // Schedule new alarm if deadline is set

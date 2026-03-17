@@ -122,7 +122,7 @@ fun HomeScreen(
     tasks: List<Task>,
     pastTasks: Map<String, List<Task>> = emptyMap(),
     streak: Int,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, priority: Int, description: String?, tags: String?) -> Unit,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?) -> Unit,
     onToggleTask: (Task) -> Unit,
     onDeleteTask: (Task) -> Unit,
     onEditTask: ((Task, String, String?, String?, Int, String?, String?) -> Unit)? = null,
@@ -191,7 +191,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false, 0, null, null)
+                        onAddTask(spoken, null, null, false, false, 0, null, null)
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -240,7 +240,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false, 0, null, null)
+                        onAddTask(spoken, null, null, false, false, 0, null, null)
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -894,8 +894,8 @@ fun HomeScreen(
     if (showAddSheet) {
         AddTaskSheet(
             onDismiss = { showAddSheet = false },
-            onAddTask = { title, date, deadlineTime, syncToGoogle, priority, description, tags ->
-                onAddTask(title, date, deadlineTime, syncToGoogle, priority, description, tags)
+            onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags ->
+                onAddTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags)
                 showAddSheet = false
             },
             onAddRecurringTask = if (onAddRecurringTask != null) { { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate ->

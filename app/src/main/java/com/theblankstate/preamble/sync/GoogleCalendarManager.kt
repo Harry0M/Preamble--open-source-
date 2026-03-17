@@ -13,8 +13,10 @@ import com.google.api.client.util.DateTime
 import com.google.api.services.calendar.Calendar
 import com.google.api.services.calendar.CalendarScopes
 import com.google.api.services.calendar.model.Event
+import com.google.api.services.calendar.model.EventDateTime
 import com.theblankstate.preamble.data.Task
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,8 +28,9 @@ import java.util.UUID
 
 /**
  * Manages Google Calendar integration:
- * - OAuth2 sign-in with Calendar read scope
+ * - OAuth2 sign-in with Calendar read-write scope
  * - Fetching events from all user's calendars
+ * - Creating, updating, deleting events for two-way sync
  * - Converting events to app Task model
  */
 object GoogleCalendarManager {
@@ -37,6 +40,8 @@ object GoogleCalendarManager {
     private const val KEY_LINKED = "calendar_linked"
     private const val KEY_ACCOUNT_EMAIL = "calendar_account_email"
     private const val KEY_LAST_SYNC = "last_sync_timestamp"
+    private const val MAX_RETRIES = 2
+    private const val RETRY_DELAY_MS = 1000L
 
     private val _isLinked = MutableStateFlow(false)
     val isLinked: StateFlow<Boolean> = _isLinked.asStateFlow()
@@ -64,7 +69,7 @@ object GoogleCalendarManager {
         val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestEmail()
             .requestScopes(
-                Scope(CalendarScopes.CALENDAR_READONLY),
+                Scope(CalendarScopes.CALENDAR),
                 Scope("https://www.googleapis.com/auth/tasks")
             )
             .build()
@@ -126,7 +131,7 @@ object GoogleCalendarManager {
 
             val credential = GoogleAccountCredential.usingOAuth2(
                 context,
-                listOf(CalendarScopes.CALENDAR_READONLY)
+                listOf(CalendarScopes.CALENDAR)
             )
             credential.selectedAccount = account.account
 
@@ -180,7 +185,7 @@ object GoogleCalendarManager {
                         val events = eventsResult.items ?: emptyList()
 
                         for (event in events) {
-                            val task = eventToTask(event, sdf, timeSdf)
+                            val task = eventToTask(event, cal.id, sdf, timeSdf)
                             if (task != null) {
                                 allEvents.add(task)
                             }
@@ -218,6 +223,7 @@ object GoogleCalendarManager {
      */
     private fun eventToTask(
         event: Event,
+        calendarId: String,
         sdf: SimpleDateFormat,
         timeSdf: SimpleDateFormat
     ): Task? {
@@ -245,19 +251,149 @@ object GoogleCalendarManager {
         // Create a stable ID based on the Google event ID so we can deduplicate
         val stableId = "gcal_${event.id}"
 
-        // Use true title, UI will visually decorate it based on isCalendarEvent
-        val displayTitle = title
-
         return Task(
             id = stableId,
-            title = displayTitle,
+            title = title,
             isCompleted = false,
             createdDate = dateStr,
             createdTimestamp = startDate.time,
             completedTimestamp = null,
             deadlineTime = deadlineTime,
-            updatedTimestamp = System.currentTimeMillis(),
-            source = "google_calendar"
+            updatedTimestamp = event.updated?.value ?: System.currentTimeMillis(),
+            source = "google_calendar",
+            description = event.description,
+            tags = "Google Calendar",
+            googleCalendarId = calendarId
         )
+    }
+
+    // ── Write Infrastructure ──
+
+    private suspend fun <T> retryOnFailure(block: suspend () -> T): T {
+        var lastException: Throwable? = null
+        for (attempt in 0..MAX_RETRIES) {
+            try { return block() }
+            catch (e: Throwable) {
+                lastException = e
+                if (attempt < MAX_RETRIES) {
+                    Log.w(TAG, "Attempt $attempt failed, retrying...", e)
+                    delay(RETRY_DELAY_MS * (attempt + 1))
+                }
+            }
+        }
+        throw lastException!!
+    }
+
+    private fun buildCalendarService(context: Context): Calendar? {
+        val account = GoogleSignIn.getLastSignedInAccount(context) ?: return null
+        val credential = GoogleAccountCredential.usingOAuth2(
+            context, listOf(CalendarScopes.CALENDAR)
+        )
+        credential.selectedAccount = account.account
+        return Calendar.Builder(
+            NetHttpTransport(),
+            GsonFactory.getDefaultInstance(),
+            credential
+        ).setApplicationName("Preamble").build()
+    }
+
+    // ── Write Methods ──
+
+    suspend fun createCalendarEvent(
+        context: Context,
+        title: String,
+        date: String,
+        deadlineTime: String?,
+        calendarId: String = "primary",
+        description: String? = null
+    ): String? = withContext(Dispatchers.IO) {
+        if (!_isLinked.value) return@withContext null
+        try {
+            retryOnFailure {
+                val service = buildCalendarService(context) ?: error("No Calendar service")
+                val event = Event().setSummary(title)
+                if (description != null) event.description = description
+
+                if (deadlineTime != null) {
+                    val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
+                    val startDateTime = DateTime("${date}T${deadlineTime}:00")
+                    event.start = EventDateTime().setDateTime(startDateTime)
+                    val cal = java.util.Calendar.getInstance()
+                    cal.time = sdf.parse("${date}T${deadlineTime}:00")!!
+                    cal.add(java.util.Calendar.HOUR_OF_DAY, 1)
+                    val endDateTime = DateTime(sdf.format(cal.time))
+                    event.end = EventDateTime().setDateTime(endDateTime)
+                } else {
+                    event.start = EventDateTime().setDate(DateTime(date))
+                    event.end = EventDateTime().setDate(DateTime(date))
+                }
+
+                val created = service.events().insert(calendarId, event).execute()
+                Log.d(TAG, "Created calendar event: ${created.id}")
+                created.id
+            }
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to create calendar event", e)
+            null
+        }
+    }
+
+    suspend fun updateCalendarEvent(
+        context: Context,
+        eventId: String,
+        calendarId: String,
+        title: String,
+        date: String,
+        deadlineTime: String?,
+        description: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (!_isLinked.value) return@withContext false
+        try {
+            retryOnFailure {
+                val service = buildCalendarService(context) ?: error("No Calendar service")
+                val event = service.events().get(calendarId, eventId).execute()
+                event.summary = title
+                if (description != null) event.description = description
+
+                if (deadlineTime != null) {
+                    val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
+                    val startDateTime = DateTime("${date}T${deadlineTime}:00")
+                    event.start = EventDateTime().setDateTime(startDateTime)
+                    val cal = java.util.Calendar.getInstance()
+                    cal.time = sdf.parse("${date}T${deadlineTime}:00")!!
+                    cal.add(java.util.Calendar.HOUR_OF_DAY, 1)
+                    event.end = EventDateTime().setDateTime(DateTime(sdf.format(cal.time)))
+                } else {
+                    event.start = EventDateTime().setDate(DateTime(date))
+                    event.end = EventDateTime().setDate(DateTime(date))
+                }
+
+                service.events().update(calendarId, eventId, event).execute()
+                Log.d(TAG, "Updated calendar event $eventId")
+            }
+            true
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to update calendar event $eventId", e)
+            false
+        }
+    }
+
+    suspend fun deleteCalendarEvent(
+        context: Context,
+        eventId: String,
+        calendarId: String
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (!_isLinked.value) return@withContext false
+        try {
+            retryOnFailure {
+                val service = buildCalendarService(context) ?: error("No Calendar service")
+                service.events().delete(calendarId, eventId).execute()
+                Log.d(TAG, "Deleted calendar event $eventId from calendar $calendarId")
+            }
+            true
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to delete calendar event $eventId", e)
+            false
+        }
     }
 }

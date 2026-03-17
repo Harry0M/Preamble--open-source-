@@ -307,7 +307,8 @@ data class RemoteTask(
     var recurrenceEndDate: String? = null,
     var recurrenceParentId: String? = null,
     var parentTaskId: String? = null,
-    var tags: String? = null
+    var tags: String? = null,
+    var googleCalendarId: String? = null
 ) {
     fun toLocal(fallbackId: String): Task? {
         val resolvedId = id.ifBlank { fallbackId }
@@ -334,7 +335,8 @@ data class RemoteTask(
             recurrenceEndDate = recurrenceEndDate,
             recurrenceParentId = recurrenceParentId,
             parentTaskId = parentTaskId,
-            tags = tags
+            tags = tags,
+            googleCalendarId = googleCalendarId
         )
     }
 
@@ -358,7 +360,8 @@ data class RemoteTask(
                 recurrenceEndDate = task.recurrenceEndDate,
                 recurrenceParentId = task.recurrenceParentId,
                 parentTaskId = task.parentTaskId,
-                tags = task.tags
+                tags = task.tags,
+                googleCalendarId = task.googleCalendarId
             )
         }
     }

@@ -297,33 +297,49 @@ class TaskRepository(
         }
     }
 
+    // ── Tag Merging Helper ──
+
+    private fun mergeTagsWithSource(existingTags: String?, sourceTag: String): String {
+        val tagSet = existingTags?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
+        tagSet.add(sourceTag)
+        return tagSet.joinToString(",")
+    }
+
     // ── Google Calendar Sync ──
 
     /**
-     * Sync Google Calendar events into the local database.
-     * Uses upsert logic: new events are inserted, existing ones are updated,
-     * removed events are deleted.
+     * Full sync Google Calendar events into the local database.
+     * Uses last-write-wins conflict resolution: only upsert if remote is newer.
+     * Preserves local completion state, user tags, priority, and description.
+     * Removed events are deleted (unless completed locally).
      */
     suspend fun syncCalendarEvents(events: List<Task>) {
         val existingCalendarIds = dao.getAllCalendarTaskIds().toSet()
         val newEventIds = events.map { it.id }.toSet()
 
-        // Preserve local completion state for existing calendar events
         val existingTasks = dao.getAllCalendarTasks().associateBy { it.id }
-        val eventsToInsert = events.map { event ->
+        val eventsToInsert = events.mapNotNull { event ->
             val existing = existingTasks[event.id]
-            if (existing != null && existing.isCompleted) {
-                event.copy(
-                    isCompleted = true,
-                    completedTimestamp = existing.completedTimestamp
-                )
+            if (existing != null) {
+                // Last-write-wins: only update if remote is newer or equal
+                if (event.updatedTimestamp >= existing.updatedTimestamp) {
+                    event.copy(
+                        isCompleted = existing.isCompleted,
+                        completedTimestamp = existing.completedTimestamp,
+                        tags = mergeTagsWithSource(existing.tags, "Google Calendar"),
+                        priority = existing.priority
+                    )
+                } else {
+                    null // skip — local is newer
+                }
             } else {
-                event
+                event // new event, insert
             }
         }
 
-        // Insert or update events
-        dao.insertTasks(eventsToInsert)
+        if (eventsToInsert.isNotEmpty()) {
+            dao.insertTasks(eventsToInsert)
+        }
 
         // Delete events that are no longer in the calendar (skip completed ones user marked locally)
         val removedIds = existingCalendarIds - newEventIds
@@ -345,7 +361,8 @@ class TaskRepository(
     // ── Google Tasks Sync ──
 
     /**
-     * Sync Google Tasks into the local database.
+     * Full sync Google Tasks into the local database.
+     * Uses last-write-wins conflict resolution.
      * Tasks deleted from Google are either:
      * - Marked with deletedFromGoogle=true (default) — shown with tag
      * - Auto-deleted from app if autoDeleteGoogleTasks setting is ON
@@ -353,24 +370,38 @@ class TaskRepository(
     suspend fun syncGoogleTasks(tasks: List<Task>, autoDeleteFromApp: Boolean = false) {
         val existingIds = dao.getAllGoogleTaskIds().toSet()
         val newIds = tasks.map { it.id }.toSet()
+        val existingTasks = dao.getAllGoogleTasks().associateBy { it.id }
 
-        // Insert or update tasks (only those not marked as deleted locally)
-        for (task in tasks) {
-            // If task was previously marked deletedFromGoogle, restore it
-            dao.insertTask(task)
+        // Insert or update tasks with last-write-wins
+        val tasksToInsert = tasks.mapNotNull { task ->
+            val existing = existingTasks[task.id]
+            if (existing != null) {
+                if (task.updatedTimestamp >= existing.updatedTimestamp) {
+                    task.copy(
+                        tags = mergeTagsWithSource(existing.tags, "Google Tasks"),
+                        priority = existing.priority,
+                        description = existing.description ?: task.description
+                    )
+                } else {
+                    null // skip — local is newer
+                }
+            } else {
+                task
+            }
+        }
+
+        if (tasksToInsert.isNotEmpty()) {
+            dao.insertTasks(tasksToInsert)
         }
 
         // Handle tasks removed from Google
         val removedIds = existingIds - newIds
         if (removedIds.isNotEmpty()) {
-            val existing = dao.getAllGoogleTasks()
-            for (task in existing.filter { it.id in removedIds && !it.deletedFromGoogle }) {
+            for (task in existingTasks.values.filter { it.id in removedIds && !it.deletedFromGoogle }) {
                 if (autoDeleteFromApp) {
-                    // Auto-delete from app too
                     dao.deleteTask(task)
                     syncManager?.deleteTask(task.id)
                 } else {
-                    // Mark as deleted from Google, keep in app
                     dao.updateTask(task.copy(deletedFromGoogle = true, updatedTimestamp = System.currentTimeMillis()))
                 }
             }
@@ -380,34 +411,56 @@ class TaskRepository(
     /**
      * Quick sync: only upsert changed tasks, no deletion detection.
      * Used for pull-to-refresh for fast incremental sync.
+     * Preserves user tags and applies last-write-wins.
      */
     suspend fun quickSyncGoogleTasks(tasks: List<Task>) {
-        if (tasks.isNotEmpty()) {
-            dao.insertTasks(tasks)
+        if (tasks.isEmpty()) return
+        val existingTasks = dao.getAllGoogleTasks().associateBy { it.id }
+        val tasksToInsert = tasks.mapNotNull { task ->
+            val existing = existingTasks[task.id]
+            if (existing != null) {
+                if (task.updatedTimestamp >= existing.updatedTimestamp) {
+                    task.copy(tags = mergeTagsWithSource(existing.tags, "Google Tasks"))
+                } else {
+                    null
+                }
+            } else {
+                task
+            }
+        }
+        if (tasksToInsert.isNotEmpty()) {
+            dao.insertTasks(tasksToInsert)
         }
     }
 
     /**
      * Quick sync for calendar events: only upsert, no deletion detection.
-     * Used for incremental pull-to-refresh sync where the API only returns
-     * recently-changed events, not the full set.
+     * Used for incremental pull-to-refresh sync.
+     * Preserves local completion state and user tags, applies last-write-wins.
      */
     suspend fun quickSyncCalendarEvents(events: List<Task>) {
         if (events.isEmpty()) return
-        // Preserve local completion state for existing calendar events
         val existingTasks = dao.getAllCalendarTasks().associateBy { it.id }
-        val eventsToInsert = events.map { event ->
+        val eventsToInsert = events.mapNotNull { event ->
             val existing = existingTasks[event.id]
-            if (existing != null && existing.isCompleted) {
-                event.copy(
-                    isCompleted = true,
-                    completedTimestamp = existing.completedTimestamp
-                )
+            if (existing != null) {
+                if (event.updatedTimestamp >= existing.updatedTimestamp) {
+                    event.copy(
+                        isCompleted = existing.isCompleted,
+                        completedTimestamp = existing.completedTimestamp,
+                        tags = mergeTagsWithSource(existing.tags, "Google Calendar"),
+                        priority = existing.priority
+                    )
+                } else {
+                    null
+                }
             } else {
                 event
             }
         }
-        dao.insertTasks(eventsToInsert)
+        if (eventsToInsert.isNotEmpty()) {
+            dao.insertTasks(eventsToInsert)
+        }
     }
 
     /**

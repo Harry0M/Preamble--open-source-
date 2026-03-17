@@ -74,6 +74,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.theblankstate.preamble.ai.AiChatViewModel
+import com.theblankstate.preamble.sync.GoogleCalendarManager
 import com.theblankstate.preamble.sync.GoogleTasksManager
 import com.theblankstate.preamble.util.NaturalDateParser
 import java.text.SimpleDateFormat
@@ -86,7 +87,7 @@ import kotlin.math.sin
 @Composable
 fun AddTaskSheet(
     onDismiss: () -> Unit,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, priority: Int, description: String?, tags: String?) -> Unit,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?) -> Unit,
     onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?) -> Unit)? = null,
     aiChatViewModel: AiChatViewModel? = null
 ) {
@@ -97,11 +98,13 @@ fun AddTaskSheet(
     var selectedPriority by remember { mutableStateOf(0) }
     var selectedTags by remember { mutableStateOf<Set<String>>(emptySet()) }
     var syncToGoogle by remember { mutableStateOf(false) }
+    var syncToCalendar by remember { mutableStateOf(false) }
     var recurrenceType by remember { mutableStateOf<String?>(null) }
     var recurrenceInterval by remember { mutableStateOf(1) }
     var recurrenceDays by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var recurrenceEndDate by remember { mutableStateOf<String?>(null) }
     val googleLinked = GoogleTasksManager.isLinked.collectAsState().value
+    val calendarLinked = GoogleCalendarManager.isLinked.collectAsState().value
     var isListening by remember { mutableStateOf(false) }
     var wantsToListen by remember { mutableStateOf(false) }
     var showScheduleSheet by remember { mutableStateOf(false) }
@@ -207,6 +210,7 @@ fun AddTaskSheet(
                     selectedDate,
                     selectedTime,
                     syncToGoogle,
+                    syncToCalendar,
                     selectedPriority,
                     desc,
                     if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null
@@ -433,6 +437,29 @@ fun AddTaskSheet(
                 )
             }
 
+            // Sync to Google Calendar toggle (only visible when linked)
+            if (calendarLinked) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "Sync to Google Calendar",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    androidx.compose.material3.Switch(
+                        checked = syncToCalendar,
+                        onCheckedChange = {
+                            syncToCalendar = it
+                            if (it) syncToGoogle = false
+                        }
+                    )
+                }
+            }
+
             // Sync to Google Tasks toggle (only visible when linked)
             if (googleLinked) {
                 Row(
@@ -448,7 +475,10 @@ fun AddTaskSheet(
                     )
                     androidx.compose.material3.Switch(
                         checked = syncToGoogle,
-                        onCheckedChange = { syncToGoogle = it }
+                        onCheckedChange = {
+                            syncToGoogle = it
+                            if (it) syncToCalendar = false
+                        }
                     )
                 }
             }

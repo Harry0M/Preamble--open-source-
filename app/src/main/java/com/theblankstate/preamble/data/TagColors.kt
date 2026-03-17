@@ -18,7 +18,9 @@ object PredefinedTags {
         TagDefinition("Home", Color(0xFF795548)),
         TagDefinition("Social", Color(0xFFFF5722)),
         TagDefinition("Urgent", Color(0xFFF44336)),
-        TagDefinition("Ideas", Color(0xFFFFEB3B))
+        TagDefinition("Ideas", Color(0xFFFFEB3B)),
+        TagDefinition("Google Calendar", Color(0xFF4285F4)),
+        TagDefinition("Google Tasks", Color(0xFF34A853))
     )
 
     fun colorForTag(name: String): Color {

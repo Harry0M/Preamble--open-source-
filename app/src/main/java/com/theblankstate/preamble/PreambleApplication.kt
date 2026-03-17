@@ -18,6 +18,7 @@ import com.theblankstate.preamble.ads.FeatureGateManager
 import com.theblankstate.preamble.ads.RewardedAdManager
 import com.theblankstate.preamble.ads.AppOpenAdManager
 import com.theblankstate.preamble.recurrence.RecurrenceWorker
+import com.theblankstate.preamble.sync.GoogleSyncWorker
 import com.theblankstate.preamble.widget.WidgetUpdater
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +60,8 @@ class PreambleApplication : Application() {
         // Schedule recurring task instance generation
         scheduleRecurrenceWorker()
         generateRecurrenceInstancesNow()
+        // Schedule periodic Google sync (every 15 min)
+        scheduleGoogleSyncWorker()
         // Observe task changes to refresh home screen widget
         observeTaskChangesForWidget()
     }
@@ -82,6 +85,22 @@ class PreambleApplication : Application() {
 
         WorkManager.getInstance(this).enqueueUniquePeriodicWork(
             RecurrenceWorker.WORK_NAME,
+            ExistingPeriodicWorkPolicy.KEEP,
+            request
+        )
+    }
+
+    private fun scheduleGoogleSyncWorker() {
+        val constraints = androidx.work.Constraints.Builder()
+            .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+            .build()
+
+        val request = PeriodicWorkRequestBuilder<GoogleSyncWorker>(
+            15, TimeUnit.MINUTES
+        ).setConstraints(constraints).build()
+
+        WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            GoogleSyncWorker.WORK_NAME,
             ExistingPeriodicWorkPolicy.KEEP,
             request
         )
