@@ -140,4 +140,18 @@ interface TaskDao {
 
     @Query("SELECT * FROM tasks WHERE tags LIKE '%' || :tag || '%' AND parentTaskId IS NULL ORDER BY createdDate DESC, isCompleted ASC, priority DESC, createdTimestamp DESC")
     fun getTasksByTag(tag: String): Flow<List<Task>>
+
+    // ── Tag Override queries (for Google Calendar/Tasks tag persistence) ──
+
+    @Query("SELECT * FROM task_tag_overrides WHERE googleId = :googleId")
+    suspend fun getTagOverride(googleId: String): TaskTagOverride?
+
+    @Query("SELECT * FROM task_tag_overrides")
+    suspend fun getAllTagOverrides(): List<TaskTagOverride>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertTagOverride(override: TaskTagOverride)
+
+    @Query("DELETE FROM task_tag_overrides WHERE googleId = :googleId")
+    suspend fun deleteTagOverride(googleId: String)
 }

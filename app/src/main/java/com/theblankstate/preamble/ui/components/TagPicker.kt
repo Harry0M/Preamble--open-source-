@@ -20,7 +20,8 @@ import com.theblankstate.preamble.data.PredefinedTags
 fun TagPicker(
     selectedTags: Set<String>,
     onTagsChanged: (Set<String>) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    lockedTags: Set<String> = emptySet()
 ) {
     FlowRow(
         modifier = modifier,
@@ -28,14 +29,18 @@ fun TagPicker(
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         PredefinedTags.tags.forEach { tag ->
+            val isLocked = tag.name in lockedTags
             FilterChip(
                 selected = tag.name in selectedTags,
                 onClick = {
-                    val newTags = if (tag.name in selectedTags) selectedTags - tag.name
-                    else selectedTags + tag.name
-                    onTagsChanged(newTags)
+                    if (!isLocked) {
+                        val newTags = if (tag.name in selectedTags) selectedTags - tag.name
+                        else selectedTags + tag.name
+                        onTagsChanged(newTags)
+                    }
                 },
                 label = { Text(tag.name) },
+                enabled = !isLocked,
                 leadingIcon = {
                     Box(
                         modifier = Modifier

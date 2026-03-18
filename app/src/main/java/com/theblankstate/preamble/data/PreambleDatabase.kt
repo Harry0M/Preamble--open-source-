@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Task::class], version = 10, exportSchema = false)
+@Database(entities = [Task::class, TaskTagOverride::class], version = 11, exportSchema = false)
 abstract class PreambleDatabase : RoomDatabase() {
 
     abstract fun taskDao(): TaskDao
@@ -23,7 +23,7 @@ abstract class PreambleDatabase : RoomDatabase() {
                     PreambleDatabase::class.java,
                     "preamble_db"
                 )
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -154,6 +154,22 @@ abstract class PreambleDatabase : RoomDatabase() {
         private val MIGRATION_9_10 = object : Migration(9, 10) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `googleCalendarId` TEXT")
+            }
+        }
+
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Add display-only recurrence info column
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `googleRecurrenceInfo` TEXT")
+                // Create tag overrides table for persistent tag storage
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `task_tag_overrides` (
+                        `googleId` TEXT NOT NULL,
+                        `tags` TEXT NOT NULL,
+                        `updatedTimestamp` INTEGER NOT NULL,
+                        PRIMARY KEY(`googleId`)
+                    )
+                """.trimIndent())
             }
         }
     }

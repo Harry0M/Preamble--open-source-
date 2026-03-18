@@ -2,6 +2,7 @@ package com.theblankstate.preamble.repository
 
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.TaskDao
+import com.theblankstate.preamble.data.TaskTagOverride
 import com.theblankstate.preamble.sync.FirebaseTaskSyncManager
 import kotlinx.coroutines.flow.Flow
 import java.text.SimpleDateFormat
@@ -13,6 +14,21 @@ class TaskRepository(
     private val dao: TaskDao,
     private val syncManager: FirebaseTaskSyncManager? = null
 ) {
+
+    // Track recently deleted IDs to prevent sync from re-inserting them
+    private val recentlyDeletedIds = mutableSetOf<String>()
+
+    fun markAsDeleted(id: String) {
+        synchronized(recentlyDeletedIds) { recentlyDeletedIds.add(id) }
+    }
+
+    fun clearDeletedId(id: String) {
+        synchronized(recentlyDeletedIds) { recentlyDeletedIds.remove(id) }
+    }
+
+    private fun isRecentlyDeleted(id: String): Boolean {
+        return synchronized(recentlyDeletedIds) { id in recentlyDeletedIds }
+    }
 
     val tasksFlow: Flow<List<Task>> = dao.getAllTasksFlow()
 
@@ -106,7 +122,8 @@ class TaskRepository(
         recurrenceType: String,
         recurrenceInterval: Int = 1,
         recurrenceDays: String? = null,
-        recurrenceEndDate: String? = null
+        recurrenceEndDate: String? = null,
+        tags: String? = null
     ): Task {
         val taskDate = date ?: todayString()
         val now = System.currentTimeMillis()
@@ -121,7 +138,8 @@ class TaskRepository(
             recurrenceType = recurrenceType,
             recurrenceInterval = recurrenceInterval,
             recurrenceDays = recurrenceDays,
-            recurrenceEndDate = recurrenceEndDate
+            recurrenceEndDate = recurrenceEndDate,
+            tags = tags
         )
         dao.insertTask(template)
         syncManager?.pushTask(template)
@@ -297,12 +315,79 @@ class TaskRepository(
         }
     }
 
-    // ── Tag Merging Helper ──
+    // ── Tag Override Helpers ──
 
-    private fun mergeTagsWithSource(existingTags: String?, sourceTag: String): String {
-        val tagSet = existingTags?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.toMutableSet() ?: mutableSetOf()
-        tagSet.add(sourceTag)
-        return tagSet.joinToString(",")
+    /**
+     * Extract the stable Google ID from an app task ID.
+     * "gcal_abc123" → "abc123", "gtask_xyz" → "xyz"
+     */
+    private fun extractGoogleId(taskId: String): String? {
+        return when {
+            taskId.startsWith("gcal_") -> taskId.removePrefix("gcal_")
+            taskId.startsWith("gtask_") -> taskId.removePrefix("gtask_")
+            else -> null
+        }
+    }
+
+    /**
+     * Build the final tags string for a Google-sourced task by:
+     * 1. Looking up any user-assigned tags from the tag override store
+     * 2. For recurring instances, falling back to the parent event's override
+     * 3. Merging existing tags from the local task if present
+     */
+    private suspend fun buildTagsForGoogleTask(
+        taskId: String,
+        existingTags: String? = null,
+        parentTaskId: String? = null
+    ): String {
+        val googleId = extractGoogleId(taskId)
+        // First try direct lookup, then fall back to parent event ID for recurring instances
+        var overrideTags = if (googleId != null) {
+            dao.getTagOverride(googleId)?.tags
+        } else null
+
+        if (overrideTags == null && parentTaskId != null) {
+            val parentGoogleId = extractGoogleId(parentTaskId)
+            if (parentGoogleId != null) {
+                overrideTags = dao.getTagOverride(parentGoogleId)?.tags
+            }
+        }
+
+        val tagSet = mutableSetOf<String>()
+        // Add override tags (user-assigned, persisted)
+        overrideTags?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() }?.let { tagSet.addAll(it) }
+        // Add any existing tags from the local task (strip old source tags)
+        existingTags?.split(",")?.map { it.trim() }?.filter {
+            it.isNotEmpty() && it != "Google Calendar" && it != "Google Tasks"
+        }?.let { tagSet.addAll(it) }
+        return if (tagSet.isEmpty()) "" else tagSet.joinToString(",")
+    }
+
+    /**
+     * Save a tag override for a Google-sourced task.
+     * Strips the source tag, stores only user-assigned tags.
+     * Pushes to Firebase for cross-device sync.
+     */
+    suspend fun saveTagOverride(taskId: String, tags: String?) {
+        val googleId = extractGoogleId(taskId) ?: return
+        // Strip source tags, keep only user-assigned tags
+        val userTags = tags?.split(",")
+            ?.map { it.trim() }
+            ?.filter { it.isNotEmpty() && it != "Google Calendar" && it != "Google Tasks" }
+            ?.joinToString(",") ?: ""
+
+        if (userTags.isEmpty()) {
+            dao.deleteTagOverride(googleId)
+            syncManager?.deleteTagOverride(googleId)
+        } else {
+            val override = TaskTagOverride(
+                googleId = googleId,
+                tags = userTags,
+                updatedTimestamp = System.currentTimeMillis()
+            )
+            dao.upsertTagOverride(override)
+            syncManager?.pushTagOverride(googleId, userTags)
+        }
     }
 
     // ── Google Calendar Sync ──
@@ -314,11 +399,23 @@ class TaskRepository(
      * Removed events are deleted (unless completed locally).
      */
     suspend fun syncCalendarEvents(events: List<Task>) {
-        val existingCalendarIds = dao.getAllCalendarTaskIds().toSet()
-        val newEventIds = events.map { it.id }.toSet()
-
         val existingTasks = dao.getAllCalendarTasks().associateBy { it.id }
-        val eventsToInsert = events.mapNotNull { event ->
+
+        // Handle cancelled recurring instances first — delete them from local DB
+        val cancelledEvents = events.filter { it.deletedFromGoogle }
+        for (cancelled in cancelledEvents) {
+            val existing = existingTasks[cancelled.id]
+            if (existing != null) {
+                dao.deleteTask(existing)
+            }
+        }
+
+        // Filter to active (non-cancelled) events for normal sync
+        val activeEvents = events.filter { !it.deletedFromGoogle }
+        val existingCalendarIds = dao.getAllCalendarTaskIds().toSet()
+        val newEventIds = activeEvents.map { it.id }.toSet()
+
+        val eventsToInsert = activeEvents.filter { !isRecentlyDeleted(it.id) }.mapNotNull { event ->
             val existing = existingTasks[event.id]
             if (existing != null) {
                 // Last-write-wins: only update if remote is newer or equal
@@ -326,14 +423,25 @@ class TaskRepository(
                     event.copy(
                         isCompleted = existing.isCompleted,
                         completedTimestamp = existing.completedTimestamp,
-                        tags = mergeTagsWithSource(existing.tags, "Google Calendar"),
-                        priority = existing.priority
+                        tags = buildTagsForGoogleTask(event.id, existing.tags, event.recurrenceParentId),
+                        priority = existing.priority,
+                        // Preserve local-only fields that Google doesn't have
+                        recurrenceType = event.recurrenceType ?: existing.recurrenceType,
+                        recurrenceInterval = event.recurrenceInterval ?: existing.recurrenceInterval,
+                        recurrenceDays = event.recurrenceDays ?: existing.recurrenceDays,
+                        recurrenceEndDate = event.recurrenceEndDate ?: existing.recurrenceEndDate,
+                        recurrenceParentId = event.recurrenceParentId ?: existing.recurrenceParentId,
+                        parentTaskId = existing.parentTaskId,
+                        googleRecurrenceInfo = event.googleRecurrenceInfo ?: existing.googleRecurrenceInfo
                     )
                 } else {
                     null // skip — local is newer
                 }
             } else {
-                event // new event, insert
+                // New event — apply tag overrides if any exist
+                event.copy(
+                    tags = buildTagsForGoogleTask(event.id, parentTaskId = event.recurrenceParentId)
+                )
             }
         }
 
@@ -342,7 +450,9 @@ class TaskRepository(
         }
 
         // Delete events that are no longer in the calendar (skip completed ones user marked locally)
-        val removedIds = existingCalendarIds - newEventIds
+        // Also exclude cancelled event IDs from removal check (they're already handled above)
+        val cancelledIds = cancelledEvents.map { it.id }.toSet()
+        val removedIds = existingCalendarIds - newEventIds - cancelledIds
         if (removedIds.isNotEmpty()) {
             val toRemove = existingTasks.values.filter { it.id in removedIds && !it.isCompleted }
             for (task in toRemove) {
@@ -373,20 +483,30 @@ class TaskRepository(
         val existingTasks = dao.getAllGoogleTasks().associateBy { it.id }
 
         // Insert or update tasks with last-write-wins
-        val tasksToInsert = tasks.mapNotNull { task ->
+        val tasksToInsert = tasks.filter { !isRecentlyDeleted(it.id) }.mapNotNull { task ->
             val existing = existingTasks[task.id]
             if (existing != null) {
                 if (task.updatedTimestamp >= existing.updatedTimestamp) {
                     task.copy(
-                        tags = mergeTagsWithSource(existing.tags, "Google Tasks"),
+                        tags = buildTagsForGoogleTask(task.id, existing.tags, task.recurrenceParentId),
                         priority = existing.priority,
-                        description = existing.description ?: task.description
+                        description = existing.description ?: task.description,
+                        // Preserve local-only fields that Google doesn't have
+                        recurrenceType = existing.recurrenceType,
+                        recurrenceInterval = existing.recurrenceInterval,
+                        recurrenceDays = existing.recurrenceDays,
+                        recurrenceEndDate = existing.recurrenceEndDate,
+                        recurrenceParentId = existing.recurrenceParentId,
+                        parentTaskId = existing.parentTaskId
                     )
                 } else {
                     null // skip — local is newer
                 }
             } else {
-                task
+                // New task — apply tag overrides if any exist
+                task.copy(
+                    tags = buildTagsForGoogleTask(task.id, parentTaskId = task.recurrenceParentId)
+                )
             }
         }
 
@@ -416,16 +536,28 @@ class TaskRepository(
     suspend fun quickSyncGoogleTasks(tasks: List<Task>) {
         if (tasks.isEmpty()) return
         val existingTasks = dao.getAllGoogleTasks().associateBy { it.id }
-        val tasksToInsert = tasks.mapNotNull { task ->
+        val tasksToInsert = tasks.filter { !isRecentlyDeleted(it.id) }.mapNotNull { task ->
             val existing = existingTasks[task.id]
             if (existing != null) {
                 if (task.updatedTimestamp >= existing.updatedTimestamp) {
-                    task.copy(tags = mergeTagsWithSource(existing.tags, "Google Tasks"))
+                    task.copy(
+                        tags = buildTagsForGoogleTask(task.id, existing.tags, task.recurrenceParentId),
+                        recurrenceType = existing.recurrenceType,
+                        recurrenceInterval = existing.recurrenceInterval,
+                        recurrenceDays = existing.recurrenceDays,
+                        recurrenceEndDate = existing.recurrenceEndDate,
+                        recurrenceParentId = existing.recurrenceParentId,
+                        parentTaskId = existing.parentTaskId,
+                        priority = existing.priority
+                    )
                 } else {
                     null
                 }
             } else {
-                task
+                // New task — apply tag overrides if any exist
+                task.copy(
+                    tags = buildTagsForGoogleTask(task.id, parentTaskId = task.recurrenceParentId)
+                )
             }
         }
         if (tasksToInsert.isNotEmpty()) {
@@ -434,28 +566,51 @@ class TaskRepository(
     }
 
     /**
-     * Quick sync for calendar events: only upsert, no deletion detection.
+     * Quick sync for calendar events: upsert changed + handle cancelled instances.
      * Used for incremental pull-to-refresh sync.
      * Preserves local completion state and user tags, applies last-write-wins.
      */
     suspend fun quickSyncCalendarEvents(events: List<Task>) {
         if (events.isEmpty()) return
         val existingTasks = dao.getAllCalendarTasks().associateBy { it.id }
-        val eventsToInsert = events.mapNotNull { event ->
+
+        // Handle cancelled recurring instances — delete them from local DB
+        val cancelledEvents = events.filter { it.deletedFromGoogle }
+        for (cancelled in cancelledEvents) {
+            val existing = existingTasks[cancelled.id]
+            if (existing != null) {
+                dao.deleteTask(existing)
+            }
+        }
+
+        // Process active (non-cancelled) events
+        val activeEvents = events.filter { !it.deletedFromGoogle }
+        val eventsToInsert = activeEvents.filter { !isRecentlyDeleted(it.id) }.mapNotNull { event ->
             val existing = existingTasks[event.id]
             if (existing != null) {
                 if (event.updatedTimestamp >= existing.updatedTimestamp) {
                     event.copy(
                         isCompleted = existing.isCompleted,
                         completedTimestamp = existing.completedTimestamp,
-                        tags = mergeTagsWithSource(existing.tags, "Google Calendar"),
-                        priority = existing.priority
+                        tags = buildTagsForGoogleTask(event.id, existing.tags, event.recurrenceParentId),
+                        priority = existing.priority,
+                        // Preserve local-only fields
+                        recurrenceType = event.recurrenceType ?: existing.recurrenceType,
+                        recurrenceInterval = event.recurrenceInterval ?: existing.recurrenceInterval,
+                        recurrenceDays = event.recurrenceDays ?: existing.recurrenceDays,
+                        recurrenceEndDate = event.recurrenceEndDate ?: existing.recurrenceEndDate,
+                        recurrenceParentId = event.recurrenceParentId ?: existing.recurrenceParentId,
+                        parentTaskId = existing.parentTaskId,
+                        googleRecurrenceInfo = event.googleRecurrenceInfo ?: existing.googleRecurrenceInfo
                     )
                 } else {
                     null
                 }
             } else {
-                event
+                // New event — apply tag overrides if any exist
+                event.copy(
+                    tags = buildTagsForGoogleTask(event.id, parentTaskId = event.recurrenceParentId)
+                )
             }
         }
         if (eventsToInsert.isNotEmpty()) {

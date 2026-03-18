@@ -330,7 +330,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                     scope.launch {
                                         try {
                                             val app = context.applicationContext as PreambleApplication
-                                            val events = GoogleCalendarManager.fetchCalendarEvents(context)
+                                            val events = GoogleCalendarManager.fetchCalendarEvents(context, forceFullSync = true)
                                             app.repository.syncCalendarEvents(events)
                                             val gTasks = GoogleTasksManager.fetchGoogleTasks(context)
                                             app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)

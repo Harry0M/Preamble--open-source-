@@ -246,7 +246,7 @@ object GoogleTasksManager {
             deadlineTime = null, // Google Tasks has no time support
             updatedTimestamp = updatedAt,
             source = "google_tasks",
-            tags = "Google Tasks"
+            tags = null // Tags applied from local tag override store during sync
         )
     }
 

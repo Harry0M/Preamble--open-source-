@@ -125,8 +125,8 @@ fun HomeScreen(
     onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?) -> Unit,
     onToggleTask: (Task) -> Unit,
     onDeleteTask: (Task) -> Unit,
-    onEditTask: ((Task, String, String?, String?, Int, String?, String?) -> Unit)? = null,
-    onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?) -> Unit)? = null,
+    onEditTask: ((Task, String, String?, String?, Int, String?, String?, String?, Int, String?, String?) -> Unit)? = null,
+    onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?) -> Unit)? = null,
     onSyncGoogle: (() -> Unit)? = null,
     isRefreshing: Boolean = false,
     aiChatViewModel: AiChatViewModel? = null,
@@ -141,6 +141,7 @@ fun HomeScreen(
     subtasksProvider: ((String) -> kotlinx.coroutines.flow.Flow<List<Task>>)? = null,
     selectedTagFilter: String? = null,
     onTagFilterChanged: ((String?) -> Unit)? = null,
+    isInitialLoad: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
@@ -703,7 +704,7 @@ fun HomeScreen(
                             }
                         }
                     }
-                } else {
+                } else if (!isInitialLoad) {
                     item {
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -898,8 +899,8 @@ fun HomeScreen(
                 onAddTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags)
                 showAddSheet = false
             },
-            onAddRecurringTask = if (onAddRecurringTask != null) { { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate ->
-                onAddRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate)
+            onAddRecurringTask = if (onAddRecurringTask != null) { { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags ->
+                onAddRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags)
                 showAddSheet = false
             } } else null,
             aiChatViewModel = aiChatViewModel
@@ -1051,8 +1052,8 @@ fun HomeScreen(
         TaskDetailSheet(
             task = taskToEdit!!,
             onDismiss = { taskToEdit = null },
-            onUpdateTask = { newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags ->
-                onEditTask(taskToEdit!!, newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags)
+            onUpdateTask = { newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags, newRecurrenceType, newRecurrenceInterval, newRecurrenceDays, newRecurrenceEndDate ->
+                onEditTask(taskToEdit!!, newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags, newRecurrenceType, newRecurrenceInterval, newRecurrenceDays, newRecurrenceEndDate)
                 taskToEdit = null
             },
             onDelete = {

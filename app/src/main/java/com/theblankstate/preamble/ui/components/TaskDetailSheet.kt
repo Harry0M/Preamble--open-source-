@@ -63,7 +63,7 @@ import java.util.Locale
 fun TaskDetailSheet(
     task: Task,
     onDismiss: () -> Unit,
-    onUpdateTask: (newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int, newDescription: String?, newTags: String?) -> Unit,
+    onUpdateTask: (newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int, newDescription: String?, newTags: String?, newRecurrenceType: String?, newRecurrenceInterval: Int, newRecurrenceDays: String?, newRecurrenceEndDate: String?) -> Unit,
     onDelete: () -> Unit,
     onStartPomodoro: (() -> Unit)? = null
 ) {
@@ -76,13 +76,25 @@ fun TaskDetailSheet(
     var showTimePicker by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
 
-    val hasChanges = remember(taskTitle, taskDescription, selectedTime, selectedDate, selectedPriority, selectedTags) {
+    // Recurrence state
+    var recurrenceType by remember { mutableStateOf(task.recurrenceType) }
+    var recurrenceInterval by remember { mutableStateOf(task.recurrenceInterval ?: 1) }
+    var recurrenceDays by remember { mutableStateOf(
+        task.recurrenceDays?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.toSet() ?: emptySet()
+    ) }
+    var recurrenceEndDate by remember { mutableStateOf(task.recurrenceEndDate) }
+
+    val hasChanges = remember(taskTitle, taskDescription, selectedTime, selectedDate, selectedPriority, selectedTags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate) {
         taskTitle != task.title ||
                 taskDescription != (task.description ?: "") ||
                 selectedTime != task.deadlineTime ||
                 selectedDate != task.createdDate ||
                 selectedPriority != task.priority ||
-                selectedTags != task.tagList.toSet()
+                selectedTags != task.tagList.toSet() ||
+                recurrenceType != task.recurrenceType ||
+                recurrenceInterval != (task.recurrenceInterval ?: 1) ||
+                recurrenceDays != (task.recurrenceDays?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.toSet() ?: emptySet<Int>()) ||
+                recurrenceEndDate != task.recurrenceEndDate
     }
 
     ModalBottomSheet(
@@ -94,7 +106,11 @@ fun TaskDetailSheet(
                     selectedTime,
                     selectedPriority,
                     taskDescription.trim().ifBlank { null },
-                    if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null
+                    if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null,
+                    recurrenceType,
+                    recurrenceInterval,
+                    recurrenceDays.takeIf { it.isNotEmpty() }?.joinToString(","),
+                    recurrenceEndDate
                 )
             }
             onDismiss()
@@ -274,18 +290,15 @@ fun TaskDetailSheet(
             )
             TagPicker(
                 selectedTags = selectedTags,
-                onTagsChanged = { selectedTags = it }
+                onTagsChanged = { selectedTags = it },
+                lockedTags = buildSet {
+                    if (task.source == "google_calendar") add("Google Calendar")
+                    if (task.source == "google_tasks") add("Google Tasks")
+                }
             )
 
             // Recurrence (for template tasks)
             if (task.isRecurrenceTemplate || task.recurrenceParentId == null) {
-                var recurrenceType by remember { mutableStateOf(task.recurrenceType) }
-                var recurrenceInterval by remember { mutableStateOf(task.recurrenceInterval ?: 1) }
-                var recurrenceDays by remember { mutableStateOf(
-                    task.recurrenceDays?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.toSet() ?: emptySet()
-                ) }
-                var recurrenceEndDate by remember { mutableStateOf(task.recurrenceEndDate) }
-
                 Spacer(modifier = Modifier.height(8.dp))
                 RecurrencePicker(
                     recurrenceType = recurrenceType,
@@ -349,7 +362,11 @@ fun TaskDetailSheet(
                             selectedTime,
                             selectedPriority,
                             taskDescription.trim().ifBlank { null },
-                            if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null
+                            if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null,
+                            recurrenceType,
+                            recurrenceInterval,
+                            recurrenceDays.takeIf { it.isNotEmpty() }?.joinToString(","),
+                            recurrenceEndDate
                         )
                         onDismiss()
                     }

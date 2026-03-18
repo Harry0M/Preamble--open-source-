@@ -88,7 +88,7 @@ import kotlin.math.sin
 fun AddTaskSheet(
     onDismiss: () -> Unit,
     onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?) -> Unit,
-    onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?) -> Unit)? = null,
+    onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?) -> Unit)? = null,
     aiChatViewModel: AiChatViewModel? = null
 ) {
     var taskTitle by remember { mutableStateOf("") }
@@ -202,7 +202,9 @@ fun AddTaskSheet(
                     recurrenceType!!,
                     recurrenceInterval,
                     daysStr,
-                    recurrenceEndDate
+                    recurrenceEndDate,
+                    syncToCalendar,
+                    if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null
                 )
             } else {
                 onAddTask(

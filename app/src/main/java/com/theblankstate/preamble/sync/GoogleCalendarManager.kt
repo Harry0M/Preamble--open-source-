@@ -12,6 +12,7 @@ import com.google.api.client.json.gson.GsonFactory
 import com.google.api.client.util.DateTime
 import com.google.api.services.calendar.Calendar
 import com.google.api.services.calendar.CalendarScopes
+import com.google.api.client.googleapis.json.GoogleJsonResponseException
 import com.google.api.services.calendar.model.Event
 import com.google.api.services.calendar.model.EventDateTime
 import com.theblankstate.preamble.data.Task
@@ -25,6 +26,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import java.util.TimeZone
 
 /**
  * Manages Google Calendar integration:
@@ -105,6 +107,9 @@ object GoogleCalendarManager {
         _linkedEmail.value = null
         _lastSyncTime.value = 0
 
+        // Clear all sync tokens
+        clearSyncTokens(context)
+
         // Sign out from the calendar-specific GoogleSignIn
         try {
             getSignInClient(context).signOut()
@@ -114,16 +119,47 @@ object GoogleCalendarManager {
         Log.d(TAG, "Google Calendar unlinked")
     }
 
+    // ── Sync Token Storage ──
+
+    private const val SYNC_TOKEN_PREFS = "google_calendar_sync_tokens"
+
+    private fun getSyncToken(context: Context, calendarId: String): String? {
+        return context.getSharedPreferences(SYNC_TOKEN_PREFS, Context.MODE_PRIVATE)
+            .getString("sync_token_$calendarId", null)
+    }
+
+    private fun saveSyncToken(context: Context, calendarId: String, token: String?) {
+        context.getSharedPreferences(SYNC_TOKEN_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString("sync_token_$calendarId", token)
+            .apply()
+    }
+
+    private fun clearSyncTokens(context: Context) {
+        context.getSharedPreferences(SYNC_TOKEN_PREFS, Context.MODE_PRIVATE)
+            .edit().clear().apply()
+    }
+
     /**
-     * Fetch all calendar events and return them as Tasks.
-     * Fetches events from 1 year ago to 1 year ahead.
-     * @param updatedAfter If non-null, only fetch events updated after this timestamp (incremental sync)
+     * Fetch calendar events using Google's recommended sync token approach.
+     *
+     * - **Full sync** (no sync token stored): Fetches all events with timeMin/timeMax,
+     *   stores the nextSyncToken from the response for each calendar.
+     * - **Incremental sync** (sync token exists): Sends the stored syncToken,
+     *   API returns ONLY changed/cancelled events since last sync.
+     * - **410 error** (token expired): Clears token and automatically does a full re-sync.
+     *
+     * @param forceFullSync If true, clears sync tokens and does a full re-sync
      */
-    suspend fun fetchCalendarEvents(context: Context, updatedAfter: Long? = null): List<Task> = withContext(Dispatchers.IO) {
+    suspend fun fetchCalendarEvents(context: Context, forceFullSync: Boolean = false): List<Task> = withContext(Dispatchers.IO) {
         val account = GoogleSignIn.getLastSignedInAccount(context)
         if (account == null) {
             Log.e(TAG, "No signed-in account found")
             return@withContext emptyList()
+        }
+
+        if (forceFullSync) {
+            clearSyncTokens(context)
         }
 
         try {
@@ -145,15 +181,12 @@ object GoogleCalendarManager {
 
             val allEvents = mutableListOf<Task>()
             val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+            val utcSdf = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
+                timeZone = TimeZone.getTimeZone("UTC")
+            }
             val timeSdf = SimpleDateFormat("HH:mm", Locale.US)
-
-            // Fetch from 6 months ago to 1 year ahead
-            val now = System.currentTimeMillis()
-            val sixMonthsAgo = now - (180L * 24 * 60 * 60 * 1000)
-            val oneYearAhead = now + (365L * 24 * 60 * 60 * 1000)
-
-            val timeMin = DateTime(sixMonthsAgo)
-            val timeMax = DateTime(oneYearAhead)
+            // Cache: master recurring event ID -> parsed RRULE
+            val masterRruleCache = mutableMapOf<String, ParsedRecurrence>()
 
             // Get all calendar list entries
             val calendarList = calendarService.calendarList().list().execute()
@@ -163,38 +196,105 @@ object GoogleCalendarManager {
 
             for (cal in calendars) {
                 try {
+                    val syncToken = getSyncToken(context, cal.id)
+                    val isIncremental = syncToken != null
+
                     var pageToken: String? = null
                     do {
                         val eventsRequest = calendarService.events().list(cal.id)
-                            .setTimeMin(timeMin)
-                            .setTimeMax(timeMax)
                             .setSingleEvents(true)
-                            .setOrderBy("startTime")
                             .setMaxResults(250)
                             .setPageToken(pageToken)
 
-                        // For incremental sync, only fetch events updated since last sync
-                        if (updatedAfter != null) {
-                            eventsRequest.setUpdatedMin(DateTime(updatedAfter))
-                            // updatedMin requires orderBy=updated, not startTime
-                            eventsRequest.setOrderBy("updated")
-                            eventsRequest.setSingleEvents(false)
+                        if (isIncremental) {
+                            // Incremental sync: use sync token — returns only changes + cancellations
+                            eventsRequest.setSyncToken(syncToken)
+                            Log.d(TAG, "Incremental sync for calendar: ${cal.summary}")
+                        } else {
+                            // Full sync: set time range filters
+                            val now = System.currentTimeMillis()
+                            val sixMonthsAgo = now - (180L * 24 * 60 * 60 * 1000)
+                            val oneYearAhead = now + (365L * 24 * 60 * 60 * 1000)
+                            eventsRequest.setTimeMin(DateTime(sixMonthsAgo))
+                            eventsRequest.setTimeMax(DateTime(oneYearAhead))
+                            eventsRequest.setOrderBy("startTime")
+                            Log.d(TAG, "Full sync for calendar: ${cal.summary}")
                         }
 
-                        val eventsResult = eventsRequest.execute()
+                        val eventsResult = try {
+                            eventsRequest.execute()
+                        } catch (e: GoogleJsonResponseException) {
+                            if (e.statusCode == 410) {
+                                // Sync token expired — clear and do full sync for this calendar
+                                Log.w(TAG, "Sync token expired for ${cal.summary}, performing full re-sync")
+                                saveSyncToken(context, cal.id, null)
+                                // Re-do this calendar with a full sync
+                                val fullRequest = calendarService.events().list(cal.id)
+                                    .setSingleEvents(true)
+                                    .setMaxResults(250)
+                                val now = System.currentTimeMillis()
+                                fullRequest.setTimeMin(DateTime(now - (180L * 24 * 60 * 60 * 1000)))
+                                fullRequest.setTimeMax(DateTime(now + (365L * 24 * 60 * 60 * 1000)))
+                                fullRequest.setOrderBy("startTime")
+                                fullRequest.execute()
+                            } else {
+                                throw e
+                            }
+                        }
+
                         val events = eventsResult.items ?: emptyList()
 
                         for (event in events) {
-                            val task = eventToTask(event, cal.id, sdf, timeSdf)
+                            // Handle cancelled recurring instances (single-instance deletions)
+                            if (event.status == "cancelled") {
+                                val cancelledId = "gcal_${event.id}"
+                                // Create a marker task for cancelled events
+                                val cancelledTask = Task(
+                                    id = cancelledId,
+                                    title = "",
+                                    createdDate = "",
+                                    deletedFromGoogle = true,
+                                    source = "google_calendar"
+                                )
+                                allEvents.add(cancelledTask)
+                                Log.d(TAG, "Detected cancelled instance: ${event.id}")
+                                continue
+                            }
+
+                            // Resolve recurrence: if event has its own recurrence or is an instance of a recurring master
+                            var recurrence = if (!event.recurrence.isNullOrEmpty()) {
+                                parseRRule(event.recurrence)
+                            } else if (event.recurringEventId != null) {
+                                // This is an expanded instance; look up or fetch the master's RRULE
+                                masterRruleCache.getOrPut(event.recurringEventId) {
+                                    try {
+                                        val master = calendarService.events().get(cal.id, event.recurringEventId).execute()
+                                        parseRRule(master.recurrence)
+                                    } catch (e: Throwable) {
+                                        Log.w(TAG, "Could not fetch master event ${event.recurringEventId}", e)
+                                        ParsedRecurrence(null, null, null, null)
+                                    }
+                                }
+                            } else {
+                                ParsedRecurrence(null, null, null, null)
+                            }
+
+                            val task = eventToTask(event, cal.id, sdf, utcSdf, timeSdf, recurrence)
                             if (task != null) {
                                 allEvents.add(task)
                             }
                         }
 
                         pageToken = eventsResult.nextPageToken
+
+                        // Store sync token from the LAST page of results
+                        if (pageToken == null && eventsResult.nextSyncToken != null) {
+                            saveSyncToken(context, cal.id, eventsResult.nextSyncToken)
+                            Log.d(TAG, "Saved sync token for calendar: ${cal.summary}")
+                        }
                     } while (pageToken != null)
 
-                    Log.d(TAG, "Fetched events from calendar: ${cal.summary}")
+                    Log.d(TAG, "Fetched events from calendar: ${cal.summary} (${if (isIncremental) "incremental" else "full"})")
                 } catch (e: Throwable) {
                     Log.e(TAG, "Error fetching events from calendar ${cal.summary}", e)
                 }
@@ -225,7 +325,9 @@ object GoogleCalendarManager {
         event: Event,
         calendarId: String,
         sdf: SimpleDateFormat,
-        timeSdf: SimpleDateFormat
+        utcSdf: SimpleDateFormat,
+        timeSdf: SimpleDateFormat,
+        recurrence: ParsedRecurrence = ParsedRecurrence(null, null, null, null)
     ): Task? {
         val title = event.summary ?: return null
 
@@ -233,6 +335,7 @@ object GoogleCalendarManager {
         val start = event.start ?: return null
         val startDate: Date
         val deadlineTime: String?
+        var isAllDay = false
 
         if (start.dateTime != null) {
             // Timed event
@@ -242,14 +345,23 @@ object GoogleCalendarManager {
             // All-day event (like festivals, holidays)
             startDate = Date(start.date.value)
             deadlineTime = null
+            isAllDay = true
         } else {
             return null
         }
 
-        val dateStr = sdf.format(startDate)
+        // For all-day events, format date in UTC to avoid timezone shift
+        // (Google returns all-day dates as UTC midnight)
+        val dateStr = if (isAllDay) utcSdf.format(startDate) else sdf.format(startDate)
 
         // Create a stable ID based on the Google event ID so we can deduplicate
         val stableId = "gcal_${event.id}"
+
+        // For expanded recurring instances (has recurringEventId), do NOT set
+        // recurrence template fields — Google already expanded them. Only store
+        // display-only recurrence info. For master events with RRULE, set recurrence fields.
+        val isExpandedInstance = event.recurringEventId != null
+        val humanRecurrence = buildHumanReadableRecurrence(recurrence)
 
         return Task(
             id = stableId,
@@ -262,9 +374,182 @@ object GoogleCalendarManager {
             updatedTimestamp = event.updated?.value ?: System.currentTimeMillis(),
             source = "google_calendar",
             description = event.description,
-            tags = "Google Calendar",
-            googleCalendarId = calendarId
+            tags = null, // Tags applied from local tag override store during sync
+            googleCalendarId = calendarId,
+            // Only set recurrence fields on master events, NOT expanded instances
+            recurrenceType = if (!isExpandedInstance) recurrence.type else null,
+            recurrenceInterval = if (!isExpandedInstance) recurrence.interval else null,
+            recurrenceDays = if (!isExpandedInstance) recurrence.days else null,
+            recurrenceEndDate = if (!isExpandedInstance) recurrence.endDate else null,
+            recurrenceParentId = if (isExpandedInstance) "gcal_${event.recurringEventId}" else null,
+            googleRecurrenceInfo = humanRecurrence
         )
+    }
+
+    /**
+     * Build a human-readable recurrence description from parsed recurrence.
+     * Examples: "Every day", "Every 2 weeks on Mon, Wed, Fri", "Every month", "Every year"
+     */
+    fun buildHumanReadableRecurrence(parsed: ParsedRecurrence): String? {
+        if (parsed.type == null) return null
+
+        val sb = StringBuilder("Every ")
+        val interval = parsed.interval ?: 1
+
+        when (parsed.type) {
+            "daily" -> {
+                if (interval == 1) sb.append("day") else sb.append("$interval days")
+            }
+            "weekly" -> {
+                if (interval == 1) sb.append("week") else sb.append("$interval weeks")
+                if (!parsed.days.isNullOrEmpty()) {
+                    val dayNames = parsed.days.split(",").mapNotNull { dayNum ->
+                        when (dayNum.trim().toIntOrNull()) {
+                            1 -> "Sun"
+                            2 -> "Mon"
+                            3 -> "Tue"
+                            4 -> "Wed"
+                            5 -> "Thu"
+                            6 -> "Fri"
+                            7 -> "Sat"
+                            else -> null
+                        }
+                    }
+                    if (dayNames.isNotEmpty()) {
+                        sb.append(" on ").append(dayNames.joinToString(", "))
+                    }
+                }
+            }
+            "monthly" -> {
+                if (interval == 1) sb.append("month") else sb.append("$interval months")
+            }
+            "yearly" -> {
+                if (interval == 1) sb.append("year") else sb.append("$interval years")
+            }
+        }
+
+        if (!parsed.endDate.isNullOrEmpty()) {
+            sb.append(" until ").append(parsed.endDate)
+        }
+
+        return sb.toString()
+    }
+
+    // ── RRULE Helpers ──
+
+    /**
+     * Parse a Google Calendar RRULE string into app recurrence fields.
+     * Supports: FREQ=DAILY/WEEKLY/MONTHLY/YEARLY, INTERVAL, BYDAY, UNTIL, COUNT
+     *
+     * Google Calendar RRULE examples:
+     * - RRULE:FREQ=DAILY
+     * - RRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR
+     * - RRULE:FREQ=MONTHLY;INTERVAL=2
+     * - RRULE:FREQ=YEARLY
+     * - RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=TU,TH;UNTIL=20261231T000000Z
+     */
+    data class ParsedRecurrence(
+        val type: String?,           // "daily","weekly","monthly","yearly"
+        val interval: Int?,
+        val days: String?,           // comma-separated Calendar.DAY_OF_WEEK values
+        val endDate: String?         // "yyyy-MM-dd"
+    )
+
+    private val dayMap = mapOf(
+        "SU" to 1, "MO" to 2, "TU" to 3, "WE" to 4,
+        "TH" to 5, "FR" to 6, "SA" to 7
+    )
+
+    private val reverseDayMap = dayMap.entries.associate { (k, v) -> v to k }
+
+    private fun parseRRule(rruleList: List<String>?): ParsedRecurrence {
+        if (rruleList.isNullOrEmpty()) return ParsedRecurrence(null, null, null, null)
+
+        // Find the actual RRULE line (there may be EXDATE etc)
+        val rruleLine = rruleList.find { it.startsWith("RRULE:") }
+            ?: return ParsedRecurrence(null, null, null, null)
+
+        val parts = rruleLine.removePrefix("RRULE:").split(";").associate { part ->
+            val (key, value) = part.split("=", limit = 2)
+            key.uppercase() to value
+        }
+
+        val freq = parts["FREQ"]
+        val type = when (freq) {
+            "DAILY" -> "daily"
+            "WEEKLY" -> "weekly"
+            "MONTHLY" -> "monthly"
+            "YEARLY" -> "yearly"
+            else -> null
+        } ?: return ParsedRecurrence(null, null, null, null)
+
+        val interval = parts["INTERVAL"]?.toIntOrNull() ?: 1
+
+        // Parse BYDAY (e.g., "MO,WE,FR" -> Calendar.DAY_OF_WEEK values "2,4,6")
+        val days = parts["BYDAY"]?.let { byDay ->
+            byDay.split(",")
+                .mapNotNull { dayStr -> dayMap[dayStr.trim().takeLast(2).uppercase()] }
+                .sorted()
+                .joinToString(",")
+        }
+
+        // Parse UNTIL (e.g., "20261231T000000Z" -> "2026-12-31")
+        val endDate = parts["UNTIL"]?.let { until ->
+            try {
+                val dateStr = until.take(8) // "20261231"
+                "${dateStr.substring(0, 4)}-${dateStr.substring(4, 6)}-${dateStr.substring(6, 8)}"
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        return ParsedRecurrence(type, interval, days, endDate)
+    }
+
+    /**
+     * Build RRULE string from app recurrence fields.
+     */
+    fun buildRRule(
+        recurrenceType: String?,
+        recurrenceInterval: Int?,
+        recurrenceDays: String?,
+        recurrenceEndDate: String?
+    ): String? {
+        if (recurrenceType == null) return null
+
+        val freq = when (recurrenceType) {
+            "daily" -> "DAILY"
+            "weekly" -> "WEEKLY"
+            "monthly" -> "MONTHLY"
+            "yearly" -> "YEARLY"
+            else -> return null
+        }
+
+        val parts = mutableListOf("FREQ=$freq")
+
+        val interval = recurrenceInterval ?: 1
+        if (interval > 1) {
+            parts.add("INTERVAL=$interval")
+        }
+
+        // BYDAY for weekly recurrence
+        if (recurrenceType == "weekly" && !recurrenceDays.isNullOrEmpty()) {
+            val byDay = recurrenceDays.split(",")
+                .mapNotNull { it.trim().toIntOrNull() }
+                .mapNotNull { reverseDayMap[it] }
+                .joinToString(",")
+            if (byDay.isNotEmpty()) {
+                parts.add("BYDAY=$byDay")
+            }
+        }
+
+        // UNTIL
+        if (!recurrenceEndDate.isNullOrEmpty()) {
+            val until = recurrenceEndDate.replace("-", "") + "T235959Z"
+            parts.add("UNTIL=$until")
+        }
+
+        return "RRULE:" + parts.joinToString(";")
     }
 
     // ── Write Infrastructure ──
@@ -305,7 +590,11 @@ object GoogleCalendarManager {
         date: String,
         deadlineTime: String?,
         calendarId: String = "primary",
-        description: String? = null
+        description: String? = null,
+        recurrenceType: String? = null,
+        recurrenceInterval: Int? = null,
+        recurrenceDays: String? = null,
+        recurrenceEndDate: String? = null
     ): String? = withContext(Dispatchers.IO) {
         if (!_isLinked.value) return@withContext null
         try {
@@ -316,16 +605,28 @@ object GoogleCalendarManager {
 
                 if (deadlineTime != null) {
                     val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
-                    val startDateTime = DateTime("${date}T${deadlineTime}:00")
-                    event.start = EventDateTime().setDateTime(startDateTime)
+                    val tzOffsetSdf = SimpleDateFormat("XXX", Locale.US)
                     val cal = java.util.Calendar.getInstance()
                     cal.time = sdf.parse("${date}T${deadlineTime}:00")!!
+                    val tzOffset = tzOffsetSdf.format(cal.time)
+                    val startDateTime = DateTime("${date}T${deadlineTime}:00${tzOffset}")
+                    event.start = EventDateTime().setDateTime(startDateTime)
+                        .setTimeZone(java.util.TimeZone.getDefault().id)
                     cal.add(java.util.Calendar.HOUR_OF_DAY, 1)
-                    val endDateTime = DateTime(sdf.format(cal.time))
+                    val endDateTime = DateTime(sdf.format(cal.time) + tzOffset)
                     event.end = EventDateTime().setDateTime(endDateTime)
+                        .setTimeZone(java.util.TimeZone.getDefault().id)
                 } else {
-                    event.start = EventDateTime().setDate(DateTime(date))
-                    event.end = EventDateTime().setDate(DateTime(date))
+                    // All-day event: use date string directly to avoid timezone offset
+                    val dateOnly = DateTime(date)
+                    event.start = EventDateTime().setDate(dateOnly)
+                    event.end = EventDateTime().setDate(dateOnly)
+                }
+
+                // Set recurrence RRULE if provided
+                val rrule = buildRRule(recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate)
+                if (rrule != null) {
+                    event.recurrence = listOf(rrule)
                 }
 
                 val created = service.events().insert(calendarId, event).execute()
@@ -345,7 +646,11 @@ object GoogleCalendarManager {
         title: String,
         date: String,
         deadlineTime: String?,
-        description: String? = null
+        description: String? = null,
+        recurrenceType: String? = null,
+        recurrenceInterval: Int? = null,
+        recurrenceDays: String? = null,
+        recurrenceEndDate: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         if (!_isLinked.value) return@withContext false
         try {
@@ -357,15 +662,30 @@ object GoogleCalendarManager {
 
                 if (deadlineTime != null) {
                     val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
-                    val startDateTime = DateTime("${date}T${deadlineTime}:00")
-                    event.start = EventDateTime().setDateTime(startDateTime)
+                    val tzOffsetSdf = SimpleDateFormat("XXX", Locale.US)
                     val cal = java.util.Calendar.getInstance()
                     cal.time = sdf.parse("${date}T${deadlineTime}:00")!!
+                    val tzOffset = tzOffsetSdf.format(cal.time)
+                    val startDateTime = DateTime("${date}T${deadlineTime}:00${tzOffset}")
+                    event.start = EventDateTime().setDateTime(startDateTime)
+                        .setTimeZone(java.util.TimeZone.getDefault().id)
                     cal.add(java.util.Calendar.HOUR_OF_DAY, 1)
-                    event.end = EventDateTime().setDateTime(DateTime(sdf.format(cal.time)))
+                    event.end = EventDateTime().setDateTime(DateTime(sdf.format(cal.time) + tzOffset))
+                        .setTimeZone(java.util.TimeZone.getDefault().id)
                 } else {
-                    event.start = EventDateTime().setDate(DateTime(date))
-                    event.end = EventDateTime().setDate(DateTime(date))
+                    // All-day event: use date string directly to avoid timezone offset
+                    val dateOnly = DateTime(date)
+                    event.start = EventDateTime().setDate(dateOnly)
+                    event.end = EventDateTime().setDate(dateOnly)
+                }
+
+                // Update recurrence RRULE
+                val rrule = buildRRule(recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate)
+                if (rrule != null) {
+                    event.recurrence = listOf(rrule)
+                } else {
+                    // Remove recurrence if cleared
+                    event.recurrence = null
                 }
 
                 service.events().update(calendarId, eventId, event).execute()
@@ -387,8 +707,17 @@ object GoogleCalendarManager {
         try {
             retryOnFailure {
                 val service = buildCalendarService(context) ?: error("No Calendar service")
-                service.events().delete(calendarId, eventId).execute()
-                Log.d(TAG, "Deleted calendar event $eventId from calendar $calendarId")
+                try {
+                    service.events().delete(calendarId, eventId).execute()
+                    Log.d(TAG, "Deleted calendar event $eventId from calendar $calendarId")
+                } catch (e: GoogleJsonResponseException) {
+                    if (e.statusCode == 410 || e.statusCode == 404) {
+                        // Already deleted or not found — treat as success
+                        Log.d(TAG, "Calendar event $eventId already deleted (${e.statusCode})")
+                    } else {
+                        throw e
+                    }
+                }
             }
             true
         } catch (e: Throwable) {

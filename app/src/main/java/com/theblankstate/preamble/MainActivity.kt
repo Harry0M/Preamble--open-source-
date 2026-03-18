@@ -227,9 +227,11 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags -> viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags) },
                 onToggleTask = { viewModel.toggleTask(it) },
                 onDeleteTask = { viewModel.deleteTask(it) },
-                onEditTask = { task, title, date, time, priority, description, tags -> viewModel.updateTask(task, title, date, time, priority, description, tags) },
-                onAddRecurringTask = { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate ->
-                    viewModel.addRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate)
+                onEditTask = { task, title, date, time, priority, description, tags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate ->
+                    viewModel.updateTask(task, title, date, time, priority, description, tags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate)
+                },
+                onAddRecurringTask = { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags ->
+                    viewModel.addRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags)
                 },
                 onSyncGoogle = { viewModel.syncGoogleData() },
                 isRefreshing = viewModel.isRefreshing.collectAsState().value,
@@ -245,6 +247,7 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 subtasksProvider = { taskId -> viewModel.getSubtasksForTask(taskId) },
                 selectedTagFilter = viewModel.selectedTagFilter.collectAsState().value,
                 onTagFilterChanged = { viewModel.setTagFilter(it) },
+                isInitialLoad = viewModel.isInitialLoad.collectAsState().value,
                 modifier = Modifier.padding(innerPadding)
             )
             1 -> StatsScreen(

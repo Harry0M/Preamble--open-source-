@@ -12,6 +12,7 @@ import com.google.firebase.database.FirebaseDatabase
 import com.google.firebase.database.ValueEventListener
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.TaskDao
+import com.theblankstate.preamble.data.TaskTagOverride
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,6 +37,8 @@ class FirebaseTaskSyncManager(
     private var activeUid: String? = null
     private var activeTasksListener: ValueEventListener? = null
     private var activeTasksRefPath: String? = null
+    private var activeTagOverridesListener: ValueEventListener? = null
+    private var activeTagOverridesRefPath: String? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var started = false
 
@@ -90,6 +93,41 @@ class FirebaseTaskSyncManager(
             Log.e(TAG, "deleteTask failed for uid=$uid taskId=$taskId", exception)
         } finally {
             pendingDeletes.remove(taskId)
+        }
+    }
+
+    // ── Tag Override Firebase Sync ──
+
+    /**
+     * Push a tag override to Firebase for cross-device sync.
+     * Stored at users/{uid}/tagOverrides/{googleId}
+     */
+    suspend fun pushTagOverride(googleId: String, tags: String) {
+        val uid = auth.currentUser?.uid ?: return
+        try {
+            val data = mapOf(
+                "tags" to tags,
+                "updatedTimestamp" to System.currentTimeMillis()
+            )
+            database.getReference("users").child(uid).child("tagOverrides")
+                .child(googleId).setValue(data).await()
+            Log.d(TAG, "Pushed tag override: $googleId -> $tags")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to push tag override for $googleId", e)
+        }
+    }
+
+    /**
+     * Delete a tag override from Firebase.
+     */
+    suspend fun deleteTagOverride(googleId: String) {
+        val uid = auth.currentUser?.uid ?: return
+        try {
+            database.getReference("users").child(uid).child("tagOverrides")
+                .child(googleId).removeValue().await()
+            Log.d(TAG, "Deleted tag override: $googleId")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to delete tag override for $googleId", e)
         }
     }
 
@@ -152,9 +190,11 @@ class FirebaseTaskSyncManager(
     private suspend fun handleAuthChanged(uid: String?) {
         if (uid == activeUid) return
         detachRealtimeListener()
+        detachTagOverridesListener()
         activeUid = uid
         if (uid == null) return
         attachRealtimeListener(uid)
+        attachTagOverridesListener(uid)
         syncAllLocalToRemote()
     }
 
@@ -194,6 +234,54 @@ class FirebaseTaskSyncManager(
         database.getReference(refPath).removeEventListener(listener)
         activeTasksListener = null
         activeTasksRefPath = null
+    }
+
+    // ── Tag Overrides Realtime Listener (cross-device sync) ──
+
+    private fun attachTagOverridesListener(uid: String) {
+        val refPath = "users/$uid/tagOverrides"
+        val ref = database.getReference(refPath)
+        Log.d(TAG, "Attaching tag overrides listener at path=$refPath")
+
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
+                val overrides = snapshot.children.mapNotNull { child ->
+                    val key = child.key ?: return@mapNotNull null
+                    val tags = child.child("tags").getValue(String::class.java) ?: return@mapNotNull null
+                    val updatedTs = child.child("updatedTimestamp").getValue(Long::class.java) ?: System.currentTimeMillis()
+                    TaskTagOverride(googleId = key, tags = tags, updatedTimestamp = updatedTs)
+                }
+                appScope.launch {
+                    mergeTagOverridesFromRemote(overrides)
+                }
+            }
+
+            override fun onCancelled(error: DatabaseError) {
+                Log.e(TAG, "Tag overrides listener cancelled: ${error.message}")
+            }
+        }
+
+        ref.addValueEventListener(listener)
+        activeTagOverridesListener = listener
+        activeTagOverridesRefPath = refPath
+    }
+
+    private fun detachTagOverridesListener() {
+        val listener = activeTagOverridesListener ?: return
+        val refPath = activeTagOverridesRefPath ?: return
+        Log.d(TAG, "Detaching tag overrides listener from path=$refPath")
+        database.getReference(refPath).removeEventListener(listener)
+        activeTagOverridesListener = null
+        activeTagOverridesRefPath = null
+    }
+
+    private suspend fun mergeTagOverridesFromRemote(remoteOverrides: List<TaskTagOverride>) {
+        for (remote in remoteOverrides) {
+            val local = dao.getTagOverride(remote.googleId)
+            if (local == null || remote.updatedTimestamp >= local.updatedTimestamp) {
+                dao.upsertTagOverride(remote)
+            }
+        }
     }
 
     private suspend fun mergeRemoteIntoLocal(remoteTasks: List<Task>) {
@@ -308,7 +396,8 @@ data class RemoteTask(
     var recurrenceParentId: String? = null,
     var parentTaskId: String? = null,
     var tags: String? = null,
-    var googleCalendarId: String? = null
+    var googleCalendarId: String? = null,
+    var googleRecurrenceInfo: String? = null
 ) {
     fun toLocal(fallbackId: String): Task? {
         val resolvedId = id.ifBlank { fallbackId }
@@ -336,7 +425,8 @@ data class RemoteTask(
             recurrenceParentId = recurrenceParentId,
             parentTaskId = parentTaskId,
             tags = tags,
-            googleCalendarId = googleCalendarId
+            googleCalendarId = googleCalendarId,
+            googleRecurrenceInfo = googleRecurrenceInfo
         )
     }
 
@@ -361,7 +451,8 @@ data class RemoteTask(
                 recurrenceParentId = task.recurrenceParentId,
                 parentTaskId = task.parentTaskId,
                 tags = task.tags,
-                googleCalendarId = task.googleCalendarId
+                googleCalendarId = task.googleCalendarId,
+                googleRecurrenceInfo = task.googleRecurrenceInfo
             )
         }
     }

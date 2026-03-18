@@ -26,7 +26,8 @@ data class Task(
     val recurrenceParentId: String? = null,    // ID of template task that generated this instance
     val parentTaskId: String? = null,          // ID of parent task (for subtasks)
     val tags: String? = null,                   // Comma-separated tag names e.g. "work,personal"
-    val googleCalendarId: String? = null         // Calendar ID for write-back (e.g. "primary")
+    val googleCalendarId: String? = null,        // Calendar ID for write-back (e.g. "primary")
+    val googleRecurrenceInfo: String? = null      // Human-readable recurrence text from Google Cal (display only)
 ) {
     val isCalendarEvent: Boolean get() = source == "google_calendar"
     val isGoogleTask: Boolean get() = source == "google_tasks"
