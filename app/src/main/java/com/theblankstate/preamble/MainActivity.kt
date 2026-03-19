@@ -115,13 +115,17 @@ class MainActivity : ComponentActivity() {
             try {
                 val now = System.currentTimeMillis()
 
-                // Full sync Google Calendar if linked and cooldown elapsed
+                // Sync Google Calendar — route based on incremental vs full
                 if (com.theblankstate.preamble.sync.GoogleCalendarManager.isLinked.value) {
                     val lastCalSync = com.theblankstate.preamble.sync.GoogleCalendarManager.lastSyncTime.value
                     if (now - lastCalSync > cooldownMs) {
-                        val events = com.theblankstate.preamble.sync.GoogleCalendarManager.fetchCalendarEvents(this@MainActivity)
-                        app.repository.syncCalendarEvents(events)
-                        android.util.Log.d("MainActivity", "Auto-synced ${events.size} calendar events")
+                        val calResult = com.theblankstate.preamble.sync.GoogleCalendarManager.fetchCalendarEvents(this@MainActivity)
+                        if (calResult.isIncremental) {
+                            app.repository.quickSyncCalendarEvents(calResult.events)
+                        } else {
+                            app.repository.syncCalendarEvents(calResult.events)
+                        }
+                        android.util.Log.d("MainActivity", "Auto-synced ${calResult.events.size} calendar events (${if (calResult.isIncremental) "incremental" else "full"})")
                     }
                 }
 

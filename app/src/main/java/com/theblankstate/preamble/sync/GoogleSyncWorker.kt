@@ -21,10 +21,14 @@ class GoogleSyncWorker(
                 app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
             }
 
-            // Full sync Google Calendar
+            // Sync Google Calendar — route based on incremental vs full
             if (GoogleCalendarManager.isLinked.value) {
-                val calEvents = GoogleCalendarManager.fetchCalendarEvents(applicationContext)
-                app.repository.syncCalendarEvents(calEvents)
+                val calResult = GoogleCalendarManager.fetchCalendarEvents(applicationContext)
+                if (calResult.isIncremental) {
+                    app.repository.quickSyncCalendarEvents(calResult.events)
+                } else {
+                    app.repository.syncCalendarEvents(calResult.events)
+                }
             }
 
             Log.d(TAG, "Background Google sync completed")

@@ -31,9 +31,10 @@ import com.theblankstate.preamble.util.RichDate
 fun RichDateBadge(
     dateStr: String,
     modifier: Modifier = Modifier,
-    isCompact: Boolean = false
+    isCompact: Boolean = false,
+    externalFestival: String? = null
 ) {
-    val richDate = FestivalHelper.formatDateRich(dateStr) ?: return
+    val richDate = FestivalHelper.formatDateRich(dateStr, externalFestival) ?: return
 
     Row(
         modifier = modifier,
@@ -87,7 +88,8 @@ fun RichDateBadge(
  */
 @Composable
 fun RichDateHeader(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    externalFestival: String? = null
 ) {
     val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
         .format(java.util.Date())
@@ -95,6 +97,7 @@ fun RichDateHeader(
     RichDateBadge(
         dateStr = today,
         modifier = modifier,
-        isCompact = false
+        isCompact = false,
+        externalFestival = externalFestival
     )
 }

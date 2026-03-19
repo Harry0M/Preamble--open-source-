@@ -412,6 +412,17 @@ class TaskRepository(
 
         // Filter to active (non-cancelled) events for normal sync
         val activeEvents = events.filter { !it.deletedFromGoogle }
+
+        // Delete orphaned local master events: if we receive instances of a recurring event,
+        // we should remove the original locally-created master event so it doesn't duplicate the instances.
+        val parentIdsFromInstances = activeEvents.mapNotNull { it.recurrenceParentId }.toSet()
+        if (parentIdsFromInstances.isNotEmpty()) {
+            val parentsToRemove = existingTasks.values.filter { it.id in parentIdsFromInstances }
+            for (parent in parentsToRemove) {
+                dao.deleteTask(parent)
+            }
+        }
+
         val existingCalendarIds = dao.getAllCalendarTaskIds().toSet()
         val newEventIds = activeEvents.map { it.id }.toSet()
 
@@ -482,8 +493,23 @@ class TaskRepository(
         val newIds = tasks.map { it.id }.toSet()
         val existingTasks = dao.getAllGoogleTasks().associateBy { it.id }
 
-        // Insert or update tasks with last-write-wins
-        val tasksToInsert = tasks.filter { !isRecentlyDeleted(it.id) }.mapNotNull { task ->
+        // Also handle explicit deletedFromGoogle markers from fetch
+        val explicitlyDeletedTasks = tasks.filter { it.deletedFromGoogle }
+        for (deletedTask in explicitlyDeletedTasks) {
+            val existing = existingTasks[deletedTask.id]
+            if (existing != null) {
+                if (autoDeleteFromApp) {
+                    dao.deleteTask(existing)
+                    syncManager?.deleteTask(existing.id)
+                } else {
+                    dao.updateTask(existing.copy(deletedFromGoogle = true, updatedTimestamp = System.currentTimeMillis()))
+                }
+            }
+        }
+
+        // Insert or update tasks with last-write-wins (only processing non-deleted active tasks)
+        val activeTasks = tasks.filter { !it.deletedFromGoogle }
+        val tasksToInsert = activeTasks.filter { !isRecentlyDeleted(it.id) }.mapNotNull { task ->
             val existing = existingTasks[task.id]
             if (existing != null) {
                 if (task.updatedTimestamp >= existing.updatedTimestamp) {
@@ -533,10 +559,27 @@ class TaskRepository(
      * Used for pull-to-refresh for fast incremental sync.
      * Preserves user tags and applies last-write-wins.
      */
-    suspend fun quickSyncGoogleTasks(tasks: List<Task>) {
+    suspend fun quickSyncGoogleTasks(tasks: List<Task>, autoDeleteFromApp: Boolean = false) {
         if (tasks.isEmpty()) return
         val existingTasks = dao.getAllGoogleTasks().associateBy { it.id }
-        val tasksToInsert = tasks.filter { !isRecentlyDeleted(it.id) }.mapNotNull { task ->
+
+        // Handle deleted tasks — remove them or mark them from local DB
+        val deletedTasks = tasks.filter { it.deletedFromGoogle }
+        for (deleted in deletedTasks) {
+            val existing = existingTasks[deleted.id]
+            if (existing != null) {
+                if (autoDeleteFromApp) {
+                    dao.deleteTask(existing)
+                    syncManager?.deleteTask(existing.id)
+                } else {
+                    dao.updateTask(existing.copy(deletedFromGoogle = true, updatedTimestamp = System.currentTimeMillis()))
+                }
+            }
+        }
+
+        // Process active tasks (not deleted)
+        val activeTasks = tasks.filter { !it.deletedFromGoogle }
+        val tasksToInsert = activeTasks.filter { !isRecentlyDeleted(it.id) }.mapNotNull { task ->
             val existing = existingTasks[task.id]
             if (existing != null) {
                 if (task.updatedTimestamp >= existing.updatedTimestamp) {
@@ -585,6 +628,17 @@ class TaskRepository(
 
         // Process active (non-cancelled) events
         val activeEvents = events.filter { !it.deletedFromGoogle }
+
+        // Delete orphaned local master events: if we receive instances of a recurring event,
+        // we should remove the original locally-created master event so it doesn't duplicate the instances.
+        val parentIdsFromInstances = activeEvents.mapNotNull { it.recurrenceParentId }.toSet()
+        if (parentIdsFromInstances.isNotEmpty()) {
+            val parentsToRemove = existingTasks.values.filter { it.id in parentIdsFromInstances }
+            for (parent in parentsToRemove) {
+                dao.deleteTask(parent)
+            }
+        }
+
         val eventsToInsert = activeEvents.filter { !isRecentlyDeleted(it.id) }.mapNotNull { event ->
             val existing = existingTasks[event.id]
             if (existing != null) {

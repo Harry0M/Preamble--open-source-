@@ -102,10 +102,19 @@ object GoogleTasksManager {
      * Fetch all Google Tasks from all task lists and return as app Tasks.
      * @param updatedAfter If non-null, only fetch tasks updated after this RFC 3339 timestamp (for quick sync)
      */
-    suspend fun fetchGoogleTasks(context: Context, updatedAfter: String? = null): List<Task> = withContext(Dispatchers.IO) {
+    suspend fun fetchGoogleTasks(
+        context: Context,
+        updatedAfter: String? = null,
+        onProgressUpdate: suspend (List<Task>) -> Unit = {}
+    ): List<Task> = withContext(Dispatchers.IO) {
         val account = GoogleSignIn.getLastSignedInAccount(context)
         if (account == null) {
             Log.e(TAG, "No signed-in account found")
+            return@withContext emptyList()
+        }
+
+        if (_isSyncing.value) {
+            Log.d(TAG, "Tasks sync already in progress, skipping concurrent request")
             return@withContext emptyList()
         }
 
@@ -139,6 +148,7 @@ object GoogleTasksManager {
             Log.d(TAG, "Found ${taskLists.size} task lists")
 
             for (taskList in taskLists) {
+                val thisListTasks = mutableListOf<Task>()
                 try {
                     var pageToken: String? = null
                     do {
@@ -146,6 +156,7 @@ object GoogleTasksManager {
                             .setMaxResults(100)
                             .setShowCompleted(true)
                             .setShowHidden(true)
+                            .setShowDeleted(true)
                             .setPageToken(pageToken)
 
                         // For quick sync, only fetch tasks updated since last sync
@@ -155,11 +166,22 @@ object GoogleTasksManager {
 
                         val tasksResult = tasksRequest.execute()
                         val googleTasks = tasksResult.items ?: emptyList()
+                        val pageTasks = mutableListOf<Task>()
 
                         for (gTask in googleTasks) {
                             val task = googleTaskToAppTask(gTask, taskList.title, sdf, timeSdf)
                             if (task != null) {
                                 allTasks.add(task)
+                                thisListTasks.add(task)
+                                pageTasks.add(task)
+                            }
+                        }
+
+                        if (pageTasks.isNotEmpty()) {
+                            try {
+                                onProgressUpdate(pageTasks)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error in progressive sync update", e)
                             }
                         }
 
@@ -246,6 +268,7 @@ object GoogleTasksManager {
             deadlineTime = null, // Google Tasks has no time support
             updatedTimestamp = updatedAt,
             source = "google_tasks",
+            deletedFromGoogle = gTask.deleted ?: false,
             tags = null // Tags applied from local tag override store during sync
         )
     }

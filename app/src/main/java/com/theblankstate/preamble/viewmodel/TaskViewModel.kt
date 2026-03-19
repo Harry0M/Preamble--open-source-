@@ -170,17 +170,25 @@ class TaskViewModel(
                     val lastSync = GoogleTasksManager.lastSyncTime.value
                     val now = System.currentTimeMillis()
                     if (now - lastSync > 60_000) { // 60s cooldown
-                        val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext)
+                        val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext) { partialTasks ->
+                            app.repository.quickSyncGoogleTasks(partialTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
+                        }
                         app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
                     }
                 }
-                // Sync Google Calendar (sync tokens handle incremental automatically)
+                // Sync Google Calendar — route based on incremental vs full
                 if (GoogleCalendarManager.isLinked.value) {
                     val lastSync = GoogleCalendarManager.lastSyncTime.value
                     val now = System.currentTimeMillis()
                     if (now - lastSync > 60_000) {
-                        val calEvents = GoogleCalendarManager.fetchCalendarEvents(appContext)
-                        app.repository.syncCalendarEvents(calEvents)
+                        val calResult = GoogleCalendarManager.fetchCalendarEvents(appContext) { partialEvents ->
+                            app.repository.quickSyncCalendarEvents(partialEvents)
+                        }
+                        if (calResult.isIncremental) {
+                            app.repository.quickSyncCalendarEvents(calResult.events)
+                        } else {
+                            app.repository.syncCalendarEvents(calResult.events)
+                        }
                     }
                 }
             } catch (e: Throwable) {
@@ -204,18 +212,28 @@ class TaskViewModel(
                     val lastSync = GoogleTasksManager.lastSyncTime.value
                     if (lastSync > 0) {
                         val updatedAfterRfc = com.google.api.client.util.DateTime(lastSync).toStringRfc3339()
-                        val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext, updatedAfter = updatedAfterRfc)
-                        app.repository.quickSyncGoogleTasks(gTasks)
+                        val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext, updatedAfter = updatedAfterRfc) { partialTasks ->
+                            app.repository.quickSyncGoogleTasks(partialTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
+                        }
+                        app.repository.quickSyncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
                     } else {
-                        val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext)
+                        val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext) { partialTasks ->
+                            app.repository.quickSyncGoogleTasks(partialTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
+                        }
                         app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
                     }
                 }
 
-                // Sync Google Calendar (sync tokens handle incremental automatically)
+                // Sync Google Calendar — route based on incremental vs full
                 if (GoogleCalendarManager.isLinked.value) {
-                    val calEvents = GoogleCalendarManager.fetchCalendarEvents(appContext)
-                    app.repository.syncCalendarEvents(calEvents)
+                    val calResult = GoogleCalendarManager.fetchCalendarEvents(appContext) { partialEvents ->
+                        app.repository.quickSyncCalendarEvents(partialEvents)
+                    }
+                    if (calResult.isIncremental) {
+                        app.repository.quickSyncCalendarEvents(calResult.events)
+                    } else {
+                        app.repository.syncCalendarEvents(calResult.events)
+                    }
                 }
 
                 // If neither Google service is linked, sync with Firebase instead
@@ -257,7 +275,7 @@ class TaskViewModel(
                 // Create on Google Calendar first, then save locally
                 val eventId = GoogleCalendarManager.createCalendarEvent(
                     appContext, title, date ?: TaskRepository.todayString(),
-                    deadlineTime, "primary", description
+                    deadlineTime, "primary", description, tags = tags
                 )
                 if (eventId != null) {
                     val now = System.currentTimeMillis()
@@ -323,11 +341,19 @@ class TaskViewModel(
     fun toggleTask(task: Task) {
         viewModelScope.launch {
             repository.toggleTask(task)
-            // If this is a Google Task, sync completion to Google
+            // If this is a Google Task, sync completion to Google Tasks
             if (task.source == "google_tasks" && task.id.startsWith("gtask_")) {
                 val googleId = task.id.removePrefix("gtask_")
                 GoogleTasksManager.updateTaskCompletion(
                     appContext, googleId, !task.isCompleted // toggled state
+                )
+            }
+            // If this is a Google Calendar event, sync completion to Google Calendar Extended Properties
+            if (task.source == "google_calendar" && task.id.startsWith("gcal_")) {
+                val eventId = task.id.removePrefix("gcal_")
+                val calendarId = task.googleCalendarId ?: "primary"
+                GoogleCalendarManager.updateCalendarEventCompletion(
+                    appContext, eventId, calendarId, !task.isCompleted // toggled state
                 )
             }
             refreshStats()
@@ -407,7 +433,8 @@ class TaskViewModel(
                     newRecurrenceType,
                     if (newRecurrenceType != null) newRecurrenceInterval else null,
                     if (newRecurrenceType != null) newRecurrenceDays else null,
-                    if (newRecurrenceType != null) newRecurrenceEndDate else null
+                    if (newRecurrenceType != null) newRecurrenceEndDate else null,
+                    tags = newTags
                 )
             }
             // Schedule new alarm if deadline is set
@@ -455,7 +482,7 @@ class TaskViewModel(
                 val eventId = GoogleCalendarManager.createCalendarEvent(
                     appContext, title, date ?: TaskRepository.todayString(),
                     deadlineTime, "primary", description,
-                    recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate
+                    recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, tags = tags
                 )
                 if (eventId != null) {
                     val now = System.currentTimeMillis()

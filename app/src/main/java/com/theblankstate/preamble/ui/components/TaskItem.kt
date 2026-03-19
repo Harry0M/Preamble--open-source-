@@ -3,6 +3,8 @@ package com.theblankstate.preamble.ui.components
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -67,6 +69,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TaskItem(
     task: Task,
@@ -107,6 +110,11 @@ fun TaskItem(
     val onPrimaryContainerColor = MaterialTheme.colorScheme.onPrimaryContainer
 
     var showMenu by remember { mutableStateOf(false) }
+    var showDetailDialog by remember { mutableStateOf(false) }
+
+    if (showDetailDialog) {
+        TaskDetailDialog(task = task, onDismiss = { showDetailDialog = false })
+    }
 
     Row(
         modifier = modifier
@@ -117,20 +125,40 @@ fun TaskItem(
                 if (isOverdue) Modifier.background(errorContainerColor.copy(alpha = 0.3f))
                 else Modifier
             )
-            .clickable(enabled = isEditable) { onToggle() }
+            .combinedClickable(
+                enabled = isEditable,
+                onClick = { onToggle() },
+                onLongClick = { onDetail?.invoke() ?: run { showDetailDialog = true } }
+            )
             .padding(vertical = 12.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(
-            onClick = { if (isEditable) onToggle() },
-            modifier = Modifier.padding(end = 4.dp).size(24.dp),
-            enabled = isEditable
-        ) {
-            Icon(
-                imageVector = if (task.isCompleted) Icons.Default.CheckCircle else Icons.Outlined.Circle,
-                contentDescription = if (task.isCompleted) "Completed" else "Uncompleted",
-                tint = if (task.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+        // For info-only events (holidays, birthdays, etc.) show an emoji badge instead of checkbox
+        if (task.isInfoOnly) {
+            val emoji = when (task.eventType) {
+                "holiday" -> "🏛"
+                "birthday" -> "🎂"
+                "focusTime" -> "🎯"
+                "outOfOffice" -> "✈️"
+                else -> "📅"
+            }
+            Text(
+                text = emoji,
+                modifier = Modifier.padding(end = 4.dp).size(24.dp),
+                fontSize = 18.sp
             )
+        } else {
+            IconButton(
+                onClick = { if (isEditable) onToggle() },
+                modifier = Modifier.padding(end = 4.dp).size(24.dp),
+                enabled = isEditable
+            ) {
+                Icon(
+                    imageVector = if (task.isCompleted) Icons.Default.CheckCircle else Icons.Outlined.Circle,
+                    contentDescription = if (task.isCompleted) "Completed" else "Uncompleted",
+                    tint = if (task.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         
         // Priority dot
@@ -182,6 +210,37 @@ fun TaskItem(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.padding(top = 2.dp)
                 )
+            }
+
+            // Location
+            if (!task.location.isNullOrBlank()) {
+                Text(
+                    text = "📍 ${task.location}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp)
+                )
+            }
+
+            // Meeting link indicator
+            if (!task.meetingLink.isNullOrBlank()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(top = 2.dp)
+                ) {
+                    Text(
+                        text = "📹",
+                        fontSize = 12.sp
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "Google Meet",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF1A73E8)
+                    )
+                }
             }
 
             // Recurrence indicator
@@ -276,10 +335,20 @@ fun TaskItem(
                             tint = iconTint
                         )
                         Spacer(modifier = Modifier.width(4.dp))
+                        // Show calendar name or event type label
+                        val calLabel = when (task.eventType) {
+                            "holiday" -> task.calendarName ?: "Holiday"
+                            "birthday" -> "Birthdays"
+                            "focusTime" -> "Focus Time"
+                            "outOfOffice" -> "Out of Office"
+                            else -> task.calendarName ?: "Calendar"
+                        }
                         Text(
-                            text = "Calendar",
+                            text = calLabel,
                             style = MaterialTheme.typography.labelSmall,
-                            color = iconTint
+                            color = iconTint,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     } else if (task.isGoogleTask) {
                         Icon(
@@ -392,13 +461,15 @@ fun TaskItem(
                             }
                         )
                     }
-                    DropdownMenuItem(
-                        text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                        onClick = {
-                            showMenu = false
-                            onDelete()
-                        }
-                    )
+                    if (!task.isInfoOnly) {
+                        DropdownMenuItem(
+                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                            onClick = {
+                                showMenu = false
+                                onDelete()
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -492,8 +563,8 @@ fun SwipeableTaskItem(
                 }
             }
         },
-        enableDismissFromStartToEnd = !task.isCompleted,
-        enableDismissFromEndToStart = true
+        enableDismissFromStartToEnd = !task.isCompleted && !task.isInfoOnly,
+        enableDismissFromEndToStart = !task.isInfoOnly
     ) {
         TaskItem(
             task = task,

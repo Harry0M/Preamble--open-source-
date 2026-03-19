@@ -117,11 +117,11 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 scope.launch {
                     try {
                         val app = context.applicationContext as PreambleApplication
-                        val events = GoogleCalendarManager.fetchCalendarEvents(context)
-                        app.repository.syncCalendarEvents(events)
+                        val calResult = GoogleCalendarManager.fetchCalendarEvents(context)
+                        app.repository.syncCalendarEvents(calResult.events)
                         val gTasks = GoogleTasksManager.fetchGoogleTasks(context)
                         app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
-                        Toast.makeText(context, "Synced ${events.size} events + ${gTasks.size} tasks", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Synced ${calResult.events.size} events + ${gTasks.size} tasks", Toast.LENGTH_SHORT).show()
                     } catch (e: Throwable) {
                         Toast.makeText(context, "Sync failed: ${e.message}", Toast.LENGTH_SHORT).show()
                     }
@@ -329,12 +329,11 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                 .clickable(enabled = !googleSyncing) {
                                     scope.launch {
                                         try {
-                                            val app = context.applicationContext as PreambleApplication
-                                            val events = GoogleCalendarManager.fetchCalendarEvents(context, forceFullSync = true)
-                                            app.repository.syncCalendarEvents(events)
+                                            val calResult = GoogleCalendarManager.fetchCalendarEvents(context, forceFullSync = true, isManual = true)
+                                            app.repository.syncCalendarEvents(calResult.events)
                                             val gTasks = GoogleTasksManager.fetchGoogleTasks(context)
                                             app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
-                                            Toast.makeText(context, "Synced ${events.size} events + ${gTasks.size} tasks", Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(context, "Synced ${calResult.events.size} events + ${gTasks.size} tasks", Toast.LENGTH_SHORT).show()
                                         } catch (e: Throwable) {
                                             Toast.makeText(context, "Sync failed: ${e.message}", Toast.LENGTH_SHORT).show()
                                         }

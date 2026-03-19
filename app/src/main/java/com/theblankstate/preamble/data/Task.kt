@@ -27,7 +27,13 @@ data class Task(
     val parentTaskId: String? = null,          // ID of parent task (for subtasks)
     val tags: String? = null,                   // Comma-separated tag names e.g. "work,personal"
     val googleCalendarId: String? = null,        // Calendar ID for write-back (e.g. "primary")
-    val googleRecurrenceInfo: String? = null      // Human-readable recurrence text from Google Cal (display only)
+    val googleRecurrenceInfo: String? = null,     // Human-readable recurrence text from Google Cal (display only)
+    // ── New Google Calendar fields ──
+    val eventType: String? = null,               // "default","birthday","holiday","focusTime","outOfOffice","fromGmail"
+    val calendarName: String? = null,            // Source calendar name e.g. "Holidays in India", "Work"
+    val location: String? = null,                // Event location/venue
+    val endTime: String? = null,                 // Event end time "HH:mm" (null for all-day)
+    val meetingLink: String? = null               // Google Meet / conference URL
 ) {
     val isCalendarEvent: Boolean get() = source == "google_calendar"
     val isGoogleTask: Boolean get() = source == "google_tasks"
@@ -35,4 +41,9 @@ data class Task(
     val isRecurrenceInstance: Boolean get() = recurrenceParentId != null
     val isSubtask: Boolean get() = parentTaskId != null
     val tagList: List<String> get() = tags?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
+    // Calendar event type helpers
+    val isHoliday: Boolean get() = eventType == "holiday"
+    val isBirthday: Boolean get() = eventType == "birthday"
+    val isInfoOnly: Boolean get() = eventType in listOf("holiday", "birthday", "focusTime", "outOfOffice")
 }
+

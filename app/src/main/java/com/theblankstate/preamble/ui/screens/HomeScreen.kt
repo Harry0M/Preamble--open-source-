@@ -159,6 +159,15 @@ fun HomeScreen(
     val context = LocalContext.current
     val activity = context as? Activity
 
+    val isCalendarSyncing by com.theblankstate.preamble.sync.GoogleCalendarManager.isSyncing.collectAsState()
+    val isManualSyncing by com.theblankstate.preamble.sync.GoogleCalendarManager.isManualSyncing.collectAsState()
+    val isTasksSyncing by com.theblankstate.preamble.sync.GoogleTasksManager.isSyncing.collectAsState()
+    val hasSyncedBefore = remember {
+        context.getSharedPreferences("PreamblePrefs", android.content.Context.MODE_PRIVATE)
+            .getLong("last_sync_time", 0L) > 0L
+    }
+    val showSyncIndicator = isRefreshing || isManualSyncing || ((isCalendarSyncing || isTasksSyncing) && hasSyncedBefore)
+
     // Voice recognizer for FAB — lazily created only when user taps mic
     var speechRecognizerRef by remember { mutableStateOf<SpeechRecognizer?>(null) }
 
@@ -267,8 +276,12 @@ fun HomeScreen(
                     title = {
                         Column {
                             Text("Preamble", style = MaterialTheme.typography.titleLarge)
+                            val todayStr = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()) }
+                            val todayHoliday = tasks.firstOrNull { it.isInfoOnly && it.eventType == "holiday" && it.createdDate == todayStr }?.title
+
                             RichDateHeader(
-                                modifier = Modifier.padding(top = 2.dp)
+                                modifier = Modifier.padding(top = 2.dp),
+                                externalFestival = todayHoliday
                             )
                         }
                     },
@@ -418,6 +431,14 @@ fun HomeScreen(
             val isTimelineEnabled = ThemePreferences.timelineUi.collectAsState().value
 
             Column(modifier = Modifier.fillMaxSize().padding(padding)) {
+                if (showSyncIndicator) {
+                    androidx.compose.material3.LinearProgressIndicator(
+                        modifier = Modifier.fillMaxWidth().height(2.dp),
+                        color = MaterialTheme.colorScheme.primary,
+                        trackColor = Color.Transparent
+                    )
+                }
+
                 // Search bar
                 AnimatedVisibility(visible = isSearchActive) {
                     OutlinedTextField(
