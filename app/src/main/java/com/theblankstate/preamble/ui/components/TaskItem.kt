@@ -23,6 +23,11 @@ import androidx.compose.foundation.shape.CircleShape as FoundationCircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.filled.Cake
+import androidx.compose.material.icons.filled.CenterFocusStrong
+import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.Festival
+import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
@@ -127,25 +132,35 @@ fun TaskItem(
             )
             .combinedClickable(
                 enabled = isEditable,
-                onClick = { onToggle() },
+                onClick = { if (!task.isInfoOnly) onToggle() },
                 onLongClick = { onDetail?.invoke() ?: run { showDetailDialog = true } }
             )
             .padding(vertical = 12.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // For info-only events (holidays, birthdays, etc.) show an emoji badge instead of checkbox
+        // For info-only events (holidays, birthdays, etc.) show a styled material icon instead of checkbox
         if (task.isInfoOnly) {
-            val emoji = when (task.eventType) {
-                "holiday" -> "🏛"
-                "birthday" -> "🎂"
-                "focusTime" -> "🎯"
-                "outOfOffice" -> "✈️"
-                else -> "📅"
+            val icon = when (task.eventType) {
+                "holiday" -> Icons.Default.Festival
+                "birthday" -> Icons.Default.Cake
+                "focusTime" -> Icons.Default.CenterFocusStrong
+                "outOfOffice" -> Icons.Default.Flight
+                else -> Icons.Default.EventNote
             }
-            Text(
-                text = emoji,
-                modifier = Modifier.padding(end = 4.dp).size(24.dp),
-                fontSize = 18.sp
+            val tintColor = when (task.eventType) {
+                "holiday" -> Color(0xFFE91E63) // Pink/Magenta for festivals
+                "birthday" -> Color(0xFFFF9800) // Orange for cake
+                "focusTime" -> Color(0xFF9C27B0) // Purple for focus
+                else -> MaterialTheme.colorScheme.primary
+            }
+            Icon(
+                imageVector = icon,
+                contentDescription = task.eventType ?: "Event",
+                tint = tintColor,
+                modifier = Modifier
+                    .padding(end = 4.dp)
+                    .size(24.dp)
+                    .padding(2.dp) // slight padding to make it match Checkbox visual weight
             )
         } else {
             IconButton(

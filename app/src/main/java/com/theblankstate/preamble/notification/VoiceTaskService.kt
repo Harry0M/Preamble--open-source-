@@ -162,22 +162,11 @@ class VoiceTaskService : Service() {
                                     val taskTitle = call.arguments["title"] ?: title
                                     val date = call.arguments["date"]
                                     val time = call.arguments["deadline_time"] ?: call.arguments["time"]
-                                    app.repository.addTask(taskTitle, date, time)
-                                    if (com.theblankstate.preamble.sync.GoogleTasksManager.syncVoiceTasks.value
-                                        && com.theblankstate.preamble.sync.GoogleTasksManager.isLinked.value) {
-                                        com.theblankstate.preamble.sync.GoogleTasksManager.createGoogleTask(
-                                            this@VoiceTaskService, taskTitle, date
-                                        )
-                                    }
+                                    val tags = call.arguments["tags"]
+                                    saveInterpretedTask(app, taskTitle, date, time, tags)
                                 }
                                 else -> {
-                                    app.repository.addTask(title)
-                                    if (com.theblankstate.preamble.sync.GoogleTasksManager.syncVoiceTasks.value
-                                        && com.theblankstate.preamble.sync.GoogleTasksManager.isLinked.value) {
-                                        com.theblankstate.preamble.sync.GoogleTasksManager.createGoogleTask(
-                                            this@VoiceTaskService, title
-                                        )
-                                    }
+                                    saveInterpretedTask(app, title)
                                 }
                             }
                         }
@@ -185,23 +174,20 @@ class VoiceTaskService : Service() {
                             Toast.makeText(this@VoiceTaskService, "AI processed: $title", Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        app.repository.addTask(title)
-                        syncVoiceToGoogleIfEnabled(title)
+                        saveInterpretedTask(app, title)
                         CoroutineScope(Dispatchers.Main).launch {
                             Toast.makeText(this@VoiceTaskService, "Task saved: $title", Toast.LENGTH_SHORT).show()
                         }
                     }
                 } catch (e: Exception) {
                     Log.e("VoiceTaskService", "AI processing failed, saving as plain task", e)
-                    app.repository.addTask(title)
-                    syncVoiceToGoogleIfEnabled(title)
+                    saveInterpretedTask(app, title)
                     CoroutineScope(Dispatchers.Main).launch {
                         Toast.makeText(this@VoiceTaskService, "Task saved: $title", Toast.LENGTH_SHORT).show()
                     }
                 }
             } else {
-                app.repository.addTask(title)
-                syncVoiceToGoogleIfEnabled(title)
+                saveInterpretedTask(app, title)
                 CoroutineScope(Dispatchers.Main).launch {
                     Toast.makeText(this@VoiceTaskService, "Task saved: $title", Toast.LENGTH_SHORT).show()
                 }
@@ -209,12 +195,47 @@ class VoiceTaskService : Service() {
         }
     }
 
-    private suspend fun syncVoiceToGoogleIfEnabled(title: String, date: String? = null) {
+    private suspend fun saveInterpretedTask(
+        app: PreambleApplication,
+        title: String,
+        date: String? = null,
+        time: String? = null,
+        tags: String? = null
+    ) {
+        var localTaskCreated = false
+
         if (com.theblankstate.preamble.sync.GoogleTasksManager.syncVoiceTasks.value
             && com.theblankstate.preamble.sync.GoogleTasksManager.isLinked.value) {
-            com.theblankstate.preamble.sync.GoogleTasksManager.createGoogleTask(
+            
+            val googleTaskId = com.theblankstate.preamble.sync.GoogleTasksManager.createGoogleTask(
                 this@VoiceTaskService, title, date
             )
+            if (googleTaskId != null) {
+                // Determine date logic exactly as GoogleTasksManager maps it
+                val taskDate = date ?: java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date())
+                val now = System.currentTimeMillis()
+                
+                val localTask = com.theblankstate.preamble.data.Task(
+                    id = "gtask_$googleTaskId",
+                    title = title,
+                    createdDate = taskDate,
+                    deadlineTime = time,
+                    createdTimestamp = now,
+                    updatedTimestamp = now,
+                    source = "google_tasks",
+                    tags = tags
+                )
+                app.repository.insertTask(localTask)
+                if (tags != null) {
+                    app.repository.saveTagOverride("gtask_$googleTaskId", tags)
+                }
+                localTaskCreated = true
+            }
+        }
+
+        if (!localTaskCreated) {
+            // Fallback cleanly to local-only task
+            app.repository.addTask(title, date = date, deadlineTime = time, tags = tags)
         }
     }
 
