@@ -12,6 +12,7 @@ class AlarmDismissReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         val notificationId = intent.getIntExtra("notification_id", 0)
+        val taskId = intent.getStringExtra("task_id")
         val taskTitle = intent.getStringExtra("task_title")
 
         // Stop any playing ringtone
@@ -22,21 +23,33 @@ class AlarmDismissReceiver : BroadcastReceiver() {
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.cancel(notificationId)
 
-        // If action is COMPLETE, mark the task as completed
-        if (intent.action == "COMPLETE" && taskTitle != null) {
+        // If action is COMPLETE, mark the task as completed using the UUID
+        if (intent.action == "COMPLETE" && taskId != null) {
             val app = context.applicationContext as PreambleApplication
             app.appScope.launch {
-                val task = app.database.taskDao().getPendingTaskByTitle(taskTitle)
-                if (task != null) {
+                val task = app.database.taskDao().getTaskById(taskId)
+                if (task != null && !task.isCompleted) {
                     app.repository.toggleTask(task)
                 }
             }
         }
 
-        // If action is SNOOZE, reschedule the alarm for 10 minutes later
-        if (intent.action == "SNOOZE" && taskTitle != null) {
+        // If action is SNOOZE, physically update the database with the customAlarmTimeMs and reschedule
+        if (intent.action == "SNOOZE" && taskId != null && taskTitle != null) {
             val snoozeTimeMs = System.currentTimeMillis() + (10 * 60 * 1000L)
-            TaskAlarmManager.scheduleSnooze(context, taskTitle, snoozeTimeMs)
+            val app = context.applicationContext as PreambleApplication
+            app.appScope.launch {
+                val task = app.database.taskDao().getTaskById(taskId)
+                if (task != null) {
+                    val updated = task.copy(
+                        customAlarmTimeMs = snoozeTimeMs,
+                        isAlarmPaused = false,
+                        updatedTimestamp = System.currentTimeMillis()
+                    )
+                    app.repository.updateTask(updated)
+                    TaskAlarmManager.scheduleAlarm(context, taskId, taskTitle, snoozeTimeMs)
+                }
+            }
         }
     }
 

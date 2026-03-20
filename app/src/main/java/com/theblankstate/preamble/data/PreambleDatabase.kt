@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Task::class, TaskTagOverride::class], version = 13, exportSchema = false)
+@Database(entities = [Task::class, TaskTagOverride::class], version = 14, exportSchema = false)
 abstract class PreambleDatabase : RoomDatabase() {
 
     abstract fun taskDao(): TaskDao
@@ -23,7 +23,7 @@ abstract class PreambleDatabase : RoomDatabase() {
                     PreambleDatabase::class.java,
                     "preamble_db"
                 )
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -189,6 +189,14 @@ abstract class PreambleDatabase : RoomDatabase() {
                 // Add optimistic UI sync status columns
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `isSyncing` INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `syncFailed` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Independent alarm management columns
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `customAlarmTimeMs` INTEGER")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `isAlarmPaused` INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

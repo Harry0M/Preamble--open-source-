@@ -14,35 +14,13 @@ object TaskAlarmManager {
 
     /**
      * Cancel a scheduled alarm for a task.
-     * Uses the same requestCode calculation as scheduleAlarm to find the right PendingIntent.
+     * Uses the exact taskId to regenerate the correct requestCode.
      */
-    fun cancelAlarm(context: Context, taskTitle: String, taskDate: String, deadlineTime: String) {
+    fun cancelAlarm(context: Context, taskId: String) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-        val timeParts = deadlineTime.split(":")
-        if (timeParts.size != 2) return
-        val hour = timeParts[0].toIntOrNull() ?: return
-        val minute = timeParts[1].toIntOrNull() ?: return
-
-        val dateParts = taskDate.split("-")
-        if (dateParts.size != 3) return
-        val year = dateParts[0].toIntOrNull() ?: return
-        val month = dateParts[1].toIntOrNull() ?: return
-        val day = dateParts[2].toIntOrNull() ?: return
-
-        val cal = Calendar.getInstance().apply {
-            set(Calendar.YEAR, year)
-            set(Calendar.MONTH, month - 1)
-            set(Calendar.DAY_OF_MONTH, day)
-            set(Calendar.HOUR_OF_DAY, hour)
-            set(Calendar.MINUTE, minute)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        val triggerTime = cal.timeInMillis
-
         val intent = Intent(context, AlarmReceiver::class.java)
-        val requestCode = (taskTitle.hashCode() xor triggerTime.toInt()) and 0x7FFFFFFF
+        val requestCode = taskId.hashCode() and 0x7FFFFFFF
         val pendingIntent = PendingIntent.getBroadcast(
             context, requestCode, intent,
             PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
@@ -50,62 +28,27 @@ object TaskAlarmManager {
         if (pendingIntent != null) {
             alarmManager.cancel(pendingIntent)
             pendingIntent.cancel()
-            Log.d(TAG, "Alarm cancelled for '$taskTitle' (requestCode=$requestCode)")
+            Log.d(TAG, "Alarm cancelled for taskId '$taskId' (requestCode=$requestCode)")
         }
     }
 
-    fun scheduleAlarm(context: Context, taskTitle: String, taskDate: String, deadlineTime: String) {
+    fun scheduleAlarm(context: Context, taskId: String, taskTitle: String, triggerTimeMs: Long) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
 
-        val timeParts = deadlineTime.split(":")
-        if (timeParts.size != 2) {
-            Log.e(TAG, "Invalid time format: $deadlineTime")
-            return
-        }
-        val hour = timeParts[0].toIntOrNull()
-        val minute = timeParts[1].toIntOrNull()
-        if (hour == null || minute == null) {
-            Log.e(TAG, "Cannot parse time: $deadlineTime")
+        if (triggerTimeMs <= System.currentTimeMillis()) {
+            Log.w(TAG, "Alarm time is in the past ($triggerTimeMs), skipping.")
             return
         }
 
-        val dateParts = taskDate.split("-")
-        if (dateParts.size != 3) {
-            Log.e(TAG, "Invalid date format: $taskDate")
-            return
-        }
-        val year = dateParts[0].toIntOrNull()
-        val month = dateParts[1].toIntOrNull()
-        val day = dateParts[2].toIntOrNull()
-        if (year == null || month == null || day == null) {
-            Log.e(TAG, "Cannot parse date: $taskDate")
-            return
-        }
-
-        val cal = Calendar.getInstance().apply {
-            set(Calendar.YEAR, year)
-            set(Calendar.MONTH, month - 1)
-            set(Calendar.DAY_OF_MONTH, day)
-            set(Calendar.HOUR_OF_DAY, hour)
-            set(Calendar.MINUTE, minute)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-
-        val triggerTime = cal.timeInMillis
-        if (triggerTime <= System.currentTimeMillis()) {
-            Log.w(TAG, "Alarm time is in the past ($taskDate $deadlineTime), skipping.")
-            return
-        }
-
-        Log.d(TAG, "Scheduling alarm for '$taskTitle' at $taskDate $deadlineTime => ${triggerTime}ms from epoch")
+        Log.d(TAG, "Scheduling alarm for taskId '$taskId' ('$taskTitle') at ${triggerTimeMs}ms from epoch")
 
         val intent = Intent(context, AlarmReceiver::class.java).apply {
+            putExtra("task_id", taskId)
             putExtra("task_title", taskTitle)
-            action = "com.theblankstate.preamble.TASK_ALARM_${System.currentTimeMillis()}"
+            action = "com.theblankstate.preamble.TASK_ALARM_${taskId}"
         }
 
-        val requestCode = (taskTitle.hashCode() xor triggerTime.toInt()) and 0x7FFFFFFF
+        val requestCode = taskId.hashCode() and 0x7FFFFFFF
         val pendingIntent = PendingIntent.getBroadcast(
             context, requestCode, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -114,59 +57,20 @@ object TaskAlarmManager {
         try {
             // setAlarmClock is the MOST reliable method - treated as alarm clock by the system
             // It bypasses Doze, battery optimization, and is guaranteed to fire
-            val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerTime, pendingIntent)
+            val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerTimeMs, pendingIntent)
             alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
             Log.d(TAG, "Alarm scheduled via setAlarmClock successfully (requestCode=$requestCode)")
         } catch (e: Exception) {
             Log.e(TAG, "setAlarmClock failed, trying fallback", e)
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && alarmManager.canScheduleExactAlarms()) {
-                    alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
-                } else {
-                    alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
-                }
-                Log.d(TAG, "Alarm scheduled via fallback method")
-            } catch (e2: Exception) {
-                Log.e(TAG, "All alarm methods failed", e2)
-            }
-        }
-    }
-
-    fun scheduleSnooze(context: Context, taskTitle: String, triggerTimeMs: Long) {
-        val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-
-        if (triggerTimeMs <= System.currentTimeMillis()) {
-            Log.w(TAG, "Snooze time is in the past, skipping.")
-            return
-        }
-
-        Log.d(TAG, "Scheduling snooze for '$taskTitle' at ${triggerTimeMs}ms from epoch")
-
-        val intent = Intent(context, AlarmReceiver::class.java).apply {
-            putExtra("task_title", taskTitle)
-            action = "com.theblankstate.preamble.TASK_SNOOZE_${System.currentTimeMillis()}"
-        }
-
-        val requestCode = (taskTitle.hashCode() xor triggerTimeMs.toInt() xor 0x50002E) and 0x7FFFFFFF
-        val pendingIntent = PendingIntent.getBroadcast(
-            context, requestCode, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        try {
-            val alarmClockInfo = AlarmManager.AlarmClockInfo(triggerTimeMs, pendingIntent)
-            alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
-            Log.d(TAG, "Snooze alarm scheduled via setAlarmClock (requestCode=$requestCode)")
-        } catch (e: Exception) {
-            Log.e(TAG, "setAlarmClock failed for snooze, trying fallback", e)
-            try {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && alarmManager.canScheduleExactAlarms()) {
                     alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTimeMs, pendingIntent)
                 } else {
                     alarmManager.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTimeMs, pendingIntent)
                 }
+                Log.d(TAG, "Alarm scheduled via fallback method")
             } catch (e2: Exception) {
-                Log.e(TAG, "All snooze alarm methods failed", e2)
+                Log.e(TAG, "All alarm methods failed", e2)
             }
         }
     }

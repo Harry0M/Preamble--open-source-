@@ -253,6 +253,7 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 selectedTagFilter = viewModel.selectedTagFilter.collectAsState().value,
                 onTagFilterChanged = { viewModel.setTagFilter(it) },
                 isInitialLoad = viewModel.isInitialLoad.collectAsState().value,
+                onUpdateAlarmStatus = { task, newTime, paused -> viewModel.updateAlarmStatus(task, newTime, paused) },
                 modifier = Modifier.padding(innerPadding)
             )
             1 -> StatsScreen(

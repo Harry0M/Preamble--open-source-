@@ -28,7 +28,9 @@ import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import com.theblankstate.preamble.ui.theme.ThemePreferences
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -44,6 +46,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
@@ -143,6 +146,7 @@ fun HomeScreen(
     selectedTagFilter: String? = null,
     onTagFilterChanged: ((String?) -> Unit)? = null,
     isInitialLoad: Boolean = false,
+    onUpdateAlarmStatus: (Task, Long?, Boolean) -> Unit = { _, _, _ -> },
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
@@ -985,20 +989,54 @@ fun HomeScreen(
     if (showAlarmSheet) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val nextAlarm = alarmManager.nextAlarmClock
-        // Collect all tasks with deadlineTime that are in the future
+        // Collect all tasks heavily factoring independent Alarm parameters
         val allTasksWithAlarms = remember(tasks, pastTasks) {
             val allTasks = mutableListOf<Task>()
             allTasks.addAll(tasks)
             pastTasks.values.forEach { allTasks.addAll(it) }
             val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
             val now = System.currentTimeMillis()
-            allTasks.filter { task ->
-                task.deadlineTime != null && !task.isCompleted && try {
-                    val dt = sdf.parse("${task.createdDate} ${task.deadlineTime}")
-                    dt != null && dt.time > now
-                } catch (_: Exception) { false }
-            }.sortedBy { task ->
-                try { sdf.parse("${task.createdDate} ${task.deadlineTime}")?.time ?: 0L } catch (_: Exception) { 0L }
+            
+            allTasks.mapNotNull { task ->
+                val triggerMs = task.customAlarmTimeMs ?: run {
+                    if (task.deadlineTime == null) return@mapNotNull null
+                    try {
+                        sdf.parse("${task.createdDate} ${task.deadlineTime}")?.time
+                    } catch (_: Exception) { null }
+                }
+                
+                if (triggerMs != null) {
+                    Pair(task, triggerMs)
+                } else null
+            }.sortedBy { it.second }.map { it.first }
+        }
+
+        var taskForTimePicker by remember { mutableStateOf<Task?>(null) }
+        var taskInitialTimeForPicker by remember { mutableStateOf<Long>(0L) }
+        val contextCurrent = androidx.compose.ui.platform.LocalContext.current
+
+        androidx.compose.runtime.LaunchedEffect(taskForTimePicker) {
+            if (taskForTimePicker != null) {
+                val cal = java.util.Calendar.getInstance().apply { timeInMillis = taskInitialTimeForPicker }
+                android.app.TimePickerDialog(
+                    contextCurrent,
+                    { _, hour, minute ->
+                        val newCal = java.util.Calendar.getInstance().apply {
+                            timeInMillis = taskInitialTimeForPicker
+                            set(java.util.Calendar.HOUR_OF_DAY, hour)
+                            set(java.util.Calendar.MINUTE, minute)
+                            set(java.util.Calendar.SECOND, 0)
+                        }
+                        onUpdateAlarmStatus(taskForTimePicker!!, newCal.timeInMillis, taskForTimePicker!!.isAlarmPaused)
+                        taskForTimePicker = null
+                    },
+                    cal.get(java.util.Calendar.HOUR_OF_DAY),
+                    cal.get(java.util.Calendar.MINUTE),
+                    false
+                ).apply {
+                    setOnDismissListener { taskForTimePicker = null }
+                    show()
+                }
             }
         }
 
@@ -1038,29 +1076,87 @@ fun HomeScreen(
                     )
                 } else {
                     allTasksWithAlarms.forEach { task ->
+                        val triggerMs = task.customAlarmTimeMs ?: run {
+                            val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                            try { sdf.parse("${task.createdDate} ${task.deadlineTime}")?.time } catch (_: Exception) { 0L }
+                        } ?: 0L
+                        
+                        val timeStr = SimpleDateFormat("MMM dd, hh:mm a", Locale.getDefault()).format(Date(triggerMs))
+                        val isCustom = task.customAlarmTimeMs != null
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 8.dp),
+                                .padding(vertical = 8.dp)
+                                .alpha(if (task.isCompleted) 0.5f else 1f),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                Icons.Filled.Alarm,
+                                if (task.isAlarmPaused) Icons.Filled.Close else Icons.Filled.Alarm,
                                 contentDescription = null,
                                 modifier = Modifier.size(20.dp),
-                                tint = MaterialTheme.colorScheme.primary
+                                tint = if (task.isAlarmPaused) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
                             )
                             Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
                                 Text(
                                     task.title,
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Medium,
-                                    maxLines = 1
+                                    maxLines = 1,
+                                    color = if (task.isAlarmPaused) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
                                 )
-                                Text(
-                                    "${task.createdDate}  ${task.deadlineTime}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier
+                                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                        .clickable {
+                                            taskInitialTimeForPicker = triggerMs
+                                            taskForTimePicker = task
+                                        }
+                                        .padding(vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        if (task.isAlarmPaused) "Paused ($timeStr)" else timeStr,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    if (isCustom && !task.isAlarmPaused) {
+                                        Text(
+                                            " • Edited",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(start = 4.dp)
+                                        )
+                                    }
+                                    Icon(
+                                        Icons.Filled.Edit,
+                                        contentDescription = "Edit Time",
+                                        modifier = Modifier.size(16.dp).padding(start = 4.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                            // Direct Nudge and Pause controls
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                IconButton(
+                                    onClick = { onUpdateAlarmStatus(task, triggerMs - (10 * 60 * 1000L), task.isAlarmPaused) },
+                                    modifier = Modifier.size(32.dp),
+                                    enabled = !task.isCompleted
+                                ) {
+                                    Text("-10m", style = MaterialTheme.typography.labelSmall)
+                                }
+                                IconButton(
+                                    onClick = { onUpdateAlarmStatus(task, triggerMs + (10 * 60 * 1000L), task.isAlarmPaused) },
+                                    modifier = Modifier.size(32.dp),
+                                    enabled = !task.isCompleted
+                                ) {
+                                    Text("+10m", style = MaterialTheme.typography.labelSmall)
+                                }
+                                androidx.compose.material3.Switch(
+                                    checked = !task.isAlarmPaused && !task.isCompleted,
+                                    onCheckedChange = { isResumed -> onUpdateAlarmStatus(task, task.customAlarmTimeMs, !isResumed) },
+                                    modifier = Modifier.scale(0.7f),
+                                    enabled = !task.isCompleted
                                 )
                             }
                         }

@@ -279,6 +279,7 @@ class TaskViewModel(
         viewModelScope.launch {
             val taskDate = date ?: TaskRepository.todayString()
             val now = System.currentTimeMillis()
+            val finalTask: com.theblankstate.preamble.data.Task
             if (syncToCalendar && GoogleCalendarManager.isLinked.value) {
                 val tempId = java.util.UUID.randomUUID().toString()
                 val task = com.theblankstate.preamble.data.Task(
@@ -296,6 +297,7 @@ class TaskViewModel(
                     googleCalendarId = "primary"
                 )
                 repository.insertTask(task)
+                finalTask = task
                 if (!tags.isNullOrBlank()) repository.saveTagOverride(task.id, tags)
                 
                 val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarCreationWorker>()
@@ -319,6 +321,7 @@ class TaskViewModel(
                     tags = tags
                 )
                 repository.insertTask(task)
+                finalTask = task
                 if (!tags.isNullOrBlank()) repository.saveTagOverride(task.id, tags)
 
                 val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleTaskCreationWorker>()
@@ -327,13 +330,9 @@ class TaskViewModel(
                 androidx.work.WorkManager.getInstance(appContext).enqueue(req)
 
             } else {
-                repository.addTask(title, date, deadlineTime, priority, description, tags)
+                finalTask = repository.addTask(title, date, deadlineTime, priority, description, tags)
             }
-            if (deadlineTime != null) {
-                com.theblankstate.preamble.notification.TaskAlarmManager.scheduleAlarm(
-                    appContext, title, taskDate, deadlineTime
-                )
-            }
+            scheduleOrCancelAlarm(finalTask)
             refreshStats()
         }
     }
@@ -363,11 +362,10 @@ class TaskViewModel(
     fun deleteTask(task: Task) {
         viewModelScope.launch {
             // Cancel alarm if task had a deadline
-            if (task.deadlineTime != null) {
-                com.theblankstate.preamble.notification.TaskAlarmManager.cancelAlarm(
-                    appContext, task.title, task.createdDate, task.deadlineTime
-                )
-            }
+            // Kill alarm if present
+            com.theblankstate.preamble.notification.TaskAlarmManager.cancelAlarm(
+                appContext, task.id
+            )
             // Mark as deleted BEFORE any sync can re-insert it
             repository.markAsDeleted(task.id)
             
@@ -415,7 +413,7 @@ class TaskViewModel(
             // Cancel old alarm if task had a deadline
             if (task.deadlineTime != null) {
                 com.theblankstate.preamble.notification.TaskAlarmManager.cancelAlarm(
-                    appContext, task.title, task.createdDate, task.deadlineTime
+                    appContext, task.id
                 )
             }
             val updated = task.copy(
@@ -457,12 +455,7 @@ class TaskViewModel(
                     tags = newTags
                 )
             }
-            // Schedule new alarm if deadline is set
-            if (newDeadlineTime != null) {
-                com.theblankstate.preamble.notification.TaskAlarmManager.scheduleAlarm(
-                    appContext, newTitle, updated.createdDate, newDeadlineTime
-                )
-            }
+            scheduleOrCancelAlarm(updated)
             refreshStats()
         }
     }
@@ -474,6 +467,43 @@ class TaskViewModel(
                 updatedTimestamp = System.currentTimeMillis()
             )
             repository.updateTask(updated)
+            refreshStats()
+        }
+    }
+
+    /**
+     * Determines whether an alarm should be scheduled. Paused alarms, or alarms with NO deadline NO custom time,
+     * are canceled. Active alarms are calculated and securely scheduled into TaskAlarmManager.
+     */
+    private fun scheduleOrCancelAlarm(task: Task) {
+        if (task.isAlarmPaused) {
+            com.theblankstate.preamble.notification.TaskAlarmManager.cancelAlarm(appContext, task.id)
+            return
+        }
+        val triggerMs = task.customAlarmTimeMs ?: run {
+            if (task.deadlineTime == null) return@run null
+            try {
+                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                sdf.parse("${task.createdDate} ${task.deadlineTime}")?.time
+            } catch (e: Exception) { null }
+        }
+        
+        if (triggerMs != null && triggerMs > System.currentTimeMillis()) {
+            com.theblankstate.preamble.notification.TaskAlarmManager.scheduleAlarm(appContext, task.id, task.title, triggerMs)
+        } else {
+            com.theblankstate.preamble.notification.TaskAlarmManager.cancelAlarm(appContext, task.id)
+        }
+    }
+
+    fun updateAlarmStatus(task: Task, newCustomAlarmTimeMs: Long?, isPaused: Boolean) {
+        viewModelScope.launch {
+            val updated = task.copy(
+                customAlarmTimeMs = newCustomAlarmTimeMs,
+                isAlarmPaused = isPaused,
+                updatedTimestamp = System.currentTimeMillis()
+            )
+            repository.updateTask(updated)
+            scheduleOrCancelAlarm(updated)
             refreshStats()
         }
     }

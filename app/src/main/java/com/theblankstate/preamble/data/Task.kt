@@ -35,7 +35,10 @@ data class Task(
     val calendarName: String? = null,            // Source calendar name e.g. "Holidays in India", "Work"
     val location: String? = null,                // Event location/venue
     val endTime: String? = null,                 // Event end time "HH:mm" (null for all-day)
-    val meetingLink: String? = null               // Google Meet / conference URL
+    val meetingLink: String? = null,               // Google Meet / conference URL
+    // ── Independent Alarm overrides ──
+    val customAlarmTimeMs: Long? = null,           // Explicit trigger override decoupled from `deadlineTime`
+    val isAlarmPaused: Boolean = false             // User completely halted the alarm from ringing
 ) {
     val isCalendarEvent: Boolean get() = source == "google_calendar"
     val isGoogleTask: Boolean get() = source == "google_tasks"

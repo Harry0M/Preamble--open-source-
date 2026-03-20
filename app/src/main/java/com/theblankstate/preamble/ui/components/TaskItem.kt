@@ -38,6 +38,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.Cancel
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -110,6 +111,14 @@ fun TaskItem(
         }
     }
 
+    val isPastDayUncompleted = remember(task.isCompleted, task.createdDate) {
+        if (task.isCompleted) false
+        else {
+            val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            task.createdDate < todayStr
+        }
+    }
+
     val errorColor = MaterialTheme.colorScheme.error
     val errorContainerColor = MaterialTheme.colorScheme.errorContainer
     val onErrorContainerColor = MaterialTheme.colorScheme.onErrorContainer
@@ -128,13 +137,13 @@ fun TaskItem(
             .fillMaxWidth()
             .alpha(cardAlpha)
             .clip(RoundedCornerShape(8.dp))
-            .then(
-                if (isOverdue) Modifier.background(errorContainerColor.copy(alpha = 0.3f))
-                else Modifier
+            .background(
+                if (isOverdue) errorContainerColor.copy(alpha = 0.3f)
+                else Color.Transparent // Explicitly transparent
             )
             .combinedClickable(
                 enabled = isEditable,
-                onClick = { /* Entire row is no longer click-to-complete to avoid miss-ticks */ },
+                onClick = { onDetail?.invoke() ?: run { showDetailDialog = true } },
                 onLongClick = { onDetail?.invoke() ?: run { showDetailDialog = true } }
             )
             .padding(vertical = 12.dp, horizontal = 8.dp),
@@ -177,10 +186,20 @@ fun TaskItem(
                         color = MaterialTheme.colorScheme.primary
                     )
                 } else {
+                    val iconVector = when {
+                        task.isCompleted -> Icons.Default.CheckCircle
+                        isPastDayUncompleted -> Icons.Outlined.Cancel
+                        else -> Icons.Outlined.Circle
+                    }
+                    val iconTint = when {
+                        task.isCompleted -> MaterialTheme.colorScheme.primary
+                        isPastDayUncompleted -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    }
                     Icon(
-                        imageVector = if (task.isCompleted) Icons.Default.CheckCircle else Icons.Outlined.Circle,
-                        contentDescription = if (task.isCompleted) "Completed" else "Uncompleted",
-                        tint = if (task.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        imageVector = iconVector,
+                        contentDescription = if (task.isCompleted) "Completed" else if (isPastDayUncompleted) "Missed" else "Uncompleted",
+                        tint = iconTint,
                         modifier = Modifier.size(24.dp) // Kept visual icon size the same
                     )
                 }
@@ -575,7 +594,10 @@ fun SwipeableTaskItem(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(RoundedCornerShape(8.dp))
-                    .background(color.copy(alpha = 0.2f))
+                    .then(
+                        if (color != Color.Transparent) Modifier.background(color.copy(alpha = 0.2f))
+                        else Modifier
+                    )
                     .padding(horizontal = 20.dp),
                 contentAlignment = alignment
             ) {

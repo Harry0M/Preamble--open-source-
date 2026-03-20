@@ -16,8 +16,9 @@ import com.theblankstate.preamble.R
 class AlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        val taskId = intent.getStringExtra("task_id") ?: return
         val taskTitle = intent.getStringExtra("task_title") ?: "Task Reminder"
-        val notificationId = taskTitle.hashCode()
+        val notificationId = taskId.hashCode()
 
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
@@ -54,6 +55,7 @@ class AlarmReceiver : BroadcastReceiver() {
         // Dismiss/Stop intent — just stops the alarm
         val dismissIntent = Intent(context, AlarmDismissReceiver::class.java).apply {
             putExtra("notification_id", notificationId)
+            putExtra("task_id", taskId)
             putExtra("task_title", taskTitle)
             action = "DISMISS"
         }
@@ -67,6 +69,7 @@ class AlarmReceiver : BroadcastReceiver() {
         // Mark Complete intent — stops alarm AND marks task as completed
         val completeIntent = Intent(context, AlarmDismissReceiver::class.java).apply {
             putExtra("notification_id", notificationId)
+            putExtra("task_id", taskId)
             putExtra("task_title", taskTitle)
             action = "COMPLETE"
         }
@@ -80,6 +83,7 @@ class AlarmReceiver : BroadcastReceiver() {
         // Snooze intent — stops alarm, reschedules for 10 minutes later
         val snoozeIntent = Intent(context, AlarmDismissReceiver::class.java).apply {
             putExtra("notification_id", notificationId)
+            putExtra("task_id", taskId)
             putExtra("task_title", taskTitle)
             action = "SNOOZE"
         }
