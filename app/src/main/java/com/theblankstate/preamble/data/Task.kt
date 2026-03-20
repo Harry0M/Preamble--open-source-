@@ -17,6 +17,8 @@ data class Task(
     val updatedTimestamp: Long = System.currentTimeMillis(),
     val source: String = "local",  // "local", "google_calendar", "google_tasks"
     val deletedFromGoogle: Boolean = false,
+    val isSyncing: Boolean = false,
+    val syncFailed: Boolean = false,
     val priority: Int = 0,  // 0=None, 1=Low, 2=Medium, 3=High
     val description: String? = null,
     val recurrenceType: String? = null,       // "daily","weekly","monthly","yearly","custom"

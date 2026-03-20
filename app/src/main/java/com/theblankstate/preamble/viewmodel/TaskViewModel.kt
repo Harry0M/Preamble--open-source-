@@ -271,65 +271,59 @@ class TaskViewModel(
     fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false, syncToCalendar: Boolean = false, priority: Int = 0, description: String? = null, tags: String? = null) {
         if (title.isBlank()) return
         viewModelScope.launch {
+            val taskDate = date ?: TaskRepository.todayString()
+            val now = System.currentTimeMillis()
             if (syncToCalendar && GoogleCalendarManager.isLinked.value) {
-                // Create on Google Calendar first, then save locally
-                val eventId = GoogleCalendarManager.createCalendarEvent(
-                    appContext, title, date ?: TaskRepository.todayString(),
-                    deadlineTime, "primary", description, tags = tags
+                val tempId = java.util.UUID.randomUUID().toString()
+                val task = com.theblankstate.preamble.data.Task(
+                    id = tempId,
+                    title = title,
+                    createdDate = taskDate,
+                    deadlineTime = deadlineTime,
+                    createdTimestamp = now,
+                    updatedTimestamp = now,
+                    source = "google_calendar",
+                    isSyncing = true,
+                    priority = priority,
+                    description = description,
+                    tags = tags,
+                    googleCalendarId = "primary"
                 )
-                if (eventId != null) {
-                    val now = System.currentTimeMillis()
-                    val task = com.theblankstate.preamble.data.Task(
-                        id = "gcal_$eventId",
-                        title = title,
-                        createdDate = date ?: TaskRepository.todayString(),
-                        deadlineTime = deadlineTime,
-                        createdTimestamp = now,
-                        updatedTimestamp = now,
-                        source = "google_calendar",
-                        priority = priority,
-                        description = description,
-                        tags = tags,
-                        googleCalendarId = "primary"
-                    )
-                    repository.insertTask(task)
-                    // Persist tag override to Firebase so tags survive re-sync/reinstall
-                    if (!tags.isNullOrBlank()) {
-                        repository.saveTagOverride(task.id, tags)
-                    }
-                } else {
-                    repository.addTask(title, date, deadlineTime, priority, description, tags)
-                }
+                repository.insertTask(task)
+                if (!tags.isNullOrBlank()) repository.saveTagOverride(task.id, tags)
+                
+                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarCreationWorker>()
+                    .setInputData(androidx.work.Data.Builder().putString("localTaskId", tempId).build())
+                    .build()
+                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+                
             } else if (syncToGoogle && GoogleTasksManager.isLinked.value) {
-                // Create on Google first, then save locally with Google Task ID
-                val googleId = GoogleTasksManager.createGoogleTask(appContext, title, date ?: TaskRepository.todayString())
-                if (googleId != null) {
-                    val now = System.currentTimeMillis()
-                    val task = com.theblankstate.preamble.data.Task(
-                        id = "gtask_$googleId",
-                        title = title,
-                        createdDate = date ?: TaskRepository.todayString(),
-                        deadlineTime = deadlineTime,
-                        createdTimestamp = now,
-                        updatedTimestamp = now,
-                        source = "google_tasks",
-                        priority = priority,
-                        description = description,
-                        tags = tags
-                    )
-                    repository.insertTask(task)
-                    // Persist tag override to Firebase so tags survive re-sync/reinstall
-                    if (!tags.isNullOrBlank()) {
-                        repository.saveTagOverride(task.id, tags)
-                    }
-                } else {
-                    repository.addTask(title, date, deadlineTime, priority, description, tags)
-                }
+                val tempId = java.util.UUID.randomUUID().toString()
+                val task = com.theblankstate.preamble.data.Task(
+                    id = tempId,
+                    title = title,
+                    createdDate = taskDate,
+                    deadlineTime = deadlineTime,
+                    createdTimestamp = now,
+                    updatedTimestamp = now,
+                    source = "google_tasks",
+                    isSyncing = true,
+                    priority = priority,
+                    description = description,
+                    tags = tags
+                )
+                repository.insertTask(task)
+                if (!tags.isNullOrBlank()) repository.saveTagOverride(task.id, tags)
+
+                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleTaskCreationWorker>()
+                    .setInputData(androidx.work.Data.Builder().putString("localTaskId", tempId).build())
+                    .build()
+                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+
             } else {
                 repository.addTask(title, date, deadlineTime, priority, description, tags)
             }
             if (deadlineTime != null) {
-                val taskDate = date ?: TaskRepository.todayString()
                 com.theblankstate.preamble.notification.TaskAlarmManager.scheduleAlarm(
                     appContext, title, taskDate, deadlineTime
                 )
@@ -477,45 +471,36 @@ class TaskViewModel(
     ) {
         if (title.isBlank()) return
         viewModelScope.launch {
+            val taskDate = date ?: TaskRepository.todayString()
+            val now = System.currentTimeMillis()
             if (syncToCalendar && GoogleCalendarManager.isLinked.value) {
-                // Create recurring event on Google Calendar with RRULE
-                val eventId = GoogleCalendarManager.createCalendarEvent(
-                    appContext, title, date ?: TaskRepository.todayString(),
-                    deadlineTime, "primary", description,
-                    recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, tags = tags
+                val tempId = java.util.UUID.randomUUID().toString()
+                val task = com.theblankstate.preamble.data.Task(
+                    id = tempId,
+                    title = title,
+                    createdDate = taskDate,
+                    deadlineTime = deadlineTime,
+                    createdTimestamp = now,
+                    updatedTimestamp = now,
+                    source = "google_calendar",
+                    isSyncing = true,
+                    priority = priority,
+                    description = description,
+                    tags = tags,
+                    googleCalendarId = "primary",
+                    recurrenceType = recurrenceType,
+                    recurrenceInterval = recurrenceInterval,
+                    recurrenceDays = recurrenceDays,
+                    recurrenceEndDate = recurrenceEndDate
                 )
-                if (eventId != null) {
-                    val now = System.currentTimeMillis()
-                    val task = com.theblankstate.preamble.data.Task(
-                        id = "gcal_$eventId",
-                        title = title,
-                        createdDate = date ?: TaskRepository.todayString(),
-                        deadlineTime = deadlineTime,
-                        createdTimestamp = now,
-                        updatedTimestamp = now,
-                        source = "google_calendar",
-                        priority = priority,
-                        description = description,
-                        tags = tags,
-                        googleCalendarId = "primary",
-                        recurrenceType = recurrenceType,
-                        recurrenceInterval = recurrenceInterval,
-                        recurrenceDays = recurrenceDays,
-                        recurrenceEndDate = recurrenceEndDate
-                    )
-                    repository.insertTask(task)
-                    // Persist tag override to Firebase so tags survive re-sync/reinstall
-                    if (!tags.isNullOrBlank()) {
-                        repository.saveTagOverride(task.id, tags)
-                    }
-                } else {
-                    // Fallback to local recurring task
-                    repository.addRecurringTask(
-                        title, date, deadlineTime, priority, description,
-                        recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate,
-                        tags = tags
-                    )
-                }
+                repository.insertTask(task)
+                if (!tags.isNullOrBlank()) repository.saveTagOverride(task.id, tags)
+
+                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarCreationWorker>()
+                    .setInputData(androidx.work.Data.Builder().putString("localTaskId", tempId).build())
+                    .build()
+                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+
             } else {
                 repository.addRecurringTask(
                     title, date, deadlineTime, priority, description,

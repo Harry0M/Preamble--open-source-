@@ -23,9 +23,10 @@ import androidx.compose.foundation.shape.CircleShape as FoundationCircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.automirrored.filled.EventNote
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.CenterFocusStrong
-import androidx.compose.material.icons.filled.EventNote
+import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Festival
 import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.Add
@@ -44,6 +45,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -132,7 +134,7 @@ fun TaskItem(
             )
             .combinedClickable(
                 enabled = isEditable,
-                onClick = { if (!task.isInfoOnly) onToggle() },
+                onClick = { /* Entire row is no longer click-to-complete to avoid miss-ticks */ },
                 onLongClick = { onDetail?.invoke() ?: run { showDetailDialog = true } }
             )
             .padding(vertical = 12.dp, horizontal = 8.dp),
@@ -145,7 +147,7 @@ fun TaskItem(
                 "birthday" -> Icons.Default.Cake
                 "focusTime" -> Icons.Default.CenterFocusStrong
                 "outOfOffice" -> Icons.Default.Flight
-                else -> Icons.Default.EventNote
+                else -> Icons.AutoMirrored.Filled.EventNote
             }
             val tintColor = when (task.eventType) {
                 "holiday" -> Color(0xFFE91E63) // Pink/Magenta for festivals
@@ -164,15 +166,24 @@ fun TaskItem(
             )
         } else {
             IconButton(
-                onClick = { if (isEditable) onToggle() },
-                modifier = Modifier.padding(end = 4.dp).size(24.dp),
-                enabled = isEditable
+                onClick = { if (isEditable && !task.isSyncing) onToggle() },
+                modifier = Modifier.padding(end = 4.dp).size(40.dp), // Increased touch target
+                enabled = isEditable && !task.isSyncing
             ) {
-                Icon(
-                    imageVector = if (task.isCompleted) Icons.Default.CheckCircle else Icons.Outlined.Circle,
-                    contentDescription = if (task.isCompleted) "Completed" else "Uncompleted",
-                    tint = if (task.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (task.isSyncing) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                } else {
+                    Icon(
+                        imageVector = if (task.isCompleted) Icons.Default.CheckCircle else Icons.Outlined.Circle,
+                        contentDescription = if (task.isCompleted) "Completed" else "Uncompleted",
+                        tint = if (task.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp) // Kept visual icon size the same
+                    )
+                }
             }
         }
         
@@ -340,11 +351,11 @@ fun TaskItem(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(top = 4.dp)
                 ) {
-                    val iconTint = Color(0xFF4285F4) // Standard Google Blue
+                    val iconTint = if (task.syncFailed) MaterialTheme.colorScheme.error else Color(0xFF4285F4)
                     
                     if (task.isCalendarEvent) {
                         Icon(
-                            imageVector = Icons.Default.Event,
+                            imageVector = if (task.syncFailed) Icons.Default.CloudOff else Icons.Default.Event,
                             contentDescription = "Google Calendar Event",
                             modifier = Modifier.size(14.dp),
                             tint = iconTint
@@ -367,14 +378,14 @@ fun TaskItem(
                         )
                     } else if (task.isGoogleTask) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.Assignment,
+                            imageVector = if (task.syncFailed) Icons.Default.CloudOff else Icons.AutoMirrored.Filled.Assignment,
                             contentDescription = "Google Task",
                             modifier = Modifier.size(14.dp),
                             tint = iconTint
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = "Google Tasks",
+                            text = if (task.syncFailed) "Sync failed (Offline)" else "Google Tasks",
                             style = MaterialTheme.typography.labelSmall,
                             color = iconTint
                         )

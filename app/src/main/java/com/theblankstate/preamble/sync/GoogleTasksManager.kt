@@ -191,6 +191,7 @@ object GoogleTasksManager {
                     Log.d(TAG, "Fetched tasks from list: ${taskList.title}")
                 } catch (e: Throwable) {
                     Log.e(TAG, "Error fetching tasks from list ${taskList.title}", e)
+                    throw e // Crucial: Do not swallow! Swallowing causes TaskRepository to delete all tasks in this list!
                 }
             }
 
@@ -206,7 +207,7 @@ object GoogleTasksManager {
             allTasks
         } catch (e: Throwable) {
             Log.e(TAG, "Error fetching Google Tasks", e)
-            emptyList()
+            throw e // Throw to abort sync, rather than returning emptyList() which causes full task deletion!
         } finally {
             _isSyncing.value = false
         }

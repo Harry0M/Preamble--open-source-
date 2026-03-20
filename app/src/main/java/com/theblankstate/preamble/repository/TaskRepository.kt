@@ -31,6 +31,8 @@ class TaskRepository(
     }
 
     val tasksFlow: Flow<List<Task>> = dao.getAllTasksFlow()
+    
+    suspend fun getTaskById(id: String): Task? = dao.getTaskById(id)
 
     fun getTasksForDate(date: String): Flow<List<Task>> = dao.getTasksByDate(date)
 

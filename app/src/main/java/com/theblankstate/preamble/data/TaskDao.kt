@@ -62,6 +62,9 @@ interface TaskDao {
     @Query("DELETE FROM tasks")
     suspend fun clearAllTasks()
 
+    @Query("SELECT * FROM tasks WHERE id = :id LIMIT 1")
+    suspend fun getTaskById(id: String): Task?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTask(task: Task)
 
