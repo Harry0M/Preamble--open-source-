@@ -56,9 +56,9 @@ fun RichDateBadge(
             )
         }
 
-        // Day, Month, Year
+        // Day, Month
         Text(
-            text = "${richDate.day} ${richDate.month} ${richDate.year}",
+            text = "${richDate.day} ${richDate.month}",
             style = if (isCompact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface
         )
