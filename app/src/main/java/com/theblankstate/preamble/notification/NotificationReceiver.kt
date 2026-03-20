@@ -38,10 +38,28 @@ class NotificationReceiver : BroadcastReceiver() {
             val app = context.applicationContext as PreambleApplication
             CoroutineScope(Dispatchers.IO).launch {
                 try {
-                    // Set grace period to suppress notification re-posts while user might type again
-                    TaskNotificationService.lastRemoteInputTimeMs = System.currentTimeMillis()
-                    app.repository.addTask(taskText)
-                    // Notification auto-updates via TaskNotificationService (after grace period)
+                    // OPTIMISTIC: Insert raw task immediately so it shows in the notification panel instantly
+                    val now = System.currentTimeMillis()
+                    val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+                    val rawTask = com.theblankstate.preamble.data.Task(
+                        title = taskText,
+                        createdDate = today,
+                        createdTimestamp = now,
+                        updatedTimestamp = now,
+                        isSyncing = true  // Shows shimmer/spinner while AI refines
+                    )
+                    app.repository.insertTask(rawTask)
+
+                    // Now fire AI service in background to silently refine this task
+                    val aiIntent = Intent(context, VoiceTaskService::class.java).apply {
+                        putExtra(VoiceTaskService.EXTRA_TEXT_COMMAND, taskText)
+                        putExtra(VoiceTaskService.EXTRA_TASK_ID, rawTask.id)
+                    }
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        context.startForegroundService(aiIntent)
+                    } else {
+                        context.startService(aiIntent)
+                    }
                 } finally {
                     pendingResult.finish()
                 }

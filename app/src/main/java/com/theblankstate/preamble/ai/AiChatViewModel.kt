@@ -52,13 +52,9 @@ class AiChatViewModel(
 
             _isLoading.value = true
             val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            val contextTasks = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
             val systemMsg = ChatMessage("system",
-                "You are Preamble AI. Today is $today. The user gave a voice command. " +
-                "Interpret it and use the appropriate tool. Be very concise. " +
-                "IMPORTANT HINGLISH/HINDI RULES: " +
-                "1. 'aaj' = today ($today) " +
-                "2. 'kal' or 'cal' = tomorrow " +
-                "3. 'parso', 'parson', or 'perso' = day after tomorrow."
+                AiPromptFactory.buildSystemPrompt(contextTasks)
             )
             val userMsg = ChatMessage("user", text)
 
@@ -66,9 +62,8 @@ class AiChatViewModel(
                 val response = provider.chat(listOf(systemMsg, userMsg), TaskTools.tools)
 
                 if (!response.toolCalls.isNullOrEmpty()) {
-                    val todayTasks = taskViewModel.todayTasks.value
                     val results = response.toolCalls.map { call ->
-                        TaskTools.execute(call, taskViewModel, todayTasks)
+                        TaskTools.execute(call, taskViewModel, contextTasks)
                     }
                     onResult(results.joinToString(". "))
                 } else {
@@ -106,15 +101,9 @@ class AiChatViewModel(
 
             _isLoading.value = true
             val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            val contextTasks = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
             val systemMsg = ChatMessage("system",
-                "You are Preamble AI. Today is $today. " +
-                "The user typed a task. Use add_task tool to add it. " +
-                "Parse any date/time from the text intelligently. " +
-                "If it mentions a time like '5pm', '17:00', set deadline_time. " +
-                "IMPORTANT HINGLISH/HINDI RULES: " +
-                "1. 'aaj' = today ($today) " +
-                "2. 'kal' or 'cal' = tomorrow " +
-                "3. 'parso', 'parson', or 'perso' = day after tomorrow."
+                AiPromptFactory.buildSystemPrompt(contextTasks)
             )
             val userMsg = ChatMessage("user", text)
 
@@ -122,9 +111,8 @@ class AiChatViewModel(
                 val response = provider.chat(listOf(systemMsg, userMsg), TaskTools.tools)
 
                 if (!response.toolCalls.isNullOrEmpty()) {
-                    val todayTasks = taskViewModel.todayTasks.value
                     for (call in response.toolCalls) {
-                        TaskTools.execute(call, taskViewModel, todayTasks)
+                        TaskTools.execute(call, taskViewModel, contextTasks)
                     }
                     onResult(true)
                 } else {

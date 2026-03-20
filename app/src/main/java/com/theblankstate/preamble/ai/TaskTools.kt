@@ -34,11 +34,26 @@ object TaskTools {
     val tools = listOf(
         AiTool(
             name = "add_task",
-            description = "Add a new task. If the user specifies a date, use date parameter (format: YYYY-MM-DD). If they specify a time/deadline, use deadline_time (format: HH:mm in 24h).",
+            description = "Add a new task. If the user specifies a date, use date parameter (format: YYYY-MM-DD). If they specify a time/deadline, use deadline_time (format: HH:mm in 24h). ALWAYS provide at least 1 tag.",
             parameters = listOf(
-                ToolParam("title", "string", "The task title/description", required = true),
+                ToolParam("title", "string", "Short, clean task title. Remove temporal/urgency words.", required = true),
                 ToolParam("date", "string", "Date for the task in YYYY-MM-DD format. Omit for today.", required = false),
-                ToolParam("deadline_time", "string", "Deadline time in HH:mm 24-hour format", required = false)
+                ToolParam("deadline_time", "string", "Deadline time in HH:mm 24-hour format", required = false),
+                ToolParam("priority", "integer", "Priority: 0=None, 1=Low, 2=Medium, 3=High. Default to 1 for general tasks.", required = false),
+                ToolParam("tags", "string", "REQUIRED. 1-4 comma-separated tags from: ${com.theblankstate.preamble.data.PredefinedTags.aiTagNames}. Example: 'Health,Fitness' or 'Work,Meeting'.", required = true),
+                ToolParam("recurrence", "string", "Recurrence pattern: daily, weekly, monthly, yearly. Only set if user explicitly requests repetition.", required = false)
+            )
+        ),
+        AiTool(
+            name = "modify_task",
+            description = "Modify an existing task's properties. Finds the closest matching task.",
+            parameters = listOf(
+                ToolParam("target_title", "string", "The current title of the task to modify", required = true),
+                ToolParam("new_title", "string", "New title (if changing)", required = false),
+                ToolParam("new_date", "string", "New date in YYYY-MM-DD format", required = false),
+                ToolParam("new_time", "string", "New deadline time in HH:mm format", required = false),
+                ToolParam("new_priority", "integer", "New priority: 0=None, 1=Low, 2=Medium, 3=High", required = false),
+                ToolParam("new_tags", "string", "New tag matching app predefined list", required = false)
             )
         ),
         AiTool(
@@ -83,12 +98,35 @@ object TaskTools {
                 val title = call.arguments["title"] ?: return "Error: title is required"
                 val date = call.arguments["date"]
                 val deadlineTime = call.arguments["deadline_time"]
+                val priority = call.arguments["priority"]?.toIntOrNull() ?: 0
+                val tags = call.arguments["tags"]
                 if (date != null && !isValidDate(date)) return "Error: invalid date format '$date', expected YYYY-MM-DD"
                 if (deadlineTime != null && !isValidTime(deadlineTime)) return "Error: invalid time format '$deadlineTime', expected HH:mm"
-                viewModel.addTask(title, date, deadlineTime)
+                viewModel.addTask(title, date = date, deadlineTime = deadlineTime, priority = priority, tags = tags)
                 "Task \"$title\" added successfully" +
                         (if (date != null) " for $date" else "") +
-                        (if (deadlineTime != null) " with deadline at $deadlineTime" else "")
+                        (if (deadlineTime != null) " with deadline at $deadlineTime" else "") +
+                        (if (priority > 0) " [Priority $priority]" else "") +
+                        (if (tags != null) " [Tag: $tags]" else "")
+            }
+
+            "modify_task" -> {
+                val targetTitle = call.arguments["target_title"] ?: return "Error: target_title is required"
+                val task = findMatchingTask(targetTitle, todayTasks)
+                if (task != null) {
+                    val newTitle = call.arguments["new_title"] ?: task.title
+                    val newDate = call.arguments["new_date"] ?: task.createdDate
+                    val newTime = call.arguments["new_time"] ?: task.deadlineTime
+                    val newPriority = call.arguments["new_priority"]?.toIntOrNull() ?: task.priority
+                    val newTags = call.arguments["new_tags"] ?: task.tags
+                    if (newDate != task.createdDate && !isValidDate(newDate)) return "Error: invalid date format '$newDate', expected YYYY-MM-DD"
+                    if (newTime != null && newTime != task.deadlineTime && !isValidTime(newTime)) return "Error: invalid time format '$newTime', expected HH:mm"
+                    
+                    viewModel.updateTask(task, newTitle = newTitle, newDate = newDate, newDeadlineTime = newTime, newPriority = newPriority, newDescription = task.description, newTags = newTags)
+                    "Task \"${task.title}\" modified successfully"
+                } else {
+                    "No task found matching \"$targetTitle\""
+                }
             }
 
             "delete_task" -> {
@@ -140,7 +178,7 @@ object TaskTools {
         }
     }
 
-    private fun findMatchingTask(query: String, tasks: List<Task>): Task? {
+    fun findMatchingTask(query: String, tasks: List<Task>): Task? {
         val lower = query.lowercase()
         // Exact match first
         tasks.find { it.title.lowercase() == lower }?.let { return it }

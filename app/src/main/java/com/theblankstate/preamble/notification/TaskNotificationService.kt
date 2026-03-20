@@ -162,8 +162,13 @@ class TaskNotificationService : Service() {
             val today = com.theblankstate.preamble.repository.TaskRepository.todayString()
             app.repository.getTasksForDate(today)
                 .map { tasks -> tasks.filter { !it.isCompleted } }
-                .debounce(1_000) // Wait 1s after last change before rebuilding notification
-                .distinctUntilChanged { old, new -> old.size == new.size && old.map { it.id }.toSet() == new.map { it.id }.toSet() }
+                .debounce(500) // Wait 500ms after last change before rebuilding notification
+                .distinctUntilChanged { old, new -> 
+                    old.size == new.size && 
+                    old.map { it.id }.toSet() == new.map { it.id }.toSet() &&
+                    old.map { it.title }.toSet() == new.map { it.title }.toSet() &&
+                    old.none { it.isSyncing } == new.none { it.isSyncing }
+                }
                 .collect { pending ->
                     if (!isActive) return@collect
 
@@ -449,7 +454,7 @@ class TaskNotificationService : Service() {
         private const val CHANNEL_ID = "preamble_tasks_persistent"
         private const val PREFS_NAME = "preamble_prefs"
         private const val PREF_NOTIFICATION_ENABLED = "notification_enabled"
-        private const val REMOTE_INPUT_GRACE_PERIOD_MS = 2000L
+        private const val REMOTE_INPUT_GRACE_PERIOD_MS = 500L
         const val NOTIFICATION_ID = 1001
         const val ACTION_RESHOW = "com.theblankstate.preamble.ACTION_RESHOW_NOTIFICATION"
 

@@ -468,29 +468,50 @@ fun HomeScreen(
                     )
                 }
 
-                // Tag filter chips
+                // Tag filter chips — show only tags that exist on user's tasks
                 if (onTagFilterChanged != null && !isSearchActive) {
-                    LazyRow(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        item {
-                            FilterChip(
-                                selected = selectedTagFilter == null,
-                                onClick = { onTagFilterChanged(null) },
-                                label = { Text("All", style = MaterialTheme.typography.labelSmall) }
-                            )
-                        }
-                        items(PredefinedTags.tags) { tag ->
-                            FilterChip(
-                                selected = selectedTagFilter == tag.name,
-                                onClick = {
-                                    onTagFilterChanged(if (selectedTagFilter == tag.name) null else tag.name)
-                                },
-                                label = { Text(tag.name, style = MaterialTheme.typography.labelSmall) }
-                            )
+                    // Collect unique tags from today's tasks
+                    val usedTags = remember(tasks) {
+                        tasks.flatMap { task -> task.tagList }
+                            .distinct()
+                            .sortedBy { tagName -> 
+                                val idx = PredefinedTags.tags.indexOfFirst { it.name.equals(tagName, ignoreCase = true) }
+                                if (idx >= 0) idx else Int.MAX_VALUE
+                            }
+                    }
+                    if (usedTags.isNotEmpty()) {
+                        LazyRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            item {
+                                FilterChip(
+                                    selected = selectedTagFilter == null,
+                                    onClick = { onTagFilterChanged(null) },
+                                    label = { Text("All", style = MaterialTheme.typography.labelSmall) }
+                                )
+                            }
+                            items(usedTags) { tagName: String ->
+                                FilterChip(
+                                    selected = selectedTagFilter == tagName,
+                                    onClick = {
+                                        onTagFilterChanged(if (selectedTagFilter == tagName) null else tagName)
+                                    },
+                                    label = { Text(tagName, style = MaterialTheme.typography.labelSmall) },
+                                    leadingIcon = {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .background(
+                                                    PredefinedTags.colorForTag(tagName),
+                                                    shape = CircleShape
+                                                )
+                                        )
+                                    }
+                                )
+                            }
                         }
                     }
                 }

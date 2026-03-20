@@ -147,7 +147,15 @@ class GeminiProvider(private val apiKey: String) : AiProvider {
                                 "parameters" to mapOf(
                                     "type" to "OBJECT",
                                     "properties" to tool.parameters.associate { p ->
-                                        p.name to mapOf("type" to "STRING", "description" to p.description)
+                                        p.name to mapOf(
+                                            "type" to when(p.type) {
+                                                "integer" -> "INTEGER"
+                                                "boolean" -> "BOOLEAN"
+                                                "number" -> "NUMBER"
+                                                else -> "STRING"
+                                            },
+                                            "description" to p.description
+                                        )
                                     },
                                     "required" to tool.parameters.filter { it.required }.map { it.name }
                                 )

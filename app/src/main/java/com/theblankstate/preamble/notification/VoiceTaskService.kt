@@ -18,6 +18,7 @@ import com.theblankstate.preamble.PreambleApplication
 import com.theblankstate.preamble.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import java.util.Locale
 
@@ -50,7 +51,18 @@ class VoiceTaskService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createVoiceChannel()
         startForegroundService()
-        startListening()
+        
+        val textCommand = intent?.getStringExtra(EXTRA_TEXT_COMMAND)
+        val existingTaskId = intent?.getStringExtra(EXTRA_TASK_ID)
+        
+        if (!textCommand.isNullOrBlank()) {
+            // Text command from notification or external source
+            saveTask(textCommand, existingTaskId)
+        } else {
+            // Voice mode: listen via microphone
+            startListening()
+        }
+        
         return START_NOT_STICKY
     }
 
@@ -111,11 +123,25 @@ class VoiceTaskService : Service() {
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 val spokenText = matches?.firstOrNull()
                 if (!spokenText.isNullOrBlank()) {
-                    saveTask(spokenText)
+                    // OPTIMISTIC: Insert raw task immediately so it appears in the UI instantly
+                    val app = applicationContext as PreambleApplication
+                    val now = System.currentTimeMillis()
+                    val today = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date())
+                    val rawTask = com.theblankstate.preamble.data.Task(
+                        title = spokenText,
+                        createdDate = today,
+                        createdTimestamp = now,
+                        updatedTimestamp = now,
+                        isSyncing = true
+                    )
+                    CoroutineScope(Dispatchers.IO).launch {
+                        app.repository.insertTask(rawTask)
+                    }
+                    saveTask(spokenText, rawTask.id)
                 } else {
                     Toast.makeText(this@VoiceTaskService, "No speech detected", Toast.LENGTH_SHORT).show()
+                    stopSelf()
                 }
-                stopSelf()
             }
             override fun onPartialResults(partialResults: Bundle?) {}
             override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -131,22 +157,22 @@ class VoiceTaskService : Service() {
         speechRecognizer?.startListening(recognizerIntent)
     }
 
-    private fun saveTask(title: String) {
+    /**
+     * AI-parse the raw text and update or create the task.
+     * If existingTaskId is non-null, the raw task is already in DB (optimistic insert);
+     * we just refine it in place. Otherwise, we save fresh.
+     */
+    private fun saveTask(title: String, existingTaskId: String? = null) {
         val app = applicationContext as PreambleApplication
 
         CoroutineScope(Dispatchers.IO).launch {
-            // Gate: skip AI if locked
             val provider = getOrCreateProvider()
             if (provider != null) {
                 try {
-                    val today = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                        .format(java.util.Date())
+                    // Fetch existing tasks for AI context (modify/delete operations)
+                    val allTasks = app.repository.tasksFlow.firstOrNull() ?: emptyList()
                     val systemMsg = com.theblankstate.preamble.ai.ChatMessage("system",
-                        "You are Preamble AI. Today is $today. Interpret the voice command and use tools. " +
-                        "IMPORTANT HINGLISH/HINDI RULES: " +
-                        "1. 'aaj' = today ($today) " +
-                        "2. 'kal' or 'cal' = tomorrow " +
-                        "3. 'parso', 'parson', or 'perso' = day after tomorrow."
+                        com.theblankstate.preamble.ai.AiPromptFactory.buildSystemPrompt(allTasks)
                     )
                     val userMsg = com.theblankstate.preamble.ai.ChatMessage("user", title)
 
@@ -163,35 +189,163 @@ class VoiceTaskService : Service() {
                                     val date = call.arguments["date"]
                                     val time = call.arguments["deadline_time"] ?: call.arguments["time"]
                                     val tags = call.arguments["tags"]
-                                    saveInterpretedTask(app, taskTitle, date, time, tags)
+                                    val priority = call.arguments["priority"]?.toIntOrNull() ?: 0
+                                    val recurrence = call.arguments["recurrence"]
+                                    
+                                    if (existingTaskId != null) {
+                                        updateExistingTask(app, existingTaskId, taskTitle, date, time, tags, priority, recurrence)
+                                    } else {
+                                        saveInterpretedTask(app, taskTitle, date, time, tags, priority, recurrence)
+                                    }
+                                }
+                                "modify_task" -> {
+                                    val targetTitle = call.arguments["target_title"] ?: title
+                                    val newTitle = call.arguments["new_title"]
+                                    val newDate = call.arguments["new_date"]
+                                    val newTime = call.arguments["new_time"]
+                                    val newPriority = call.arguments["new_priority"]?.toIntOrNull()
+                                    val newTags = call.arguments["new_tags"]
+                                    modifyInterpretedTask(app, targetTitle, newTitle, newDate, newTime, newPriority, newTags)
+                                    // If there was an optimistic placeholder, remove it since we modified an existing task
+                                    if (existingTaskId != null) {
+                                        val placeholder = app.repository.getTaskById(existingTaskId)
+                                        if (placeholder != null) app.repository.deleteTask(placeholder)
+                                    }
                                 }
                                 else -> {
-                                    saveInterpretedTask(app, title)
+                                    if (existingTaskId != null) {
+                                        clearSyncing(app, existingTaskId)
+                                    } else {
+                                        saveInterpretedTask(app, title)
+                                    }
                                 }
                             }
                         }
                         CoroutineScope(Dispatchers.Main).launch {
-                            Toast.makeText(this@VoiceTaskService, "AI processed: $title", Toast.LENGTH_SHORT).show()
+                            stopSelf()
                         }
                     } else {
-                        saveInterpretedTask(app, title)
+                        // No tool calls — keep the raw task as-is, just clear syncing
+                        if (existingTaskId != null) {
+                            clearSyncing(app, existingTaskId)
+                        } else {
+                            saveInterpretedTask(app, title)
+                        }
                         CoroutineScope(Dispatchers.Main).launch {
-                            Toast.makeText(this@VoiceTaskService, "Task saved: $title", Toast.LENGTH_SHORT).show()
+                            stopSelf()
                         }
                     }
                 } catch (e: Exception) {
-                    Log.e("VoiceTaskService", "AI processing failed, saving as plain task", e)
-                    saveInterpretedTask(app, title)
+                    Log.e("VoiceTaskService", "AI processing failed, scheduling background retry", e)
+                    if (existingTaskId != null) {
+                        scheduleAiRetry(existingTaskId, title)
+                    } else {
+                        saveInterpretedTask(app, title)
+                    }
                     CoroutineScope(Dispatchers.Main).launch {
-                        Toast.makeText(this@VoiceTaskService, "Task saved: $title", Toast.LENGTH_SHORT).show()
+                        stopSelf()
                     }
                 }
             } else {
-                saveInterpretedTask(app, title)
+                // No AI provider — keep the raw task as-is
+                if (existingTaskId != null) {
+                    clearSyncing(app, existingTaskId)
+                } else {
+                    saveInterpretedTask(app, title)
+                }
                 CoroutineScope(Dispatchers.Main).launch {
-                    Toast.makeText(this@VoiceTaskService, "Task saved: $title", Toast.LENGTH_SHORT).show()
+                    stopSelf()
                 }
             }
+        }
+    }
+
+    /** Schedule a background WorkManager job to retry AI parsing with exponential backoff */
+    private fun scheduleAiRetry(taskId: String, rawText: String) {
+        val data = androidx.work.Data.Builder()
+            .putString("taskId", taskId)
+            .putString("rawText", rawText)
+            .build()
+        val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.ai.AiParsingWorker>()
+            .setInputData(data)
+            .setBackoffCriteria(
+                androidx.work.BackoffPolicy.EXPONENTIAL,
+                30_000L,
+                java.util.concurrent.TimeUnit.MILLISECONDS
+            )
+            .setConstraints(
+                androidx.work.Constraints.Builder()
+                    .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                    .build()
+            )
+            .build()
+        androidx.work.WorkManager.getInstance(applicationContext).enqueue(req)
+        Log.d("VoiceTaskService", "Scheduled AiParsingWorker for task $taskId")
+    }
+
+    /** Silently update an already-inserted optimistic task with AI-refined data */
+    private suspend fun updateExistingTask(
+        app: PreambleApplication,
+        taskId: String,
+        refinedTitle: String,
+        date: String?,
+        time: String?,
+        tags: String?,
+        priority: Int,
+        recurrence: String? = null
+    ) {
+        val existing = app.repository.getTaskById(taskId) ?: return
+        val today = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date())
+        val validRecurrence = recurrence?.takeIf { it in listOf("daily", "weekly", "monthly", "yearly") }
+        val updated = existing.copy(
+            title = refinedTitle,
+            createdDate = date ?: today,
+            deadlineTime = time,
+            tags = tags,
+            priority = priority,
+            recurrenceType = validRecurrence ?: existing.recurrenceType,
+            isSyncing = false,
+            updatedTimestamp = System.currentTimeMillis()
+        )
+        app.repository.updateTask(updated)
+        if (tags != null) {
+            app.repository.saveTagOverride(taskId, tags)
+        }
+    }
+
+    /** Just flip isSyncing=false on a raw placeholder task */
+    private suspend fun clearSyncing(app: PreambleApplication, taskId: String) {
+        val existing = app.repository.getTaskById(taskId) ?: return
+        app.repository.updateTask(existing.copy(isSyncing = false, updatedTimestamp = System.currentTimeMillis()))
+    }
+
+    private suspend fun modifyInterpretedTask(
+        app: PreambleApplication,
+        targetTitle: String,
+        newTitle: String?,
+        newDate: String?,
+        newTime: String?,
+        newPriority: Int?,
+        newTags: String?
+    ) {
+        val allTasks = app.repository.tasksFlow.firstOrNull() ?: emptyList()
+        val task = com.theblankstate.preamble.ai.TaskTools.findMatchingTask(targetTitle, allTasks)
+        if (task != null) {
+            val updated = task.copy(
+                title = newTitle ?: task.title,
+                createdDate = newDate ?: task.createdDate,
+                deadlineTime = newTime ?: task.deadlineTime,
+                priority = newPriority ?: task.priority,
+                tags = newTags ?: task.tags,
+                updatedTimestamp = System.currentTimeMillis()
+            )
+            app.repository.updateTask(updated)
+            if (newTags != null) {
+                app.repository.saveTagOverride(updated.id, newTags)
+            }
+        } else {
+            // Fallback: If AI fails to find the task, just create a new one with the details to be safe
+            saveInterpretedTask(app, newTitle ?: targetTitle, newDate, newTime, newTags, newPriority ?: 0)
         }
     }
 
@@ -200,9 +354,12 @@ class VoiceTaskService : Service() {
         title: String,
         date: String? = null,
         time: String? = null,
-        tags: String? = null
+        tags: String? = null,
+        priority: Int = 0,
+        recurrence: String? = null
     ) {
         var localTaskCreated = false
+        val validRecurrence = recurrence?.takeIf { it in listOf("daily", "weekly", "monthly", "yearly") }
 
         if (com.theblankstate.preamble.sync.GoogleTasksManager.syncVoiceTasks.value
             && com.theblankstate.preamble.sync.GoogleTasksManager.isLinked.value) {
@@ -211,7 +368,6 @@ class VoiceTaskService : Service() {
                 this@VoiceTaskService, title, date
             )
             if (googleTaskId != null) {
-                // Determine date logic exactly as GoogleTasksManager maps it
                 val taskDate = date ?: java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date())
                 val now = System.currentTimeMillis()
                 
@@ -222,8 +378,10 @@ class VoiceTaskService : Service() {
                     deadlineTime = time,
                     createdTimestamp = now,
                     updatedTimestamp = now,
+                    priority = priority,
                     source = "google_tasks",
-                    tags = tags
+                    tags = tags,
+                    recurrenceType = validRecurrence
                 )
                 app.repository.insertTask(localTask)
                 if (tags != null) {
@@ -234,8 +392,22 @@ class VoiceTaskService : Service() {
         }
 
         if (!localTaskCreated) {
-            // Fallback cleanly to local-only task
-            app.repository.addTask(title, date = date, deadlineTime = time, tags = tags)
+            val taskDate = date ?: java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date())
+            val now = System.currentTimeMillis()
+            val localTask = com.theblankstate.preamble.data.Task(
+                title = title,
+                createdDate = taskDate,
+                deadlineTime = time,
+                createdTimestamp = now,
+                updatedTimestamp = now,
+                priority = priority,
+                tags = tags,
+                recurrenceType = validRecurrence
+            )
+            app.repository.insertTask(localTask)
+            if (tags != null) {
+                app.repository.saveTagOverride(localTask.id, tags)
+            }
         }
     }
 
@@ -249,5 +421,7 @@ class VoiceTaskService : Service() {
     companion object {
         private const val VOICE_CHANNEL_ID = "preamble_voice_input"
         private const val VOICE_NOTIFICATION_ID = 1002
+        const val EXTRA_TEXT_COMMAND = "extra_text_command"
+        const val EXTRA_TASK_ID = "extra_task_id"
     }
 }
