@@ -201,6 +201,12 @@ class TaskViewModel(
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val isBackgroundDeleting: StateFlow<Boolean> = androidx.work.WorkManager.getInstance(appContext)
+        .getWorkInfosByTagFlow("background_deletion")
+        .map { infos -> infos.any { !it.state.isFinished } }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     fun syncGoogleData() {
         viewModelScope.launch {
             _isRefreshing.value = true
@@ -364,23 +370,43 @@ class TaskViewModel(
             }
             // Mark as deleted BEFORE any sync can re-insert it
             repository.markAsDeleted(task.id)
-            // Delete from remote first, then locally
+            
+            // Delete locally first for Optimistic UI
+            repository.deleteTask(task)
+            refreshStats()
+
+            // Enqueue background network deletion
+            val taskJson = com.google.gson.Gson().toJson(task)
             if (task.source == "google_tasks" && task.id.startsWith("gtask_")) {
                 val googleId = task.id.removePrefix("gtask_")
-                GoogleTasksManager.deleteGoogleTask(appContext, googleId)
+                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleTaskDeletionWorker>()
+                    .setInputData(androidx.work.Data.Builder()
+                        .putString("googleTaskId", googleId)
+                        .putString("taskJson", taskJson)
+                        .build())
+                    .addTag("background_deletion")
+                    .build()
+                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
             }
             if (task.source == "google_calendar" && task.id.startsWith("gcal_")) {
                 val eventId = task.id.removePrefix("gcal_")
                 val calendarId = task.googleCalendarId ?: "primary"
-                GoogleCalendarManager.deleteCalendarEvent(appContext, eventId, calendarId)
+                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarDeletionWorker>()
+                    .setInputData(androidx.work.Data.Builder()
+                        .putString("eventId", eventId)
+                        .putString("calendarId", calendarId)
+                        .putString("taskJson", taskJson)
+                        .build())
+                    .addTag("background_deletion")
+                    .build()
+                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
             }
-            repository.deleteTask(task)
+
             // Clear the deleted marker after a delay (sync window)
             launch {
                 kotlinx.coroutines.delay(30_000)
                 repository.clearDeletedId(task.id)
             }
-            refreshStats()
         }
     }
 

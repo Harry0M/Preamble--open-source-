@@ -129,6 +129,7 @@ fun HomeScreen(
     onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?) -> Unit)? = null,
     onSyncGoogle: (() -> Unit)? = null,
     isRefreshing: Boolean = false,
+    isBackgroundDeleting: Boolean = false,
     aiChatViewModel: AiChatViewModel? = null,
     searchQuery: String = "",
     searchResults: List<Task> = emptyList(),
@@ -166,7 +167,7 @@ fun HomeScreen(
         context.getSharedPreferences("PreamblePrefs", android.content.Context.MODE_PRIVATE)
             .getLong("last_sync_time", 0L) > 0L
     }
-    val showSyncIndicator = isRefreshing || isManualSyncing || ((isCalendarSyncing || isTasksSyncing) && hasSyncedBefore)
+    val showSyncIndicator = isRefreshing || isBackgroundDeleting || isManualSyncing || ((isCalendarSyncing || isTasksSyncing) && hasSyncedBefore)
 
     // Voice recognizer for FAB — lazily created only when user taps mic
     var speechRecognizerRef by remember { mutableStateOf<SpeechRecognizer?>(null) }

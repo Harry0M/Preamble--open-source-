@@ -239,6 +239,7 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 },
                 onSyncGoogle = { viewModel.syncGoogleData() },
                 isRefreshing = viewModel.isRefreshing.collectAsState().value,
+                isBackgroundDeleting = viewModel.isBackgroundDeleting.collectAsState().value,
                 aiChatViewModel = aiChatViewModel,
                 searchQuery = viewModel.searchQuery.collectAsState().value,
                 searchResults = viewModel.searchResults.collectAsState().value,
