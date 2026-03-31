@@ -7,9 +7,8 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.FirebaseDatabase
-import com.google.firebase.database.ValueEventListener
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.TaskDao
 import com.theblankstate.preamble.data.TaskTagOverride
@@ -26,7 +25,7 @@ class FirebaseTaskSyncManager(
     private val dao: TaskDao
 ) {
     private val auth = FirebaseAuth.getInstance()
-    private val database = getDatabaseInstance()
+    private val firestore = FirebaseFirestore.getInstance(FIRESTORE_DATABASE_ID)
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
 
@@ -35,10 +34,9 @@ class FirebaseTaskSyncManager(
     private val recentLocalWrites = ConcurrentHashMap<String, Long>()
 
     private var activeUid: String? = null
-    private var activeTasksListener: ValueEventListener? = null
-    private var activeTasksRefPath: String? = null
-    private var activeTagOverridesListener: ValueEventListener? = null
-    private var activeTagOverridesRefPath: String? = null
+    private var activeTasksListener: ListenerRegistration? = null
+    private var activeTagOverridesListener: ListenerRegistration? = null
+    private var parityCheckedUid: String? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var started = false
 
@@ -49,8 +47,12 @@ class FirebaseTaskSyncManager(
     }
 
     fun start() {
-        if (started) return
+        if (started) {
+            Log.d(TAG, "start() called but already started")
+            return
+        }
         started = true
+        Log.i(TAG, "FirebaseTaskSyncManager started, database=$FIRESTORE_DATABASE_ID")
         registerNetworkCallback()
         auth.addAuthStateListener(authStateListener)
         appScope.launch {
@@ -58,21 +60,33 @@ class FirebaseTaskSyncManager(
         }
     }
 
+    suspend fun runParityCheckNow(): MirrorParitySummary? {
+        val uid = auth.currentUser?.uid ?: return null
+        return verifyMirrorParity(uid)
+    }
+
     suspend fun pushTask(task: Task) {
+        Log.d(TAG, "pushTask called: id=${task.id} title=${task.title} source=${task.source}")
         // Don't push calendar events or Google Tasks to Firebase
-        if (task.source != "local") return
+        if (task.source != "local") {
+            Log.d(TAG, "Skipping pushTask(${task.id}) - source is ${task.source}, not local")
+            return
+        }
         val uid = auth.currentUser?.uid
         if (uid == null) {
             Log.d(TAG, "Skipping pushTask(${task.id}) because no authenticated user")
             return
         }
+        Log.d(TAG, "Pushing task to Firestore: uid=$uid taskId=${task.id}")
         rememberLocalWrite(task.id)
         pendingDeletes.remove(task.id)
         pendingUpserts.add(task.id)
+        val remoteTask = RemoteTask.fromLocal(task)
         try {
-            taskRef(uid, task.id).setValue(RemoteTask.fromLocal(task)).await()
+            taskDoc(uid, task.id).set(remoteTask).await()
+            Log.i(TAG, "Firestore pushTask SUCCESS: uid=$uid taskId=${task.id}")
         } catch (exception: Exception) {
-            Log.e(TAG, "pushTask failed for uid=$uid taskId=${task.id}", exception)
+            Log.e(TAG, "Firestore pushTask FAILED: uid=$uid taskId=${task.id}", exception)
         } finally {
             pendingUpserts.remove(task.id)
         }
@@ -88,9 +102,9 @@ class FirebaseTaskSyncManager(
         pendingUpserts.remove(taskId)
         pendingDeletes.add(taskId)
         try {
-            taskRef(uid, taskId).removeValue().await()
+            taskDoc(uid, taskId).delete().await()
         } catch (exception: Exception) {
-            Log.e(TAG, "deleteTask failed for uid=$uid taskId=$taskId", exception)
+            Log.e(TAG, "Firestore deleteTask failed for uid=$uid taskId=$taskId", exception)
         } finally {
             pendingDeletes.remove(taskId)
         }
@@ -104,17 +118,16 @@ class FirebaseTaskSyncManager(
      */
     suspend fun pushTagOverride(googleId: String, tags: String) {
         val uid = auth.currentUser?.uid ?: return
-        try {
-            val data = mapOf(
-                "tags" to tags,
-                "updatedTimestamp" to System.currentTimeMillis()
+        val updatedTimestamp = System.currentTimeMillis()
+        pushTagOverrideToDatastores(
+            uid = uid,
+            override = TaskTagOverride(
+                googleId = googleId,
+                tags = tags,
+                updatedTimestamp = updatedTimestamp
             )
-            database.getReference("users").child(uid).child("tagOverrides")
-                .child(googleId).setValue(data).await()
-            Log.d(TAG, "Pushed tag override: $googleId -> $tags")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to push tag override for $googleId", e)
-        }
+        )
+        Log.d(TAG, "Pushed tag override: $googleId -> $tags")
     }
 
     /**
@@ -123,12 +136,11 @@ class FirebaseTaskSyncManager(
     suspend fun deleteTagOverride(googleId: String) {
         val uid = auth.currentUser?.uid ?: return
         try {
-            database.getReference("users").child(uid).child("tagOverrides")
-                .child(googleId).removeValue().await()
-            Log.d(TAG, "Deleted tag override: $googleId")
+            tagOverrideDoc(uid, googleId).delete().await()
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to delete tag override for $googleId", e)
+            Log.e(TAG, "Failed to delete Firestore tag override for $googleId", e)
         }
+        Log.d(TAG, "Deleted tag override: $googleId")
     }
 
     suspend fun syncAllLocalToRemote() {
@@ -138,16 +150,24 @@ class FirebaseTaskSyncManager(
             return
         }
         val localTasks = dao.getAllTasks().filter { it.source == "local" }
+        Log.d(TAG, "syncAllLocalToRemote: pushing ${localTasks.size} local tasks for uid=$uid")
         localTasks.forEach { task ->
             rememberLocalWrite(task.id)
             pendingUpserts.add(task.id)
+            val remoteTask = RemoteTask.fromLocal(task)
             try {
-                taskRef(uid, task.id).setValue(RemoteTask.fromLocal(task)).await()
+                taskDoc(uid, task.id).set(remoteTask).await()
+                Log.d(TAG, "syncAllLocalToRemote: pushed task ${task.id}")
             } catch (exception: Exception) {
-                Log.e(TAG, "syncAllLocalToRemote failed for uid=$uid taskId=${task.id}", exception)
+                Log.e(TAG, "Firestore syncAllLocalToRemote failed for uid=$uid taskId=${task.id}", exception)
             } finally {
                 pendingUpserts.remove(task.id)
             }
+        }
+
+        val localOverrides = dao.getAllTagOverrides()
+        localOverrides.forEach { override ->
+            pushTagOverrideToDatastores(uid, override)
         }
     }
 
@@ -159,12 +179,9 @@ class FirebaseTaskSyncManager(
         }
         syncAllLocalToRemote()
         try {
-            val snapshot = usersTasksRef(uid).get().await()
-            val remoteTasks = snapshot.children.mapNotNull { child ->
-                val key = child.key ?: return@mapNotNull null
-                if (key == "_flush_marker") return@mapNotNull null
-                val remote = child.getValue(RemoteTask::class.java) ?: return@mapNotNull null
-                remote.toLocal(key)
+            val remoteTasks = usersTasksCollection(uid).get().await().documents.mapNotNull { doc ->
+                val remote = doc.toObject(RemoteTask::class.java) ?: return@mapNotNull null
+                remote.toLocal(decodeFirestoreDocId(doc.id))
             }
             mergeRemoteIntoLocal(remoteTasks)
         } catch (e: Exception) {
@@ -173,106 +190,96 @@ class FirebaseTaskSyncManager(
     }
 
     suspend fun flushPendingWrites(timeoutMs: Long = 8000L): Boolean {
-        val uid = auth.currentUser?.uid ?: return true
+        auth.currentUser?.uid ?: return true
         return withTimeoutOrNull(timeoutMs) {
             try {
-                val flushRef = usersTasksRef(uid).child("_flush_marker")
-                flushRef.setValue(System.currentTimeMillis()).await()
-                flushRef.removeValue().await()
+                firestore.waitForPendingWrites().await()
                 true
             } catch (exception: Exception) {
-                Log.e(TAG, "flushPendingWrites failed for uid=$uid", exception)
+                Log.e(TAG, "Firestore flushPendingWrites failed", exception)
                 false
             }
         } ?: false
     }
 
     private suspend fun handleAuthChanged(uid: String?) {
+        Log.d(TAG, "handleAuthChanged: uid=$uid activeUid=$activeUid")
         if (uid == activeUid) return
         detachRealtimeListener()
         detachTagOverridesListener()
         activeUid = uid
-        if (uid == null) return
+        parityCheckedUid = null
+        if (uid == null) {
+            Log.d(TAG, "User signed out, skipping sync setup")
+            return
+        }
+        Log.d(TAG, "User signed in: uid=$uid, setting up listeners")
         attachRealtimeListener(uid)
         attachTagOverridesListener(uid)
         syncAllLocalToRemote()
+        if (parityCheckedUid != uid) {
+            verifyMirrorParity(uid)
+            parityCheckedUid = uid
+        }
     }
 
     private fun attachRealtimeListener(uid: String) {
-        val refPath = "users/$uid/tasks"
-        val ref = database.getReference(refPath)
-        Log.d(TAG, "Attaching realtime listener at path=$refPath")
-
-        val listener = object : ValueEventListener {
-            override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
-                val remoteTasks = snapshot.children.mapNotNull { child ->
-                    val key = child.key ?: return@mapNotNull null
-                    if (key == "_flush_marker") return@mapNotNull null
-                    val remote = child.getValue(RemoteTask::class.java) ?: return@mapNotNull null
-                    remote.toLocal(key)
-                }
-
-                appScope.launch {
-                    mergeRemoteIntoLocal(remoteTasks)
-                }
+        Log.d(TAG, "Attaching Firestore listener at path=users/$uid/tasks")
+        activeTasksListener = usersTasksCollection(uid).addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                Log.e(TAG, "Firestore tasks listener error for uid=$uid: ${error.message}", error)
+                return@addSnapshotListener
             }
 
-            override fun onCancelled(error: DatabaseError) {
-                Log.e(TAG, "Realtime listener cancelled at path=$refPath code=${error.code} message=${error.message}")
+            val docCount = snapshot?.documents?.size ?: 0
+            Log.d(TAG, "Firestore snapshot received: $docCount documents")
+
+            val remoteTasks = snapshot?.documents?.mapNotNull { doc ->
+                val remote = doc.toObject(RemoteTask::class.java) ?: return@mapNotNull null
+                remote.toLocal(decodeFirestoreDocId(doc.id))
+            } ?: emptyList()
+
+            appScope.launch {
+                mergeRemoteIntoLocal(remoteTasks)
             }
         }
-
-        ref.addValueEventListener(listener)
-        activeTasksListener = listener
-        activeTasksRefPath = refPath
     }
 
     private fun detachRealtimeListener() {
         val listener = activeTasksListener ?: return
-        val refPath = activeTasksRefPath ?: return
-        Log.d(TAG, "Detaching realtime listener from path=$refPath")
-        database.getReference(refPath).removeEventListener(listener)
+        Log.d(TAG, "Detaching Firestore listener from users/$activeUid/tasks")
+        listener.remove()
         activeTasksListener = null
-        activeTasksRefPath = null
     }
 
     // ── Tag Overrides Realtime Listener (cross-device sync) ──
 
     private fun attachTagOverridesListener(uid: String) {
-        val refPath = "users/$uid/tagOverrides"
-        val ref = database.getReference(refPath)
-        Log.d(TAG, "Attaching tag overrides listener at path=$refPath")
-
-        val listener = object : ValueEventListener {
-            override fun onDataChange(snapshot: com.google.firebase.database.DataSnapshot) {
-                val overrides = snapshot.children.mapNotNull { child ->
-                    val key = child.key ?: return@mapNotNull null
-                    val tags = child.child("tags").getValue(String::class.java) ?: return@mapNotNull null
-                    val updatedTs = child.child("updatedTimestamp").getValue(Long::class.java) ?: System.currentTimeMillis()
-                    TaskTagOverride(googleId = key, tags = tags, updatedTimestamp = updatedTs)
-                }
-                appScope.launch {
-                    mergeTagOverridesFromRemote(overrides)
-                }
+        Log.d(TAG, "Attaching Firestore tag overrides listener at path=users/$uid/tagOverrides")
+        activeTagOverridesListener = usersTagOverridesCollection(uid).addSnapshotListener { snapshot, error ->
+            if (error != null) {
+                Log.e(TAG, "Firestore tag overrides listener cancelled for uid=$uid", error)
+                return@addSnapshotListener
             }
 
-            override fun onCancelled(error: DatabaseError) {
-                Log.e(TAG, "Tag overrides listener cancelled: ${error.message}")
+            val overrides = snapshot?.documents?.mapNotNull { doc ->
+                val googleId = doc.getString("googleId") ?: decodeFirestoreDocId(doc.id)
+                val tags = doc.getString("tags") ?: return@mapNotNull null
+                val updatedTs = doc.getLong("updatedTimestamp") ?: System.currentTimeMillis()
+                TaskTagOverride(googleId = googleId, tags = tags, updatedTimestamp = updatedTs)
+            } ?: emptyList()
+
+            appScope.launch {
+                mergeTagOverridesFromRemote(overrides)
             }
         }
-
-        ref.addValueEventListener(listener)
-        activeTagOverridesListener = listener
-        activeTagOverridesRefPath = refPath
     }
 
     private fun detachTagOverridesListener() {
         val listener = activeTagOverridesListener ?: return
-        val refPath = activeTagOverridesRefPath ?: return
-        Log.d(TAG, "Detaching tag overrides listener from path=$refPath")
-        database.getReference(refPath).removeEventListener(listener)
+        Log.d(TAG, "Detaching Firestore tag overrides listener from users/$activeUid/tagOverrides")
+        listener.remove()
         activeTagOverridesListener = null
-        activeTagOverridesRefPath = null
     }
 
     private suspend fun mergeTagOverridesFromRemote(remoteOverrides: List<TaskTagOverride>) {
@@ -285,6 +292,7 @@ class FirebaseTaskSyncManager(
     }
 
     private suspend fun mergeRemoteIntoLocal(remoteTasks: List<Task>) {
+        Log.d(TAG, "mergeRemoteIntoLocal: received ${remoteTasks.size} tasks from Firestore")
         // Only load local-origin tasks for merging (skip calendar/google-tasks)
         val localTasks = dao.getAllLocalTasks()
         val localById = localTasks.associateBy { it.id }
@@ -312,6 +320,99 @@ class FirebaseTaskSyncManager(
         }
 
         deletions.forEach { dao.deleteTask(it) }
+    }
+
+    private suspend fun verifyMirrorParity(uid: String): MirrorParitySummary? {
+        try {
+            // Compare local Room and Firestore task IDs.
+            val localTaskIds = dao.getAllLocalTasks().map { it.id }.toSet()
+
+            val firestoreTaskIds = usersTasksCollection(uid).get().await().documents.mapNotNull { doc ->
+                val id = doc.getString("id")
+                when {
+                    !id.isNullOrBlank() -> id
+                    else -> decodeFirestoreDocId(doc.id)
+                }
+            }.toSet()
+
+            // Compare local Room and Firestore tag override IDs.
+            val localTagOverrideIds = dao.getAllTagOverrides().map { it.googleId }.toSet()
+
+            val firestoreTagOverrideIds = usersTagOverridesCollection(uid).get().await().documents.mapNotNull { doc ->
+                val googleId = doc.getString("googleId")
+                when {
+                    !googleId.isNullOrBlank() -> googleId
+                    else -> decodeFirestoreDocId(doc.id)
+                }
+            }.toSet()
+
+            val tasksDiff = logParitySetDiff(
+                label = "tasks",
+                uid = uid,
+                baselineIds = localTaskIds,
+                firestoreIds = firestoreTaskIds
+            )
+            val tagOverridesDiff = logParitySetDiff(
+                label = "tagOverrides",
+                uid = uid,
+                baselineIds = localTagOverrideIds,
+                firestoreIds = firestoreTagOverrideIds
+            )
+            return MirrorParitySummary(
+                tasksMatch = tasksDiff.matches,
+                tagOverridesMatch = tagOverridesDiff.matches,
+                tasksBaselineCount = tasksDiff.baselineCount,
+                tasksFirestoreCount = tasksDiff.firestoreCount,
+                tagOverridesBaselineCount = tagOverridesDiff.baselineCount,
+                tagOverridesFirestoreCount = tagOverridesDiff.firestoreCount
+            )
+        } catch (exception: Exception) {
+            Log.w(TAG, "Parity check failed for uid=$uid", exception)
+            return null
+        }
+    }
+
+    private fun logParitySetDiff(
+        label: String,
+        uid: String,
+        baselineIds: Set<String>,
+        firestoreIds: Set<String>
+    ): ParitySetDiff {
+        val missingInFirestore = (baselineIds - firestoreIds).take(PARITY_SAMPLE_LIMIT)
+        val missingInBaseline = (firestoreIds - baselineIds).take(PARITY_SAMPLE_LIMIT)
+        val matches = missingInFirestore.isEmpty() && missingInBaseline.isEmpty()
+
+        if (matches) {
+            Log.i(
+                TAG,
+                "Parity OK for $label uid=$uid count=${baselineIds.size}"
+            )
+            return ParitySetDiff(matches = true, baselineCount = baselineIds.size, firestoreCount = firestoreIds.size)
+        }
+
+        Log.w(
+            TAG,
+            "Parity mismatch for $label uid=$uid baseline=${baselineIds.size} firestore=${firestoreIds.size} " +
+                "missingInFirestore=${missingInFirestore.size} missingInBaseline=${missingInBaseline.size} " +
+                "sampleMissingInFirestore=$missingInFirestore sampleMissingInBaseline=$missingInBaseline"
+        )
+        return ParitySetDiff(matches = false, baselineCount = baselineIds.size, firestoreCount = firestoreIds.size)
+    }
+
+    private suspend fun pushTagOverrideToDatastores(uid: String, override: TaskTagOverride) {
+        val data = mapOf(
+            "googleId" to override.googleId,
+            "tags" to override.tags,
+            "updatedTimestamp" to override.updatedTimestamp
+        )
+
+        try {
+            tagOverrideDoc(uid, override.googleId)
+                .set(data)
+                .await()
+        } catch (exception: Exception) {
+            Log.e(TAG, "Failed to write tag override to Firestore for ${override.googleId}", exception)
+        }
     }
 
     private fun registerNetworkCallback() {
@@ -346,36 +447,60 @@ class FirebaseTaskSyncManager(
         return now - last < LOCAL_WRITE_GRACE_MS
     }
 
-    private fun usersTasksRef(uid: String) = database.getReference("users").child(uid).child("tasks")
+    private fun usersTasksCollection(uid: String) =
+        firestore.collection("users").document(uid).collection("tasks")
 
-    private fun taskRef(uid: String, taskId: String) = usersTasksRef(uid).child(taskId)
+    private fun taskDoc(uid: String, taskId: String) =
+        usersTasksCollection(uid).document(firestoreDocId(taskId))
+
+    private fun usersTagOverridesCollection(uid: String) =
+        firestore.collection("users").document(uid).collection("tagOverrides")
+
+    private fun tagOverrideDoc(uid: String, googleId: String) =
+        usersTagOverridesCollection(uid).document(firestoreDocId(googleId))
+
+    private fun firestoreDocId(rawId: String): String = rawId.replace("/", "%2F")
+
+    private fun decodeFirestoreDocId(rawId: String): String = rawId.replace("%2F", "/")
 
     companion object {
         private const val TAG = "FirebaseTaskSync"
         private const val LOCAL_WRITE_GRACE_MS = 15_000L
-        private const val DATABASE_URL = "https://preambl-fbea6-default-rtdb.firebaseio.com"
+        private const val PARITY_SAMPLE_LIMIT = 10
+        private const val FIRESTORE_DATABASE_ID = "preamble"
 
         @Volatile
         private var persistenceInitialized = false
-
-        private fun getDatabaseInstance(): FirebaseDatabase {
-            return FirebaseDatabase.getInstance(DATABASE_URL)
-        }
 
         fun enableOfflinePersistence() {
             if (persistenceInitialized) return
             synchronized(this) {
                 if (persistenceInitialized) return
-                try {
-                    getDatabaseInstance().setPersistenceEnabled(true)
-                } catch (exception: Exception) {
-                    Log.w(TAG, "Failed to enable Firebase offline persistence", exception)
-                }
+                // Firestore Android SDK enables local persistence by default.
+                FirebaseFirestore.getInstance(FIRESTORE_DATABASE_ID)
                 persistenceInitialized = true
             }
         }
     }
 }
+
+data class MirrorParitySummary(
+    val tasksMatch: Boolean,
+    val tagOverridesMatch: Boolean,
+    val tasksBaselineCount: Int,
+    val tasksFirestoreCount: Int,
+    val tagOverridesBaselineCount: Int,
+    val tagOverridesFirestoreCount: Int
+) {
+    val isMatch: Boolean
+        get() = tasksMatch && tagOverridesMatch
+}
+
+private data class ParitySetDiff(
+    val matches: Boolean,
+    val baselineCount: Int,
+    val firestoreCount: Int
+)
 
 data class RemoteTask(
     var id: String = "",

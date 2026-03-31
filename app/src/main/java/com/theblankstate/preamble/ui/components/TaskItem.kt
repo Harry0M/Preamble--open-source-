@@ -35,7 +35,9 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Cancel
@@ -66,6 +68,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,12 +89,28 @@ fun TaskItem(
     onEdit: (() -> Unit)? = null,
     onDetail: (() -> Unit)? = null,
     onStartPomodoro: (() -> Unit)? = null,
+    onRetrySync: (() -> Unit)? = null,
     isEditable: Boolean = true,
     subtaskCount: Pair<Int, Int>? = null,
     isExpanded: Boolean = false,
     onToggleExpand: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
+    // Read haptic preference
+    val hapticEnabled = remember {
+        context.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+            .getBoolean("haptic_feedback_enabled", true)
+    }
+    val vibrator = remember {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+            vibratorManager?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+        }
+    }
     val cardAlpha by animateFloatAsState(
         targetValue = if (task.isCompleted) 0.5f else 1f,
         label = "alpha"
@@ -139,7 +158,7 @@ fun TaskItem(
             .clip(RoundedCornerShape(8.dp))
             .background(
                 if (isOverdue) errorContainerColor.copy(alpha = 0.3f)
-                else Color.Transparent // Explicitly transparent
+                else Color.Transparent
             )
             .combinedClickable(
                 enabled = isEditable,
@@ -175,7 +194,21 @@ fun TaskItem(
             )
         } else {
             IconButton(
-                onClick = { if (isEditable && !task.isSyncing) onToggle() },
+                onClick = {
+                    if (isEditable && !task.isSyncing) {
+                        if (hapticEnabled) {
+                            try {
+                                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                    vibrator?.vibrate(android.os.VibrationEffect.createOneShot(30, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+                                } else {
+                                    @Suppress("DEPRECATION")
+                                    vibrator?.vibrate(30)
+                                }
+                            } catch (_: Exception) {}
+                        }
+                        onToggle()
+                    }
+                },
                 modifier = Modifier.padding(end = 4.dp).size(40.dp), // Increased touch target
                 enabled = isEditable && !task.isSyncing
             ) {
@@ -368,25 +401,47 @@ fun TaskItem(
             if (task.isCalendarEvent || task.isGoogleTask) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 4.dp)
+                    modifier = Modifier
+                        .padding(top = 4.dp)
+                        .then(
+                            if (task.syncFailed && onRetrySync != null) {
+                                Modifier.clickable {
+                                    if (hapticEnabled) {
+                                        try {
+                                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                                vibrator?.vibrate(android.os.VibrationEffect.createOneShot(30, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+                                            } else {
+                                                @Suppress("DEPRECATION")
+                                                vibrator?.vibrate(30)
+                                            }
+                                        } catch (_: Exception) {}
+                                    }
+                                    onRetrySync()
+                                }
+                            } else Modifier
+                        )
                 ) {
                     val iconTint = if (task.syncFailed) MaterialTheme.colorScheme.error else Color(0xFF4285F4)
                     
                     if (task.isCalendarEvent) {
                         Icon(
-                            imageVector = if (task.syncFailed) Icons.Default.CloudOff else Icons.Default.Event,
+                            imageVector = if (task.syncFailed) Icons.Default.CloudOff else if (task.isSyncing) Icons.Default.Sync else Icons.Default.Event,
                             contentDescription = "Google Calendar Event",
                             modifier = Modifier.size(14.dp),
                             tint = iconTint
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         // Show calendar name or event type label
-                        val calLabel = when (task.eventType) {
-                            "holiday" -> task.calendarName ?: "Holiday"
-                            "birthday" -> "Birthdays"
-                            "focusTime" -> "Focus Time"
-                            "outOfOffice" -> "Out of Office"
-                            else -> task.calendarName ?: "Calendar"
+                        val calLabel = when {
+                            task.syncFailed -> "Tap to retry"
+                            task.isSyncing -> "Syncing..."
+                            else -> when (task.eventType) {
+                                "holiday" -> task.calendarName ?: "Holiday"
+                                "birthday" -> "Birthdays"
+                                "focusTime" -> "Focus Time"
+                                "outOfOffice" -> "Out of Office"
+                                else -> task.calendarName ?: "Calendar"
+                            }
                         }
                         Text(
                             text = calLabel,
@@ -395,19 +450,37 @@ fun TaskItem(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        if (task.syncFailed) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Retry sync",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     } else if (task.isGoogleTask) {
                         Icon(
-                            imageVector = if (task.syncFailed) Icons.Default.CloudOff else Icons.AutoMirrored.Filled.Assignment,
+                            imageVector = if (task.syncFailed) Icons.Default.CloudOff else if (task.isSyncing) Icons.Default.Sync else Icons.AutoMirrored.Filled.Assignment,
                             contentDescription = "Google Task",
                             modifier = Modifier.size(14.dp),
                             tint = iconTint
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = if (task.syncFailed) "Sync failed (Offline)" else "Google Tasks",
+                            text = if (task.syncFailed) "Tap to retry" else if (task.isSyncing) "Syncing..." else "Google Tasks",
                             style = MaterialTheme.typography.labelSmall,
                             color = iconTint
                         )
+                        if (task.syncFailed) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Retry sync",
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             }
@@ -530,6 +603,7 @@ fun SwipeableTaskItem(
     onEdit: (() -> Unit)? = null,
     onDetail: (() -> Unit)? = null,
     onStartPomodoro: (() -> Unit)? = null,
+    onRetrySync: (() -> Unit)? = null,
     isEditable: Boolean = true,
     subtaskCount: Pair<Int, Int>? = null,
     isExpanded: Boolean = false,
@@ -560,6 +634,7 @@ fun SwipeableTaskItem(
             onEdit = onEdit,
             onDetail = onDetail,
             onStartPomodoro = onStartPomodoro,
+            onRetrySync = onRetrySync,
             isEditable = false,
             subtaskCount = subtaskCount,
             isExpanded = isExpanded,
@@ -621,6 +696,7 @@ fun SwipeableTaskItem(
             onEdit = onEdit,
             onDetail = onDetail,
             onStartPomodoro = onStartPomodoro,
+            onRetrySync = onRetrySync,
             isEditable = true,
             subtaskCount = subtaskCount,
             isExpanded = isExpanded,

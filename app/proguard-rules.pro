@@ -13,9 +13,9 @@
 -keep class com.theblankstate.preamble.data.Task { *; }
 -keep class com.theblankstate.preamble.data.DateStats { *; }
 
-# ── Firebase Realtime Database serialization ──
--keep class com.theblankstate.preamble.sync.FirebaseTaskSyncManager$RemoteTask { *; }
--keepclassmembers class com.theblankstate.preamble.sync.FirebaseTaskSyncManager$RemoteTask {
+# ── Firestore serialization for sync DTOs ──
+-keep class com.theblankstate.preamble.sync.RemoteTask { *; }
+-keepclassmembers class com.theblankstate.preamble.sync.RemoteTask {
     public <init>();
     public <init>(...);
 }

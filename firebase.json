@@ -1,0 +1,8 @@
+{
+  "firestore": [
+    {
+      "database": "preamble",
+      "rules": "firebase-firestore-rules.rules"
+    }
+  ]
+}

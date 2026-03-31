@@ -4,15 +4,18 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.theblankstate.preamble.data.TaskInputValidator
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.notification.TaskNotificationManager
 import com.theblankstate.preamble.repository.TaskRepository
 import com.theblankstate.preamble.sync.GoogleCalendarManager
 import com.theblankstate.preamble.sync.GoogleTasksManager
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -42,6 +45,11 @@ class TaskViewModel(
 ) : ViewModel() {
 
     private val today = TaskRepository.todayString()
+
+    // Shared constraint: only run sync workers when network is available
+    private val networkConstraints = androidx.work.Constraints.Builder()
+        .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+        .build()
 
     // Tag filter
     private val _selectedTagFilter = MutableStateFlow<String?>(null)
@@ -275,7 +283,9 @@ class TaskViewModel(
     }
 
     fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false, syncToCalendar: Boolean = false, priority: Int = 0, description: String? = null, tags: String? = null) {
-        if (title.isBlank()) return
+        val normalizedTitle = TaskInputValidator.normalizeTitle(title)
+        val normalizedDescription = TaskInputValidator.normalizeDescription(description)
+        if (!TaskInputValidator.isValidTitle(normalizedTitle) || !TaskInputValidator.isValidDescription(normalizedDescription)) return
         viewModelScope.launch {
             val taskDate = date ?: TaskRepository.todayString()
             val now = System.currentTimeMillis()
@@ -284,7 +294,7 @@ class TaskViewModel(
                 val tempId = java.util.UUID.randomUUID().toString()
                 val task = com.theblankstate.preamble.data.Task(
                     id = tempId,
-                    title = title,
+                    title = normalizedTitle,
                     createdDate = taskDate,
                     deadlineTime = deadlineTime,
                     createdTimestamp = now,
@@ -292,7 +302,7 @@ class TaskViewModel(
                     source = "google_calendar",
                     isSyncing = true,
                     priority = priority,
-                    description = description,
+                    description = normalizedDescription,
                     tags = tags,
                     googleCalendarId = "primary"
                 )
@@ -302,6 +312,7 @@ class TaskViewModel(
                 
                 val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarCreationWorker>()
                     .setInputData(androidx.work.Data.Builder().putString("localTaskId", tempId).build())
+                    .setConstraints(networkConstraints)
                     .build()
                 androidx.work.WorkManager.getInstance(appContext).enqueue(req)
                 
@@ -309,7 +320,7 @@ class TaskViewModel(
                 val tempId = java.util.UUID.randomUUID().toString()
                 val task = com.theblankstate.preamble.data.Task(
                     id = tempId,
-                    title = title,
+                    title = normalizedTitle,
                     createdDate = taskDate,
                     deadlineTime = deadlineTime,
                     createdTimestamp = now,
@@ -317,7 +328,7 @@ class TaskViewModel(
                     source = "google_tasks",
                     isSyncing = true,
                     priority = priority,
-                    description = description,
+                    description = normalizedDescription,
                     tags = tags
                 )
                 repository.insertTask(task)
@@ -326,43 +337,82 @@ class TaskViewModel(
 
                 val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleTaskCreationWorker>()
                     .setInputData(androidx.work.Data.Builder().putString("localTaskId", tempId).build())
+                    .setConstraints(networkConstraints)
                     .build()
                 androidx.work.WorkManager.getInstance(appContext).enqueue(req)
 
             } else {
-                finalTask = repository.addTask(title, date, deadlineTime, priority, description, tags)
+                finalTask = repository.addTask(normalizedTitle, date, deadlineTime, priority, normalizedDescription, tags)
+                    ?: return@launch
             }
             scheduleOrCancelAlarm(finalTask)
             refreshStats()
         }
     }
 
+    // ── Snackbar / Undo Delete support ──
+    private val _snackbarEvent = MutableSharedFlow<SnackbarEvent>(extraBufferCapacity = 1)
+    val snackbarEvent = _snackbarEvent.asSharedFlow()
+
+    private var pendingDeleteJob: Job? = null
+    private var pendingDeleteTask: Task? = null
+
+    data class SnackbarEvent(val message: String, val actionLabel: String? = null, val onAction: (() -> Unit)? = null)
+
     fun toggleTask(task: Task) {
         viewModelScope.launch {
+            // Optimistic: toggle locally FIRST
             repository.toggleTask(task)
-            // If this is a Google Task, sync completion to Google Tasks
+            refreshStats()
+
+            // Then sync to Google in background via WorkManager
+            val newCompleted = !task.isCompleted
             if (task.source == "google_tasks" && task.id.startsWith("gtask_")) {
                 val googleId = task.id.removePrefix("gtask_")
-                GoogleTasksManager.updateTaskCompletion(
-                    appContext, googleId, !task.isCompleted // toggled state
-                )
+                // Mark as syncing optimistically
+                repository.getTaskById(task.id)?.let {
+                    repository.updateTask(it.copy(isSyncing = true))
+                }
+                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleTaskCompletionWorker>()
+                    .setInputData(androidx.work.Data.Builder()
+                        .putString("taskId", task.id)
+                        .putString("googleTaskId", googleId)
+                        .putBoolean("completed", newCompleted)
+                        .build())
+                    .setConstraints(networkConstraints)
+                    .build()
+                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
             }
-            // If this is a Google Calendar event, sync completion to Google Calendar Extended Properties
             if (task.source == "google_calendar" && task.id.startsWith("gcal_")) {
                 val eventId = task.id.removePrefix("gcal_")
                 val calendarId = task.googleCalendarId ?: "primary"
-                GoogleCalendarManager.updateCalendarEventCompletion(
-                    appContext, eventId, calendarId, !task.isCompleted // toggled state
-                )
+                repository.getTaskById(task.id)?.let {
+                    repository.updateTask(it.copy(isSyncing = true))
+                }
+                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarCompletionWorker>()
+                    .setInputData(androidx.work.Data.Builder()
+                        .putString("taskId", task.id)
+                        .putString("eventId", eventId)
+                        .putString("calendarId", calendarId)
+                        .putBoolean("completed", newCompleted)
+                        .build())
+                    .setConstraints(networkConstraints)
+                    .build()
+                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
             }
-            refreshStats()
         }
     }
 
     fun deleteTask(task: Task) {
+        // Cancel any previous pending delete
+        pendingDeleteJob?.cancel()
+        pendingDeleteTask?.let { previousTask ->
+            // Commit the previous pending delete immediately
+            commitDelete(previousTask)
+        }
+
         viewModelScope.launch {
             // Cancel alarm if task had a deadline
-            // Kill alarm if present
             com.theblankstate.preamble.notification.TaskAlarmManager.cancelAlarm(
                 appContext, task.id
             )
@@ -373,7 +423,27 @@ class TaskViewModel(
             repository.deleteTask(task)
             refreshStats()
 
-            // Enqueue background network deletion
+            // Store for undo
+            pendingDeleteTask = task
+
+            // Show snackbar with undo
+            _snackbarEvent.tryEmit(SnackbarEvent(
+                message = "Task deleted",
+                actionLabel = "Undo",
+                onAction = { undoDelete() }
+            ))
+
+            // Delayed commit: actually fire network deletion after 4 seconds
+            pendingDeleteJob = launch {
+                delay(4000)
+                commitDelete(task)
+                pendingDeleteTask = null
+            }
+        }
+    }
+
+    private fun commitDelete(task: Task) {
+        viewModelScope.launch {
             val taskJson = com.google.gson.Gson().toJson(task)
             if (task.source == "google_tasks" && task.id.startsWith("gtask_")) {
                 val googleId = task.id.removePrefix("gtask_")
@@ -408,7 +478,24 @@ class TaskViewModel(
         }
     }
 
+    private fun undoDelete() {
+        pendingDeleteJob?.cancel()
+        pendingDeleteJob = null
+        val task = pendingDeleteTask ?: return
+        pendingDeleteTask = null
+        viewModelScope.launch {
+            repository.clearDeletedId(task.id)
+            repository.insertTask(task)
+            // Re-schedule alarm if it had one
+            scheduleOrCancelAlarm(task)
+            refreshStats()
+        }
+    }
+
     fun updateTask(task: Task, newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int = task.priority, newDescription: String? = task.description, newTags: String? = task.tags, newRecurrenceType: String? = task.recurrenceType, newRecurrenceInterval: Int = task.recurrenceInterval ?: 1, newRecurrenceDays: String? = task.recurrenceDays, newRecurrenceEndDate: String? = task.recurrenceEndDate) {
+        val normalizedTitle = TaskInputValidator.normalizeTitle(newTitle)
+        val normalizedDescription = TaskInputValidator.normalizeDescription(newDescription)
+        if (!TaskInputValidator.isValidTitle(normalizedTitle) || !TaskInputValidator.isValidDescription(normalizedDescription)) return
         viewModelScope.launch {
             // Cancel old alarm if task had a deadline
             if (task.deadlineTime != null) {
@@ -417,46 +504,67 @@ class TaskViewModel(
                 )
             }
             val updated = task.copy(
-                title = newTitle,
+                title = normalizedTitle,
                 createdDate = newDate ?: task.createdDate,
                 deadlineTime = newDeadlineTime,
                 updatedTimestamp = System.currentTimeMillis(),
                 priority = newPriority,
-                description = newDescription,
+                description = normalizedDescription,
                 tags = newTags,
                 recurrenceType = newRecurrenceType,
                 recurrenceInterval = if (newRecurrenceType != null) newRecurrenceInterval else null,
                 recurrenceDays = if (newRecurrenceType != null) newRecurrenceDays else null,
                 recurrenceEndDate = if (newRecurrenceType != null) newRecurrenceEndDate else null
             )
+            // Optimistic: update locally FIRST
             repository.updateTask(updated)
             // Save tag override for Google-sourced tasks (persists across syncs + Firebase)
             if (task.source == "google_calendar" || task.source == "google_tasks") {
                 repository.saveTagOverride(task.id, newTags)
             }
-            // Sync title/date edits back to Google Tasks
+            scheduleOrCancelAlarm(updated)
+            refreshStats()
+
+            // Then sync to Google in background via WorkManager
             if (task.source == "google_tasks" && task.id.startsWith("gtask_")) {
                 val googleId = task.id.removePrefix("gtask_")
-                GoogleTasksManager.updateGoogleTask(
-                    appContext, googleId, newTitle, newDate ?: task.createdDate
-                )
+                repository.updateTask(updated.copy(isSyncing = true))
+                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleTaskUpdateWorker>()
+                    .setInputData(androidx.work.Data.Builder()
+                        .putString("taskId", task.id)
+                        .putString("googleTaskId", googleId)
+                        .putString("title", normalizedTitle)
+                        .putString("date", newDate ?: task.createdDate)
+                        .build())
+                    .setConstraints(networkConstraints)
+                    .build()
+                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
             }
-            // Sync edits back to Google Calendar
             if (task.source == "google_calendar" && task.id.startsWith("gcal_")) {
                 val eventId = task.id.removePrefix("gcal_")
                 val calendarId = task.googleCalendarId ?: "primary"
-                GoogleCalendarManager.updateCalendarEvent(
-                    appContext, eventId, calendarId, newTitle,
-                    newDate ?: task.createdDate, newDeadlineTime, newDescription,
-                    newRecurrenceType,
-                    if (newRecurrenceType != null) newRecurrenceInterval else null,
-                    if (newRecurrenceType != null) newRecurrenceDays else null,
-                    if (newRecurrenceType != null) newRecurrenceEndDate else null,
-                    tags = newTags
-                )
+                repository.updateTask(updated.copy(isSyncing = true))
+                val dataBuilder = androidx.work.Data.Builder()
+                    .putString("taskId", task.id)
+                    .putString("eventId", eventId)
+                    .putString("calendarId", calendarId)
+                    .putString("title", normalizedTitle)
+                    .putString("date", newDate ?: task.createdDate)
+                if (newDeadlineTime != null) dataBuilder.putString("deadlineTime", newDeadlineTime)
+                if (normalizedDescription != null) dataBuilder.putString("description", normalizedDescription)
+                if (newRecurrenceType != null) {
+                    dataBuilder.putString("recurrenceType", newRecurrenceType)
+                    dataBuilder.putInt("recurrenceInterval", newRecurrenceInterval)
+                    if (newRecurrenceDays != null) dataBuilder.putString("recurrenceDays", newRecurrenceDays)
+                    if (newRecurrenceEndDate != null) dataBuilder.putString("recurrenceEndDate", newRecurrenceEndDate)
+                }
+                if (newTags != null) dataBuilder.putString("tags", newTags)
+                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarUpdateWorker>()
+                    .setInputData(dataBuilder.build())
+                    .setConstraints(networkConstraints)
+                    .build()
+                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
             }
-            scheduleOrCancelAlarm(updated)
-            refreshStats()
         }
     }
 
@@ -525,7 +633,9 @@ class TaskViewModel(
         syncToCalendar: Boolean = false,
         tags: String? = null
     ) {
-        if (title.isBlank()) return
+        val normalizedTitle = TaskInputValidator.normalizeTitle(title)
+        val normalizedDescription = TaskInputValidator.normalizeDescription(description)
+        if (!TaskInputValidator.isValidTitle(normalizedTitle) || !TaskInputValidator.isValidDescription(normalizedDescription)) return
         viewModelScope.launch {
             val taskDate = date ?: TaskRepository.todayString()
             val now = System.currentTimeMillis()
@@ -533,7 +643,7 @@ class TaskViewModel(
                 val tempId = java.util.UUID.randomUUID().toString()
                 val task = com.theblankstate.preamble.data.Task(
                     id = tempId,
-                    title = title,
+                    title = normalizedTitle,
                     createdDate = taskDate,
                     deadlineTime = deadlineTime,
                     createdTimestamp = now,
@@ -541,7 +651,7 @@ class TaskViewModel(
                     source = "google_calendar",
                     isSyncing = true,
                     priority = priority,
-                    description = description,
+                    description = normalizedDescription,
                     tags = tags,
                     googleCalendarId = "primary",
                     recurrenceType = recurrenceType,
@@ -558,11 +668,11 @@ class TaskViewModel(
                 androidx.work.WorkManager.getInstance(appContext).enqueue(req)
 
             } else {
-                repository.addRecurringTask(
-                    title, date, deadlineTime, priority, description,
+                if (repository.addRecurringTask(
+                    normalizedTitle, date, deadlineTime, priority, normalizedDescription,
                     recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate,
                     tags = tags
-                )
+                ) == null) return@launch
             }
             triggerRecurrenceGeneration()
             refreshStats()
@@ -587,9 +697,10 @@ class TaskViewModel(
     }
 
     fun addSubtask(parentId: String, title: String) {
-        if (title.isBlank()) return
+        val normalizedTitle = TaskInputValidator.normalizeTitle(title)
+        if (!TaskInputValidator.isValidTitle(normalizedTitle)) return
         viewModelScope.launch {
-            repository.addSubtask(parentId, title)
+            if (repository.addSubtask(parentId, normalizedTitle) == null) return@launch
             val parentIds = todayTasks.value.map { it.id }
             _subtaskCounts.value = repository.getSubtaskStats(parentIds)
             refreshStats()
@@ -600,6 +711,42 @@ class TaskViewModel(
 
     fun setTagFilter(tag: String?) {
         _selectedTagFilter.value = tag
+    }
+
+    // ── Retry failed sync ──
+
+    fun retrySync(task: Task) {
+        if (!task.syncFailed) return
+        viewModelScope.launch {
+            repository.updateTask(task.copy(syncFailed = false, isSyncing = true))
+            if (task.source == "google_tasks" && task.id.startsWith("gtask_")) {
+                val googleId = task.id.removePrefix("gtask_")
+                // Re-enqueue a completion sync (most common failure case)
+                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleTaskCompletionWorker>()
+                    .setInputData(androidx.work.Data.Builder()
+                        .putString("taskId", task.id)
+                        .putString("googleTaskId", googleId)
+                        .putBoolean("completed", task.isCompleted)
+                        .build())
+                    .setConstraints(networkConstraints)
+                    .build()
+                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+            }
+            if (task.source == "google_calendar" && task.id.startsWith("gcal_")) {
+                val eventId = task.id.removePrefix("gcal_")
+                val calendarId = task.googleCalendarId ?: "primary"
+                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarCompletionWorker>()
+                    .setInputData(androidx.work.Data.Builder()
+                        .putString("taskId", task.id)
+                        .putString("eventId", eventId)
+                        .putString("calendarId", calendarId)
+                        .putBoolean("completed", task.isCompleted)
+                        .build())
+                    .setConstraints(networkConstraints)
+                    .build()
+                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+            }
+        }
     }
 
     class Factory(

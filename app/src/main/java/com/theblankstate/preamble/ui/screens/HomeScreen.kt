@@ -93,6 +93,7 @@ import androidx.compose.ui.unit.dp
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.PredefinedTags
 import com.theblankstate.preamble.ui.components.AddTaskSheet
+import com.theblankstate.preamble.ui.components.TaskDetailBottomSheet
 import com.theblankstate.preamble.ui.components.TaskDetailSheet
 import com.theblankstate.preamble.ui.components.RichDateBadge
 import com.theblankstate.preamble.ui.components.RichDateHeader
@@ -118,7 +119,15 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+
 import androidx.compose.ui.text.font.FontWeight
+import com.theblankstate.preamble.viewmodel.TaskViewModel
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -148,12 +157,15 @@ fun HomeScreen(
     onTagFilterChanged: ((String?) -> Unit)? = null,
     isInitialLoad: Boolean = false,
     onUpdateAlarmStatus: (Task, Long?, Boolean) -> Unit = { _, _, _ -> },
+    onRetrySync: ((Task) -> Unit)? = null,
+    snackbarEvent: SharedFlow<TaskViewModel.SnackbarEvent>? = null,
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
     var showEisenhowerView by remember { mutableStateOf(false) }
     var taskToDelete by remember { mutableStateOf<Task?>(null) }
     var taskToEdit by remember { mutableStateOf<Task?>(null) }
+    var taskToShowDetail by remember { mutableStateOf<Task?>(null) }
     var showAlarmSheet by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
     var showPomodoroSheet by remember { mutableStateOf(false) }
@@ -273,10 +285,30 @@ fun HomeScreen(
     }
 
 
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    // Collect snackbar events from ViewModel
+    if (snackbarEvent != null) {
+        androidx.compose.runtime.LaunchedEffect(snackbarEvent) {
+            snackbarEvent.collectLatest { event ->
+                val result = snackbarHostState.showSnackbar(
+                    message = event.message,
+                    actionLabel = event.actionLabel,
+                    duration = SnackbarDuration.Short
+                )
+                if (result == SnackbarResult.ActionPerformed) {
+                    event.onAction?.invoke()
+                }
+            }
+        }
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
         Scaffold(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
+            snackbarHost = {
+                SnackbarHost(hostState = snackbarHostState)
+            },
             topBar = {
                 TopAppBar(
                     title = {
@@ -559,14 +591,13 @@ fun HomeScreen(
                             onEdit = if (onEditTask != null) {
                                 { taskToEdit = task }
                             } else null,
-                            onDetail = if (onEditTask != null) {
-                                { taskToEdit = task }
-                            } else null,
+                            onDetail = { taskToShowDetail = task },
                             onStartPomodoro = {
                                 pomodoroTaskId = task.id
                                 pomodoroTaskTitle = task.title
                                 showPomodoroSheet = true
                             },
+                            onRetrySync = onRetrySync?.let { retry -> { retry(task) } },
                             isEditable = true,
                             subtaskCount = subtaskCounts[task.id],
                             isExpanded = expandedTasks.contains(task.id),
@@ -703,31 +734,40 @@ fun HomeScreen(
                                         // Today's tasks: show all inside card with key{} for smart recomposition skipping
                                         tasks.forEach { task ->
                                             key(task.id) {
-                                                SwipeableTaskItem(
-                                                    task = task,
-                                                    onToggle = { onToggleTask(task) },
-                                                    onDelete = { taskToDelete = task },
-                                                    onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
-                                                    onDetail = if (onEditTask != null) {{ taskToEdit = task }} else null,
-                                                    onStartPomodoro = {
-                                                        pomodoroTaskId = task.id
-                                                        pomodoroTaskTitle = task.title
-                                                        showPomodoroSheet = true
-                                                    },
-                                                    isEditable = true,
-                                                    subtaskCount = subtaskCounts[task.id],
-                                                    isExpanded = expandedTasks.contains(task.id),
-                                                    onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } }
-                                                )
-                                                // Show subtasks when expanded
-                                                if (expandedTasks.contains(task.id) && subtasksProvider != null) {
-                                                    val subtasks by subtasksProvider(task.id).collectAsState(initial = emptyList())
-                                                    SubtaskList(
-                                                        subtasks = subtasks,
-                                                        onToggleSubtask = { onToggleTask(it) },
-                                                        onAddSubtask = { title -> onAddSubtask?.invoke(task.id, title) },
-                                                        onDeleteSubtask = { onDeleteTask(it) }
-                                                    )
+                                                androidx.compose.animation.AnimatedVisibility(
+                                                    visible = true,
+                                                    enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
+                                                    exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically()
+                                                ) {
+                                                    Column {
+                                                        SwipeableTaskItem(
+                                                            task = task,
+                                                            onToggle = { onToggleTask(task) },
+                                                            onDelete = { taskToDelete = task },
+                                                            onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
+                                                            onDetail = { taskToShowDetail = task },
+                                                            onStartPomodoro = {
+                                                                pomodoroTaskId = task.id
+                                                                pomodoroTaskTitle = task.title
+                                                                showPomodoroSheet = true
+                                                            },
+                                                            onRetrySync = onRetrySync?.let { retry -> { retry(task) } },
+                                                            isEditable = true,
+                                                            subtaskCount = subtaskCounts[task.id],
+                                                            isExpanded = expandedTasks.contains(task.id),
+                                                            onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } }
+                                                        )
+                                                        // Show subtasks when expanded
+                                                        if (expandedTasks.contains(task.id) && subtasksProvider != null) {
+                                                            val subtasks by subtasksProvider(task.id).collectAsState(initial = emptyList())
+                                                            SubtaskList(
+                                                                subtasks = subtasks,
+                                                                onToggleSubtask = { onToggleTask(it) },
+                                                                onAddSubtask = { title -> onAddSubtask?.invoke(task.id, title) },
+                                                                onDeleteSubtask = { onDeleteTask(it) }
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -746,12 +786,13 @@ fun HomeScreen(
                                     onToggle = { onToggleTask(task) },
                                     onDelete = { taskToDelete = task },
                                     onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
-                                    onDetail = if (onEditTask != null) {{ taskToEdit = task }} else null,
+                                    onDetail = { taskToShowDetail = task },
                                     onStartPomodoro = {
                                         pomodoroTaskId = task.id
                                         pomodoroTaskTitle = task.title
                                         showPomodoroSheet = true
                                     },
+                                    onRetrySync = onRetrySync?.let { retry -> { retry(task) } },
                                     isEditable = true,
                                     modifier = Modifier.animateItem(),
                                     subtaskCount = subtaskCounts[task.id],
@@ -1205,6 +1246,28 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    // Read-only task detail bottom sheet
+    taskToShowDetail?.let { task ->
+        TaskDetailBottomSheet(
+            task = task,
+            onDismiss = { taskToShowDetail = null },
+            onEdit = {
+                taskToEdit = task
+                taskToShowDetail = null
+            },
+            onDelete = {
+                taskToDelete = task
+                taskToShowDetail = null
+            },
+            onStartPomodoro = if (task.isInfoOnly) null else {{
+                pomodoroTaskId = task.id
+                pomodoroTaskTitle = task.title
+                taskToShowDetail = null
+                showPomodoroSheet = true
+            }}
+        )
     }
 
     if (taskToEdit != null && onEditTask != null) {

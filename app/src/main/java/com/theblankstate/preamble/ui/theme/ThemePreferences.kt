@@ -14,7 +14,7 @@ object ThemePreferences {
     private const val KEY_COLORFUL_CARDS = "colorful_cards"
     private const val KEY_TIMELINE_UI = "timeline_ui"
 
-    enum class ThemeMode { SYSTEM, LIGHT, DARK }
+    enum class ThemeMode { SYSTEM, LIGHT, DARK, AMOLED }
 
     private val _themeColor = MutableStateFlow<Color?>(null)
     val themeColor: StateFlow<Color?> = _themeColor.asStateFlow()

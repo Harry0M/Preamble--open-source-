@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import com.theblankstate.preamble.data.TaskInputValidator
 import com.theblankstate.preamble.ai.AiChatViewModel
 import com.theblankstate.preamble.sync.GoogleCalendarManager
 import com.theblankstate.preamble.sync.GoogleTasksManager
@@ -92,6 +93,21 @@ fun AddTaskSheet(
     onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?) -> Unit)? = null,
     aiChatViewModel: AiChatViewModel? = null
 ) {
+    val context = LocalContext.current
+    // Haptic feedback support
+    val hapticEnabled = remember {
+        context.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+            .getBoolean("haptic_feedback_enabled", true)
+    }
+    val vibrator = remember {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            val vibratorManager = context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+            vibratorManager?.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+        }
+    }
     var taskTitle by remember { mutableStateOf("") }
     var taskDescription by remember { mutableStateOf("") }
     var selectedTime by remember { mutableStateOf<String?>(null) }
@@ -112,7 +128,6 @@ fun AddTaskSheet(
     var showRepeatSheet by remember { mutableStateOf(false) }
     var showDescription by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
-    val context = LocalContext.current
 
     // Lazily create SpeechRecognizer only when user taps mic (saves ~3-5MB)
     var speechRecognizerRef by remember { mutableStateOf<SpeechRecognizer?>(null) }
@@ -219,6 +234,18 @@ fun AddTaskSheet(
                     if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null
                 )
             }
+            // Haptic + toast confirmation
+            if (hapticEnabled) {
+                try {
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        vibrator?.vibrate(android.os.VibrationEffect.createOneShot(30, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        vibrator?.vibrate(30)
+                    }
+                } catch (_: Exception) {}
+            }
+            android.widget.Toast.makeText(context, "Task added ✓", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -244,7 +271,11 @@ fun AddTaskSheet(
             ) {
                 OutlinedTextField(
                     value = taskTitle,
-                    onValueChange = { taskTitle = it },
+                    onValueChange = {
+                        if (it.length <= TaskInputValidator.TITLE_MAX_LENGTH) {
+                            taskTitle = it
+                        }
+                    },
                     modifier = Modifier
                         .weight(1f)
                         .focusRequester(focusRequester),
@@ -399,7 +430,11 @@ fun AddTaskSheet(
             AnimatedVisibility(visible = showDescription) {
                 OutlinedTextField(
                     value = taskDescription,
-                    onValueChange = { taskDescription = it },
+                    onValueChange = {
+                        if (it.length <= TaskInputValidator.DESCRIPTION_MAX_LENGTH) {
+                            taskDescription = it
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                     placeholder = { Text("Add details (optional)") },
                     minLines = 2,
@@ -513,7 +548,7 @@ fun AddTaskSheet(
                     .fillMaxWidth()
                     .padding(top = 16.dp)
                     .height(48.dp),
-                enabled = taskTitle.isNotBlank(),
+                enabled = taskTitle.trim().isNotBlank(),
                 shape = CircleShape
             ) {
                 Text("Add")

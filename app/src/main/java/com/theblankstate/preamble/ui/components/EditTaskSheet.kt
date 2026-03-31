@@ -41,6 +41,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import com.theblankstate.preamble.data.Task
+import com.theblankstate.preamble.data.TaskInputValidator
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -87,7 +88,11 @@ fun EditTaskSheet(
 
             OutlinedTextField(
                 value = taskTitle,
-                onValueChange = { taskTitle = it },
+                onValueChange = {
+                    if (it.length <= TaskInputValidator.TITLE_MAX_LENGTH) {
+                        taskTitle = it
+                    }
+                },
                 modifier = Modifier
                     .fillMaxWidth()
                     .focusRequester(focusRequester),
@@ -151,7 +156,11 @@ fun EditTaskSheet(
             Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = taskDescription,
-                onValueChange = { taskDescription = it },
+                onValueChange = {
+                    if (it.length <= TaskInputValidator.DESCRIPTION_MAX_LENGTH) {
+                        taskDescription = it
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = { Text("Add details (optional)") },
                 minLines = 2,
@@ -184,7 +193,7 @@ fun EditTaskSheet(
 
             Button(
                 onClick = {
-                    if (taskTitle.isNotBlank()) {
+                    if (taskTitle.trim().isNotBlank()) {
                         onUpdateTask(
                             taskTitle.trim(),
                             selectedDate,
@@ -199,7 +208,7 @@ fun EditTaskSheet(
                     .fillMaxWidth()
                     .padding(top = 16.dp)
                     .height(48.dp),
-                enabled = taskTitle.isNotBlank(),
+                enabled = taskTitle.trim().isNotBlank(),
                 shape = CircleShape
             ) {
                 Text("Update")

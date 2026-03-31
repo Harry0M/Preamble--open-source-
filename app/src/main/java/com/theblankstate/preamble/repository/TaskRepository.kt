@@ -1,9 +1,12 @@
 package com.theblankstate.preamble.repository
 
+import android.util.Log
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.TaskDao
+import com.theblankstate.preamble.data.TaskInputValidator
 import com.theblankstate.preamble.data.TaskTagOverride
 import com.theblankstate.preamble.sync.FirebaseTaskSyncManager
+import com.theblankstate.preamble.sync.MirrorParitySummary
 import kotlinx.coroutines.flow.Flow
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -42,17 +45,22 @@ class TaskRepository(
 
     fun getTotalCount(): Flow<Int> = dao.getTotalTasksCount()
 
-    suspend fun addTask(title: String, date: String? = null, deadlineTime: String? = null, priority: Int = 0, description: String? = null, tags: String? = null): Task {
+    suspend fun addTask(title: String, date: String? = null, deadlineTime: String? = null, priority: Int = 0, description: String? = null, tags: String? = null): Task? {
+        val normalizedTitle = TaskInputValidator.normalizeTitle(title)
+        val normalizedDescription = TaskInputValidator.normalizeDescription(description)
+        if (!TaskInputValidator.isValidTitle(normalizedTitle) || !TaskInputValidator.isValidDescription(normalizedDescription)) {
+            return null
+        }
         val taskDate = date ?: todayString()
         val now = System.currentTimeMillis()
         val task = Task(
-            title = title,
+            title = normalizedTitle,
             createdDate = taskDate,
             deadlineTime = deadlineTime,
             createdTimestamp = now,
             updatedTimestamp = now,
             priority = priority,
-            description = description,
+            description = normalizedDescription,
             tags = tags
         )
         dao.insertTask(task)
@@ -71,13 +79,15 @@ class TaskRepository(
     }
 
     suspend fun insertTask(task: Task) {
-        dao.insertTask(task)
-        syncManager?.pushTask(task)
+        val normalized = normalizeForStorage(task) ?: return
+        dao.insertTask(normalized)
+        syncManager?.pushTask(normalized)
     }
 
     suspend fun updateTask(task: Task) {
-        dao.updateTask(task)
-        syncManager?.pushTask(task)
+        val normalized = normalizeForStorage(task) ?: return
+        dao.updateTask(normalized)
+        syncManager?.pushTask(normalized)
     }
 
     suspend fun deleteTask(task: Task) {
@@ -93,11 +103,15 @@ class TaskRepository(
 
     fun getSubtasksForParent(parentId: String): Flow<List<Task>> = dao.getSubtasksForParent(parentId)
 
-    suspend fun addSubtask(parentId: String, title: String): Task {
+    suspend fun addSubtask(parentId: String, title: String): Task? {
+        val normalizedTitle = TaskInputValidator.normalizeTitle(title)
+        if (!TaskInputValidator.isValidTitle(normalizedTitle)) {
+            return null
+        }
         val now = System.currentTimeMillis()
         val parent = dao.getAllTasks().find { it.id == parentId } ?: error("Parent not found")
         val subtask = Task(
-            title = title,
+            title = normalizedTitle,
             createdDate = parent.createdDate,
             createdTimestamp = now,
             updatedTimestamp = now,
@@ -126,17 +140,22 @@ class TaskRepository(
         recurrenceDays: String? = null,
         recurrenceEndDate: String? = null,
         tags: String? = null
-    ): Task {
+    ): Task? {
+        val normalizedTitle = TaskInputValidator.normalizeTitle(title)
+        val normalizedDescription = TaskInputValidator.normalizeDescription(description)
+        if (!TaskInputValidator.isValidTitle(normalizedTitle) || !TaskInputValidator.isValidDescription(normalizedDescription)) {
+            return null
+        }
         val taskDate = date ?: todayString()
         val now = System.currentTimeMillis()
         val template = Task(
-            title = title,
+            title = normalizedTitle,
             createdDate = taskDate,
             deadlineTime = deadlineTime,
             createdTimestamp = now,
             updatedTimestamp = now,
             priority = priority,
-            description = description,
+            description = normalizedDescription,
             recurrenceType = recurrenceType,
             recurrenceInterval = recurrenceInterval,
             recurrenceDays = recurrenceDays,
@@ -167,6 +186,10 @@ class TaskRepository(
 
     suspend fun forceSyncFirebase() {
         syncManager?.forceSyncBidirectional()
+    }
+
+    suspend fun verifyFirebaseFirestoreParity(): MirrorParitySummary? {
+        return syncManager?.runParityCheckNow()
     }
 
     suspend fun flushAndClearLocalOnLogout() {
@@ -311,7 +334,25 @@ class TaskRepository(
         return dao.getPendingTasksForDate(date)
     }
 
+    private fun normalizeForStorage(task: Task): Task? {
+        val normalizedTitle = TaskInputValidator.normalizeTitle(task.title)
+        val normalizedDescription = TaskInputValidator.normalizeDescription(task.description)
+        if (!TaskInputValidator.isValidTitle(normalizedTitle) || !TaskInputValidator.isValidDescription(normalizedDescription)) {
+            Log.w(
+                TAG,
+                "Rejected task write due to length limits: id=${task.id} titleLen=${task.title.length} descLen=${task.description?.length ?: 0}"
+            )
+            return null
+        }
+        return task.copy(
+            title = normalizedTitle,
+            description = normalizedDescription
+        )
+    }
+
     companion object {
+        private const val TAG = "TaskRepository"
+
         fun todayString(): String {
             return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
         }

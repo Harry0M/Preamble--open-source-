@@ -54,11 +54,45 @@ private val MonochromeLightColorScheme = lightColorScheme(
     outline = Color.LightGray
 )
 
-fun generateCustomColorScheme(primaryColor: Color, darkTheme: Boolean): androidx.compose.material3.ColorScheme {
+private val AmoledDarkColorScheme = darkColorScheme(
+    primary = Color.White,
+    onPrimary = Color.Black,
+    primaryContainer = Color(0xFF1A1A1A),
+    onPrimaryContainer = Color.White,
+    secondary = Color.LightGray,
+    onSecondary = Color.Black,
+    secondaryContainer = Color(0xFF1A1A1A),
+    onSecondaryContainer = Color.White,
+    tertiary = Color.White,
+    onTertiary = Color.Black,
+    tertiaryContainer = Color(0xFF1A1A1A),
+    onTertiaryContainer = Color.White,
+    background = Color.Black,
+    onBackground = Color.White,
+    surface = Color.Black,
+    onSurface = Color.White,
+    surfaceVariant = Color(0xFF0D0D0D),
+    onSurfaceVariant = Color.LightGray,
+    outline = Color(0xFF333333)
+)
+
+fun generateCustomColorScheme(primaryColor: Color, darkTheme: Boolean, isAmoled: Boolean = false): androidx.compose.material3.ColorScheme {
     val isLight = primaryColor.luminance() > 0.5f
     val onPrimaryColor = if (isLight) Color.Black else Color.White
     
-    return if (darkTheme) {
+    return if (isAmoled) {
+        darkColorScheme(
+            primary = primaryColor,
+            onPrimary = onPrimaryColor,
+            primaryContainer = primaryColor.copy(alpha = 0.2f),
+            onPrimaryContainer = primaryColor,
+            secondary = primaryColor,
+            tertiary = primaryColor,
+            background = Color.Black,
+            surface = Color.Black,
+            surfaceVariant = Color(0xFF0D0D0D)
+        )
+    } else if (darkTheme) {
         darkColorScheme(
             primary = primaryColor,
             onPrimary = onPrimaryColor,
@@ -93,16 +127,22 @@ fun PreambleTheme(
     val customColor by ThemePreferences.themeColor.collectAsState()
     val themeMode by ThemePreferences.themeMode.collectAsState()
 
+    val isAmoled = themeMode == ThemePreferences.ThemeMode.AMOLED
     val useDarkTheme = when (themeMode) {
         ThemePreferences.ThemeMode.SYSTEM -> darkTheme
         ThemePreferences.ThemeMode.LIGHT -> false
         ThemePreferences.ThemeMode.DARK -> true
+        ThemePreferences.ThemeMode.AMOLED -> true
     }
 
     val colorScheme = if (customColor != null) {
-        generateCustomColorScheme(customColor!!, useDarkTheme)
+        generateCustomColorScheme(customColor!!, useDarkTheme, isAmoled)
     } else {
-        if (useDarkTheme) MonochromeDarkColorScheme else MonochromeLightColorScheme
+        when {
+            isAmoled -> AmoledDarkColorScheme
+            useDarkTheme -> MonochromeDarkColorScheme
+            else -> MonochromeLightColorScheme
+        }
     }
 
     MaterialTheme(

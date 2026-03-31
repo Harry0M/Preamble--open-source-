@@ -25,8 +25,8 @@ android {
         applicationId = "com.theblankstate.preamble"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -42,6 +42,7 @@ android {
         buildConfigField("String", "AD_THEME_UNIT_ID", "\"${localProperties.getProperty("AD_THEME_UNIT_ID", "ca-app-pub-3940256099942544/5224354917")}\"")
         buildConfigField("String", "AD_STATS_UNIT_ID", "\"${localProperties.getProperty("AD_STATS_UNIT_ID", "ca-app-pub-3940256099942544/5224354917")}\"")
         buildConfigField("String", "AD_BANNER_UNIT_ID", "\"${localProperties.getProperty("AD_BANNER_UNIT_ID", "ca-app-pub-3940256099942544/6300978111")}\"")
+        buildConfigField("String", "AD_DETAIL_UNIT_ID", "\"${localProperties.getProperty("AD_DETAIL_UNIT_ID", "ca-app-pub-1118281305976257/4842895657")}\"")
         buildConfigField("String", "AD_APP_OPEN_UNIT_ID", "\"${localProperties.getProperty("AD_APP_OPEN_UNIT_ID", "ca-app-pub-3940256099942544/9257395921")}\"")
     }
 
@@ -94,7 +95,7 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     implementation(libs.firebase.auth)
-    implementation(libs.firebase.database)
+    implementation(libs.firebase.firestore)
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.credentials)
@@ -124,6 +125,21 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.google.code.gson:gson:2.11.0")
 
+    // Coil for SVG loading
+    implementation("io.coil-kt:coil-compose:2.5.0")
+    implementation("io.coil-kt:coil-svg:2.5.0")
+
+    constraints {
+        implementation("io.grpc:grpc-api:1.62.2") {
+            version { strictly("1.62.2") }
+            because("Firestore runtime currently resolves grpc-core 1.62.2; grpc-api 1.70 causes NoClassDefFoundError at runtime.")
+        }
+        implementation("io.grpc:grpc-context:1.62.2") {
+            version { strictly("1.62.2") }
+            because("Keep grpc modules aligned with Firestore's grpc-core/grpc-android versions.")
+        }
+    }
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -131,4 +147,5 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+    implementation(libs.androidx.profileinstaller)
 }

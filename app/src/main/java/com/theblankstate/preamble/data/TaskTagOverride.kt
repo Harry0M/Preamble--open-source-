@@ -6,7 +6,7 @@ import androidx.room.PrimaryKey
 /**
  * Stores user-assigned tags for Google Calendar/Tasks events.
  * Keyed by stable Google ID (stripped of "gcal_"/"gtask_" prefix).
- * Synced to Firebase RTDB at users/{uid}/tagOverrides/{googleId}
+ * Synced to Firestore at users/{uid}/tagOverrides/{googleId}
  * so tags persist across syncs and devices.
  */
 @Entity(tableName = "task_tag_overrides")

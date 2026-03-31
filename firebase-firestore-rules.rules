@@ -1,0 +1,83 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // ─── Task Validation ───────────────────────────────────────────
+
+    // Only these fields are allowed - attacker cannot add new fields
+    function hasValidTaskKeys() {
+      return request.resource.data.keys().hasOnly([
+        'id', 'title', 'isCompleted', 'createdDate', 'createdTimestamp',
+        'completedTimestamp', 'deadlineTime', 'updatedTimestamp', 'source',
+        'priority', 'description', 'recurrenceType', 'recurrenceInterval',
+        'recurrenceDays', 'recurrenceEndDate', 'recurrenceParentId',
+        'parentTaskId', 'tags', 'googleCalendarId', 'googleRecurrenceInfo'
+      ]);
+    }
+
+    // Helper: check string length safely (handles null/missing)
+    function isStringSafe(field, maxLen) {
+      return !(field in request.resource.data)
+        || request.resource.data[field] == null
+        || (request.resource.data[field] is string && request.resource.data[field].size() <= maxLen);
+    }
+
+    // Length limits - prevents storing large malicious data
+    function hasValidTaskLengths() {
+      let d = request.resource.data;
+
+      // Title is required and must be 1-500 chars
+      let titleOk = d.title is string && d.title.size() >= 1 && d.title.size() <= 500;
+
+      // Optional fields with max lengths
+      let descOk = isStringSafe('description', 5000);
+      let tagsOk = isStringSafe('tags', 100);
+      let idOk = isStringSafe('id', 200);
+      let sourceOk = isStringSafe('source', 50);
+      let recTypeOk = isStringSafe('recurrenceType', 50);
+      let recDaysOk = isStringSafe('recurrenceDays', 100);
+      let gcalIdOk = isStringSafe('googleCalendarId', 500);
+      let gcalInfoOk = isStringSafe('googleRecurrenceInfo', 2000);
+
+      return titleOk && descOk && tagsOk && idOk && sourceOk
+        && recTypeOk && recDaysOk && gcalIdOk && gcalInfoOk;
+    }
+
+    // ─── Tag Override Validation ───────────────────────────────────
+
+    function hasValidTagOverrideKeys() {
+      return request.resource.data.keys().hasOnly(['googleId', 'tags', 'updatedTimestamp']);
+    }
+
+    function hasValidTagOverrideLengths() {
+      let d = request.resource.data;
+      return d.googleId is string && d.googleId.size() >= 1 && d.googleId.size() <= 300
+        && d.tags is string && d.tags.size() <= 100;
+    }
+
+    // ─── Rules ─────────────────────────────────────────────────────
+
+    match /users/{uid}/tasks/{taskId} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && hasValidTaskKeys()
+        && hasValidTaskLengths();
+    }
+
+    match /users/{uid}/tagOverrides/{googleId} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && hasValidTagOverrideKeys()
+        && hasValidTagOverrideLengths();
+    }
+
+    // Block everything else - attacker cannot create random collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

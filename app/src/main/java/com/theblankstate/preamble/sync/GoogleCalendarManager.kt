@@ -15,6 +15,7 @@ import com.google.api.services.calendar.CalendarScopes
 import com.google.api.client.googleapis.json.GoogleJsonResponseException
 import com.google.api.services.calendar.model.Event
 import com.google.api.services.calendar.model.EventDateTime
+import com.google.gson.Gson
 import com.theblankstate.preamble.data.Task
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -460,6 +461,64 @@ object GoogleCalendarManager {
             ?.firstOrNull { it.entryPointType == "video" }?.uri
             ?: event.hangoutLink
 
+        // ── Extract extended Google Calendar metadata ──
+        val gson = Gson()
+
+        // Attendees with response status
+        val attendeesJson: String? = event.attendees?.takeIf { it.isNotEmpty() }?.map { attendee ->
+            mapOf(
+                "email" to (attendee.email ?: ""),
+                "displayName" to (attendee.displayName ?: ""),
+                "responseStatus" to (attendee.responseStatus ?: "needsAction"),
+                "organizer" to (attendee.organizer ?: false),
+                "self" to (attendee.self ?: false)
+            )
+        }?.let { gson.toJson(it) }
+
+        // Reminders (custom overrides only, not default)
+        val remindersJson: String? = event.reminders?.overrides?.takeIf { it.isNotEmpty() }?.map { reminder ->
+            mapOf(
+                "method" to (reminder.method ?: "popup"),
+                "minutes" to (reminder.minutes ?: 10)
+            )
+        }?.let { gson.toJson(it) }
+
+        // HTML link to open event in Google Calendar
+        val htmlLink: String? = event.htmlLink
+
+        // Organizer info
+        val organizerJson: String? = event.organizer?.let { org ->
+            gson.toJson(mapOf(
+                "email" to (org.email ?: ""),
+                "displayName" to (org.displayName ?: ""),
+                "self" to (org.self ?: false)
+            ))
+        }
+
+        // Visibility (default, public, private, confidential)
+        val visibility: String? = event.visibility
+
+        // Attachments (files attached to the event)
+        val attachmentsJson: String? = event.attachments?.takeIf { it.isNotEmpty() }?.map { attachment ->
+            mapOf(
+                "title" to (attachment.title ?: ""),
+                "fileUrl" to (attachment.fileUrl ?: ""),
+                "mimeType" to (attachment.mimeType ?: ""),
+                "iconLink" to (attachment.iconLink ?: "")
+            )
+        }?.let { gson.toJson(it) }
+
+        // Conference phone dial-in info
+        val conferencePhone: String? = event.conferenceData?.entryPoints
+            ?.firstOrNull { it.entryPointType == "phone" }
+            ?.let { entry ->
+                buildString {
+                    append(entry.label ?: entry.uri ?: "")
+                    entry.pin?.let { pin -> append(" PIN: $pin") }
+                    entry.accessCode?.let { code -> append(" Code: $code") }
+                }
+            }?.takeIf { it.isNotBlank() }
+
         // ── Map completion via extendedProperties ──
         // Google Calendar events don't have a native completion status, so we store it in extended properties
         val isPropCompleted = event.extendedProperties?.private?.get("preamble_completed") == "true"
@@ -492,7 +551,15 @@ object GoogleCalendarManager {
             calendarName = calendarName,
             location = event.location,
             endTime = endTimeStr,
-            meetingLink = meetLink
+            meetingLink = meetLink,
+            // Extended Calendar metadata
+            attendeesJson = attendeesJson,
+            remindersJson = remindersJson,
+            htmlLink = htmlLink,
+            organizerJson = organizerJson,
+            visibility = visibility,
+            attachmentsJson = attachmentsJson,
+            conferencePhone = conferencePhone
         )
     }
 

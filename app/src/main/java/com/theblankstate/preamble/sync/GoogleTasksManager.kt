@@ -9,6 +9,7 @@ import com.google.api.client.json.gson.GsonFactory
 import com.google.api.client.util.DateTime
 import com.google.api.services.tasks.Tasks
 import com.google.api.services.tasks.TasksScopes
+import com.google.gson.Gson
 import com.theblankstate.preamble.data.Task
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -270,7 +271,19 @@ object GoogleTasksManager {
             updatedTimestamp = updatedAt,
             source = "google_tasks",
             deletedFromGoogle = gTask.deleted ?: false,
-            tags = null // Tags applied from local tag override store during sync
+            tags = null, // Tags applied from local tag override store during sync
+            // CRITICAL: Extract notes field as description
+            description = gTask.notes,
+            // Extract web view link if available
+            webViewLink = gTask.webViewLink,
+            // Extract links array as JSON
+            taskLinksJson = gTask.links?.takeIf { it.isNotEmpty() }?.map { link ->
+                mapOf(
+                    "type" to (link.type ?: ""),
+                    "description" to (link.description ?: ""),
+                    "link" to (link.link ?: "")
+                )
+            }?.let { Gson().toJson(it) }
         )
     }
 

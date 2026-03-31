@@ -36,6 +36,17 @@ data class Task(
     val location: String? = null,                // Event location/venue
     val endTime: String? = null,                 // Event end time "HH:mm" (null for all-day)
     val meetingLink: String? = null,               // Google Meet / conference URL
+    // ── Extended Google Calendar metadata ──
+    val attendeesJson: String? = null,            // JSON: [{email, displayName, responseStatus}]
+    val remindersJson: String? = null,            // JSON: [{method, minutes}]
+    val htmlLink: String? = null,                 // Direct link to Google Calendar event
+    val organizerJson: String? = null,            // JSON: {email, displayName}
+    val visibility: String? = null,               // default/public/private/confidential
+    val attachmentsJson: String? = null,          // JSON: [{title, fileUrl, mimeType}]
+    val conferencePhone: String? = null,          // Phone dial-in with PIN
+    // ── Extended Google Tasks metadata ──
+    val webViewLink: String? = null,              // Browser link to task
+    val taskLinksJson: String? = null,            // JSON: [{type, description, link}]
     // ── Independent Alarm overrides ──
     val customAlarmTimeMs: Long? = null,           // Explicit trigger override decoupled from `deadlineTime`
     val isAlarmPaused: Boolean = false             // User completely halted the alarm from ringing
@@ -50,5 +61,9 @@ data class Task(
     val isHoliday: Boolean get() = eventType == "holiday"
     val isBirthday: Boolean get() = eventType == "birthday"
     val isInfoOnly: Boolean get() = eventType in listOf("holiday", "birthday", "focusTime", "outOfOffice")
+    // Extended metadata helpers
+    val hasAttendees: Boolean get() = !attendeesJson.isNullOrBlank()
+    val hasReminders: Boolean get() = !remindersJson.isNullOrBlank()
+    val hasAttachments: Boolean get() = !attachmentsJson.isNullOrBlank()
 }
 

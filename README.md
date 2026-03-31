@@ -5,7 +5,7 @@ A beautiful, privacy-first task management app for Android — built entirely wi
 ## ✨ Features
 
 - **Daily Task Tracking** — Add, complete, and manage tasks for today and future dates.
-- **Offline-First + Realtime Sync** — Every task is saved instantly on-device, then synced to Firebase Realtime Database in seconds.
+- **Offline-First + Realtime Sync** — Every task is saved instantly on-device, then synced to Cloud Firestore in seconds.
 - **Voice Input** — Tap the mic and speak your task. Auto-saves when you stop talking.
 - **Smart Reminders** — Set deadline times and get alarm notifications so you never miss a task.
 - **Permanent Notification** — Quick Add and Voice Task directly from the notification bar.
@@ -40,7 +40,7 @@ Preamble is **offline-first**. Your tasks are always stored locally first. If yo
 |-------|-----------|
 | UI | Jetpack Compose + Material Design 3 |
 | State | ViewModel + Kotlin StateFlow |
-| Data | Room Database (SQLite) + Firebase Realtime Database |
+| Data | Room Database (SQLite) + Cloud Firestore |
 | Async | Kotlin Coroutines |
 | Alarms | Android AlarmManager (setAlarmClock) |
 | Voice | Android SpeechRecognizer |

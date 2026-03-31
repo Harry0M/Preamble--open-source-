@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Task::class, TaskTagOverride::class], version = 14, exportSchema = false)
+@Database(entities = [Task::class, TaskTagOverride::class], version = 15, exportSchema = false)
 abstract class PreambleDatabase : RoomDatabase() {
 
     abstract fun taskDao(): TaskDao
@@ -23,7 +23,7 @@ abstract class PreambleDatabase : RoomDatabase() {
                     PreambleDatabase::class.java,
                     "preamble_db"
                 )
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -197,6 +197,22 @@ abstract class PreambleDatabase : RoomDatabase() {
                 // Independent alarm management columns
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `customAlarmTimeMs` INTEGER")
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `isAlarmPaused` INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Extended Google Calendar metadata columns
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `attendeesJson` TEXT")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `remindersJson` TEXT")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `htmlLink` TEXT")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `organizerJson` TEXT")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `visibility` TEXT")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `attachmentsJson` TEXT")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `conferencePhone` TEXT")
+                // Extended Google Tasks metadata columns
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `webViewLink` TEXT")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `taskLinksJson` TEXT")
             }
         }
     }

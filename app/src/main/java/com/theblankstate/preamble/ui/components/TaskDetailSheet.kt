@@ -1,5 +1,6 @@
 package com.theblankstate.preamble.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,25 +17,33 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CalendarToday
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.LocalOffer
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -52,14 +61,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.theblankstate.preamble.data.PredefinedTags
 import com.theblankstate.preamble.data.Task
+import com.theblankstate.preamble.data.TaskInputValidator
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+
+// Color constants
+private val GoogleBlue = Color(0xFF4285F4)
+private val GoogleGreen = Color(0xFF34A853)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -118,7 +134,18 @@ fun TaskDetailSheet(
             }
             onDismiss()
         },
-        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface,
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 12.dp)
+                    .width(40.dp)
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+            )
+        }
     ) {
         Column(
             modifier = Modifier
@@ -127,18 +154,20 @@ fun TaskDetailSheet(
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp)
         ) {
-            // Header row: title + actions
+            // ═══════════════════════════════════════════════════════════════
+            // HEADER
+            // ═══════════════════════════════════════════════════════════════
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Task Details",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    text = "Edit Task",
+                    style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
                 )
-                Row {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     if (onStartPomodoro != null) {
                         IconButton(onClick = {
                             onStartPomodoro()
@@ -166,13 +195,19 @@ fun TaskDetailSheet(
                 }
             }
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Source badge
+            EditSourceBadge(task)
+
             Spacer(modifier = Modifier.height(16.dp))
 
+            // Sync warning
             if (task.syncFailed) {
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
@@ -180,214 +215,276 @@ fun TaskDetailSheet(
                     ) {
                         Icon(
                             imageVector = Icons.Default.CloudOff,
-                            contentDescription = "Offline Sync",
+                            contentDescription = null,
                             tint = MaterialTheme.colorScheme.error,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "Saved locally. Will sync to Google when you are back online.",
+                            text = "Saved locally. Will sync when online.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onErrorContainer
                         )
                     }
                 }
+                Spacer(modifier = Modifier.height(16.dp))
             }
 
-            // Title
-            OutlinedTextField(
-                value = taskTitle,
-                onValueChange = { taskTitle = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Task title") },
-                singleLine = true,
-                shape = RoundedCornerShape(12.dp),
-                textStyle = MaterialTheme.typography.bodyLarge
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Date & Time row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                OutlinedButton(
-                    onClick = { showDatePicker = true },
+            // ═══════════════════════════════════════════════════════════════
+            // TITLE
+            // ═══════════════════════════════════════════════════════════════
+            EditSection(title = "Title", icon = Icons.Default.Description) {
+                OutlinedTextField(
+                    value = taskTitle,
+                    onValueChange = {
+                        if (it.length <= TaskInputValidator.TITLE_MAX_LENGTH) {
+                            taskTitle = it
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("What needs to be done?") },
+                    singleLine = true,
                     shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        Icons.Default.CalendarToday,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
+                    textStyle = MaterialTheme.typography.bodyLarge,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = selectedDate?.let {
-                            try {
-                                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-                                val displaySdf = SimpleDateFormat("MMM d", Locale.US)
-                                displaySdf.format(sdf.parse(it)!!)
-                            } catch (_: Exception) { it }
-                        } ?: "Date",
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                }
-
-                OutlinedButton(
-                    onClick = { showTimePicker = true },
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(
-                        Icons.Default.AccessTime,
-                        contentDescription = null,
-                        modifier = Modifier.size(16.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(
-                        text = selectedTime ?: "Time",
-                        style = MaterialTheme.typography.labelMedium
-                    )
-                }
+                )
             }
 
-            // Clear buttons
-            if (selectedTime != null || selectedDate != null) {
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // ═══════════════════════════════════════════════════════════════
+            // DATE & TIME
+            // ═══════════════════════════════════════════════════════════════
+            EditSection(title = "Schedule", icon = Icons.Default.Event) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (selectedTime != null) {
+                    // Date picker
+                    Surface(
+                        onClick = { showDatePicker = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.CalendarToday,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Date",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = selectedDate?.let { formatShortDate(it) } ?: "Not set",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    // Time picker
+                    Surface(
+                        onClick = { showTimePicker = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.AccessTime,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "Time",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = selectedTime ?: "All day",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Clear time button
+                if (selectedTime != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         TextButton(onClick = { selectedTime = null }) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = null,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
                             Text("Clear time", style = MaterialTheme.typography.labelSmall)
                         }
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // Priority
-            Text(
-                "Priority",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                val priorities = listOf(0 to "None", 1 to "Low", 2 to "Medium", 3 to "High")
-                priorities.forEach { (value, label) ->
-                    FilterChip(
-                        selected = selectedPriority == value,
-                        onClick = { selectedPriority = value },
-                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+            // ═══════════════════════════════════════════════════════════════
+            // PRIORITY
+            // ═══════════════════════════════════════════════════════════════
+            EditSection(title = "Priority", icon = Icons.Default.Flag) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    PriorityOption(
+                        label = "None",
+                        color = MaterialTheme.colorScheme.outline,
+                        isSelected = selectedPriority == 0,
+                        onClick = { selectedPriority = 0 },
+                        modifier = Modifier.weight(1f)
+                    )
+                    PriorityOption(
+                        label = "Low",
+                        color = Color(0xFF388E3C),
+                        isSelected = selectedPriority == 1,
+                        onClick = { selectedPriority = 1 },
+                        modifier = Modifier.weight(1f)
+                    )
+                    PriorityOption(
+                        label = "Medium",
+                        color = Color(0xFFF57C00),
+                        isSelected = selectedPriority == 2,
+                        onClick = { selectedPriority = 2 },
+                        modifier = Modifier.weight(1f)
+                    )
+                    PriorityOption(
+                        label = "High",
+                        color = Color(0xFFD32F2F),
+                        isSelected = selectedPriority == 3,
+                        onClick = { selectedPriority = 3 },
                         modifier = Modifier.weight(1f)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // Description
-            Text(
-                "Description",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
-            OutlinedTextField(
-                value = taskDescription,
-                onValueChange = { taskDescription = it },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Add details...") },
-                minLines = 2,
-                maxLines = 4,
-                shape = RoundedCornerShape(12.dp)
-            )
+            // ═══════════════════════════════════════════════════════════════
+            // DESCRIPTION
+            // ═══════════════════════════════════════════════════════════════
+            EditSection(title = "Description", icon = Icons.Default.Description) {
+                OutlinedTextField(
+                    value = taskDescription,
+                    onValueChange = {
+                        if (it.length <= TaskInputValidator.DESCRIPTION_MAX_LENGTH) {
+                            taskDescription = it
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text("Add notes or details...") },
+                    minLines = 3,
+                    maxLines = 5,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+                    )
+                )
+            }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-            // Tags
-            Text(
-                "Tags",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 6.dp)
-            )
-            TagPicker(
-                selectedTags = selectedTags,
-                onTagsChanged = { selectedTags = it },
-                lockedTags = buildSet {
-                    if (task.source == "google_calendar") add("Google Calendar")
-                    if (task.source == "google_tasks") add("Google Tasks")
-                }
-            )
+            // ═══════════════════════════════════════════════════════════════
+            // TAGS
+            // ═══════════════════════════════════════════════════════════════
+            EditSection(title = "Tags", icon = Icons.Default.LocalOffer) {
+                TagPicker(
+                    selectedTags = selectedTags,
+                    onTagsChanged = { selectedTags = it },
+                    lockedTags = buildSet {
+                        if (task.source == "google_calendar") add("Google Calendar")
+                        if (task.source == "google_tasks") add("Google Tasks")
+                    }
+                )
+            }
 
             // Recurrence (for template tasks)
             if (task.isRecurrenceTemplate || task.recurrenceParentId == null) {
-                Spacer(modifier = Modifier.height(8.dp))
-                RecurrencePicker(
-                    recurrenceType = recurrenceType,
-                    recurrenceInterval = recurrenceInterval,
-                    recurrenceDays = recurrenceDays,
-                    recurrenceEndDate = recurrenceEndDate,
-                    onRecurrenceTypeChanged = { recurrenceType = it; if (it == null) { recurrenceInterval = 1; recurrenceDays = emptySet(); recurrenceEndDate = null } },
-                    onIntervalChanged = { recurrenceInterval = it },
-                    onDaysChanged = { recurrenceDays = it },
-                    onEndDateChanged = { recurrenceEndDate = it }
-                )
-            }
-
-            // Source badge
-            if (task.isCalendarEvent || task.isGoogleTask) {
-                Spacer(modifier = Modifier.height(12.dp))
-                HorizontalDivider()
-                Spacer(modifier = Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(Color(0xFF4285F4))
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = if (task.isCalendarEvent) "Synced from Google Calendar" else "Synced from Google Tasks",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                Spacer(modifier = Modifier.height(20.dp))
+                EditSection(title = "Repeat", icon = Icons.Default.Repeat) {
+                    RecurrencePicker(
+                        recurrenceType = recurrenceType,
+                        recurrenceInterval = recurrenceInterval,
+                        recurrenceDays = recurrenceDays,
+                        recurrenceEndDate = recurrenceEndDate,
+                        onRecurrenceTypeChanged = {
+                            recurrenceType = it
+                            if (it == null) {
+                                recurrenceInterval = 1
+                                recurrenceDays = emptySet()
+                                recurrenceEndDate = null
+                            }
+                        },
+                        onIntervalChanged = { recurrenceInterval = it },
+                        onDaysChanged = { recurrenceDays = it },
+                        onEndDateChanged = { recurrenceEndDate = it }
                     )
                 }
             }
 
-            // Metadata
+            Spacer(modifier = Modifier.height(20.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider()
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Created: ${formatDisplayDate(task.createdDate)}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-            )
-            if (task.isCompleted && task.completedTimestamp != null) {
-                Text(
-                    text = "Completed: ${formatTimestamp(task.completedTimestamp)}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+
+            // ═══════════════════════════════════════════════════════════════
+            // METADATA
+            // ═══════════════════════════════════════════════════════════════
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                EditMetadataItem(
+                    label = "Created",
+                    value = formatDisplayDate(task.createdDate),
+                    modifier = Modifier.weight(1f)
                 )
+                if (task.isCompleted && task.completedTimestamp != null) {
+                    EditMetadataItem(
+                        label = "Completed",
+                        value = formatTimestamp(task.completedTimestamp),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
-
+            // Info-only warning
             if (task.isInfoOnly) {
+                Spacer(modifier = Modifier.height(16.dp))
                 Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f),
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
@@ -395,24 +492,28 @@ fun TaskDetailSheet(
                     ) {
                         Icon(
                             imageVector = Icons.Default.Info,
-                            contentDescription = "Info",
-                            tint = MaterialTheme.colorScheme.error,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.tertiary,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
                         Text(
-                            text = "This event type (${task.eventType ?: "event"}) cannot be deleted or modified via third-party apps per Google API rules. Please consider managing it directly in Google Calendar.",
+                            text = "This ${task.eventType ?: "event"} can only be modified in Google Calendar.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
                         )
                     }
                 }
             }
 
-            // Save button
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ═══════════════════════════════════════════════════════════════
+            // SAVE BUTTON
+            // ═══════════════════════════════════════════════════════════════
             Button(
                 onClick = {
-                    if (taskTitle.isNotBlank()) {
+                    if (taskTitle.trim().isNotBlank()) {
                         onUpdateTask(
                             taskTitle.trim(),
                             selectedDate,
@@ -430,11 +531,23 @@ fun TaskDetailSheet(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp),
-                enabled = taskTitle.isNotBlank() && hasChanges,
-                shape = CircleShape
+                    .height(52.dp),
+                enabled = taskTitle.trim().isNotBlank() && hasChanges,
+                shape = RoundedCornerShape(26.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                )
             ) {
-                Text("Save Changes")
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    "Save Changes",
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold)
+                )
             }
         }
     }
@@ -502,6 +615,146 @@ fun TaskDetailSheet(
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Helper Composables
+// ═══════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun EditSourceBadge(task: Task) {
+    val (icon, text, color) = when {
+        task.isCalendarEvent -> Triple(
+            Icons.Default.Event,
+            task.calendarName ?: "Google Calendar",
+            GoogleBlue
+        )
+        task.isGoogleTask -> Triple(
+            Icons.AutoMirrored.Filled.Assignment,
+            "Google Tasks",
+            GoogleGreen
+        )
+        else -> Triple(
+            Icons.Default.TaskAlt,
+            "Local Task",
+            MaterialTheme.colorScheme.primary
+        )
+    }
+
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = color.copy(alpha = 0.12f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+                tint = color
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = color
+            )
+        }
+    }
+}
+
+@Composable
+private fun EditSection(
+    title: String,
+    icon: ImageVector,
+    content: @Composable () -> Unit
+) {
+    Column {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(bottom = 10.dp)
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(18.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
+        content()
+    }
+}
+
+@Composable
+private fun PriorityOption(
+    label: String,
+    color: Color,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (isSelected) color.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+        border = if (isSelected) BorderStroke(2.dp, color) else null,
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .clip(CircleShape)
+                    .background(if (isSelected) color else color.copy(alpha = 0.5f))
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = if (isSelected) color else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun EditMetadataItem(
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Helper Functions
+// ═══════════════════════════════════════════════════════════════════════════
+
 private fun formatDisplayDate(dateStr: String): String {
     return try {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
@@ -512,7 +765,17 @@ private fun formatDisplayDate(dateStr: String): String {
     }
 }
 
+private fun formatShortDate(dateStr: String): String {
+    return try {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val displaySdf = SimpleDateFormat("EEE, MMM d", Locale.US)
+        displaySdf.format(sdf.parse(dateStr)!!)
+    } catch (_: Exception) {
+        dateStr
+    }
+}
+
 private fun formatTimestamp(timestamp: Long): String {
-    val sdf = SimpleDateFormat("MMM d, yyyy 'at' HH:mm", Locale.US)
+    val sdf = SimpleDateFormat("MMM d, yyyy", Locale.US)
     return sdf.format(Date(timestamp))
 }

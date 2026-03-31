@@ -83,6 +83,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val currentUser by AuthManager.currentUser.collectAsState()
     var signInLoading by remember { mutableStateOf(false) }
     var signOutLoading by remember { mutableStateOf(false) }
+    var parityCheckLoading by remember { mutableStateOf(false) }
 
     // Google Calendar & Tasks state (unified)
     val calendarLinked by GoogleCalendarManager.isLinked.collectAsState()
@@ -201,44 +202,109 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
             SectionTitle("Account")
             SettingsCard {
                 if (currentUser != null) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                currentUser?.displayName ?: "User",
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                            Text(
-                                currentUser?.email ?: "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                    Column {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    currentUser?.displayName ?: "User",
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Text(
+                                    currentUser?.email ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    if (signOutLoading) return@OutlinedButton
+                                    signOutLoading = true
+                                    scope.launch {
+                                        try {
+                                            val app = context.applicationContext as PreambleApplication
+                                            app.repository.flushAndClearLocalOnLogout()
+                                            AuthManager.signOut()
+                                        } finally {
+                                            signOutLoading = false
+                                        }
+                                    }
+                                },
+                                enabled = !signOutLoading && !parityCheckLoading,
+                                shape = CircleShape
+                            ) {
+                                if (signOutLoading) {
+                                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                                } else {
+                                    Text("Sign Out")
+                                }
+                            }
                         }
-                        OutlinedButton(
-                            onClick = {
-                                if (signOutLoading) return@OutlinedButton
-                                signOutLoading = true
-                                scope.launch {
-                                    try {
-                                        val app = context.applicationContext as PreambleApplication
-                                        app.repository.flushAndClearLocalOnLogout()
-                                        AuthManager.signOut()
-                                    } finally {
-                                        signOutLoading = false
+
+                        HorizontalDivider()
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(enabled = !parityCheckLoading && !signOutLoading) {
+                                    parityCheckLoading = true
+                                    scope.launch {
+                                        try {
+                                            val summary = app.repository.verifyFirebaseFirestoreParity()
+                                            when {
+                                                summary == null -> {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Parity check unavailable (sign in required)",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                                summary.isMatch -> {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Parity OK: tasks ${summary.tasksBaselineCount}, tag overrides ${summary.tagOverridesBaselineCount}",
+                                                        Toast.LENGTH_SHORT
+                                                    ).show()
+                                                }
+                                                else -> {
+                                                    Toast.makeText(
+                                                        context,
+                                                        "Parity mismatch detected. Check Logcat: FirebaseTaskSync",
+                                                        Toast.LENGTH_LONG
+                                                    ).show()
+                                                }
+                                            }
+                                        } catch (e: Throwable) {
+                                            Toast.makeText(
+                                                context,
+                                                "Parity check failed: ${e.message ?: "unknown error"}",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } finally {
+                                            parityCheckLoading = false
+                                        }
                                     }
                                 }
-                            },
-                            enabled = !signOutLoading,
-                            shape = CircleShape
+                                .padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (signOutLoading) {
-                                CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Validate Firestore Mirror", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    "Compare local Room vs Firestore IDs/counts",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                            if (parityCheckLoading) {
+                                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
                             } else {
-                                Text("Sign Out")
+                                Text("✓", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                             }
                         }
                     }
@@ -570,6 +636,41 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             )
                         }
                     }
+                }
+            }
+
+            // ── General ──
+            SectionTitle("General")
+            SettingsCard {
+                var hapticEnabled by remember {
+                    mutableStateOf(
+                        context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                            .getBoolean("haptic_feedback_enabled", true)
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Haptic Feedback", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Vibrate on task completion & actions",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                    Switch(
+                        checked = hapticEnabled,
+                        onCheckedChange = { enabled ->
+                            hapticEnabled = enabled
+                            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                .edit().putBoolean("haptic_feedback_enabled", enabled).apply()
+                        }
+                    )
                 }
             }
 
@@ -1012,8 +1113,9 @@ private fun ThemeSelectorRow(context: Context) {
         ) {
             Column {
                 Text("App Theme", style = MaterialTheme.typography.bodyLarge)
+                val displayName = if (currentMode == ThemePreferences.ThemeMode.AMOLED) "AMOLED Black" else currentMode.name.lowercase().replaceFirstChar { it.uppercase() }
                 Text(
-                    currentMode.name.lowercase().replaceFirstChar { it.uppercase() },
+                    displayName,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
@@ -1069,7 +1171,8 @@ private fun ThemeSelectorRow(context: Context) {
                                 }
                             )
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text(mode.name.lowercase().replaceFirstChar { it.uppercase() })
+                            val displayName = if (mode == ThemePreferences.ThemeMode.AMOLED) "AMOLED Black" else mode.name.lowercase().replaceFirstChar { it.uppercase() }
+                            Text(displayName)
                         }
                     }
                 }
