@@ -26,6 +26,11 @@ class GoogleCalendarDeletionWorker(
         return try {
             val success = GoogleCalendarManager.deleteCalendarEvent(applicationContext, eventId, calendarId)
             if (success) {
+                GoogleSyncWorker.enqueueImmediate(
+                    applicationContext,
+                    forceFull = false,
+                    reason = "google_calendar_delete"
+                )
                 Result.success()
             } else {
                 Log.e("GoogleCalDeletion", "Failed to delete event remotely. Retrying...")

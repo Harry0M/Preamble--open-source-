@@ -9,6 +9,7 @@ import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.notification.TaskNotificationManager
 import com.theblankstate.preamble.repository.TaskRepository
 import com.theblankstate.preamble.sync.GoogleCalendarManager
+import com.theblankstate.preamble.sync.GoogleSyncCoordinator
 import com.theblankstate.preamble.sync.GoogleTasksManager
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -165,44 +166,6 @@ class TaskViewModel(
             }
         }
 
-        // Auto-sync Google data on app launch (with 60s cooldown)
-        autoSyncOnLaunch()
-    }
-
-    private fun autoSyncOnLaunch() {
-        viewModelScope.launch {
-            try {
-                val app = appContext.applicationContext as com.theblankstate.preamble.PreambleApplication
-                // Full sync Google Tasks
-                if (GoogleTasksManager.isLinked.value) {
-                    val lastSync = GoogleTasksManager.lastSyncTime.value
-                    val now = System.currentTimeMillis()
-                    if (now - lastSync > 60_000) { // 60s cooldown
-                        val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext) { partialTasks ->
-                            app.repository.quickSyncGoogleTasks(partialTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
-                        }
-                        app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
-                    }
-                }
-                // Sync Google Calendar — route based on incremental vs full
-                if (GoogleCalendarManager.isLinked.value) {
-                    val lastSync = GoogleCalendarManager.lastSyncTime.value
-                    val now = System.currentTimeMillis()
-                    if (now - lastSync > 60_000) {
-                        val calResult = GoogleCalendarManager.fetchCalendarEvents(appContext) { partialEvents ->
-                            app.repository.quickSyncCalendarEvents(partialEvents)
-                        }
-                        if (calResult.isIncremental) {
-                            app.repository.quickSyncCalendarEvents(calResult.events)
-                        } else {
-                            app.repository.syncCalendarEvents(calResult.events)
-                        }
-                    }
-                }
-            } catch (e: Throwable) {
-                android.util.Log.e("TaskViewModel", "Auto-sync on launch failed", e)
-            }
-        }
     }
 
     // ── Pull-to-refresh Google sync ──
@@ -220,35 +183,13 @@ class TaskViewModel(
             _isRefreshing.value = true
             try {
                 val app = appContext.applicationContext as com.theblankstate.preamble.PreambleApplication
-
-                // Incremental sync Google Tasks (only changes since last sync)
-                if (GoogleTasksManager.isLinked.value) {
-                    val lastSync = GoogleTasksManager.lastSyncTime.value
-                    if (lastSync > 0) {
-                        val updatedAfterRfc = com.google.api.client.util.DateTime(lastSync).toStringRfc3339()
-                        val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext, updatedAfter = updatedAfterRfc) { partialTasks ->
-                            app.repository.quickSyncGoogleTasks(partialTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
-                        }
-                        app.repository.quickSyncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
-                    } else {
-                        val gTasks = GoogleTasksManager.fetchGoogleTasks(appContext) { partialTasks ->
-                            app.repository.quickSyncGoogleTasks(partialTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
-                        }
-                        app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
-                    }
-                }
-
-                // Sync Google Calendar — route based on incremental vs full
-                if (GoogleCalendarManager.isLinked.value) {
-                    val calResult = GoogleCalendarManager.fetchCalendarEvents(appContext) { partialEvents ->
-                        app.repository.quickSyncCalendarEvents(partialEvents)
-                    }
-                    if (calResult.isIncremental) {
-                        app.repository.quickSyncCalendarEvents(calResult.events)
-                    } else {
-                        app.repository.syncCalendarEvents(calResult.events)
-                    }
-                }
+                GoogleSyncCoordinator.syncLinkedData(
+                    context = appContext,
+                    forceFull = false,
+                    isManual = true,
+                    isBackground = false,
+                    reason = "pull_to_refresh"
+                )
 
                 // If neither Google service is linked, sync with Firebase instead
                 if (!GoogleTasksManager.isLinked.value && !GoogleCalendarManager.isLinked.value) {

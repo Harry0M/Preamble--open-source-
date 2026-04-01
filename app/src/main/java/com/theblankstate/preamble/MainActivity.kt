@@ -44,6 +44,7 @@ import com.theblankstate.preamble.ui.screens.HomeScreen
 import com.theblankstate.preamble.ui.screens.OnboardingScreen
 import com.theblankstate.preamble.ui.screens.SettingsScreen
 import com.theblankstate.preamble.ui.screens.StatsScreen
+import com.theblankstate.preamble.sync.GoogleSyncCoordinator
 import com.theblankstate.preamble.ui.theme.PreambleTheme
 import com.theblankstate.preamble.ui.theme.ThemePreferences
 import com.theblankstate.preamble.viewmodel.TaskViewModel
@@ -104,39 +105,40 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Efficient auto-sync: only runs if 15+ minutes since last sync.
-     * Runs in background so UI is not blocked.
+     * Efficient auto-sync on resume:
+     * - Skips if last sync was within the 60-second cooldown.
+     * - Skips incremental sync if no syncToken exists yet (background full sync is in progress
+     *   after first link — no point doing an empty incremental call).
+     * - Runs in background so UI is not blocked.
      */
     private fun autoSyncGoogleData() {
-        val app = application as PreambleApplication
-        val cooldownMs = 60 * 1000L // 60 seconds — near-instant sync on app resume
+        val cooldownMs = 60 * 1000L
 
         lifecycleScope.launch {
             try {
-                val now = System.currentTimeMillis()
-
-                // Sync Google Calendar — route based on incremental vs full
-                if (com.theblankstate.preamble.sync.GoogleCalendarManager.isLinked.value) {
-                    val lastCalSync = com.theblankstate.preamble.sync.GoogleCalendarManager.lastSyncTime.value
-                    if (now - lastCalSync > cooldownMs) {
-                        val calResult = com.theblankstate.preamble.sync.GoogleCalendarManager.fetchCalendarEvents(this@MainActivity)
-                        if (calResult.isIncremental) {
-                            app.repository.quickSyncCalendarEvents(calResult.events)
-                        } else {
-                            app.repository.syncCalendarEvents(calResult.events)
-                        }
-                        android.util.Log.d("MainActivity", "Auto-synced ${calResult.events.size} calendar events (${if (calResult.isIncremental) "incremental" else "full"})")
-                    }
+                // If Calendar is linked but no syncToken exists yet, the background full sync
+                // is still in progress. Skip the incremental call entirely.
+                val calendarLinked = com.theblankstate.preamble.sync.GoogleCalendarManager.isLinked.value
+                val hasToken = com.theblankstate.preamble.sync.GoogleCalendarManager
+                    .hasAnySyncToken(this@MainActivity)
+                if (calendarLinked && !hasToken) {
+                    android.util.Log.d(
+                        "MainActivity",
+                        "onResume sync skipped — no syncToken yet, full sync in progress"
+                    )
+                    return@launch
                 }
 
-                // Full sync Google Tasks if linked and cooldown elapsed
-                if (com.theblankstate.preamble.sync.GoogleTasksManager.isLinked.value) {
-                    val lastTaskSync = com.theblankstate.preamble.sync.GoogleTasksManager.lastSyncTime.value
-                    if (now - lastTaskSync > cooldownMs) {
-                        val gTasks = com.theblankstate.preamble.sync.GoogleTasksManager.fetchGoogleTasks(this@MainActivity)
-                        app.repository.syncGoogleTasks(gTasks, com.theblankstate.preamble.sync.GoogleTasksManager.autoDeleteGoogleTasks.value)
-                        android.util.Log.d("MainActivity", "Auto-synced ${gTasks.size} Google tasks")
-                    }
+                val summary = GoogleSyncCoordinator.syncLinkedDataIfStale(
+                    context = this@MainActivity,
+                    staleAfterMs = cooldownMs,
+                    reason = "activity_resume"
+                )
+                if (summary != null) {
+                    android.util.Log.d(
+                        "MainActivity",
+                        "Auto-synced ${summary.calendarEvents} calendar events + ${summary.googleTasks} Google tasks"
+                    )
                 }
             } catch (e: Throwable) {
                 android.util.Log.e("MainActivity", "Auto-sync failed", e)

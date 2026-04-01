@@ -26,6 +26,11 @@ class GoogleTaskDeletionWorker(
         return try {
             val success = GoogleTasksManager.deleteGoogleTask(applicationContext, googleTaskId)
             if (success) {
+                GoogleSyncWorker.enqueueImmediate(
+                    applicationContext,
+                    forceFull = false,
+                    reason = "google_task_delete"
+                )
                 Result.success()
             } else {
                 Log.e("GoogleTaskDeletion", "Failed to delete task remotely. Retrying...")

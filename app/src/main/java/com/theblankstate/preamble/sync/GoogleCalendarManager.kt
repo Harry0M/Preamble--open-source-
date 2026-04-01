@@ -68,11 +68,22 @@ object GoogleCalendarManager {
     private val _isManualSyncing = MutableStateFlow(false)
     val isManualSyncing: StateFlow<Boolean> = _isManualSyncing.asStateFlow()
 
+    /** True only while a background WorkManager sync is running (silent, no spinner normally). */
+    private val _isBgSyncing = MutableStateFlow(false)
+    val isBgSyncing: StateFlow<Boolean> = _isBgSyncing.asStateFlow()
+
     private val _lastSyncTime = MutableStateFlow<Long>(0)
     val lastSyncTime: StateFlow<Long> = _lastSyncTime.asStateFlow()
 
     private val _linkedEmail = MutableStateFlow<String?>(null)
     val linkedEmail: StateFlow<String?> = _linkedEmail.asStateFlow()
+
+    /**
+     * Mutex to prevent multiple concurrent full syncs from writing duplicate data to Room.
+     * Background and foreground syncs each have their own guard; this prevents
+     * the same-type sync from running twice simultaneously.
+     */
+    private val syncMutex = Mutex()
 
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -136,6 +147,16 @@ object GoogleCalendarManager {
         Log.d(TAG, "Google Calendar unlinked")
     }
 
+    fun resetSyncState(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_LAST_SYNC)
+            .apply()
+        _lastSyncTime.value = 0
+        clearSyncTokens(context)
+        Log.d(TAG, "Google Calendar sync state reset")
+    }
+
     // ── Sync Token Storage ──
 
     private const val SYNC_TOKEN_PREFS = "google_calendar_sync_tokens"
@@ -146,15 +167,30 @@ object GoogleCalendarManager {
     }
 
     private fun saveSyncToken(context: Context, calendarId: String, token: String?) {
-        context.getSharedPreferences(SYNC_TOKEN_PREFS, Context.MODE_PRIVATE)
-            .edit()
-            .putString("sync_token_$calendarId", token)
-            .apply()
+        if (token == null) {
+            context.getSharedPreferences(SYNC_TOKEN_PREFS, Context.MODE_PRIVATE)
+                .edit().remove("sync_token_$calendarId").apply()
+        } else {
+            context.getSharedPreferences(SYNC_TOKEN_PREFS, Context.MODE_PRIVATE)
+                .edit().putString("sync_token_$calendarId", token).apply()
+        }
     }
 
     private fun clearSyncTokens(context: Context) {
         context.getSharedPreferences(SYNC_TOKEN_PREFS, Context.MODE_PRIVATE)
             .edit().clear().apply()
+    }
+
+    /**
+     * Returns true if at least one calendar has a stored syncToken.
+     * Used by onResume to skip incremental sync when no token exists yet
+     * (i.e. the background full sync has not completed yet after first link).
+     */
+    fun hasAnySyncToken(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(SYNC_TOKEN_PREFS, Context.MODE_PRIVATE)
+        return prefs.all.any { (key, value) ->
+            key.startsWith("sync_token_") && value is String && value.isNotEmpty()
+        }
     }
 
     /**
@@ -168,34 +204,61 @@ object GoogleCalendarManager {
      *
      * @param forceFullSync If true, clears sync tokens and does a full re-sync
      */
+    /**
+     * Fetch all calendar events.
+     *
+     * - **isManual = true**: Pull-to-refresh triggered by user. Shows manual sync spinner.
+     * - **isBackground = true**: Called from background WorkManager. Sets isBgSyncing flag.
+     * - **forceFullSync = true**: Clears all syncTokens and forces a full re-fetch.
+     *
+     * Incremental vs Full is determined per-calendar by presence of a stored syncToken.
+     * Background and foreground syncs have SEPARATE flags and can run concurrently.
+     */
     suspend fun fetchCalendarEvents(
         context: Context,
         forceFullSync: Boolean = false,
         isManual: Boolean = false,
+        isBackground: Boolean = false,
         onProgressUpdate: suspend (List<Task>) -> Unit = {}
     ): CalendarSyncResult = withContext(Dispatchers.IO) {
         val account = GoogleSignIn.getLastSignedInAccount(context)
         if (account == null) {
-            Log.e(TAG, "No signed-in account found")
+            Log.e(TAG, "❌ FETCH_ABORTED: no signed-in Google account")
             return@withContext CalendarSyncResult(emptyList(), isIncremental = false)
         }
 
-        if (_isSyncing.value) {
-            Log.d(TAG, "Calendar sync already in progress, skipping concurrent request")
-            return@withContext CalendarSyncResult(emptyList(), isIncremental = true)
+        Log.i(TAG, "FETCH_CALENDAR_EVENTS account=${account.email} " +
+            "forceFullSync=$forceFullSync isManual=$isManual isBackground=$isBackground")
+        Log.i(TAG, "  STATE: isBgSyncing=${_isBgSyncing.value} isManualSyncing=${_isManualSyncing.value} " +
+            "mutex.isLocked=${syncMutex.isLocked}")
+
+        // Only block if the SAME sync type is already running to prevent duplicates.
+        // Use syncMutex.tryLock() for race-condition-free check.
+        if (isBackground) {
+            if (!syncMutex.tryLock()) {
+                Log.w(TAG, "⚡ SKIPPED (mutex locked) — background sync already running")
+                return@withContext CalendarSyncResult(emptyList(), isIncremental = true)
+            }
+            Log.d(TAG, "  Mutex acquired for background sync")
+        } else {
+            if (_isManualSyncing.value) {
+                Log.w(TAG, "⚡ SKIPPED — manual/pull-to-refresh sync already in progress")
+                return@withContext CalendarSyncResult(emptyList(), isIncremental = true)
+            }
         }
 
         if (forceFullSync) {
+            Log.i(TAG, "  ⚠️ FORCE_FULL: clearing all sync tokens")
             clearSyncTokens(context)
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putLong(KEY_LAST_SYNC, 0)
-                .apply()
+                .edit().putLong(KEY_LAST_SYNC, 0).apply()
         }
 
         try {
             if (isManual) _isManualSyncing.value = true
+            if (isBackground) _isBgSyncing.value = true
             _isSyncing.value = true
+            Log.i(TAG, "  FLAGS_SET: isSyncing=true isManual=$isManual isBackground=$isBackground")
 
             val credential = GoogleAccountCredential.usingOAuth2(
                 context,
@@ -219,7 +282,12 @@ object GoogleCalendarManager {
             val calendarList = calendarService.calendarList().list().execute()
             val calendars = calendarList.items ?: emptyList()
 
-            Log.d(TAG, "Found ${calendars.size} calendars")
+            Log.i(TAG, "  CALENDARS_FOUND: ${calendars.size} calendars")
+            calendars.forEachIndexed { i, cal ->
+                val tok = getSyncToken(context, cal.id)
+                Log.i(TAG, "    [$i] '${cal.summary}' id=${cal.id} " +
+                    "token=${if (tok != null) "EXISTS(${tok.take(15)}...)" else "NONE→FULL_SYNC"}")
+            }
 
             // Track whether ALL calendars used incremental sync
             var allIncremental = calendars.isNotEmpty()
@@ -229,12 +297,11 @@ object GoogleCalendarManager {
             coroutineScope {
                 val jobs = calendars.map { cal ->
                     async(Dispatchers.IO) {
-                        val result = fetchEventsForCalendar(
+                        fetchEventsForCalendar(
                             calendarService, cal, context,
                             masterRruleCache, cacheMutex,
                             onProgressUpdate
                         )
-                        result
                     }
                 }
                 val calendarResults = jobs.awaitAll()
@@ -248,23 +315,34 @@ object GoogleCalendarManager {
             val syncTime = System.currentTimeMillis()
             _lastSyncTime.value = syncTime
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putLong(KEY_LAST_SYNC, syncTime)
-                .apply()
+                .edit().putLong(KEY_LAST_SYNC, syncTime).apply()
 
-            Log.d(TAG, "Total events fetched: ${allEvents.size} (${if (allIncremental) "incremental" else "full"})")
+            Log.i(TAG, "FETCH_COMPLETE: totalEvents=${allEvents.size} " +
+                "allIncremental=$allIncremental " +
+                "mode=${if (allIncremental) "🔄 INCREMENTAL (token-based)" else "🔄 FULL (no token)"}")
             CalendarSyncResult(allEvents, isIncremental = allIncremental)
         } catch (e: Throwable) {
-            Log.e(TAG, "Error fetching calendar events", e)
+            Log.e(TAG, "❌ FETCH_FAILED: ${e.javaClass.simpleName}: ${e.message}", e)
             CalendarSyncResult(emptyList(), isIncremental = false)
         } finally {
             _isSyncing.value = false
             if (isManual) _isManualSyncing.value = false
+            if (isBackground) _isBgSyncing.value = false
+            if (isBackground && syncMutex.isLocked) {
+                try { syncMutex.unlock() } catch (_: IllegalStateException) { /* already unlocked */ }
+            }
+            Log.i(TAG, "  FLAGS_CLEARED: isSyncing=false isManual=$isManual isBackground=$isBackground")
         }
     }
 
     /**
-     * Fetch events for a single calendar. Returns (events, wasIncremental).
+     * Fetch events for a single calendar using Google's syncToken approach.
+     *
+     * - If a syncToken is stored for this calendar: incremental sync (only changes returned).
+     * - If no syncToken: full sync with timeMin/timeMax, saves nextSyncToken for next time.
+     * - On 410 Gone (token expired): clears token, queues a background full sync, returns empty.
+     *
+     * Returns (events, wasIncremental).
      */
     private suspend fun fetchEventsForCalendar(
         calendarService: Calendar,
@@ -280,20 +358,19 @@ object GoogleCalendarManager {
             timeZone = TimeZone.getTimeZone("UTC")
         }
         val timeSdf = SimpleDateFormat("HH:mm", Locale.US)
-        var wasIncremental = false
+
+        // Determine sync mode from stored syncToken
+        val storedSyncToken = getSyncToken(context, cal.id)
+        val wasIncremental = storedSyncToken != null
+
+        Log.i(TAG, "►► SYNC_MODE cal='${cal.summary}' id='${cal.id}' " +
+            "mode=${if (wasIncremental) "INCREMENTAL" else "FULL"} " +
+            "storedToken=${if (storedSyncToken != null) storedSyncToken.take(20)+"..." else "null"}")
 
         try {
-            val lastSyncTime = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .getLong(KEY_LAST_SYNC, 0)
-            wasIncremental = lastSyncTime > 0
-
-            if (wasIncremental) {
-                Log.d(TAG, "Incremental sync for calendar: ${cal.summary}")
-            } else {
-                Log.d(TAG, "Full sync for calendar: ${cal.summary}")
-            }
-
             var pageToken: String? = null
+            var lastNextSyncToken: String? = null
+
             do {
                 val eventsRequest = calendarService.events().list(cal.id)
                     .setSingleEvents(true)
@@ -301,36 +378,45 @@ object GoogleCalendarManager {
                     .setShowDeleted(true)
                     .setPageToken(pageToken)
 
-                val now = System.currentTimeMillis()
-                val sixMonthsAgo = now - (180L * 24 * 60 * 60 * 1000)
-                val oneYearAhead = now + (365L * 24 * 60 * 60 * 1000)
-                eventsRequest.setTimeMin(DateTime(sixMonthsAgo))
-                eventsRequest.setTimeMax(DateTime(oneYearAhead))
-
                 if (wasIncremental) {
-                    val updatedMin = DateTime(lastSyncTime)
-                    eventsRequest.setUpdatedMin(updatedMin)
+                    // Incremental: send syncToken — Google returns ONLY changes since last sync.
+                    // Do NOT set timeMin/timeMax or orderBy when using syncToken.
+                    eventsRequest.setSyncToken(storedSyncToken)
                 } else {
-                    eventsRequest.setOrderBy("startTime")
+                    // Full sync: fetch time range.
+                    // IMPORTANT: Do NOT set orderBy — Google Calendar API does NOT return
+                    // nextSyncToken when orderBy is specified. Events are sorted by the app.
+                    val now = System.currentTimeMillis()
+                    val sixMonthsAgo = now - (180L * 24 * 60 * 60 * 1000)
+                    val oneYearAhead = now + (365L * 24 * 60 * 60 * 1000)
+                    eventsRequest.setTimeMin(DateTime(sixMonthsAgo))
+                    eventsRequest.setTimeMax(DateTime(oneYearAhead))
+                    // No setOrderBy() here — it prevents nextSyncToken from being returned!
                 }
 
                 val eventsResult = try {
+                    Log.v(TAG, "  → Executing API request for '${cal.summary}' page=${pageToken?.take(10) ?: "FIRST"}")
                     eventsRequest.execute()
-                } catch (e: Exception) {
-                    Log.w(TAG, "Sync failed for ${cal.summary}, falling back to full re-sync", e)
-                    wasIncremental = false
-                    val fullRequest = calendarService.events().list(cal.id)
-                        .setSingleEvents(true)
-                        .setMaxResults(250)
-                        .setShowDeleted(true)
-                    fullRequest.setTimeMin(DateTime(sixMonthsAgo))
-                    fullRequest.setTimeMax(DateTime(oneYearAhead))
-                    fullRequest.setOrderBy("startTime")
-                    fullRequest.execute()
+                } catch (e: GoogleJsonResponseException) {
+                    if (e.statusCode == 410) {
+                        Log.w(TAG, "⚠️ TOKEN_EXPIRED (410) cal='${cal.summary}' — clearing token, queuing full sync")
+                        saveSyncToken(context, cal.id, null)
+                        GoogleSyncWorker.enqueueFullSync(context)
+                        return Pair(emptyList(), false)
+                    }
+                    Log.e(TAG, "❌ API_ERROR cal='${cal.summary}' statusCode=${e.statusCode}", e)
+                    return Pair(emptyList(), wasIncremental)
                 }
 
-                val eventItems = eventsResult.items ?: emptyList()
+                val nextPageTok = eventsResult.nextPageToken
+                val nextSyncTok = eventsResult.nextSyncToken
+                val itemCount = eventsResult.items?.size ?: 0
+                Log.i(TAG, "  PAGE_RESULT cal='${cal.summary}' " +
+                    "items=$itemCount " +
+                    "nextPageToken=${if (nextPageTok != null) nextPageTok.take(10)+"..." else "null"} " +
+                    "nextSyncToken=${if (nextSyncTok != null) nextSyncTok.take(20)+"..." else "null"}")
                 val pageEvents = mutableListOf<Task>()
+                val eventItems = eventsResult.items ?: emptyList()
 
                 for (event in eventItems) {
                     if (event.status == "cancelled") {
@@ -344,7 +430,7 @@ object GoogleCalendarManager {
                         )
                         events.add(task)
                         pageEvents.add(task)
-                        Log.d(TAG, "Detected cancelled instance: ${event.id}")
+                        Log.d(TAG, "  ✕ CANCELLED id=${event.id} cal='${cal.summary}'")
                         continue
                     }
 
@@ -381,11 +467,27 @@ object GoogleCalendarManager {
                     }
                 }
 
+                // Save nextSyncToken from this page (last page's token is the real sync token)
+                eventsResult.nextSyncToken?.let { lastNextSyncToken = it }
                 pageToken = eventsResult.nextPageToken
+                Log.v(TAG, "  PAGE_DONE cal='${cal.summary}' " +
+                    "eventsThisPage=${pageEvents.size} totalSoFar=${events.size} " +
+                    "hasMorePages=${pageToken != null}")
             } while (pageToken != null)
 
-            Log.d(TAG, "Fetched events from calendar: ${cal.summary} (${if (wasIncremental) "incremental" else "full"})")
-        } catch (e: Throwable) {
+            // Persist the final nextSyncToken for future incremental syncs
+            if (lastNextSyncToken != null) {
+                saveSyncToken(context, cal.id, lastNextSyncToken)
+                Log.i(TAG, "✅ TOKEN_SAVED cal='${cal.summary}' token=${lastNextSyncToken.take(20)}...")
+            } else if (!wasIncremental) {
+                Log.w(TAG, "⚠️ NO_SYNC_TOKEN cal='${cal.summary}' totalEvents=${events.size} " +
+                    "[HINT: If this persists, Google may not support tokens for this calendar type]")
+            } else {
+                Log.d(TAG, "  Incremental sync complete for '${cal.summary}' — token carried over")
+            }
+
+            Log.i(TAG, "◄◄ FETCH_DONE cal='${cal.summary}' " +
+                "totalEvents=${events.size} mode=${if (wasIncremental) "INCREMENTAL" else "FULL"}")        } catch (e: Throwable) {
             Log.e(TAG, "Error fetching events from calendar ${cal.summary}", e)
         }
 

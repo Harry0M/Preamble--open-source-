@@ -35,10 +35,12 @@ object GoogleTasksManager {
     private const val PREFS_NAME = "google_tasks_prefs"
     private const val KEY_LINKED = "tasks_linked"
     private const val KEY_LAST_SYNC = "last_tasks_sync_timestamp"
+    private const val KEY_SYNC_ANCHOR = "last_tasks_sync_anchor_timestamp"
     private const val KEY_SYNC_VOICE = "sync_voice_to_google_tasks"
     private const val KEY_AUTO_DELETE = "auto_delete_google_tasks"
     private const val MAX_RETRIES = 2
     private const val RETRY_DELAY_MS = 1000L
+    private const val INCREMENTAL_OVERLAP_MS = 5_000L
 
     private val _isLinked = MutableStateFlow(false)
     val isLinked: StateFlow<Boolean> = _isLinked.asStateFlow()
@@ -55,10 +57,14 @@ object GoogleTasksManager {
     private val _autoDeleteGoogleTasks = MutableStateFlow(false)
     val autoDeleteGoogleTasks: StateFlow<Boolean> = _autoDeleteGoogleTasks.asStateFlow()
 
+    @Volatile
+    private var lastSyncAnchorMs: Long = 0L
+
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _isLinked.value = prefs.getBoolean(KEY_LINKED, false)
         _lastSyncTime.value = prefs.getLong(KEY_LAST_SYNC, 0)
+        lastSyncAnchorMs = prefs.getLong(KEY_SYNC_ANCHOR, 0)
         _syncVoiceTasks.value = prefs.getBoolean(KEY_SYNC_VOICE, false)
         _autoDeleteGoogleTasks.value = prefs.getBoolean(KEY_AUTO_DELETE, false)
     }
@@ -93,10 +99,32 @@ object GoogleTasksManager {
         prefs.edit()
             .putBoolean(KEY_LINKED, false)
             .remove(KEY_LAST_SYNC)
+            .remove(KEY_SYNC_ANCHOR)
             .apply()
         _isLinked.value = false
         _lastSyncTime.value = 0
+        lastSyncAnchorMs = 0
         Log.d(TAG, "Google Tasks unlinked")
+    }
+
+    fun resetSyncState(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .remove(KEY_LAST_SYNC)
+            .remove(KEY_SYNC_ANCHOR)
+            .apply()
+        _lastSyncTime.value = 0
+        lastSyncAnchorMs = 0
+        Log.d(TAG, "Google Tasks sync state reset")
+    }
+
+    fun incrementalUpdatedAfterRfc(): String? {
+        val anchor = when {
+            lastSyncAnchorMs > 0L -> lastSyncAnchorMs
+            _lastSyncTime.value > 0L -> (_lastSyncTime.value - INCREMENTAL_OVERLAP_MS).coerceAtLeast(0L)
+            else -> return null
+        }
+        return DateTime(anchor).toStringRfc3339()
     }
 
     /**
@@ -121,6 +149,7 @@ object GoogleTasksManager {
 
         try {
             _isSyncing.value = true
+            val fetchStartedAt = System.currentTimeMillis()
 
             val credential = GoogleAccountCredential.usingOAuth2(
                 context,
@@ -198,10 +227,13 @@ object GoogleTasksManager {
 
             // Update last sync time
             val syncTime = System.currentTimeMillis()
+            val nextAnchor = (fetchStartedAt - INCREMENTAL_OVERLAP_MS).coerceAtLeast(0L)
             _lastSyncTime.value = syncTime
+            lastSyncAnchorMs = nextAnchor
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .putLong(KEY_LAST_SYNC, syncTime)
+                .putLong(KEY_SYNC_ANCHOR, nextAnchor)
                 .apply()
 
             Log.d(TAG, "Total Google Tasks fetched: ${allTasks.size}")

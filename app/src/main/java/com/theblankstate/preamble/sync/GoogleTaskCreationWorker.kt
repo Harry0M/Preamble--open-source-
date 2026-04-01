@@ -48,6 +48,11 @@ class GoogleTaskCreationWorker(
                     app.repository.saveTagOverride(finalTask.id, task.tags)
                 }
 
+                GoogleSyncWorker.enqueueImmediate(
+                    applicationContext,
+                    forceFull = false,
+                    reason = "google_task_create"
+                )
                 return Result.success()
             } else {
                 // Failed due to API error

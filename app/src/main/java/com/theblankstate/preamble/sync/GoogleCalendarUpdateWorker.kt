@@ -54,6 +54,11 @@ class GoogleCalendarUpdateWorker(
                 if (task != null) {
                     app.repository.updateTask(task.copy(isSyncing = false, syncFailed = false))
                 }
+                GoogleSyncWorker.enqueueImmediate(
+                    applicationContext,
+                    forceFull = false,
+                    reason = "google_calendar_update"
+                )
                 Result.success()
             } else {
                 val task = app.repository.getTaskById(taskId)

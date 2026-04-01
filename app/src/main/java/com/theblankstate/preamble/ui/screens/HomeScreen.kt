@@ -180,11 +180,23 @@ fun HomeScreen(
     val isCalendarSyncing by com.theblankstate.preamble.sync.GoogleCalendarManager.isSyncing.collectAsState()
     val isManualSyncing by com.theblankstate.preamble.sync.GoogleCalendarManager.isManualSyncing.collectAsState()
     val isTasksSyncing by com.theblankstate.preamble.sync.GoogleTasksManager.isSyncing.collectAsState()
+    // Background full sync flag — only shown in UI on very first sync (no prior data)
+    val isBgSyncing by com.theblankstate.preamble.sync.GoogleCalendarManager.isBgSyncing.collectAsState()
+    val lastCalSyncTime by com.theblankstate.preamble.sync.GoogleCalendarManager.lastSyncTime.collectAsState()
     val hasSyncedBefore = remember {
         context.getSharedPreferences("PreamblePrefs", android.content.Context.MODE_PRIVATE)
             .getLong("last_sync_time", 0L) > 0L
     }
-    val showSyncIndicator = isRefreshing || isBackgroundDeleting || isManualSyncing || ((isCalendarSyncing || isTasksSyncing) && hasSyncedBefore)
+    // Show progress bar for:
+    // 1. Pull-to-refresh (isRefreshing)
+    // 2. Background deletion
+    // 3. Manual calendar sync (isManualSyncing)
+    // 4. Any sync when we've synced before (shows user that bg sync is updating)
+    // 5. SPECIAL: Background full sync with no prior data (initial link, lastCalSyncTime==0)
+    val showInitialFullSync = isBgSyncing && lastCalSyncTime == 0L
+    val showSyncIndicator = isRefreshing || isBackgroundDeleting || isManualSyncing ||
+        ((isCalendarSyncing || isTasksSyncing) && hasSyncedBefore) ||
+        showInitialFullSync
 
     // Voice recognizer for FAB — lazily created only when user taps mic
     var speechRecognizerRef by remember { mutableStateOf<SpeechRecognizer?>(null) }

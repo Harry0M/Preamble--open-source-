@@ -39,6 +39,7 @@ import com.theblankstate.preamble.ui.components.ColorPickerComponent
 import com.theblankstate.preamble.ui.theme.ThemePreferences
 import com.theblankstate.preamble.auth.AuthManager
 import com.theblankstate.preamble.sync.GoogleCalendarManager
+import com.theblankstate.preamble.sync.GoogleSyncCoordinator
 import com.theblankstate.preamble.sync.GoogleTasksManager
 import com.theblankstate.preamble.ads.FeatureGateManager
 import com.theblankstate.preamble.ui.components.FeatureType
@@ -114,20 +115,21 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 val email = account?.email ?: "Unknown"
                 GoogleCalendarManager.onSignInSuccess(context, email)
                 GoogleTasksManager.onSignInSuccess(context)
-                // Sync both Calendar + Tasks
-                scope.launch {
-                    try {
-                        val app = context.applicationContext as PreambleApplication
-                        val calResult = GoogleCalendarManager.fetchCalendarEvents(context)
-                        app.repository.syncCalendarEvents(calResult.events)
-                        val gTasks = GoogleTasksManager.fetchGoogleTasks(context)
-                        app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
-                        Toast.makeText(context, "Synced ${calResult.events.size} events + ${gTasks.size} tasks", Toast.LENGTH_SHORT).show()
-                    } catch (e: Throwable) {
-                        Toast.makeText(context, "Sync failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
-                    googleLinkLoading = false
-                }
+                GoogleCalendarManager.resetSyncState(context)
+                GoogleTasksManager.resetSyncState(context)
+
+                // Queue a background full sync — no blocking foreground call.
+                // HomeScreen shows the progress bar via isBgSyncing until sync completes.
+                com.theblankstate.preamble.sync.GoogleSyncWorker.enqueueFullSync(
+                    context = context,
+                    reason = "link_bootstrap"
+                )
+                Toast.makeText(
+                    context,
+                    "Syncing Google Calendar in background…",
+                    Toast.LENGTH_SHORT
+                ).show()
+                googleLinkLoading = false
             } catch (e: Throwable) {
                 Toast.makeText(context, "Link failed: ${e.message}", Toast.LENGTH_SHORT).show()
                 googleLinkLoading = false
@@ -395,11 +397,17 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                 .clickable(enabled = !googleSyncing) {
                                     scope.launch {
                                         try {
-                                            val calResult = GoogleCalendarManager.fetchCalendarEvents(context, forceFullSync = true, isManual = true)
-                                            app.repository.syncCalendarEvents(calResult.events)
-                                            val gTasks = GoogleTasksManager.fetchGoogleTasks(context)
-                                            app.repository.syncGoogleTasks(gTasks, GoogleTasksManager.autoDeleteGoogleTasks.value)
-                                            Toast.makeText(context, "Synced ${calResult.events.size} events + ${gTasks.size} tasks", Toast.LENGTH_SHORT).show()
+                                            val summary = GoogleSyncCoordinator.syncLinkedData(
+                                                context = context,
+                                                forceFull = false,
+                                                isManual = true,
+                                                reason = "settings_sync_now"
+                                            )
+                                            Toast.makeText(
+                                                context,
+                                                "Updated ${summary.calendarEvents} events + ${summary.googleTasks} tasks",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
                                         } catch (e: Throwable) {
                                             Toast.makeText(context, "Sync failed: ${e.message}", Toast.LENGTH_SHORT).show()
                                         }

@@ -55,6 +55,11 @@ class GoogleCalendarCreationWorker(
                     app.repository.saveTagOverride(finalTask.id, task.tags)
                 }
 
+                GoogleSyncWorker.enqueueImmediate(
+                    applicationContext,
+                    forceFull = false,
+                    reason = "google_calendar_create"
+                )
                 return Result.success()
             } else {
                 app.repository.updateTask(task.copy(isSyncing = false, syncFailed = true))
