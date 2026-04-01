@@ -95,9 +95,9 @@ class PreambleApplication : Application() {
             .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
             .build()
 
-        // Periodic incremental sync every 15 min (uses syncToken — only fetches changes, very cheap)
+        // Periodic incremental sync every 10 min (uses syncToken — only fetches changes, very cheap)
         val request = androidx.work.PeriodicWorkRequestBuilder<GoogleSyncWorker>(
-            15, java.util.concurrent.TimeUnit.MINUTES
+            10, java.util.concurrent.TimeUnit.MINUTES
         ).setConstraints(constraints)
             .setInputData(
                 androidx.work.workDataOf(
