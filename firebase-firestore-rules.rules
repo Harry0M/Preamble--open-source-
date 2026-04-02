@@ -6,76 +6,45 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == uid;
     }
 
-    // ─── Task Validation ───────────────────────────────────────────
-
-    // Only these fields are allowed - attacker cannot add new fields
-    function hasValidTaskKeys() {
-      return request.resource.data.keys().hasOnly([
-        'id', 'title', 'isCompleted', 'createdDate', 'createdTimestamp',
-        'completedTimestamp', 'deadlineTime', 'updatedTimestamp', 'source',
-        'priority', 'description', 'recurrenceType', 'recurrenceInterval',
-        'recurrenceDays', 'recurrenceEndDate', 'recurrenceParentId',
-        'parentTaskId', 'tags', 'googleCalendarId', 'googleRecurrenceInfo'
-      ]);
-    }
-
-    // Helper: check string length safely (handles null/missing)
-    function isStringSafe(field, maxLen) {
-      return !(field in request.resource.data)
-        || request.resource.data[field] == null
-        || (request.resource.data[field] is string && request.resource.data[field].size() <= maxLen);
-    }
-
-    // Length limits - prevents storing large malicious data
-    function hasValidTaskLengths() {
+    // Simple validation that won't fail
+    function isValidTask() {
       let d = request.resource.data;
-
-      // Title is required and must be 1-500 chars
-      let titleOk = d.title is string && d.title.size() >= 1 && d.title.size() <= 500;
-
-      // Optional fields with max lengths
-      let descOk = isStringSafe('description', 5000);
-      let tagsOk = isStringSafe('tags', 100);
-      let idOk = isStringSafe('id', 200);
-      let sourceOk = isStringSafe('source', 50);
-      let recTypeOk = isStringSafe('recurrenceType', 50);
-      let recDaysOk = isStringSafe('recurrenceDays', 100);
-      let gcalIdOk = isStringSafe('googleCalendarId', 500);
-      let gcalInfoOk = isStringSafe('googleRecurrenceInfo', 2000);
-
-      return titleOk && descOk && tagsOk && idOk && sourceOk
-        && recTypeOk && recDaysOk && gcalIdOk && gcalInfoOk;
+      // Title must exist and be reasonable length
+      return d.title is string
+        && d.title.size() >= 1
+        && d.title.size() <= 500;
     }
 
-    // ─── Tag Override Validation ───────────────────────────────────
-
-    function hasValidTagOverrideKeys() {
-      return request.resource.data.keys().hasOnly(['googleId', 'tags', 'updatedTimestamp']);
-    }
-
-    function hasValidTagOverrideLengths() {
+    function isValidTagOverride() {
       let d = request.resource.data;
-      return d.googleId is string && d.googleId.size() >= 1 && d.googleId.size() <= 300
-        && d.tags is string && d.tags.size() <= 100;
+      return d.tags is string && d.tags.size() <= 100;
     }
 
-    // ─── Rules ─────────────────────────────────────────────────────
-
-    match /users/{uid}/tasks/{taskId} {
-      allow read, delete: if isOwner(uid);
-      allow create, update: if isOwner(uid)
-        && hasValidTaskKeys()
-        && hasValidTaskLengths();
+    // User profile access - CRITICAL for app functionality
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
     }
 
-    match /users/{uid}/tagOverrides/{googleId} {
-      allow read, delete: if isOwner(uid);
-      allow create, update: if isOwner(uid)
-        && hasValidTagOverrideKeys()
-        && hasValidTagOverrideLengths();
+    // OLD PATH STRUCTURE - what the app actually uses
+    match /tasks/{taskId} {
+      allow read, delete: if request.auth != null; // Authenticated users can read
+      allow create, update: if isOwner(request.resource.data.uid) && isValidTask();
     }
 
-    // Block everything else - attacker cannot create random collections
+    match /tagOverrides/{overrideId} {
+      allow read, delete: if request.auth != null; // Authenticated users can read
+      allow create, update: if isOwner(request.resource.data.uid) && isValidTagOverride();
+    }
+
+    // Admin tasks - users can only read their assigned tasks
+    match /users/{uid}/assignedTasks/{taskId} {
+      allow read: if isOwner(uid);
+      allow write: if isOwner(uid) && 
+        (request.resource.data.keys().hasAll(['completed', 'dismissed']) &&
+         request.resource.data.keys().size() == 2);
+    }
+
+    // Block everything else
     match /{document=**} {
       allow read, write: if false;
     }

@@ -2,7 +2,28 @@ package com.theblankstate.preamble.data
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import java.util.UUID
+
+// Nested data classes for advanced fields
+data class Media(
+    val url: String,
+    val type: String, // MIME type
+    val size: Long? = null
+)
+
+data class Link(
+    val url: String,
+    val title: String? = null,
+    val addedAt: Long = System.currentTimeMillis()
+)
+
+data class Subtask(
+    val id: String = UUID.randomUUID().toString(),
+    val title: String,
+    val isCompleted: Boolean = false
+)
 
 @Entity(tableName = "tasks")
 data class Task(
@@ -49,7 +70,12 @@ data class Task(
     val taskLinksJson: String? = null,            // JSON: [{type, description, link}]
     // ── Independent Alarm overrides ──
     val customAlarmTimeMs: Long? = null,           // Explicit trigger override decoupled from `deadlineTime`
-    val isAlarmPaused: Boolean = false             // User completely halted the alarm from ringing
+    val isAlarmPaused: Boolean = false,             // User completely halted the alarm from ringing
+    // ── Advanced Fields ──
+    val mediaJson: String? = null,                 // JSON: Media object
+    val linksJson: String? = null,                 // JSON: List<Link>
+    val subtasksJson: String? = null,              // JSON: List<Subtask>
+    val syncMetadataJson: String? = null           // JSON: Map<String, Any> for future sync
 ) {
     val isCalendarEvent: Boolean get() = source == "google_calendar"
     val isGoogleTask: Boolean get() = source == "google_tasks"
@@ -65,5 +91,10 @@ data class Task(
     val hasAttendees: Boolean get() = !attendeesJson.isNullOrBlank()
     val hasReminders: Boolean get() = !remindersJson.isNullOrBlank()
     val hasAttachments: Boolean get() = !attachmentsJson.isNullOrBlank()
+    // Advanced fields helpers
+    val media: Media? get() = mediaJson?.let { Gson().fromJson(it, Media::class.java) }
+    val links: List<Link> get() = linksJson?.let { Gson().fromJson(it, object : TypeToken<List<Link>>() {}.type) } ?: emptyList()
+    val subtasks: List<Subtask> get() = subtasksJson?.let { Gson().fromJson(it, object : TypeToken<List<Subtask>>() {}.type) } ?: emptyList()
+    val syncMetadata: Map<String, Any>? get() = syncMetadataJson?.let { Gson().fromJson(it, object : TypeToken<Map<String, Any>>() {}.type) }
 }
 

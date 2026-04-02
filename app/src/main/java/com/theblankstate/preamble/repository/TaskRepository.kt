@@ -1,6 +1,7 @@
 package com.theblankstate.preamble.repository
 
 import android.util.Log
+import com.google.gson.Gson
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.TaskDao
 import com.theblankstate.preamble.data.TaskInputValidator
@@ -69,10 +70,17 @@ class TaskRepository(
     }
 
     suspend fun toggleTask(task: Task) {
+        val gson = Gson()
+        val updatedSubtasks = if (!task.isCompleted) { // becoming completed
+            task.subtasks.map { it.copy(isCompleted = true) }
+        } else {
+            task.subtasks // leave as is when unchecking
+        }
         val updated = task.copy(
             isCompleted = !task.isCompleted,
             completedTimestamp = if (!task.isCompleted) System.currentTimeMillis() else null,
-            updatedTimestamp = System.currentTimeMillis()
+            updatedTimestamp = System.currentTimeMillis(),
+            subtasksJson = gson.toJson(updatedSubtasks)
         )
         dao.updateTask(updated)
         syncManager?.pushTask(updated)
@@ -126,6 +134,80 @@ class TaskRepository(
         if (parentIds.isEmpty()) return emptyMap()
         return dao.getSubtaskStatsForParents(parentIds).associate {
             it.parentTaskId to (it.completed to it.total)
+        }
+    }
+
+    // ── Subtask completion business logic ──
+    
+    suspend fun updateSubtaskCompletion(subtaskId: String, isCompleted: Boolean): Task? {
+        val subtask = dao.getTaskById(subtaskId) ?: return null
+        val updatedSubtask = subtask.copy(
+            isCompleted = isCompleted,
+            completedTimestamp = if (isCompleted) System.currentTimeMillis() else null,
+            updatedTimestamp = System.currentTimeMillis()
+        )
+        dao.updateTask(updatedSubtask)
+        syncManager?.pushTask(updatedSubtask)
+        
+        // Check if we need to update parent task completion
+        subtask.parentTaskId?.let { parentId ->
+            updateParentTaskCompletion(parentId)
+        }
+        
+        return updatedSubtask
+    }
+    
+    suspend fun updateParentTaskCompletion(parentId: String) {
+        val parent = dao.getTaskById(parentId) ?: return
+        val subtasks = dao.getSubtasksForParentSync(parentId)
+        
+        // Auto-completion rules:
+        // 1. If parent is marked completed, all subtasks should be completed
+        // 2. If all subtasks are completed, parent should be completed
+        // 3. If any subtask is incomplete, parent should be incomplete (unless manually overridden)
+        
+        val allSubtasksCompleted = subtasks.isNotEmpty() && subtasks.all { it.isCompleted }
+        val shouldCompleteParent = allSubtasksCompleted
+        
+        if (parent.isCompleted != shouldCompleteParent) {
+            val updatedParent = parent.copy(
+                isCompleted = shouldCompleteParent,
+                completedTimestamp = if (shouldCompleteParent) System.currentTimeMillis() else null,
+                updatedTimestamp = System.currentTimeMillis()
+            )
+            dao.updateTask(updatedParent)
+            syncManager?.pushTask(updatedParent)
+        }
+    }
+    
+    suspend fun completeAllSubtasks(parentId: String) {
+        val subtasks = dao.getSubtasksForParentSync(parentId)
+        val now = System.currentTimeMillis()
+        
+        subtasks.forEach { subtask ->
+            if (!subtask.isCompleted) {
+                val updatedSubtask = subtask.copy(
+                    isCompleted = true,
+                    completedTimestamp = now,
+                    updatedTimestamp = now
+                )
+                dao.updateTask(updatedSubtask)
+                syncManager?.pushTask(updatedSubtask)
+            }
+        }
+        
+        // Mark parent as completed
+        updateParentTaskCompletion(parentId)
+    }
+    
+    suspend fun deleteSubtask(subtaskId: String) {
+        val subtask = dao.getTaskById(subtaskId) ?: return
+        dao.deleteTask(subtask)
+        syncManager?.pushTask(subtask.copy(source = "local", deletedFromGoogle = true))
+        
+        // Update parent completion status
+        subtask.parentTaskId?.let { parentId ->
+            updateParentTaskCompletion(parentId)
         }
     }
 

@@ -4,5 +4,8 @@
       "database": "preamble",
       "rules": "firebase-firestore-rules.rules"
     }
-  ]
+  ],
+  "storage": {
+    "rules": "storage.rules"
+  }
 }

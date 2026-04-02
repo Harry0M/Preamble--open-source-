@@ -648,6 +648,33 @@ class TaskViewModel(
         }
     }
 
+    fun toggleSubtaskCompletion(subtaskId: String, isCompleted: Boolean) {
+        viewModelScope.launch {
+            repository.updateSubtaskCompletion(subtaskId, isCompleted)
+            val parentIds = todayTasks.value.map { it.id }
+            _subtaskCounts.value = repository.getSubtaskStats(parentIds)
+            refreshStats()
+        }
+    }
+
+    fun completeAllSubtasks(parentId: String) {
+        viewModelScope.launch {
+            repository.completeAllSubtasks(parentId)
+            val parentIds = todayTasks.value.map { it.id }
+            _subtaskCounts.value = repository.getSubtaskStats(parentIds)
+            refreshStats()
+        }
+    }
+
+    fun deleteSubtask(subtaskId: String) {
+        viewModelScope.launch {
+            repository.deleteSubtask(subtaskId)
+            val parentIds = todayTasks.value.map { it.id }
+            _subtaskCounts.value = repository.getSubtaskStats(parentIds)
+            refreshStats()
+        }
+    }
+
     // ── Tag methods ──
 
     fun setTagFilter(tag: String?) {

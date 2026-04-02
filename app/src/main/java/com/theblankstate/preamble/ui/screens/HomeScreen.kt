@@ -152,6 +152,9 @@ fun HomeScreen(
     expandedTasks: Set<String> = emptySet(),
     onToggleTaskExpanded: ((String) -> Unit)? = null,
     onAddSubtask: ((String, String) -> Unit)? = null,
+    onToggleSubtask: ((String, Boolean) -> Unit)? = null,
+    onDeleteSubtask: ((String) -> Unit)? = null,
+    onCompleteAllSubtasks: ((String) -> Unit)? = null,
     subtasksProvider: ((String) -> kotlinx.coroutines.flow.Flow<List<Task>>)? = null,
     selectedTagFilter: String? = null,
     onTagFilterChanged: ((String?) -> Unit)? = null,
@@ -1283,6 +1286,8 @@ fun HomeScreen(
     }
 
     if (taskToEdit != null && onEditTask != null) {
+        val subtasks = subtasksProvider?.invoke(taskToEdit!!.id)?.collectAsState(initial = emptyList())?.value ?: emptyList()
+        
         TaskDetailSheet(
             task = taskToEdit!!,
             onDismiss = { taskToEdit = null },
@@ -1299,7 +1304,12 @@ fun HomeScreen(
                 pomodoroTaskTitle = taskToEdit!!.title
                 taskToEdit = null
                 showPomodoroSheet = true
-            }
+            },
+            subtasks = subtasks,
+            onAddSubtask = { title -> onAddSubtask?.invoke(taskToEdit!!.id, title) },
+            onToggleSubtask = { subtaskId, isCompleted -> onToggleSubtask?.invoke(subtaskId, isCompleted) },
+            onDeleteSubtask = { subtaskId -> onDeleteSubtask?.invoke(subtaskId) },
+            onCompleteAllSubtasks = { onCompleteAllSubtasks?.invoke(taskToEdit!!.id) }
         )
     }
 
