@@ -138,6 +138,21 @@ fun TaskItem(
         }
     }
 
+    val daysRolledOver = remember(task.recurrenceType, task.createdDate, task.isCompleted, task.completedDate) {
+        if (task.recurrenceType == "rollover") {
+            try {
+                val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                val createdDate = sdf.parse(task.createdDate)
+                val targetDateStr = task.completedDate ?: sdf.format(Date())
+                val targetDate = sdf.parse(targetDateStr)
+                if (createdDate != null && targetDate != null && createdDate.before(targetDate)) {
+                    val diff = targetDate.time - createdDate.time
+                    (diff / (1000 * 60 * 60 * 24)).toInt()
+                } else null
+            } catch (e: Exception) { null }
+        } else null
+    }
+
     val errorColor = MaterialTheme.colorScheme.error
     val errorContainerColor = MaterialTheme.colorScheme.errorContainer
     val onErrorContainerColor = MaterialTheme.colorScheme.onErrorContainer
@@ -370,6 +385,25 @@ fun TaskItem(
                             contentDescription = "Expand subtasks",
                             modifier = Modifier.size(16.dp),
                             tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
+
+            // Rollover chip
+            if (daysRolledOver != null && daysRolledOver > 0) {
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    modifier = Modifier.padding(top = 4.dp, bottom = if (task.tags.isNullOrBlank()) 0.dp else 4.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) {
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (task.isCompleted) "Completed $daysRolledOver days late" else "${daysRolledOver}d pending",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
                         )
                     }
                 }

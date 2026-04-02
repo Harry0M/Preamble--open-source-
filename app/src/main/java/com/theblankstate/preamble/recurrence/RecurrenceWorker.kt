@@ -32,6 +32,8 @@ class RecurrenceWorker(
         for (template in templates) {
             // Skip Google Calendar templates — Google handles its own recurrence expansion
             if (template.source == "google_calendar") continue
+            // Skip rollover templates — they exist as exactly one task instance
+            if (template.recurrenceType == "rollover") continue
             
             val dates = RecurrenceGenerator.generateDates(template, today, toDate)
             for (date in dates) {

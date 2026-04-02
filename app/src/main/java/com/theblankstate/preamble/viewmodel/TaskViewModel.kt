@@ -291,11 +291,12 @@ class TaskViewModel(
                 finalTask = repository.addTask(normalizedTitle, date, deadlineTime, priority, normalizedDescription, tags)
                     ?: return@launch
             }
-            subtasks.forEach { subtaskTitle ->
-                repository.addSubtask(finalTask.id, subtaskTitle)
-            }
             if (subtasks.isNotEmpty()) {
-                // Room Flow will automatically detect these insertions and recompose subtask stats
+                repository.addSubtasks(finalTask.id, subtasks)
+                // Optimistic UI insert to bypass the 5-15ms flow observation delay!
+                _subtaskCounts.update { current ->
+                    current + (finalTask.id to Pair(0, subtasks.size))
+                }
             }
             scheduleOrCancelAlarm(finalTask)
             refreshStats()
@@ -627,11 +628,12 @@ class TaskViewModel(
                     tags = tags
                 )
                 if (finalTask == null) return@launch
-                subtasks.forEach { subtaskTitle ->
-                    repository.addSubtask(finalTask.id, subtaskTitle)
-                }
                 if (subtasks.isNotEmpty()) {
-                    // Room Flow will automatically detect these insertions
+                    repository.addSubtasks(finalTask.id, subtasks)
+                    // Optimistic update
+                    _subtaskCounts.update { current ->
+                        current + (finalTask.id to Pair(0, subtasks.size))
+                    }
                 }
             }
             triggerRecurrenceGeneration()

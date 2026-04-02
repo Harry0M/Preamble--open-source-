@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Button
@@ -451,8 +452,31 @@ fun TaskDetailSheet(
                 )
             }
 
+            // Rollover toggle
+            if (recurrenceType == null || recurrenceType == "rollover") {
+                Spacer(modifier = Modifier.height(20.dp))
+                EditSection(title = "Rollover", icon = Icons.Default.Refresh) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            "Keep active until completed",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        androidx.compose.material3.Switch(
+                            checked = recurrenceType == "rollover",
+                            onCheckedChange = {
+                                recurrenceType = if (it) "rollover" else null
+                            }
+                        )
+                    }
+                }
+            }
+
             // Recurrence (for template tasks)
-            if (task.isRecurrenceTemplate || task.recurrenceParentId == null) {
+            if ((task.isRecurrenceTemplate || task.recurrenceParentId == null) && recurrenceType != "rollover") {
                 Spacer(modifier = Modifier.height(20.dp))
                 EditSection(title = "Repeat", icon = Icons.Default.Repeat) {
                     RecurrencePicker(

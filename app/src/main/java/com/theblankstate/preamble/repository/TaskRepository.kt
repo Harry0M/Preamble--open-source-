@@ -78,9 +78,11 @@ class TaskRepository(
         } else {
             task.subtasks // leave as is when unchecking
         }
+        val isBecomingCompleted = !task.isCompleted
         val updated = task.copy(
-            isCompleted = !task.isCompleted,
-            completedTimestamp = if (!task.isCompleted) System.currentTimeMillis() else null,
+            isCompleted = isBecomingCompleted,
+            completedTimestamp = if (isBecomingCompleted) System.currentTimeMillis() else null,
+            completedDate = if (isBecomingCompleted && task.recurrenceType == "rollover") todayString() else null,
             updatedTimestamp = System.currentTimeMillis(),
             subtasksJson = gson.toJson(updatedSubtasks)
         )
@@ -113,23 +115,32 @@ class TaskRepository(
 
     fun getSubtasksForParent(parentId: String): Flow<List<Task>> = dao.getSubtasksForParent(parentId)
 
-    suspend fun addSubtask(parentId: String, title: String): Task? {
-        val normalizedTitle = TaskInputValidator.normalizeTitle(title)
-        if (!TaskInputValidator.isValidTitle(normalizedTitle)) {
-            return null
-        }
+    suspend fun addSubtasks(parentId: String, titles: List<String>): List<Task> {
+        if (titles.isEmpty()) return emptyList()
         val now = System.currentTimeMillis()
-        val parent = dao.getAllTasks().find { it.id == parentId } ?: error("Parent not found")
-        val subtask = Task(
-            title = normalizedTitle,
-            createdDate = parent.createdDate,
-            createdTimestamp = now,
-            updatedTimestamp = now,
-            parentTaskId = parentId
-        )
-        dao.insertTask(subtask)
-        syncManager?.pushTask(subtask)
-        return subtask
+        val parent = dao.getTaskById(parentId) ?: return emptyList()
+        
+        val subtasks = titles.mapNotNull { title ->
+            val normalizedTitle = TaskInputValidator.normalizeTitle(title)
+            if (!TaskInputValidator.isValidTitle(normalizedTitle)) null
+            else Task(
+                title = normalizedTitle,
+                createdDate = parent.createdDate,
+                createdTimestamp = now,
+                updatedTimestamp = now,
+                parentTaskId = parentId
+            )
+        }
+        if (subtasks.isNotEmpty()) {
+            dao.insertTasks(subtasks)
+            subtasks.forEach { syncManager?.pushTask(it) }
+        }
+        return subtasks
+    }
+
+    suspend fun addSubtask(parentId: String, title: String): Task? {
+        val results = addSubtasks(parentId, listOf(title))
+        return results.firstOrNull()
     }
 
     suspend fun getSubtaskStats(parentIds: List<String>): Map<String, Pair<Int, Int>> {

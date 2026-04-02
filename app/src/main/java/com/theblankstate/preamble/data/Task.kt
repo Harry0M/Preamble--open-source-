@@ -34,6 +34,7 @@ data class Task(
     val createdDate: String,
     val createdTimestamp: Long = System.currentTimeMillis(),
     val completedTimestamp: Long? = null,
+    val completedDate: String? = null,
     val deadlineTime: String? = null,
     val updatedTimestamp: Long = System.currentTimeMillis(),
     val source: String = "local",  // "local", "google_calendar", "google_tasks"

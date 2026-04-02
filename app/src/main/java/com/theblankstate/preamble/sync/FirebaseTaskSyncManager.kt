@@ -79,13 +79,14 @@ class FirebaseTaskSyncManager(
             return
         }
         Log.d(TAG, "Pushing task to Firestore: uid=$uid taskId=${task.id}")
-        ensureUserProfile(uid)
         rememberLocalWrite(task.id)
         pendingDeletes.remove(task.id)
         pendingUpserts.add(task.id)
-        val remoteTask = RemoteTask.fromLocal(task, uid)
+        
         appScope.launch {
             try {
+                ensureUserProfile(uid)
+                val remoteTask = RemoteTask.fromLocal(task, uid)
                 taskDoc(uid, task.id).set(remoteTask).await()
                 Log.i(TAG, "Firestore pushTask SUCCESS: uid=$uid taskId=${task.id}")
             } catch (exception: Exception) {
@@ -108,6 +109,7 @@ class FirebaseTaskSyncManager(
         pendingDeletes.add(taskId)
         appScope.launch {
             try {
+                ensureUserProfile(uid)
                 taskDoc(uid, taskId).delete().await()
                 Log.i(TAG, "Firestore deleteTask SUCCESS: uid=$uid taskId=$taskId")
             } catch (exception: Exception) {

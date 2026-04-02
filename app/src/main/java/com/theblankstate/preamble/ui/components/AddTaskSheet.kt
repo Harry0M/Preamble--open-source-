@@ -387,7 +387,7 @@ fun AddTaskSheet(
                         Icon(
                             Icons.Default.Repeat,
                             contentDescription = "Repeat",
-                            tint = if (recurrenceType != null)
+                            tint = if (recurrenceType != null && recurrenceType != "rollover")
                                 MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -424,7 +424,7 @@ fun AddTaskSheet(
                             label = { Text(selectedTime!!, style = MaterialTheme.typography.labelSmall) }
                         )
                     }
-                    if (recurrenceType != null) {
+                    if (recurrenceType != null && recurrenceType != "rollover") {
                         SuggestionChip(
                             onClick = { showRepeatSheet = true },
                             label = { Text(recurrenceType!!, style = MaterialTheme.typography.labelSmall) }
@@ -561,6 +561,28 @@ fun AddTaskSheet(
                             Text("Add Subtask")
                         }
                     }
+                }
+            }
+            
+            // Rollover toggle
+            if (recurrenceType == null || recurrenceType == "rollover") {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        "Keep active until completed",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    androidx.compose.material3.Switch(
+                        checked = recurrenceType == "rollover",
+                        onCheckedChange = {
+                            recurrenceType = if (it) "rollover" else null
+                        }
+                    )
                 }
             }
 

@@ -23,10 +23,10 @@ data class SubtaskStats(
 @Dao
 interface TaskDao {
 
-    @Query("SELECT * FROM tasks WHERE createdDate = :date AND parentTaskId IS NULL ORDER BY isCompleted ASC, priority DESC, createdTimestamp DESC")
+    @Query("SELECT * FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND createdDate = :date) OR (recurrenceType = 'rollover' AND isCompleted = 0 AND createdDate <= :date) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate = :date) ) AND parentTaskId IS NULL ORDER BY isCompleted ASC, priority DESC, createdTimestamp DESC")
     fun getTasksByDate(date: String): Flow<List<Task>>
 
-    @Query("SELECT * FROM tasks WHERE createdDate IN (:dates) AND parentTaskId IS NULL ORDER BY createdDate DESC, isCompleted ASC, priority DESC, createdTimestamp DESC")
+    @Query("SELECT * FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND createdDate IN (:dates)) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate IN (:dates)) ) AND parentTaskId IS NULL ORDER BY createdDate DESC, isCompleted ASC, priority DESC, createdTimestamp DESC")
     fun getTasksForDates(dates: List<String>): Flow<List<Task>>
 
     @Query("SELECT COUNT(*) FROM tasks WHERE isCompleted = 1")
@@ -35,16 +35,16 @@ interface TaskDao {
     @Query("SELECT COUNT(*) FROM tasks")
     fun getTotalTasksCount(): Flow<Int>
 
-    @Query("SELECT COUNT(*) FROM tasks WHERE createdDate = :date")
+    @Query("SELECT COUNT(*) FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND createdDate = :date) OR (recurrenceType = 'rollover' AND isCompleted = 0 AND createdDate <= :date) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate = :date) )")
     suspend fun getTaskCountForDate(date: String): Int
 
-    @Query("SELECT COUNT(*) FROM tasks WHERE createdDate = :date AND isCompleted = 1")
+    @Query("SELECT COUNT(*) FROM tasks WHERE isCompleted = 1 AND ( (IFNULL(recurrenceType, '') != 'rollover' AND createdDate = :date) OR (recurrenceType = 'rollover' AND completedDate = :date) )")
     suspend fun getCompletedCountForDate(date: String): Int
 
-    @Query("SELECT * FROM tasks WHERE createdDate = :date AND isCompleted = 0 AND parentTaskId IS NULL ORDER BY priority DESC, createdTimestamp DESC")
+    @Query("SELECT * FROM tasks WHERE isCompleted = 0 AND ( (IFNULL(recurrenceType, '') != 'rollover' AND createdDate = :date) OR (recurrenceType = 'rollover' AND createdDate <= :date) ) AND parentTaskId IS NULL ORDER BY priority DESC, createdTimestamp DESC")
     suspend fun getPendingTasksForDate(date: String): List<Task>
 
-    @Query("SELECT * FROM tasks WHERE createdDate = :date AND isCompleted = 0 AND parentTaskId IS NULL ORDER BY priority DESC, createdTimestamp DESC")
+    @Query("SELECT * FROM tasks WHERE isCompleted = 0 AND ( (IFNULL(recurrenceType, '') != 'rollover' AND createdDate = :date) OR (recurrenceType = 'rollover' AND createdDate <= :date) ) AND parentTaskId IS NULL ORDER BY priority DESC, createdTimestamp DESC")
     fun observePendingTasksForDate(date: String): Flow<List<Task>>
 
     @Query("SELECT DISTINCT createdDate FROM tasks ORDER BY createdDate DESC")
