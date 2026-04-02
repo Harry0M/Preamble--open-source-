@@ -346,26 +346,32 @@ fun TaskItem(
             if (subtaskCount != null && subtaskCount.second > 0) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .padding(top = 2.dp)
-                        .clickable { onToggleExpand?.invoke() }
+                    modifier = Modifier.padding(top = 2.dp)
                 ) {
-                    Icon(
-                        imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                        contentDescription = "Expand subtasks",
-                        modifier = Modifier.size(16.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "${subtaskCount.first}/${subtaskCount.second} steps",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
                     LinearProgressIndicator(
                         progress = { subtaskCount.first.toFloat() / subtaskCount.second },
-                        modifier = Modifier.weight(1f).padding(start = 8.dp).height(4.dp),
+                        modifier = Modifier.weight(1f).padding(end = 8.dp).height(4.dp),
                     )
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .clickable { onToggleExpand?.invoke() }
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${subtaskCount.first}/${subtaskCount.second} steps",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = "Expand subtasks",
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
                 }
             }
 
@@ -729,11 +735,17 @@ fun SubtaskList(
                     .padding(vertical = 4.dp, horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Checkbox(
-                    checked = subtask.isCompleted,
-                    onCheckedChange = { onToggleSubtask(subtask) },
-                    modifier = Modifier.size(20.dp)
-                )
+                IconButton(
+                    onClick = { onToggleSubtask(subtask) },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Icon(
+                        imageVector = if (subtask.isCompleted) Icons.Default.CheckCircle else Icons.Outlined.Circle,
+                        contentDescription = if (subtask.isCompleted) "Completed" else "Uncompleted",
+                        tint = if (subtask.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = subtask.title,
@@ -749,37 +761,20 @@ fun SubtaskList(
             }
         }
 
-        // Inline add subtask
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp, horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = "Add step",
-                modifier = Modifier.size(20.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            OutlinedTextField(
-                value = newSubtaskTitle,
-                onValueChange = { newSubtaskTitle = it },
-                placeholder = { Text("Add step...", style = MaterialTheme.typography.bodySmall) },
-                modifier = Modifier.weight(1f).height(40.dp),
-                singleLine = true,
-                textStyle = MaterialTheme.typography.bodySmall,
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(
-                    onDone = {
-                        if (newSubtaskTitle.isNotBlank()) {
-                            onAddSubtask(newSubtaskTitle.trim())
-                            newSubtaskTitle = ""
-                        }
-                    }
-                )
-            )
-        }
+        // Inline add subtask using AddSubtaskInline
+        AddSubtaskInline(
+            title = newSubtaskTitle,
+            onTitleChange = { newSubtaskTitle = it },
+            onAdd = {
+                if (newSubtaskTitle.isNotBlank()) {
+                    onAddSubtask(newSubtaskTitle.trim())
+                    newSubtaskTitle = ""
+                }
+            },
+            onCancel = {
+                newSubtaskTitle = ""
+            },
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp, horizontal = 8.dp)
+        )
     }
 }

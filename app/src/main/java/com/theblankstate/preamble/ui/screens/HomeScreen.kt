@@ -1265,6 +1265,7 @@ fun HomeScreen(
 
     // Read-only task detail bottom sheet
     taskToShowDetail?.let { task ->
+        val subtasks = subtasksProvider?.invoke(task.id)?.collectAsState(initial = emptyList())?.value ?: emptyList()
         TaskDetailBottomSheet(
             task = task,
             onDismiss = { taskToShowDetail = null },
@@ -1281,7 +1282,12 @@ fun HomeScreen(
                 pomodoroTaskTitle = task.title
                 taskToShowDetail = null
                 showPomodoroSheet = true
-            }}
+            }},
+            subtasks = subtasks,
+            onAddSubtask = { title -> onAddSubtask?.invoke(task.id, title) },
+            onToggleSubtask = { subtaskId, isCompleted -> onToggleSubtask?.invoke(subtaskId, isCompleted) },
+            onDeleteSubtask = { subtaskId -> onDeleteSubtask?.invoke(subtaskId) },
+            onCompleteAllSubtasks = { onCompleteAllSubtasks?.invoke(task.id) }
         )
     }
 

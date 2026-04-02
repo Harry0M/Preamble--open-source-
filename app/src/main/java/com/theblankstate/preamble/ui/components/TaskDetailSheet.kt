@@ -399,6 +399,20 @@ fun TaskDetailSheet(
             Spacer(modifier = Modifier.height(20.dp))
 
             // ═══════════════════════════════════════════════════════════════
+            // SUBTASKS (App-native only)
+            // ═══════════════════════════════════════════════════════════════
+            SubtaskSection(
+                parentTask = task,
+                subtasks = subtasks,
+                onAddSubtask = { title -> onAddSubtask?.invoke(title) },
+                onToggleSubtask = { subtaskId, isCompleted -> onToggleSubtask?.invoke(subtaskId, isCompleted) },
+                onDeleteSubtask = { subtaskId -> onDeleteSubtask?.invoke(subtaskId) },
+                onCompleteAllSubtasks = { onCompleteAllSubtasks?.invoke() }
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // ═══════════════════════════════════════════════════════════════
             // DESCRIPTION
             // ═══════════════════════════════════════════════════════════════
             EditSection(title = "Description", icon = Icons.Default.Description) {
@@ -516,19 +530,7 @@ fun TaskDetailSheet(
 
             Spacer(modifier = Modifier.height(24.dp))
 
-            // ═══════════════════════════════════════════════════════════════
-            // SUBTASKS (App-native only)
-            // ═══════════════════════════════════════════════════════════════
-            SubtaskSection(
-                parentTask = task,
-                subtasks = subtasks,
-                onAddSubtask = { title -> onAddSubtask?.invoke(title) },
-                onToggleSubtask = { subtaskId, isCompleted -> onToggleSubtask?.invoke(subtaskId, isCompleted) },
-                onDeleteSubtask = { subtaskId -> onDeleteSubtask?.invoke(subtaskId) },
-                onCompleteAllSubtasks = { onCompleteAllSubtasks?.invoke() }
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
+            // Space previously held by Subtasks
 
             // ═══════════════════════════════════════════════════════════════
             // SAVE BUTTON

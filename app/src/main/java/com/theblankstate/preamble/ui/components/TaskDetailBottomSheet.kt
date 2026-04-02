@@ -106,7 +106,12 @@ fun TaskDetailBottomSheet(
     onDismiss: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
-    onStartPomodoro: (() -> Unit)? = null
+    onStartPomodoro: (() -> Unit)? = null,
+    subtasks: List<Task> = emptyList(),
+    onAddSubtask: ((String) -> Unit)? = null,
+    onToggleSubtask: ((String, Boolean) -> Unit)? = null,
+    onDeleteSubtask: ((String) -> Unit)? = null,
+    onCompleteAllSubtasks: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -153,7 +158,7 @@ fun TaskDetailBottomSheet(
                     else
                         MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
-                    maxLines = 3,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
 
@@ -205,9 +210,10 @@ fun TaskDetailBottomSheet(
             // TAGS & PRIORITY
             // ═══════════════════════════════════════════════════════════════
             if (task.priority > 0 || task.tagList.isNotEmpty() || task.eventType != null && task.eventType != "default") {
-                FlowRow(
+                Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
                 ) {
                     // Priority chip
                     if (task.priority > 0) {
@@ -594,6 +600,18 @@ fun TaskDetailBottomSheet(
                     )
                 }
             }
+
+            // ═══════════════════════════════════════════════════════════════
+            // SUBTASKS (App-native only)
+            // ═══════════════════════════════════════════════════════════════
+            SubtaskSection(
+                parentTask = task,
+                subtasks = subtasks,
+                onAddSubtask = { title -> onAddSubtask?.invoke(title) },
+                onToggleSubtask = { subtaskId, isCompleted -> onToggleSubtask?.invoke(subtaskId, isCompleted) },
+                onDeleteSubtask = { subtaskId -> onDeleteSubtask?.invoke(subtaskId) },
+                onCompleteAllSubtasks = { onCompleteAllSubtasks?.invoke() }
+            )
 
             // ═══════════════════════════════════════════════════════════════
             // BANNER ADS

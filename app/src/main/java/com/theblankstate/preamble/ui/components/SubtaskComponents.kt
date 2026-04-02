@@ -90,9 +90,10 @@ fun SubtaskSection(
     // Don't show subtasks for Google Calendar/Google Tasks (app-native only)
     if (parentTask.source != "local") return
     
-    var isExpanded by remember { mutableStateOf(false) }
+    var isExpanded by remember { mutableStateOf(true) }
     var showAddField by remember { mutableStateOf(false) }
     var newSubtaskTitle by remember { mutableStateOf("") }
+    var showAllSubtasks by remember { mutableStateOf(false) }
     val keyboardController = LocalSoftwareKeyboardController.current
     
     Column(modifier = modifier) {
@@ -220,12 +221,25 @@ fun SubtaskSection(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        subtasks.forEach { subtask ->
+                        val visibleSubtasks = if (showAllSubtasks || subtasks.size <= 5) subtasks else subtasks.take(5)
+                        visibleSubtasks.forEach { subtask ->
                             SubtaskItemCompact(
                                 subtask = subtask,
                                 onToggle = { onToggleSubtask(subtask.id, it) },
                                 onDelete = { onDeleteSubtask(subtask.id) }
                             )
+                        }
+                        if (!showAllSubtasks && subtasks.size > 5) {
+                            TextButton(
+                                onClick = { showAllSubtasks = true },
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+                            ) {
+                                Text(
+                                    "See ${subtasks.size - 5} more",
+                                    color = MaterialTheme.colorScheme.primary,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
+                            }
                         }
                     }
                 } else if (!showAddField) {
@@ -299,13 +313,10 @@ fun SubtaskItem(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.weight(1f)
             ) {
-                Checkbox(
-                    checked = subtask.isCompleted,
-                    onCheckedChange = onToggle,
-                    colors = CheckboxDefaults.colors(
-                        checkedColor = MaterialTheme.colorScheme.primary,
-                        uncheckedColor = MaterialTheme.colorScheme.outline
-                    ),
+                Icon(
+                    imageVector = if (subtask.isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                    contentDescription = if (subtask.isCompleted) "Completed" else "Uncompleted",
+                    tint = if (subtask.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                     modifier = Modifier.size(20.dp)
                 )
                 
@@ -399,6 +410,9 @@ fun AddSubtaskInline(
             colors = TextFieldDefaults.colors(
                 focusedIndicatorColor = Color.Transparent,
                 unfocusedIndicatorColor = Color.Transparent,
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+                disabledContainerColor = Color.Transparent,
                 cursorColor = MaterialTheme.colorScheme.primary
             ),
             textStyle = MaterialTheme.typography.bodyMedium,
@@ -466,14 +480,11 @@ fun SubtaskItemCompact(
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         // Checkbox
-        Checkbox(
-            checked = subtask.isCompleted,
-            onCheckedChange = onToggle,
-            colors = CheckboxDefaults.colors(
-                checkedColor = MaterialTheme.colorScheme.primary,
-                uncheckedColor = MaterialTheme.colorScheme.outline
-            ),
-            modifier = Modifier.size(18.dp)
+        Icon(
+            imageVector = if (subtask.isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+            contentDescription = if (subtask.isCompleted) "Completed" else "Uncompleted",
+            tint = if (subtask.isCompleted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+            modifier = Modifier.size(20.dp)
         )
         
         // Title
