@@ -135,11 +135,11 @@ fun HomeScreen(
     tasks: List<Task>,
     pastTasks: Map<String, List<Task>> = emptyMap(),
     streak: Int,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?) -> Unit,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>) -> Unit,
     onToggleTask: (Task) -> Unit,
     onDeleteTask: (Task) -> Unit,
     onEditTask: ((Task, String, String?, String?, Int, String?, String?, String?, Int, String?, String?) -> Unit)? = null,
-    onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?) -> Unit)? = null,
+    onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?, subtasks: List<String>) -> Unit)? = null,
     onSyncGoogle: (() -> Unit)? = null,
     isRefreshing: Boolean = false,
     isBackgroundDeleting: Boolean = false,
@@ -234,7 +234,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false, false, 0, null, null)
+                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList())
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -283,7 +283,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false, false, 0, null, null)
+                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList())
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -1018,12 +1018,12 @@ fun HomeScreen(
     if (showAddSheet) {
         AddTaskSheet(
             onDismiss = { showAddSheet = false },
-            onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags ->
-                onAddTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags)
+            onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks ->
+                onAddTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks)
                 showAddSheet = false
             },
-            onAddRecurringTask = if (onAddRecurringTask != null) { { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags ->
-                onAddRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags)
+            onAddRecurringTask = if (onAddRecurringTask != null) { { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks ->
+                onAddRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks)
                 showAddSheet = false
             } } else null,
             aiChatViewModel = aiChatViewModel

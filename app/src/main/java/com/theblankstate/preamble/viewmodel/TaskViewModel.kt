@@ -160,9 +160,14 @@ class TaskViewModel(
 
         // Subtask count tracking
         viewModelScope.launch {
-            todayTasks.collect { tasks ->
+            todayTasks.flatMapLatest { tasks ->
                 val parentIds = tasks.map { it.id }
-                _subtaskCounts.value = repository.getSubtaskStats(parentIds)
+                android.util.Log.d("TaskSync", "Subtask tracking: todayTasks emitted ${tasks.size} tasks. Parent IDs: $parentIds")
+                if (parentIds.isEmpty()) kotlinx.coroutines.flow.flowOf(emptyMap())
+                else repository.observeSubtaskStats(parentIds)
+            }.collect { stats ->
+                android.util.Log.d("TaskSync", "Subtask tracking: received new stats -> $stats")
+                _subtaskCounts.value = stats
             }
         }
 
@@ -223,7 +228,7 @@ class TaskViewModel(
         }
     }
 
-    fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false, syncToCalendar: Boolean = false, priority: Int = 0, description: String? = null, tags: String? = null) {
+    fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false, syncToCalendar: Boolean = false, priority: Int = 0, description: String? = null, tags: String? = null, subtasks: List<String> = emptyList()) {
         val normalizedTitle = TaskInputValidator.normalizeTitle(title)
         val normalizedDescription = TaskInputValidator.normalizeDescription(description)
         if (!TaskInputValidator.isValidTitle(normalizedTitle) || !TaskInputValidator.isValidDescription(normalizedDescription)) return
@@ -285,6 +290,12 @@ class TaskViewModel(
             } else {
                 finalTask = repository.addTask(normalizedTitle, date, deadlineTime, priority, normalizedDescription, tags)
                     ?: return@launch
+            }
+            subtasks.forEach { subtaskTitle ->
+                repository.addSubtask(finalTask.id, subtaskTitle)
+            }
+            if (subtasks.isNotEmpty()) {
+                // Room Flow will automatically detect these insertions and recompose subtask stats
             }
             scheduleOrCancelAlarm(finalTask)
             refreshStats()
@@ -572,7 +583,8 @@ class TaskViewModel(
         recurrenceDays: String? = null,
         recurrenceEndDate: String? = null,
         syncToCalendar: Boolean = false,
-        tags: String? = null
+        tags: String? = null,
+        subtasks: List<String> = emptyList()
     ) {
         val normalizedTitle = TaskInputValidator.normalizeTitle(title)
         val normalizedDescription = TaskInputValidator.normalizeDescription(description)
@@ -609,11 +621,18 @@ class TaskViewModel(
                 androidx.work.WorkManager.getInstance(appContext).enqueue(req)
 
             } else {
-                if (repository.addRecurringTask(
+                val finalTask = repository.addRecurringTask(
                     normalizedTitle, date, deadlineTime, priority, normalizedDescription,
                     recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate,
                     tags = tags
-                ) == null) return@launch
+                )
+                if (finalTask == null) return@launch
+                subtasks.forEach { subtaskTitle ->
+                    repository.addSubtask(finalTask.id, subtaskTitle)
+                }
+                if (subtasks.isNotEmpty()) {
+                    // Room Flow will automatically detect these insertions
+                }
             }
             triggerRecurrenceGeneration()
             refreshStats()
@@ -642,8 +661,6 @@ class TaskViewModel(
         if (!TaskInputValidator.isValidTitle(normalizedTitle)) return
         viewModelScope.launch {
             if (repository.addSubtask(parentId, normalizedTitle) == null) return@launch
-            val parentIds = todayTasks.value.map { it.id }
-            _subtaskCounts.value = repository.getSubtaskStats(parentIds)
             refreshStats()
         }
     }
@@ -651,8 +668,6 @@ class TaskViewModel(
     fun toggleSubtaskCompletion(subtaskId: String, isCompleted: Boolean) {
         viewModelScope.launch {
             repository.updateSubtaskCompletion(subtaskId, isCompleted)
-            val parentIds = todayTasks.value.map { it.id }
-            _subtaskCounts.value = repository.getSubtaskStats(parentIds)
             refreshStats()
         }
     }
@@ -660,8 +675,6 @@ class TaskViewModel(
     fun completeAllSubtasks(parentId: String) {
         viewModelScope.launch {
             repository.completeAllSubtasks(parentId)
-            val parentIds = todayTasks.value.map { it.id }
-            _subtaskCounts.value = repository.getSubtaskStats(parentIds)
             refreshStats()
         }
     }
@@ -669,8 +682,6 @@ class TaskViewModel(
     fun deleteSubtask(subtaskId: String) {
         viewModelScope.launch {
             repository.deleteSubtask(subtaskId)
-            val parentIds = todayTasks.value.map { it.id }
-            _subtaskCounts.value = repository.getSubtaskStats(parentIds)
             refreshStats()
         }
     }

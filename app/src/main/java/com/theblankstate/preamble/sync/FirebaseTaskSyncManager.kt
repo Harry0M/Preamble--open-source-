@@ -84,13 +84,15 @@ class FirebaseTaskSyncManager(
         pendingDeletes.remove(task.id)
         pendingUpserts.add(task.id)
         val remoteTask = RemoteTask.fromLocal(task, uid)
-        try {
-            taskDoc(uid, task.id).set(remoteTask).await()
-            Log.i(TAG, "Firestore pushTask SUCCESS: uid=$uid taskId=${task.id}")
-        } catch (exception: Exception) {
-            Log.e(TAG, "Firestore pushTask FAILED: uid=$uid taskId=${task.id}", exception)
-        } finally {
-            pendingUpserts.remove(task.id)
+        appScope.launch {
+            try {
+                taskDoc(uid, task.id).set(remoteTask).await()
+                Log.i(TAG, "Firestore pushTask SUCCESS: uid=$uid taskId=${task.id}")
+            } catch (exception: Exception) {
+                Log.e(TAG, "Firestore pushTask FAILED: uid=$uid taskId=${task.id}", exception)
+            } finally {
+                pendingUpserts.remove(task.id)
+            }
         }
     }
 
@@ -104,14 +106,16 @@ class FirebaseTaskSyncManager(
         rememberLocalWrite(taskId)
         pendingUpserts.remove(taskId)
         pendingDeletes.add(taskId)
-        try {
-            taskDoc(uid, taskId).delete().await()
-            Log.i(TAG, "Firestore deleteTask SUCCESS: uid=$uid taskId=$taskId")
-        } catch (exception: Exception) {
-            Log.e(TAG, "Firestore deleteTask failed for uid=$uid taskId=$taskId", exception)
-        } finally {
-            pendingDeletes.remove(taskId)
-            Log.v(TAG, "deleteTask finalized: pendingDeletes=${pendingDeletes.size} pendingUpserts=${pendingUpserts.size}")
+        appScope.launch {
+            try {
+                taskDoc(uid, taskId).delete().await()
+                Log.i(TAG, "Firestore deleteTask SUCCESS: uid=$uid taskId=$taskId")
+            } catch (exception: Exception) {
+                Log.e(TAG, "Firestore deleteTask failed for uid=$uid taskId=$taskId", exception)
+            } finally {
+                pendingDeletes.remove(taskId)
+                Log.v(TAG, "deleteTask finalized: pendingDeletes=${pendingDeletes.size} pendingUpserts=${pendingUpserts.size}")
+            }
         }
     }
 
@@ -142,11 +146,13 @@ class FirebaseTaskSyncManager(
     suspend fun deleteTagOverride(googleId: String) {
         val uid = auth.currentUser?.uid ?: return
         Log.d(TAG, "deleteTagOverride called: uid=$uid googleId=$googleId")
-        try {
-            tagOverrideDoc(uid, googleId).delete().await()
-            Log.i(TAG, "deleteTagOverride SUCCESS: uid=$uid googleId=$googleId")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to delete Firestore tag override for $googleId", e)
+        appScope.launch {
+            try {
+                tagOverrideDoc(uid, googleId).delete().await()
+                Log.i(TAG, "deleteTagOverride SUCCESS: uid=$uid googleId=$googleId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to delete Firestore tag override for $googleId", e)
+            }
         }
         Log.d(TAG, "Deleted tag override: $googleId")
     }
@@ -164,13 +170,15 @@ class FirebaseTaskSyncManager(
             rememberLocalWrite(task.id)
             pendingUpserts.add(task.id)
             val remoteTask = RemoteTask.fromLocal(task, uid)
-            try {
-                taskDoc(uid, task.id).set(remoteTask).await()
-                Log.d(TAG, "syncAllLocalToRemote: pushed task ${task.id}")
-            } catch (exception: Exception) {
-                Log.e(TAG, "Firestore syncAllLocalToRemote failed for uid=$uid taskId=${task.id}", exception)
-            } finally {
-                pendingUpserts.remove(task.id)
+            appScope.launch {
+                try {
+                    taskDoc(uid, task.id).set(remoteTask).await()
+                    Log.d(TAG, "syncAllLocalToRemote: pushed task ${task.id}")
+                } catch (exception: Exception) {
+                    Log.e(TAG, "Firestore syncAllLocalToRemote failed for uid=$uid taskId=${task.id}", exception)
+                } finally {
+                    pendingUpserts.remove(task.id)
+                }
             }
         }
 
@@ -442,13 +450,15 @@ class FirebaseTaskSyncManager(
             "updatedTimestamp" to override.updatedTimestamp
         )
 
-        try {
-            tagOverrideDoc(uid, override.googleId)
-                .set(data)
-                .await()
-            Log.v(TAG, "pushTagOverrideToDatastores SUCCESS: uid=$uid googleId=${override.googleId}")
-        } catch (exception: Exception) {
-            Log.e(TAG, "Failed to write tag override to Firestore for ${override.googleId}", exception)
+        appScope.launch {
+            try {
+                tagOverrideDoc(uid, override.googleId)
+                    .set(data)
+                    .await()
+                Log.v(TAG, "pushTagOverrideToDatastores SUCCESS: uid=$uid googleId=${override.googleId}")
+            } catch (exception: Exception) {
+                Log.e(TAG, "Failed to write tag override to Firestore for ${override.googleId}", exception)
+            }
         }
     }
 

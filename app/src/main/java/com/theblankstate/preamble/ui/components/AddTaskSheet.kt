@@ -36,6 +36,10 @@ import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.outlined.Circle
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -89,8 +93,8 @@ import kotlin.math.sin
 @Composable
 fun AddTaskSheet(
     onDismiss: () -> Unit,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?) -> Unit,
-    onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?) -> Unit)? = null,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>) -> Unit,
+    onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?, subtasks: List<String>) -> Unit)? = null,
     aiChatViewModel: AiChatViewModel? = null
 ) {
     val context = LocalContext.current
@@ -110,6 +114,7 @@ fun AddTaskSheet(
     }
     var taskTitle by remember { mutableStateOf("") }
     var taskDescription by remember { mutableStateOf("") }
+    var newSubtasks by remember { mutableStateOf(listOf<String>()) }
     var selectedTime by remember { mutableStateOf<String?>(null) }
     var selectedDate by remember { mutableStateOf<String?>(null) }
     var selectedPriority by remember { mutableStateOf(0) }
@@ -220,7 +225,8 @@ fun AddTaskSheet(
                     daysStr,
                     recurrenceEndDate,
                     syncToCalendar,
-                    if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null
+                    if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null,
+                    newSubtasks
                 )
             } else {
                 onAddTask(
@@ -231,7 +237,8 @@ fun AddTaskSheet(
                     syncToCalendar,
                     selectedPriority,
                     desc,
-                    if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null
+                    if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null,
+                    newSubtasks
                 )
             }
             // Haptic + toast confirmation
@@ -473,6 +480,88 @@ fun AddTaskSheet(
                     selectedTags = selectedTags,
                     onTagsChanged = { selectedTags = it }
                 )
+            }
+
+            // Subtasks Section (App-native only)
+            if (!syncToGoogle && !syncToCalendar) {
+                Spacer(modifier = Modifier.height(8.dp))
+                var showAddSubtask by remember { mutableStateOf(false) }
+                Text(
+                    "Subtasks",
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+                val keyboardController = LocalSoftwareKeyboardController.current
+                
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    newSubtasks.forEachIndexed { index, subtask ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Outlined.Circle,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = subtask,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = { 
+                                    newSubtasks = newSubtasks.toMutableList().apply { removeAt(index) } 
+                                },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Remove",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                    
+                    if (showAddSubtask) {
+                        var tempSubtaskTitle by remember { mutableStateOf("") }
+                        AddSubtaskInline(
+                            title = tempSubtaskTitle,
+                            onTitleChange = { tempSubtaskTitle = it },
+                            onAdd = {
+                                if (tempSubtaskTitle.isNotBlank()) {
+                                    newSubtasks = newSubtasks + tempSubtaskTitle.trim()
+                                    tempSubtaskTitle = ""
+                                    showAddSubtask = false
+                                    keyboardController?.hide()
+                                }
+                            },
+                            onCancel = {
+                                tempSubtaskTitle = ""
+                                showAddSubtask = false
+                                keyboardController?.hide()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        TextButton(
+                            onClick = { showAddSubtask = true },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Add Subtask")
+                        }
+                    }
+                }
             }
 
             // Sync to Google Calendar toggle (only visible when linked)

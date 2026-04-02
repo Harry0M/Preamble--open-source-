@@ -230,14 +230,14 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 tasks = tasks,
                 pastTasks = pastTasks,
                 streak = stats.streak,
-                onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags -> viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags) },
+                onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks -> viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks) },
                 onToggleTask = { viewModel.toggleTask(it) },
                 onDeleteTask = { viewModel.deleteTask(it) },
                 onEditTask = { task, title, date, time, priority, description, tags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate ->
                     viewModel.updateTask(task, title, date, time, priority, description, tags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate)
                 },
-                onAddRecurringTask = { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags ->
-                    viewModel.addRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags)
+                onAddRecurringTask = { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks ->
+                    viewModel.addRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks)
                 },
                 onSyncGoogle = { viewModel.syncGoogleData() },
                 isRefreshing = viewModel.isRefreshing.collectAsState().value,

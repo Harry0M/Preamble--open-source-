@@ -9,6 +9,8 @@ import com.theblankstate.preamble.data.TaskTagOverride
 import com.theblankstate.preamble.sync.FirebaseTaskSyncManager
 import com.theblankstate.preamble.sync.MirrorParitySummary
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOf
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -134,6 +136,13 @@ class TaskRepository(
         if (parentIds.isEmpty()) return emptyMap()
         return dao.getSubtaskStatsForParents(parentIds).associate {
             it.parentTaskId to (it.completed to it.total)
+        }
+    }
+
+    fun observeSubtaskStats(parentIds: List<String>): Flow<Map<String, Pair<Int, Int>>> {
+        if (parentIds.isEmpty()) return flowOf(emptyMap())
+        return dao.observeSubtaskStatsForParents(parentIds).map { list ->
+            list.associate { it.parentTaskId to (it.completed to it.total) }
         }
     }
 

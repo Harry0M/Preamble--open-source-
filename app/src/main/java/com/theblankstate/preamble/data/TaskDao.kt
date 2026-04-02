@@ -136,6 +136,9 @@ interface TaskDao {
     @Query("SELECT parentTaskId, COUNT(*) as total, SUM(CASE WHEN isCompleted = 1 THEN 1 ELSE 0 END) as completed FROM tasks WHERE parentTaskId IN (:parentIds) GROUP BY parentTaskId")
     suspend fun getSubtaskStatsForParents(parentIds: List<String>): List<SubtaskStats>
 
+    @Query("SELECT parentTaskId, COUNT(*) as total, SUM(CASE WHEN isCompleted = 1 THEN 1 ELSE 0 END) as completed FROM tasks WHERE parentTaskId IN (:parentIds) GROUP BY parentTaskId")
+    fun observeSubtaskStatsForParents(parentIds: List<String>): Flow<List<SubtaskStats>>
+
     @Query("DELETE FROM tasks WHERE parentTaskId = :parentId")
     suspend fun deleteAllSubtasks(parentId: String)
 
