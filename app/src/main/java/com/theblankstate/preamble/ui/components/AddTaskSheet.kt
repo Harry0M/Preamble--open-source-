@@ -13,6 +13,11 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -24,8 +29,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -38,6 +49,10 @@ import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Label
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.outlined.Flag
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.material3.Button
@@ -56,7 +71,14 @@ import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TimePicker
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import com.theblankstate.preamble.data.PredefinedTags
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberTimePickerState
@@ -133,6 +155,8 @@ fun AddTaskSheet(
     var showScheduleSheet by remember { mutableStateOf(false) }
     var showRepeatSheet by remember { mutableStateOf(false) }
     var showDescription by remember { mutableStateOf(false) }
+    var showTagsDialog by remember { mutableStateOf(false) }
+    var showPriorityDialog by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
 
     // Lazily create SpeechRecognizer only when user taps mic (saves ~3-5MB)
@@ -272,17 +296,63 @@ fun AddTaskSheet(
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp)
         ) {
-            Text(
-                text = "New Task",
-                style = MaterialTheme.typography.titleLarge,
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
+            val placeholders = remember {
+                listOf(
+                    "Try: 'Buy groceries at 5pm !high'",
+                    "Try: 'Meeting with John tomorrow'",
+                    "Try: 'Call mom tonight #personal'",
+                    "Try: 'Workout daily at 7am'"
+                )
+            }
+            var currentPlaceholderIndex by remember { mutableStateOf(0) }
+            
+            LaunchedEffect(Unit) {
+                while(true) {
+                    kotlinx.coroutines.delay(3500)
+                    currentPlaceholderIndex = (currentPlaceholderIndex + 1) % placeholders.size
+                }
+            }
+            
+            // Selected info chips hoisted to the top
+            Box(modifier = Modifier.fillMaxWidth().animateContentSize()) {
+                if (selectedDate != null || selectedTime != null || (recurrenceType != null && recurrenceType != "rollover") || selectedTags.isNotEmpty()) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp)
+                    ) {
+                        if (selectedDate != null) {
+                            SuggestionChip(
+                                onClick = { showScheduleSheet = true },
+                                label = { Text(selectedDate!!, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                        if (selectedTime != null) {
+                            SuggestionChip(
+                                onClick = { showScheduleSheet = true },
+                                label = { Text(selectedTime!!, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                        if (recurrenceType != null && recurrenceType != "rollover") {
+                            SuggestionChip(
+                                onClick = { showRepeatSheet = true },
+                                label = { Text(recurrenceType!!, style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                        if (selectedTags.isNotEmpty()) {
+                            SuggestionChip(
+                                onClick = { showTagsDialog = true },
+                                label = { Text(if (selectedTags.size == 1) selectedTags.first() else "${selectedTags.size} Tags", style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                    }
+                }
+            }
 
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedTextField(
+                TextField(
                     value = taskTitle,
                     onValueChange = {
                         if (it.length <= TaskInputValidator.TITLE_MAX_LENGTH) {
@@ -292,9 +362,33 @@ fun AddTaskSheet(
                     modifier = Modifier
                         .weight(1f)
                         .focusRequester(focusRequester),
-                    placeholder = { Text("What do you need to remember?") },
+                    placeholder = { 
+                        androidx.compose.animation.AnimatedContent(
+                            targetState = currentPlaceholderIndex,
+                            transitionSpec = {
+                                (fadeIn(animationSpec = tween(500)) + slideInVertically(animationSpec = tween(500)) { height -> height }) togetherWith
+                                (fadeOut(animationSpec = tween(500)) + slideOutVertically(animationSpec = tween(500)) { height -> -height })
+                            },
+                            label = "placeholderAnim"
+                        ) { targetIndex ->
+                            Text(
+                                text = placeholders[targetIndex],
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                maxLines = 1
+                            )
+                        }
+                    },
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        cursorColor = MaterialTheme.colorScheme.primary
+                    ),
+                    textStyle = MaterialTheme.typography.titleLarge,
                     singleLine = true,
-                    shape = CircleShape,
                     keyboardOptions = KeyboardOptions.Default.copy(imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { saveTask() })
                 )
@@ -411,37 +505,113 @@ fun AddTaskSheet(
                     )
                 }
 
-                Spacer(modifier = Modifier.weight(1f))
+                // Tags icon
+                Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
+                    IconButton(onClick = { showTagsDialog = true }) {
+                        Icon(
+                            Icons.Default.Label,
+                            contentDescription = "Tags",
+                            tint = if (selectedTags.isNotEmpty())
+                                MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = showTagsDialog,
+                        onDismissRequest = { showTagsDialog = false },
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.widthIn(max = 240.dp).heightIn(max = 300.dp),
+                        properties = PopupProperties(focusable = false)
+                    ) {
+                        PredefinedTags.tags.forEach { tag ->
+                            val isSelected = tag.name in selectedTags
+                            DropdownMenuItem(
+                                text = { Text(tag.name, style = MaterialTheme.typography.bodyMedium) },
+                                leadingIcon = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(12.dp)
+                                            .background(tag.color, CircleShape)
+                                    )
+                                },
+                                trailingIcon = {
+                                    if (isSelected) {
+                                        Icon(Icons.Default.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                },
+                                onClick = {
+                                    val newTags = if (isSelected) selectedTags - tag.name else selectedTags + tag.name
+                                    selectedTags = newTags
+                                }
+                            )
+                        }
+                    }
+                }
 
-                // Selected info chips
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.horizontalScroll(rememberScrollState())
-                ) {
-                    if (selectedDate != null) {
-                        SuggestionChip(
-                            onClick = { showScheduleSheet = true },
-                            label = { Text(selectedDate!!, style = MaterialTheme.typography.labelSmall) }
+                // Priority icon
+                val priorityColorsCache = remember {
+                    listOf(
+                        Color.Transparent, // unused logic fallback
+                        Color(0xFF4CAF50),
+                        Color(0xFFFF9800),
+                        Color(0xFFF44336)
+                    )
+                }
+                Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
+                    IconButton(onClick = { showPriorityDialog = true }) {
+                        Icon(
+                            if (selectedPriority != 0) Icons.Default.Flag else Icons.Outlined.Flag,
+                            contentDescription = "Priority",
+                            tint = if (selectedPriority != 0) priorityColorsCache[selectedPriority] else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    if (selectedTime != null) {
-                        SuggestionChip(
-                            onClick = { showScheduleSheet = true },
-                            label = { Text(selectedTime!!, style = MaterialTheme.typography.labelSmall) }
-                        )
-                    }
-                    if (recurrenceType != null && recurrenceType != "rollover") {
-                        SuggestionChip(
-                            onClick = { showRepeatSheet = true },
-                            label = { Text(recurrenceType!!, style = MaterialTheme.typography.labelSmall) }
-                        )
+                    DropdownMenu(
+                        expanded = showPriorityDialog,
+                        onDismissRequest = { showPriorityDialog = false },
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.widthIn(max = 240.dp),
+                        properties = PopupProperties(focusable = false)
+                    ) {
+                        val priorities = listOf(0 to "None (Default)", 1 to "Low Priority", 2 to "Medium Priority", 3 to "High Priority")
+                        priorities.forEach { (value, label) ->
+                            val isSelected = selectedPriority == value
+                            DropdownMenuItem(
+                                text = { 
+                                    Text(
+                                        text = label, 
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = if (isSelected) priorityColorsCache[value].takeIf { value != 0 } ?: MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface
+                                    ) 
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        if (value != 0) Icons.Default.Flag else Icons.Outlined.Flag,
+                                        contentDescription = null,
+                                        tint = if (value != 0) priorityColorsCache[value] else MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                },
+                                trailingIcon = {
+                                    if (isSelected) {
+                                        Icon(
+                                            Icons.Default.Check, 
+                                            contentDescription = "Selected", 
+                                            tint = if (value != 0) priorityColorsCache[value] else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                },
+                                onClick = {
+                                    selectedPriority = value
+                                    showPriorityDialog = false
+                                }
+                            )
+                        }
                     }
                 }
             }
 
             // Description field (toggled by details icon)
             AnimatedVisibility(visible = showDescription) {
-                OutlinedTextField(
+                TextField(
                     value = taskDescription,
                     onValueChange = {
                         if (it.length <= TaskInputValidator.DESCRIPTION_MAX_LENGTH) {
@@ -452,39 +622,15 @@ fun AddTaskSheet(
                     placeholder = { Text("Add details (optional)") },
                     minLines = 2,
                     maxLines = 4,
-                    shape = MaterialTheme.shapes.medium
-                )
-            }
-
-            // Priority selector
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                val priorities = listOf(0 to "None", 1 to "Low", 2 to "Medium", 3 to "High")
-                priorities.forEach { (value, label) ->
-                    FilterChip(
-                        selected = selectedPriority == value,
-                        onClick = { selectedPriority = value },
-                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                        modifier = Modifier.weight(1f)
+                    colors = TextFieldDefaults.colors(
+                        focusedIndicatorColor = Color.Transparent,
+                        unfocusedIndicatorColor = Color.Transparent,
+                        disabledIndicatorColor = Color.Transparent,
+                        focusedContainerColor = Color.Transparent,
+                        unfocusedContainerColor = Color.Transparent,
+                        disabledContainerColor = Color.Transparent,
+                        cursorColor = MaterialTheme.colorScheme.primary
                     )
-                }
-            }
-
-            // Tags picker - single line horizontal scroll
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Tags", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(bottom = 4.dp))
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                TagPickerInline(
-                    selectedTags = selectedTags,
-                    onTagsChanged = { selectedTags = it }
                 )
             }
 
@@ -500,7 +646,7 @@ fun AddTaskSheet(
                 val keyboardController = LocalSoftwareKeyboardController.current
                 
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().animateContentSize(),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     newSubtasks.forEachIndexed { index, subtask ->
@@ -537,33 +683,38 @@ fun AddTaskSheet(
                         }
                     }
                     
-                    if (showAddSubtask) {
-                        AddSubtaskInline(
-                            title = pendingSubtaskTitle,
-                            onTitleChange = { pendingSubtaskTitle = it },
-                            onAdd = {
-                                if (pendingSubtaskTitle.isNotBlank()) {
-                                    newSubtasks = newSubtasks + pendingSubtaskTitle.trim()
+                    androidx.compose.animation.AnimatedContent(
+                        targetState = showAddSubtask,
+                        label = "addSubtaskAnim"
+                    ) { adding ->
+                        if (adding) {
+                            AddSubtaskInline(
+                                title = pendingSubtaskTitle,
+                                onTitleChange = { pendingSubtaskTitle = it },
+                                onAdd = {
+                                    if (pendingSubtaskTitle.isNotBlank()) {
+                                        newSubtasks = newSubtasks + pendingSubtaskTitle.trim()
+                                        pendingSubtaskTitle = ""
+                                        showAddSubtask = false
+                                        keyboardController?.hide()
+                                    }
+                                },
+                                onCancel = {
                                     pendingSubtaskTitle = ""
                                     showAddSubtask = false
                                     keyboardController?.hide()
-                                }
-                            },
-                            onCancel = {
-                                pendingSubtaskTitle = ""
-                                showAddSubtask = false
-                                keyboardController?.hide()
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    } else {
-                        TextButton(
-                            onClick = { showAddSubtask = true },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Add Subtask")
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            TextButton(
+                                onClick = { showAddSubtask = true },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Add Subtask")
+                            }
                         }
                     }
                 }
@@ -813,5 +964,65 @@ fun WaveAnimation(modifier: Modifier = Modifier, color: Color) {
                 cap = StrokeCap.Round
             )
         }
+    }
+}
+
+@Composable
+fun PriorityAnimatedSlider(
+    selectedPriority: Int,
+    onPrioritySelected: (Int) -> Unit
+) {
+    Spacer(modifier = Modifier.height(16.dp))
+    val priorities = remember { listOf(0 to "None", 1 to "Low", 2 to "Medium", 3 to "High") }
+    
+    val fallbackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+    val priorityColors = remember {
+        listOf(
+            fallbackColor,
+            Color(0xFF4CAF50), // Low - Green
+            Color(0xFFFF9800), // Medium - Orange
+            Color(0xFFF44336)  // High - Red
+        )
+    }
+    
+    val targetColor = if (selectedPriority in priorityColors.indices) priorityColors[selectedPriority] else fallbackColor
+    val animatedColor by androidx.compose.animation.animateColorAsState(
+        targetValue = targetColor,
+        animationSpec = tween(400),
+        label = "priorityColor"
+    )
+    
+    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "Priority", 
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = priorities[selectedPriority].second,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                color = if (selectedPriority == 0) MaterialTheme.colorScheme.onSurfaceVariant else animatedColor
+            )
+        }
+        
+        androidx.compose.material3.Slider(
+            value = selectedPriority.toFloat(),
+            onValueChange = { onPrioritySelected(java.lang.Math.round(it)) },
+            valueRange = 0f..3f,
+            steps = 2,
+            colors = androidx.compose.material3.SliderDefaults.colors(
+                thumbColor = if (selectedPriority == 0) MaterialTheme.colorScheme.onSurfaceVariant else animatedColor,
+                activeTrackColor = if (selectedPriority == 0) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f) else animatedColor.copy(alpha = 0.7f),
+                inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f),
+                activeTickColor = Color.Transparent,
+                inactiveTickColor = Color.Transparent
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
