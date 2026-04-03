@@ -209,6 +209,47 @@ fun TaskDetailSheet(
             // Source badge
             EditSourceBadge(task)
 
+            // Rollover Info Badge
+            val daysRolledOver = remember(task.recurrenceType, task.createdDate, task.isCompleted, task.completedDate) {
+                if (task.recurrenceType == "rollover") {
+                    try {
+                        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                        val createdDateObj = sdf.parse(task.createdDate)
+                        val targetDateStr = task.completedDate ?: sdf.format(java.util.Date())
+                        val targetDate = sdf.parse(targetDateStr)
+                        if (createdDateObj != null && targetDate != null && createdDateObj.before(targetDate)) {
+                            val diff = targetDate.time - createdDateObj.time
+                            (diff / (1000 * 60 * 60 * 24)).toInt()
+                        } else null
+                    } catch (e: Exception) { null }
+                } else null
+            }
+            if (daysRolledOver != null && daysRolledOver > 0) {
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Refresh, 
+                            contentDescription = null, 
+                            modifier = Modifier.size(16.dp), 
+                            tint = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (task.isCompleted) "Completed $daysRolledOver days late" else "Pending for $daysRolledOver days",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
 
             // Sync warning

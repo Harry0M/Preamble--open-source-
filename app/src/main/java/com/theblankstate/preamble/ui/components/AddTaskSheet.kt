@@ -115,6 +115,7 @@ fun AddTaskSheet(
     var taskTitle by remember { mutableStateOf("") }
     var taskDescription by remember { mutableStateOf("") }
     var newSubtasks by remember { mutableStateOf(listOf<String>()) }
+    var pendingSubtaskTitle by remember { mutableStateOf("") }
     var selectedTime by remember { mutableStateOf<String?>(null) }
     var selectedDate by remember { mutableStateOf<String?>(null) }
     var selectedPriority by remember { mutableStateOf(0) }
@@ -211,6 +212,11 @@ fun AddTaskSheet(
 
     val saveTask = {
         if (taskTitle.isNotBlank()) {
+            val finalSubtasks = newSubtasks.toMutableList()
+            if (pendingSubtaskTitle.isNotBlank()) {
+                finalSubtasks.add(pendingSubtaskTitle.trim())
+            }
+            
             val desc = taskDescription.trim().ifBlank { null }
             if (recurrenceType != null && onAddRecurringTask != null) {
                 val daysStr = if (recurrenceDays.isNotEmpty()) recurrenceDays.sorted().joinToString(",") else null
@@ -226,7 +232,7 @@ fun AddTaskSheet(
                     recurrenceEndDate,
                     syncToCalendar,
                     if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null,
-                    newSubtasks
+                    finalSubtasks
                 )
             } else {
                 onAddTask(
@@ -238,7 +244,7 @@ fun AddTaskSheet(
                     selectedPriority,
                     desc,
                     if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null,
-                    newSubtasks
+                    finalSubtasks
                 )
             }
             // Haptic + toast confirmation
@@ -382,7 +388,7 @@ fun AddTaskSheet(
                 }
 
                 // Repeat icon - opens repeat sheet
-                if (onAddRecurringTask != null) {
+                if (onAddRecurringTask != null && recurrenceType != "rollover") {
                     IconButton(onClick = { showRepeatSheet = true }) {
                         Icon(
                             Icons.Default.Repeat,
@@ -532,20 +538,19 @@ fun AddTaskSheet(
                     }
                     
                     if (showAddSubtask) {
-                        var tempSubtaskTitle by remember { mutableStateOf("") }
                         AddSubtaskInline(
-                            title = tempSubtaskTitle,
-                            onTitleChange = { tempSubtaskTitle = it },
+                            title = pendingSubtaskTitle,
+                            onTitleChange = { pendingSubtaskTitle = it },
                             onAdd = {
-                                if (tempSubtaskTitle.isNotBlank()) {
-                                    newSubtasks = newSubtasks + tempSubtaskTitle.trim()
-                                    tempSubtaskTitle = ""
+                                if (pendingSubtaskTitle.isNotBlank()) {
+                                    newSubtasks = newSubtasks + pendingSubtaskTitle.trim()
+                                    pendingSubtaskTitle = ""
                                     showAddSubtask = false
                                     keyboardController?.hide()
                                 }
                             },
                             onCancel = {
-                                tempSubtaskTitle = ""
+                                pendingSubtaskTitle = ""
                                 showAddSubtask = false
                                 keyboardController?.hide()
                             },

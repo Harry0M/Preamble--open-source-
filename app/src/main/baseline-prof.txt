@@ -2,3 +2,5 @@ HSPLcom/theblankstate/preamble/PreambleApplication;-><init>()V
 HSPLcom/theblankstate/preamble/PreambleApplication;->onCreate()V
 HSPLcom/theblankstate/preamble/MainActivity;-><init>()V
 HSPLcom/theblankstate/preamble/MainActivity;->onCreate(Landroid/os/Bundle;)V
+Lcom/theblankstate/preamble/**
+Landroidx/compose/**

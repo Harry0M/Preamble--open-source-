@@ -11,6 +11,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -599,34 +600,36 @@ fun HomeScreen(
                         )
                     }
                     items(searchResults, key = { it.id }) { task ->
-                        SwipeableTaskItem(
-                            task = task,
-                            onToggle = { onToggleTask(task) },
-                            onDelete = { taskToDelete = task },
-                            onEdit = if (onEditTask != null) {
-                                { taskToEdit = task }
-                            } else null,
-                            onDetail = { taskToShowDetail = task },
-                            onStartPomodoro = {
-                                pomodoroTaskId = task.id
-                                pomodoroTaskTitle = task.title
-                                showPomodoroSheet = true
-                            },
-                            onRetrySync = onRetrySync?.let { retry -> { retry(task) } },
-                            isEditable = true,
-                            subtaskCount = subtaskCounts[task.id],
-                            isExpanded = expandedTasks.contains(task.id),
-                            onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } }
-                        )
-                        // Show subtasks when expanded
-                        if (expandedTasks.contains(task.id) && subtasksProvider != null) {
-                            val subtasks by subtasksProvider(task.id).collectAsState(initial = emptyList())
-                            SubtaskList(
-                                subtasks = subtasks,
-                                onToggleSubtask = { onToggleTask(it) },
-                                onAddSubtask = { title -> onAddSubtask?.invoke(task.id, title) },
-                                onDeleteSubtask = { onDeleteTask(it) }
+                        Column(modifier = Modifier.animateContentSize()) {
+                            SwipeableTaskItem(
+                                task = task,
+                                onToggle = { onToggleTask(task) },
+                                onDelete = { taskToDelete = task },
+                                onEdit = if (onEditTask != null) {
+                                    { taskToEdit = task }
+                                } else null,
+                                onDetail = { taskToShowDetail = task },
+                                onStartPomodoro = {
+                                    pomodoroTaskId = task.id
+                                    pomodoroTaskTitle = task.title
+                                    showPomodoroSheet = true
+                                },
+                                onRetrySync = onRetrySync?.let { retry -> { retry(task) } },
+                                isEditable = true,
+                                subtaskCount = subtaskCounts[task.id],
+                                isExpanded = expandedTasks.contains(task.id),
+                                onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } }
                             )
+                            // Show subtasks when expanded
+                            if (expandedTasks.contains(task.id) && subtasksProvider != null) {
+                                val subtasks by subtasksProvider(task.id).collectAsState(initial = emptyList())
+                                SubtaskList(
+                                    subtasks = subtasks,
+                                    onToggleSubtask = { onToggleTask(it) },
+                                    onAddSubtask = { title -> onAddSubtask?.invoke(task.id, title) },
+                                    onDeleteSubtask = { onDeleteTask(it) }
+                                )
+                            }
                         }
                     }
                 }
@@ -754,7 +757,7 @@ fun HomeScreen(
                                                     enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
                                                     exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically()
                                                 ) {
-                                                    Column {
+                                                    Column(modifier = Modifier.animateContentSize()) {
                                                         SwipeableTaskItem(
                                                             task = task,
                                                             onToggle = { onToggleTask(task) },
@@ -795,7 +798,7 @@ fun HomeScreen(
                             items = tasks,
                             key = { it.id }
                         ) { task ->
-                            Column {
+                            Column(modifier = Modifier.animateContentSize()) {
                                 SwipeableTaskItem(
                                     task = task,
                                     onToggle = { onToggleTask(task) },

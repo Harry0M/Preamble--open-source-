@@ -62,6 +62,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -370,6 +371,9 @@ fun AddSubtaskInline(
 ) {
     val keyboardController = LocalSoftwareKeyboardController.current
     
+    val currentTitle by androidx.compose.runtime.rememberUpdatedState(title)
+    val currentOnAdd by androidx.compose.runtime.rememberUpdatedState(onAdd)
+    
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
@@ -417,7 +421,14 @@ fun AddSubtaskInline(
             ),
             textStyle = MaterialTheme.typography.bodyMedium,
             singleLine = true,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier
+                .weight(1f)
+                .onFocusChanged { state ->
+                    // Auto-save when losing focus (e.g., user taps outside without checking the tick mark)
+                    if (!state.isFocused && currentTitle.isNotBlank()) {
+                        currentOnAdd()
+                    }
+                }
         )
         
         // Action buttons
