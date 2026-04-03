@@ -79,15 +79,37 @@ class TaskRepository(
             task.subtasks // leave as is when unchecking
         }
         val isBecomingCompleted = !task.isCompleted
+        val now = System.currentTimeMillis()
         val updated = task.copy(
             isCompleted = isBecomingCompleted,
-            completedTimestamp = if (isBecomingCompleted) System.currentTimeMillis() else null,
+            completedTimestamp = if (isBecomingCompleted) now else null,
             completedDate = if (isBecomingCompleted && task.recurrenceType == "rollover") todayString() else null,
-            updatedTimestamp = System.currentTimeMillis(),
+            updatedTimestamp = now,
             subtasksJson = gson.toJson(updatedSubtasks)
         )
         dao.updateTask(updated)
         syncManager?.pushTask(updated)
+
+        // When completing a parent task, also complete all child subtask rows
+        if (isBecomingCompleted) {
+            val childSubtasks = dao.getSubtasksForParentSync(task.id)
+            childSubtasks.forEach { subtask ->
+                if (!subtask.isCompleted) {
+                    val updatedSubtask = subtask.copy(
+                        isCompleted = true,
+                        completedTimestamp = now,
+                        updatedTimestamp = now
+                    )
+                    dao.updateTask(updatedSubtask)
+                    syncManager?.pushTask(updatedSubtask)
+                }
+            }
+        }
+
+        // If this task is a subtask, update parent completion status
+        task.parentTaskId?.let { parentId ->
+            updateParentTaskCompletion(parentId)
+        }
     }
 
     suspend fun insertTask(task: Task) {

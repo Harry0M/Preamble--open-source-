@@ -625,9 +625,9 @@ fun HomeScreen(
                                 val subtasks by subtasksProvider(task.id).collectAsState(initial = emptyList())
                                 SubtaskList(
                                     subtasks = subtasks,
-                                    onToggleSubtask = { onToggleTask(it) },
+                                    onToggleSubtask = { subtask -> onToggleSubtask?.invoke(subtask.id, !subtask.isCompleted) },
                                     onAddSubtask = { title -> onAddSubtask?.invoke(task.id, title) },
-                                    onDeleteSubtask = { onDeleteTask(it) }
+                                    onDeleteSubtask = { subtask -> onDeleteSubtask?.invoke(subtask.id) }
                                 )
                             }
                         }
@@ -780,9 +780,9 @@ fun HomeScreen(
                                                             val subtasks by subtasksProvider(task.id).collectAsState(initial = emptyList())
                                                             SubtaskList(
                                                                 subtasks = subtasks,
-                                                                onToggleSubtask = { onToggleTask(it) },
+                                                                onToggleSubtask = { subtask -> onToggleSubtask?.invoke(subtask.id, !subtask.isCompleted) },
                                                                 onAddSubtask = { title -> onAddSubtask?.invoke(task.id, title) },
-                                                                onDeleteSubtask = { onDeleteTask(it) }
+                                                                onDeleteSubtask = { subtask -> onDeleteSubtask?.invoke(subtask.id) }
                                                             )
                                                         }
                                                     }
@@ -822,9 +822,9 @@ fun HomeScreen(
                                     val subtasks by subtasksProvider(task.id).collectAsState(initial = emptyList())
                                     SubtaskList(
                                         subtasks = subtasks,
-                                        onToggleSubtask = { onToggleTask(it) },
+                                        onToggleSubtask = { subtask -> onToggleSubtask?.invoke(subtask.id, !subtask.isCompleted) },
                                         onAddSubtask = { title -> onAddSubtask?.invoke(task.id, title) },
-                                        onDeleteSubtask = { onDeleteTask(it) }
+                                        onDeleteSubtask = { subtask -> onDeleteSubtask?.invoke(subtask.id) }
                                     )
                                 }
                             }
