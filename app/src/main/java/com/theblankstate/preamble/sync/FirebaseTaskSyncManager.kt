@@ -599,7 +599,14 @@ data class RemoteTask(
     var parentTaskId: String? = null,
     var tags: String? = null,
     var googleCalendarId: String? = null,
-    var googleRecurrenceInfo: String? = null
+    var googleRecurrenceInfo: String? = null,
+    var completedDate: String? = null,
+    var subtasksJson: String? = null,
+    var customAlarmTimeMs: Long? = null,
+    var isAlarmPaused: Boolean = false,
+    var snoozedUntil: Long? = null,
+    var mediaJson: String? = null,
+    var linksJson: String? = null
 ) {
     fun toLocal(fallbackId: String): Task? {
         val resolvedId = id.ifBlank { fallbackId }
@@ -628,7 +635,14 @@ data class RemoteTask(
             parentTaskId = parentTaskId,
             tags = tags,
             googleCalendarId = googleCalendarId,
-            googleRecurrenceInfo = googleRecurrenceInfo
+            googleRecurrenceInfo = googleRecurrenceInfo,
+            completedDate = completedDate,
+            subtasksJson = subtasksJson,
+            customAlarmTimeMs = customAlarmTimeMs,
+            isAlarmPaused = isAlarmPaused,
+            snoozedUntil = snoozedUntil,
+            mediaJson = mediaJson,
+            linksJson = linksJson
         )
     }
 
@@ -655,7 +669,14 @@ data class RemoteTask(
                 parentTaskId = task.parentTaskId,
                 tags = task.tags,
                 googleCalendarId = task.googleCalendarId,
-                googleRecurrenceInfo = task.googleRecurrenceInfo
+                googleRecurrenceInfo = task.googleRecurrenceInfo,
+                completedDate = task.completedDate,
+                subtasksJson = task.subtasksJson,
+                customAlarmTimeMs = task.customAlarmTimeMs,
+                isAlarmPaused = task.isAlarmPaused,
+                snoozedUntil = task.snoozedUntil,
+                mediaJson = task.mediaJson,
+                linksJson = task.linksJson
             )
         }
     }

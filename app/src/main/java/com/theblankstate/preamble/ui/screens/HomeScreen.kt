@@ -162,6 +162,8 @@ fun HomeScreen(
     isInitialLoad: Boolean = false,
     onUpdateAlarmStatus: (Task, Long?, Boolean) -> Unit = { _, _, _ -> },
     onRetrySync: ((Task) -> Unit)? = null,
+    onSnoozeTask: ((String, Long) -> Unit)? = null,
+    onCopyTaskToToday: ((Task) -> Unit)? = null,
     snackbarEvent: SharedFlow<TaskViewModel.SnackbarEvent>? = null,
     modifier: Modifier = Modifier
 ) {
@@ -924,7 +926,8 @@ fun HomeScreen(
                                                     TaskItem(
                                                         task = task,
                                                         onToggle = { },
-                                                        onDelete = { },
+                                                        onDelete = { taskToDelete = task },
+                                                        onDetail = { taskToShowDetail = task },
                                                         isEditable = false
                                                     )
                                                 }
@@ -962,7 +965,8 @@ fun HomeScreen(
                                 TaskItem(
                                     task = task,
                                     onToggle = { },
-                                    onDelete = { },
+                                    onDelete = { taskToDelete = task },
+                                    onDetail = { taskToShowDetail = task },
                                     isEditable = false,
                                     modifier = Modifier.animateItem()
                                 )
@@ -1269,13 +1273,17 @@ fun HomeScreen(
     // Read-only task detail bottom sheet
     taskToShowDetail?.let { task ->
         val subtasks = subtasksProvider?.invoke(task.id)?.collectAsState(initial = emptyList())?.value ?: emptyList()
+        val todayStr = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()) }
+        val isPast = task.createdDate < todayStr
+        // Hide "Copy to Today" if the task is recurring and has recurrence for today
+        val hasRecurrenceForToday = isPast && task.recurrenceType != null && task.recurrenceType != "rollover"
         TaskDetailBottomSheet(
             task = task,
             onDismiss = { taskToShowDetail = null },
-            onEdit = {
+            onEdit = if (!isPast && onEditTask != null) {{
                 taskToEdit = task
                 taskToShowDetail = null
-            },
+            }} else null,
             onDelete = {
                 taskToDelete = task
                 taskToShowDetail = null
@@ -1287,10 +1295,17 @@ fun HomeScreen(
                 showPomodoroSheet = true
             }},
             subtasks = subtasks,
-            onAddSubtask = { title -> onAddSubtask?.invoke(task.id, title) },
-            onToggleSubtask = { subtaskId, isCompleted -> onToggleSubtask?.invoke(subtaskId, isCompleted) },
-            onDeleteSubtask = { subtaskId -> onDeleteSubtask?.invoke(subtaskId) },
-            onCompleteAllSubtasks = { onCompleteAllSubtasks?.invoke(task.id) }
+            onAddSubtask = if (!isPast) {{ title -> onAddSubtask?.invoke(task.id, title) }} else null,
+            onToggleSubtask = if (!isPast) {{ subtaskId, isCompleted -> onToggleSubtask?.invoke(subtaskId, isCompleted) }} else null,
+            onDeleteSubtask = if (!isPast) {{ subtaskId -> onDeleteSubtask?.invoke(subtaskId) }} else null,
+            onCompleteAllSubtasks = if (!isPast) {{ onCompleteAllSubtasks?.invoke(task.id) }} else null,
+            onSnooze = if (onSnoozeTask != null && task.recurrenceType == "rollover") {
+                { duration -> onSnoozeTask(task.id, duration) }
+            } else null,
+            onCopyToToday = if (isPast && !hasRecurrenceForToday && onCopyTaskToToday != null) {{
+                onCopyTaskToToday(task)
+            }} else null,
+            isPastTask = isPast
         )
     }
 
@@ -1318,7 +1333,10 @@ fun HomeScreen(
             onAddSubtask = { title -> onAddSubtask?.invoke(taskToEdit!!.id, title) },
             onToggleSubtask = { subtaskId, isCompleted -> onToggleSubtask?.invoke(subtaskId, isCompleted) },
             onDeleteSubtask = { subtaskId -> onDeleteSubtask?.invoke(subtaskId) },
-            onCompleteAllSubtasks = { onCompleteAllSubtasks?.invoke(taskToEdit!!.id) }
+            onCompleteAllSubtasks = { onCompleteAllSubtasks?.invoke(taskToEdit!!.id) },
+            onSnooze = if (onSnoozeTask != null && taskToEdit?.recurrenceType == "rollover") {
+                { duration -> onSnoozeTask(taskToEdit!!.id, duration) }
+            } else null
         )
     }
 

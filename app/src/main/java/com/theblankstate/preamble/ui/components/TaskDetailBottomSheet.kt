@@ -36,6 +36,7 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Attachment
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.CalendarToday
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
@@ -104,14 +105,17 @@ private val GoogleYellow = Color(0xFFFBBC05)
 fun TaskDetailBottomSheet(
     task: Task,
     onDismiss: () -> Unit,
-    onEdit: () -> Unit,
+    onEdit: (() -> Unit)? = null,
     onDelete: () -> Unit,
     onStartPomodoro: (() -> Unit)? = null,
     subtasks: List<Task> = emptyList(),
     onAddSubtask: ((String) -> Unit)? = null,
     onToggleSubtask: ((String, Boolean) -> Unit)? = null,
     onDeleteSubtask: ((String) -> Unit)? = null,
-    onCompleteAllSubtasks: (() -> Unit)? = null
+    onCompleteAllSubtasks: (() -> Unit)? = null,
+    onSnooze: ((Long) -> Unit)? = null,
+    onCopyToToday: (() -> Unit)? = null,
+    isPastTask: Boolean = false
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -175,12 +179,26 @@ fun TaskDetailBottomSheet(
                         }
                     }
 
-                    // Edit button (for non-info-only tasks)
-                    if (!task.isInfoOnly) {
+                    // Edit button (for non-info-only, non-past tasks)
+                    if (!task.isInfoOnly && onEdit != null) {
                         IconButton(onClick = onEdit) {
                             Icon(
                                 Icons.Default.Edit,
                                 contentDescription = "Edit",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+
+                    // Copy to Today button (for past tasks)
+                    if (isPastTask && onCopyToToday != null) {
+                        IconButton(onClick = {
+                            onCopyToToday()
+                            onDismiss()
+                        }) {
+                            Icon(
+                                Icons.Default.ContentCopy,
+                                contentDescription = "Copy to Today",
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
@@ -203,6 +221,44 @@ fun TaskDetailBottomSheet(
             // SOURCE BADGE
             // ═══════════════════════════════════════════════════════════════
             SourceBadge(task)
+
+            // ═══════════════════════════════════════════════════════════════
+            // COPY TO TODAY (past tasks only)
+            // ═══════════════════════════════════════════════════════════════
+            if (isPastTask && onCopyToToday != null) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable {
+                            onCopyToToday()
+                            onDismiss()
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            Icons.Default.ContentCopy,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            "Copy to Today",
+                            style = MaterialTheme.typography.labelLarge,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(16.dp))
 
@@ -284,6 +340,116 @@ fun TaskDetailBottomSheet(
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+
+                // Rollover info + snooze
+                if (task.recurrenceType == "rollover") {
+                    val daysRolledOver = remember(task.createdDate, task.isCompleted, task.completedDate) {
+                        try {
+                            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                            val createdDate = sdf.parse(task.createdDate)
+                            val targetDateStr = task.completedDate ?: sdf.format(Date())
+                            val targetDate = sdf.parse(targetDateStr)
+                            if (createdDate != null && targetDate != null && createdDate.before(targetDate)) {
+                                val diff = targetDate.time - createdDate.time
+                                (diff / (1000 * 60 * 60 * 24)).toInt()
+                            } else null
+                        } catch (e: Exception) { null }
+                    }
+                    if (daysRolledOver != null && daysRolledOver > 0) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.tertiaryContainer
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    Icons.Default.Repeat,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = if (task.isCompleted) "Completed $daysRolledOver days late" else "Pending for $daysRolledOver days",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                                )
+                            }
+                        }
+                    }
+                    // Snooze buttons
+                    if (!task.isCompleted && onSnooze != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        Icons.Default.AccessTime,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        "Snooze this task",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    listOf(
+                                        Triple("1 Hour", "1h", 1 * 60 * 60 * 1000L),
+                                        Triple("4 Hours", "4h", 4 * 60 * 60 * 1000L),
+                                        Triple("Tomorrow", "1d", 24 * 60 * 60 * 1000L)
+                                    ).forEach { (label, _, duration) ->
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable {
+                                                    onSnooze(duration)
+                                                    onDismiss()
+                                                }
+                                        ) {
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp)
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.AccessTime,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp),
+                                                    tint = MaterialTheme.colorScheme.primary
+                                                )
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = label,
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

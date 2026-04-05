@@ -137,6 +137,8 @@ class TaskRepository(
 
     fun getSubtasksForParent(parentId: String): Flow<List<Task>> = dao.getSubtasksForParent(parentId)
 
+    suspend fun getSubtasksForParentSync(parentId: String): List<Task> = dao.getSubtasksForParentSync(parentId)
+
     suspend fun addSubtasks(parentId: String, titles: List<String>): List<Task> {
         if (titles.isEmpty()) return emptyList()
         val now = System.currentTimeMillis()
@@ -212,10 +214,13 @@ class TaskRepository(
         val shouldCompleteParent = allSubtasksCompleted
         
         if (parent.isCompleted != shouldCompleteParent) {
+            val now = System.currentTimeMillis()
+            val isRollover = parent.recurrenceType == "rollover"
             val updatedParent = parent.copy(
                 isCompleted = shouldCompleteParent,
-                completedTimestamp = if (shouldCompleteParent) System.currentTimeMillis() else null,
-                updatedTimestamp = System.currentTimeMillis()
+                completedTimestamp = if (shouldCompleteParent) now else null,
+                completedDate = if (shouldCompleteParent && isRollover) todayString() else if (!shouldCompleteParent) null else parent.completedDate,
+                updatedTimestamp = now
             )
             dao.updateTask(updatedParent)
             syncManager?.pushTask(updatedParent)
@@ -456,6 +461,50 @@ class TaskRepository(
 
     suspend fun getPendingTasksForDate(date: String): List<Task> {
         return dao.getPendingTasksForDate(date)
+    }
+
+    /**
+     * Snooze a rollover task for the given duration in milliseconds.
+     * The task will be hidden from the daily view until snoozedUntil expires.
+     */
+    suspend fun snoozeTask(taskId: String, durationMs: Long) {
+        val task = dao.getTaskById(taskId) ?: return
+        val updated = task.copy(
+            snoozedUntil = System.currentTimeMillis() + durationMs,
+            updatedTimestamp = System.currentTimeMillis()
+        )
+        dao.updateTask(updated)
+        syncManager?.pushTask(updated)
+    }
+
+    /**
+     * Auto-escalate priority for pending rollover tasks based on age.
+     * 3+ days → at least Low (1), 7+ days → at least Medium (2), 14+ days → High (3).
+     * Only bumps up, never lowers a user-set priority.
+     */
+    suspend fun escalateRolloverPriorities() {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val today = sdf.parse(todayString()) ?: return
+        val pendingRollovers = dao.getPendingRolloverTasks()
+
+        for (task in pendingRollovers) {
+            val created = sdf.parse(task.createdDate) ?: continue
+            val days = ((today.time - created.time) / (1000 * 60 * 60 * 24)).toInt()
+            val minPriority = when {
+                days >= 14 -> 3 // High
+                days >= 7 -> 2  // Medium
+                days >= 3 -> 1  // Low
+                else -> 0
+            }
+            if (task.priority < minPriority) {
+                val updated = task.copy(
+                    priority = minPriority,
+                    updatedTimestamp = System.currentTimeMillis()
+                )
+                dao.updateTask(updated)
+                syncManager?.pushTask(updated)
+            }
+        }
     }
 
     private fun normalizeForStorage(task: Task): Task? {

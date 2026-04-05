@@ -2,6 +2,7 @@ package com.theblankstate.preamble.ui.components
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -93,7 +94,8 @@ fun TaskDetailSheet(
     onAddSubtask: ((String) -> Unit)? = null,
     onToggleSubtask: ((String, Boolean) -> Unit)? = null,
     onDeleteSubtask: ((String) -> Unit)? = null,
-    onCompleteAllSubtasks: (() -> Unit)? = null
+    onCompleteAllSubtasks: (() -> Unit)? = null,
+    onSnooze: ((Long) -> Unit)? = null
 ) {
     var taskTitle by remember { mutableStateOf(task.title) }
     var taskDescription by remember { mutableStateOf(task.description ?: "") }
@@ -246,6 +248,75 @@ fun TaskDetailSheet(
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onTertiaryContainer
                         )
+                    }
+                }
+            }
+
+            // Snooze options for pending rollover tasks
+            if (task.recurrenceType == "rollover" && !task.isCompleted && onSnooze != null) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.AccessTime,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                "Snooze this task",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            listOf(
+                                Triple("1 Hour", "1h", 1 * 60 * 60 * 1000L),
+                                Triple("4 Hours", "4h", 4 * 60 * 60 * 1000L),
+                                Triple("Tomorrow", "1d", 24 * 60 * 60 * 1000L)
+                            ).forEach { (label, _, duration) ->
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .clickable {
+                                            onSnooze(duration)
+                                            onDismiss()
+                                        }
+                                ) {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.AccessTime,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = label,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.Medium,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

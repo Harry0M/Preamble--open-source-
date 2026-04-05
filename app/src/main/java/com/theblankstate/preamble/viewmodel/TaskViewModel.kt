@@ -67,8 +67,13 @@ class TaskViewModel(
         _allTodayTasks,
         _selectedTagFilter
     ) { tasks, tagFilter ->
-        if (tagFilter == null) tasks
-        else tasks.filter { it.tagList.contains(tagFilter) }
+        val now = System.currentTimeMillis()
+        val filtered = if (tagFilter == null) tasks
+            else tasks.filter { it.tagList.contains(tagFilter) }
+        // Sort snoozed tasks to the bottom instead of hiding them
+        filtered.sortedBy { task ->
+            if (task.snoozedUntil != null && task.snoozedUntil > now) 1 else 0
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Subtask state
@@ -157,6 +162,11 @@ class TaskViewModel(
         }
 
         refreshStats()
+
+        // Auto-escalate priority for old rollover tasks on startup
+        viewModelScope.launch {
+            repository.escalateRolloverPriorities()
+        }
 
         // Subtask count tracking
         viewModelScope.launch {
@@ -684,6 +694,87 @@ class TaskViewModel(
     fun deleteSubtask(subtaskId: String) {
         viewModelScope.launch {
             repository.deleteSubtask(subtaskId)
+            refreshStats()
+        }
+    }
+
+    // ── Snooze methods ──
+
+    fun snoozeTask(taskId: String, durationMs: Long) {
+        viewModelScope.launch {
+            repository.snoozeTask(taskId, durationMs)
+        }
+    }
+
+    // ── Copy to Today ──
+
+    fun copyTaskToToday(task: Task) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val todayStr = TaskRepository.todayString()
+            val newId = java.util.UUID.randomUUID().toString()
+
+            // Determine source based on original task's source for Google sync
+            val syncToCalendar = task.source == "google_calendar" && com.theblankstate.preamble.sync.GoogleCalendarManager.isLinked.value
+            val syncToGoogleTasks = task.source == "google_tasks" && com.theblankstate.preamble.sync.GoogleTasksManager.isLinked.value
+
+            val newTask = Task(
+                id = newId,
+                title = task.title,
+                isCompleted = false,
+                createdDate = todayStr,
+                createdTimestamp = now,
+                updatedTimestamp = now,
+                deadlineTime = task.deadlineTime,
+                source = when {
+                    syncToCalendar -> "google_calendar"
+                    syncToGoogleTasks -> "google_tasks"
+                    else -> "local"
+                },
+                isSyncing = syncToCalendar || syncToGoogleTasks,
+                priority = task.priority,
+                description = task.description,
+                tags = task.tags,
+                // No recurrence — this is a one-off copy
+                recurrenceType = null,
+                recurrenceInterval = null,
+                recurrenceDays = null,
+                recurrenceEndDate = null,
+                googleCalendarId = if (syncToCalendar) task.googleCalendarId ?: "primary" else null
+            )
+
+            repository.insertTask(newTask)
+            if (!task.tags.isNullOrBlank()) repository.saveTagOverride(newTask.id, task.tags!!)
+
+            // Copy subtasks
+            val childSubtasks = repository.getSubtasksForParentSync(task.id)
+            if (childSubtasks.isNotEmpty()) {
+                val subtaskTitles = childSubtasks.map { it.title }
+                repository.addSubtasks(newId, subtaskTitles)
+                _subtaskCounts.update { current ->
+                    current + (newId to Pair(0, subtaskTitles.size))
+                }
+            }
+
+            // Sync to Google Calendar if needed
+            if (syncToCalendar) {
+                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarCreationWorker>()
+                    .setInputData(androidx.work.Data.Builder().putString("localTaskId", newId).build())
+                    .setConstraints(networkConstraints)
+                    .build()
+                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+            }
+
+            // Sync to Google Tasks if needed
+            if (syncToGoogleTasks) {
+                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleTaskCreationWorker>()
+                    .setInputData(androidx.work.Data.Builder().putString("localTaskId", newId).build())
+                    .setConstraints(networkConstraints)
+                    .build()
+                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+            }
+
+            scheduleOrCancelAlarm(newTask)
             refreshStats()
         }
     }

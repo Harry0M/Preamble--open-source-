@@ -76,7 +76,8 @@ data class Task(
     val mediaJson: String? = null,                 // JSON: Media object
     val linksJson: String? = null,                 // JSON: List<Link>
     val subtasksJson: String? = null,              // JSON: List<Subtask>
-    val syncMetadataJson: String? = null           // JSON: Map<String, Any> for future sync
+    val syncMetadataJson: String? = null,          // JSON: Map<String, Any> for future sync
+    val snoozedUntil: Long? = null                 // Epoch millis: hide rollover task until this time
 ) {
     val isCalendarEvent: Boolean get() = source == "google_calendar"
     val isGoogleTask: Boolean get() = source == "google_tasks"

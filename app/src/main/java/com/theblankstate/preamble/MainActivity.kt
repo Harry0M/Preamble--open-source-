@@ -260,6 +260,8 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 isInitialLoad = viewModel.isInitialLoad.collectAsState().value,
                 onUpdateAlarmStatus = { task, newTime, paused -> viewModel.updateAlarmStatus(task, newTime, paused) },
                 onRetrySync = { task -> viewModel.retrySync(task) },
+                onSnoozeTask = { taskId, duration -> viewModel.snoozeTask(taskId, duration) },
+                onCopyTaskToToday = { task -> viewModel.copyTaskToToday(task) },
                 snackbarEvent = viewModel.snackbarEvent,
                 modifier = Modifier.padding(innerPadding)
             )

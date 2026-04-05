@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Cancel
 import androidx.compose.material.icons.outlined.Circle
@@ -111,8 +112,21 @@ fun TaskItem(
             context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
         }
     }
+    val isSnoozed = remember(task.snoozedUntil) {
+        task.snoozedUntil != null && task.snoozedUntil > System.currentTimeMillis()
+    }
+    val snoozeTimeText = remember(task.snoozedUntil, isSnoozed) {
+        if (isSnoozed && task.snoozedUntil != null) {
+            val sdf = SimpleDateFormat("h:mm a", Locale.getDefault())
+            sdf.format(Date(task.snoozedUntil))
+        } else null
+    }
     val cardAlpha by animateFloatAsState(
-        targetValue = if (task.isCompleted) 0.5f else 1f,
+        targetValue = when {
+            isSnoozed -> 0.4f
+            task.isCompleted -> 0.5f
+            else -> 1f
+        },
         label = "alpha"
     )
 
@@ -153,6 +167,16 @@ fun TaskItem(
         } else null
     }
 
+    // Escalating urgency: 0 = normal, 1 = warm (3+ days), 2 = hot (7+ days)
+    val rolloverUrgency = remember(daysRolledOver, task.isCompleted) {
+        if (task.isCompleted || daysRolledOver == null) 0
+        else when {
+            daysRolledOver >= 7 -> 2
+            daysRolledOver >= 3 -> 1
+            else -> 0
+        }
+    }
+
     val errorColor = MaterialTheme.colorScheme.error
     val errorContainerColor = MaterialTheme.colorScheme.errorContainer
     val onErrorContainerColor = MaterialTheme.colorScheme.onErrorContainer
@@ -172,11 +196,15 @@ fun TaskItem(
             .alpha(cardAlpha)
             .clip(RoundedCornerShape(8.dp))
             .background(
-                if (isOverdue) errorContainerColor.copy(alpha = 0.3f)
-                else Color.Transparent
+                when {
+                    isOverdue -> errorContainerColor.copy(alpha = 0.3f)
+                    rolloverUrgency == 2 -> errorContainerColor.copy(alpha = 0.2f)
+                    rolloverUrgency == 1 -> Color(0xFFFFF3E0).copy(alpha = 0.5f)
+                    else -> Color.Transparent
+                }
             )
             .combinedClickable(
-                enabled = isEditable,
+                enabled = isEditable || onDetail != null,
                 onClick = { onDetail?.invoke() ?: run { showDetailDialog = true } },
                 onLongClick = { onDetail?.invoke() ?: run { showDetailDialog = true } }
             )
@@ -390,20 +418,59 @@ fun TaskItem(
                 }
             }
 
-            // Rollover chip
-            if (daysRolledOver != null && daysRolledOver > 0) {
+            // Snoozed indicator chip
+            if (isSnoozed && snoozeTimeText != null) {
                 Surface(
                     shape = RoundedCornerShape(4.dp),
-                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Schedule,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Snoozed until $snoozeTimeText",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            // Rollover chip with escalating urgency colors
+            if (daysRolledOver != null && daysRolledOver > 0) {
+                val chipColor = when {
+                    task.isCompleted -> MaterialTheme.colorScheme.tertiaryContainer
+                    rolloverUrgency == 2 -> MaterialTheme.colorScheme.errorContainer
+                    rolloverUrgency == 1 -> Color(0xFFFFF3E0)
+                    else -> MaterialTheme.colorScheme.tertiaryContainer
+                }
+                val chipTextColor = when {
+                    task.isCompleted -> MaterialTheme.colorScheme.onTertiaryContainer
+                    rolloverUrgency == 2 -> MaterialTheme.colorScheme.onErrorContainer
+                    rolloverUrgency == 1 -> Color(0xFFE65100)
+                    else -> MaterialTheme.colorScheme.onTertiaryContainer
+                }
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = chipColor,
                     modifier = Modifier.padding(top = 4.dp, bottom = if (task.tags.isNullOrBlank()) 0.dp else 4.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(12.dp), tint = MaterialTheme.colorScheme.onTertiaryContainer)
+                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(12.dp), tint = chipTextColor)
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = if (task.isCompleted) "Completed $daysRolledOver days late" else "${daysRolledOver}d pending",
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                            color = chipTextColor
                         )
                     }
                 }
@@ -653,15 +720,11 @@ fun SwipeableTaskItem(
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    onToggle()
-                    false // reset immediately
-                }
                 SwipeToDismissBoxValue.EndToStart -> {
                     onDelete()
                     false // reset immediately
                 }
-                SwipeToDismissBoxValue.Settled -> false
+                else -> false
             }
         }
     )
@@ -690,19 +753,16 @@ fun SwipeableTaskItem(
         backgroundContent = {
             val direction = dismissState.dismissDirection
             val color = when (direction) {
-                SwipeToDismissBoxValue.StartToEnd -> Color(0xFF4CAF50) // Green for complete
                 SwipeToDismissBoxValue.EndToStart -> Color(0xFFEF4444) // Red for delete
                 else -> Color.Transparent
             }
             val alignment = when (direction) {
-                SwipeToDismissBoxValue.StartToEnd -> Alignment.CenterStart
                 SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
                 else -> Alignment.Center
             }
             val icon = when (direction) {
-                SwipeToDismissBoxValue.StartToEnd -> Icons.Default.CheckCircle
                 SwipeToDismissBoxValue.EndToStart -> Icons.Default.Delete
-                else -> Icons.Default.CheckCircle
+                else -> Icons.Default.Delete
             }
 
             Box(
@@ -726,7 +786,7 @@ fun SwipeableTaskItem(
                 }
             }
         },
-        enableDismissFromStartToEnd = !task.isCompleted && !task.isInfoOnly,
+        enableDismissFromStartToEnd = false,
         enableDismissFromEndToStart = !task.isInfoOnly
     ) {
         TaskItem(
