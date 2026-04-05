@@ -261,7 +261,9 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 onUpdateAlarmStatus = { task, newTime, paused -> viewModel.updateAlarmStatus(task, newTime, paused) },
                 onRetrySync = { task -> viewModel.retrySync(task) },
                 onSnoozeTask = { taskId, duration -> viewModel.snoozeTask(taskId, duration) },
+                onUnsnoozeTask = { taskId -> viewModel.unsnoozeTask(taskId) },
                 onCopyTaskToToday = { task -> viewModel.copyTaskToToday(task) },
+                onDeleteAllRecurrences = { task -> viewModel.deleteAllRecurrences(task) },
                 snackbarEvent = viewModel.snackbarEvent,
                 modifier = Modifier.padding(innerPadding)
             )

@@ -95,7 +95,8 @@ fun TaskDetailSheet(
     onToggleSubtask: ((String, Boolean) -> Unit)? = null,
     onDeleteSubtask: ((String) -> Unit)? = null,
     onCompleteAllSubtasks: (() -> Unit)? = null,
-    onSnooze: ((Long) -> Unit)? = null
+    onSnooze: ((Long) -> Unit)? = null,
+    onUnsnooze: (() -> Unit)? = null
 ) {
     var taskTitle by remember { mutableStateOf(task.title) }
     var taskDescription by remember { mutableStateOf(task.description ?: "") }
@@ -252,67 +253,133 @@ fun TaskDetailSheet(
                 }
             }
 
-            // Snooze options for pending rollover tasks
-            if (task.recurrenceType == "rollover" && !task.isCompleted && onSnooze != null) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.AccessTime,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                "Snooze this task",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            listOf(
-                                Triple("1 Hour", "1h", 1 * 60 * 60 * 1000L),
-                                Triple("4 Hours", "4h", 4 * 60 * 60 * 1000L),
-                                Triple("Tomorrow", "1d", 24 * 60 * 60 * 1000L)
-                            ).forEach { (label, _, duration) ->
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .clickable {
-                                            onSnooze(duration)
-                                            onDismiss()
-                                        }
-                                ) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp)
-                                    ) {
+            // Snooze / Unsnooze for pending rollover tasks
+            if (task.recurrenceType == "rollover" && !task.isCompleted) {
+                val isSnoozed = task.snoozedUntil != null && task.snoozedUntil > System.currentTimeMillis()
+                if (isSnoozed && onUnsnooze != null) {
+                    // Already snoozed — show unsnooze option
+                    val snoozedUntilText = remember(task.snoozedUntil) {
+                        val sdf = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                        sdf.format(java.util.Date(task.snoozedUntil!!))
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = Color(0xFFFFF3E0),
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.Timer,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = Color(0xFFE65100)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    "Snoozed until $snoozedUntilText",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFFE65100)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFFE65100).copy(alpha = 0.12f),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable {
+                                        onUnsnooze()
+                                        onDismiss()
+                                    }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    content = {
                                         Icon(
-                                            Icons.Default.AccessTime,
+                                            Icons.Default.Refresh,
                                             contentDescription = null,
                                             modifier = Modifier.size(18.dp),
-                                            tint = MaterialTheme.colorScheme.primary
+                                            tint = Color(0xFFE65100)
                                         )
-                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
                                         Text(
-                                            text = label,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.primary
+                                            "Unsnooze Now",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color(0xFFE65100)
                                         )
+                                    }
+                                )
+                            }
+                        }
+                    }
+                } else if (!isSnoozed && onSnooze != null) {
+                    // Not snoozed — show snooze options
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.AccessTime,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    "Snooze this task",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                listOf(
+                                    Triple("1 Hour", "1h", 1 * 60 * 60 * 1000L),
+                                    Triple("4 Hours", "4h", 4 * 60 * 60 * 1000L),
+                                    Triple("Tomorrow", "1d", 24 * 60 * 60 * 1000L)
+                                ).forEach { (label, _, duration) ->
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable {
+                                                onSnooze(duration)
+                                                onDismiss()
+                                            }
+                                    ) {
+                                        Column(
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Default.AccessTime,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp),
+                                                tint = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = label,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
                                     }
                                 }
                             }

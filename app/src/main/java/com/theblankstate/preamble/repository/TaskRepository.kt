@@ -85,7 +85,9 @@ class TaskRepository(
             completedTimestamp = if (isBecomingCompleted) now else null,
             completedDate = if (isBecomingCompleted && task.recurrenceType == "rollover") todayString() else null,
             updatedTimestamp = now,
-            subtasksJson = gson.toJson(updatedSubtasks)
+            subtasksJson = gson.toJson(updatedSubtasks),
+            // Clear snooze when completing a snoozed task
+            snoozedUntil = if (isBecomingCompleted) null else task.snoozedUntil
         )
         dao.updateTask(updated)
         syncManager?.pushTask(updated)
@@ -138,6 +140,8 @@ class TaskRepository(
     fun getSubtasksForParent(parentId: String): Flow<List<Task>> = dao.getSubtasksForParent(parentId)
 
     suspend fun getSubtasksForParentSync(parentId: String): List<Task> = dao.getSubtasksForParentSync(parentId)
+
+    suspend fun getInstancesForTemplate(templateId: String): List<Task> = dao.getInstancesForTemplate(templateId)
 
     suspend fun addSubtasks(parentId: String, titles: List<String>): List<Task> {
         if (titles.isEmpty()) return emptyList()
@@ -471,6 +475,19 @@ class TaskRepository(
         val task = dao.getTaskById(taskId) ?: return
         val updated = task.copy(
             snoozedUntil = System.currentTimeMillis() + durationMs,
+            updatedTimestamp = System.currentTimeMillis()
+        )
+        dao.updateTask(updated)
+        syncManager?.pushTask(updated)
+    }
+
+    /**
+     * Remove snooze from a task, making it immediately active again.
+     */
+    suspend fun unsnoozeTask(taskId: String) {
+        val task = dao.getTaskById(taskId) ?: return
+        val updated = task.copy(
+            snoozedUntil = null,
             updatedTimestamp = System.currentTimeMillis()
         )
         dao.updateTask(updated)

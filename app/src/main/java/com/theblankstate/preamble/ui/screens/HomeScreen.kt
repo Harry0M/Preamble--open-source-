@@ -48,6 +48,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
@@ -163,7 +164,9 @@ fun HomeScreen(
     onUpdateAlarmStatus: (Task, Long?, Boolean) -> Unit = { _, _, _ -> },
     onRetrySync: ((Task) -> Unit)? = null,
     onSnoozeTask: ((String, Long) -> Unit)? = null,
+    onUnsnoozeTask: ((String) -> Unit)? = null,
     onCopyTaskToToday: ((Task) -> Unit)? = null,
+    onDeleteAllRecurrences: ((Task) -> Unit)? = null,
     snackbarEvent: SharedFlow<TaskViewModel.SnackbarEvent>? = null,
     modifier: Modifier = Modifier
 ) {
@@ -1038,6 +1041,10 @@ fun HomeScreen(
     }
 
     if (taskToDelete != null) {
+        val isRecurring = taskToDelete?.let {
+            (it.isRecurrenceTemplate || it.isRecurrenceInstance) && it.recurrenceType != "rollover"
+        } ?: false
+
         ModalBottomSheet(
             onDismissRequest = { taskToDelete = null },
             sheetState = rememberModalBottomSheetState()
@@ -1049,40 +1056,93 @@ fun HomeScreen(
                     .padding(bottom = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                Icon(
+                    Icons.Default.Delete,
+                    contentDescription = null,
+                    modifier = Modifier.size(32.dp),
+                    tint = MaterialTheme.colorScheme.error
+                )
+                Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "Delete Task?",
+                    text = if (isRecurring) "Delete Recurring Task?" else "Delete Task?",
                     style = MaterialTheme.typography.titleLarge,
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
                 Text(
-                    text = "Are you sure you want to delete '${taskToDelete?.title}'?",
+                    text = "'${taskToDelete?.title}'",
                     style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 24.dp),
                     textAlign = TextAlign.Center
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    OutlinedButton(
-                        onClick = { taskToDelete = null },
-                        modifier = Modifier.weight(1f),
-                        shape = CircleShape
+
+                if (isRecurring && onDeleteAllRecurrences != null) {
+                    // Recurring task: show options
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("Cancel")
+                        Button(
+                            onClick = {
+                                taskToDelete?.let { onDeleteTask(it) }
+                                taskToDelete = null
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.errorContainer,
+                                contentColor = MaterialTheme.colorScheme.onErrorContainer
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Delete Only This Instance")
+                        }
+                        Button(
+                            onClick = {
+                                taskToDelete?.let { onDeleteAllRecurrences(it) }
+                                taskToDelete = null
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error
+                            ),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Delete All Recurrences")
+                        }
+                        OutlinedButton(
+                            onClick = { taskToDelete = null },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Cancel")
+                        }
                     }
-                    Button(
-                        onClick = {
-                            taskToDelete?.let { onDeleteTask(it) }
-                            taskToDelete = null
-                        },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.error
-                        ),
-                        shape = CircleShape
+                } else {
+                    // Non-recurring task: simple delete/cancel
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        Text("Delete")
+                        OutlinedButton(
+                            onClick = { taskToDelete = null },
+                            modifier = Modifier.weight(1f),
+                            shape = CircleShape
+                        ) {
+                            Text("Cancel")
+                        }
+                        Button(
+                            onClick = {
+                                taskToDelete?.let { onDeleteTask(it) }
+                                taskToDelete = null
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.error
+                            ),
+                            shape = CircleShape
+                        ) {
+                            Text("Delete")
+                        }
                     }
                 }
             }
@@ -1302,6 +1362,9 @@ fun HomeScreen(
             onSnooze = if (onSnoozeTask != null && task.recurrenceType == "rollover") {
                 { duration -> onSnoozeTask(task.id, duration) }
             } else null,
+            onUnsnooze = if (onUnsnoozeTask != null && task.snoozedUntil != null && task.snoozedUntil > System.currentTimeMillis()) {
+                { onUnsnoozeTask(task.id) }
+            } else null,
             onCopyToToday = if (isPast && !hasRecurrenceForToday && onCopyTaskToToday != null) {{
                 onCopyTaskToToday(task)
             }} else null,
@@ -1336,6 +1399,9 @@ fun HomeScreen(
             onCompleteAllSubtasks = { onCompleteAllSubtasks?.invoke(taskToEdit!!.id) },
             onSnooze = if (onSnoozeTask != null && taskToEdit?.recurrenceType == "rollover") {
                 { duration -> onSnoozeTask(taskToEdit!!.id, duration) }
+            } else null,
+            onUnsnooze = if (onUnsnoozeTask != null && taskToEdit?.snoozedUntil != null && taskToEdit!!.snoozedUntil!! > System.currentTimeMillis()) {
+                { onUnsnoozeTask(taskToEdit!!.id) }
             } else null
         )
     }

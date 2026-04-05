@@ -441,6 +441,46 @@ class TaskViewModel(
         }
     }
 
+    fun deleteAllRecurrences(task: Task) {
+        viewModelScope.launch {
+            // Find the template: if this task IS the template, use it; otherwise find by recurrenceParentId
+            val templateId = if (task.isRecurrenceTemplate) task.id else task.recurrenceParentId
+            if (templateId == null) {
+                // Not a recurring task, just delete normally
+                deleteTask(task)
+                return@launch
+            }
+
+            // Get all instances of this recurring task
+            val instances = repository.getInstancesForTemplate(templateId)
+            val template = repository.getTaskById(templateId)
+
+            // Delete all instances
+            for (instance in instances) {
+                com.theblankstate.preamble.notification.TaskAlarmManager.cancelAlarm(appContext, instance.id)
+                repository.markAsDeleted(instance.id)
+                repository.deleteTask(instance)
+                commitDelete(instance)
+            }
+
+            // Delete the template itself
+            if (template != null) {
+                com.theblankstate.preamble.notification.TaskAlarmManager.cancelAlarm(appContext, template.id)
+                repository.markAsDeleted(template.id)
+                repository.deleteTask(template)
+                commitDelete(template)
+            }
+
+            refreshStats()
+
+            _snackbarEvent.tryEmit(SnackbarEvent(
+                message = "All recurrences deleted",
+                actionLabel = null,
+                onAction = {}
+            ))
+        }
+    }
+
     private fun undoDelete() {
         pendingDeleteJob?.cancel()
         pendingDeleteJob = null
@@ -703,6 +743,12 @@ class TaskViewModel(
     fun snoozeTask(taskId: String, durationMs: Long) {
         viewModelScope.launch {
             repository.snoozeTask(taskId, durationMs)
+        }
+    }
+
+    fun unsnoozeTask(taskId: String) {
+        viewModelScope.launch {
+            repository.unsnoozeTask(taskId)
         }
     }
 
