@@ -47,11 +47,11 @@ class TaskRepository(
 
     /**
      * COMBINED: Load heatMap + tasksByDay in a single pass.
-     * Uses batch queries (4 total instead of 22+):
-     * 1. getTasksForDatesSync → physical tasks
-     * 2. getStatsForDates → completion stats
-     * 3. getAllRecurrenceTemplates → templates
-     * 4. getAllRecurrenceInstances → ALL instances at once (no N+1)
+     * Uses batch queries (3 total instead of 22+):
+     * 1. getTasksForDatesSync → physical tasks (incl. rollover)
+     * 2. getAllRecurrenceTemplates → templates
+     * 3. getAllRecurrenceInstances → ALL instances at once (no N+1)
+     * HeatMap is derived from tasksByDay (includes rollover + virtual instances).
      */
     suspend fun getMonthDataCombined(year: Int, month: Int): Pair<Map<Int, Pair<Int, Int>>, Map<Int, List<Task>>> {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
@@ -61,18 +61,57 @@ class TaskRepository(
         val dates = (1..maxDay).map { day -> calendar.set(year, month, day); sdf.format(calendar.time) }
         val fromDate = dates.first(); val toDate = dates.last()
 
-        // 4 queries total (down from 22+)
+        // 2-3 queries total (down from 22+)
         val allTasks = dao.getTasksForDatesSync(dates)
-        val statsMap = dao.getStatsForDates(dates).associate { it.createdDate to it }
         val templates = dao.getAllRecurrenceTemplates().filter {
             it.source != "google_calendar" && it.recurrenceType != "rollover"
         }
-        val allInstances = dao.getAllRecurrenceInstances()
-        val instancesByParent = allInstances.groupBy { it.recurrenceParentId }
+        // Scoped query: only load instances for our local templates (not all 2000+)
+        val templateIds = templates.map { it.id }
+        val instancesByParent = if (templateIds.isNotEmpty()) {
+            dao.getRecurrenceInstancesForParents(templateIds).groupBy { it.recurrenceParentId }
+        } else emptyMap()
 
         // ── Compute tasksByDay ──
         val tasksByDay = mutableMapOf<Int, MutableList<Task>>()
+        val today = todayString()
+        // Track rollover tasks we've already processed (SQL returns them once but we spread across days)
+        val processedRolloverIds = mutableSetOf<String>()
+
         for (task in allTasks) {
+            // ── Rollover tasks: sticky single tasks, NOT recurrence templates ──
+            // Must be checked BEFORE isRecurrenceTemplate (which returns true for rollover)
+            if (task.recurrenceType == "rollover") {
+                if (task.id in processedRolloverIds) continue
+                processedRolloverIds.add(task.id)
+                val displayTask = task.copy(
+                    recurrenceType = null, recurrenceInterval = null,
+                    recurrenceDays = null, recurrenceEndDate = null
+                )
+                if (!task.isCompleted) {
+                    // Pending rollover: show on every day from creation through today (within this month)
+                    val createdDate = sdf.parse(task.createdDate) ?: continue
+                    val todayDate = sdf.parse(today) ?: continue
+                    for (day in 1..maxDay) {
+                        calendar.set(year, month, day)
+                        val dayDate = calendar.time
+                        if (!dayDate.before(createdDate) && !dayDate.after(todayDate)) {
+                            tasksByDay.getOrPut(day) { mutableListOf() }.add(displayTask)
+                        }
+                    }
+                } else if (task.completedDate != null) {
+                    // Completed rollover: show only on completion date
+                    try {
+                        val d = sdf.parse(task.completedDate!!); val c = Calendar.getInstance(); c.time = d!!
+                        if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month) {
+                            tasksByDay.getOrPut(c.get(Calendar.DAY_OF_MONTH)) { mutableListOf() }.add(displayTask)
+                        }
+                    } catch (_: Exception) { }
+                }
+                continue
+            }
+
+            // ── Recurrence templates: show only on creation date (virtual expansion handles other dates) ──
             if (task.isRecurrenceTemplate) {
                 val templateDay = try {
                     val d = sdf.parse(task.createdDate); val c = Calendar.getInstance(); c.time = d!!
@@ -85,6 +124,8 @@ class TaskRepository(
                 }
                 continue
             }
+
+            // ── Normal tasks (local, Google Calendar, Google Tasks) ──
             val taskDay = try {
                 val d = sdf.parse(task.createdDate); val c = Calendar.getInstance(); c.time = d!!
                 if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month) c.get(Calendar.DAY_OF_MONTH) else null
@@ -114,86 +155,20 @@ class TaskRepository(
             }
         }
 
-        // ── Build heatMap from stats + virtual counts ──
+        // ── Build heatMap directly from tasksByDay (source of truth) ──
+        // This is more accurate than getStatsForDates because it includes:
+        // - Rollover tasks (which getStatsForDates misses for pending state)
+        // - Virtual recurrence instances
         val heatMap = mutableMapOf<Int, Pair<Int, Int>>()
         for (day in 1..maxDay) {
-            calendar.set(year, month, day)
-            val dateStr = sdf.format(calendar.time)
-            val stats = statsMap[dateStr]
-            val physicalCompleted = stats?.completed ?: 0
-            val physicalTotal = stats?.total ?: 0
-            val virtualCount = virtualCounts[day] ?: 0
-            val totalForDay = physicalTotal + virtualCount
-            if (totalForDay > 0) {
-                heatMap[day] = physicalCompleted to totalForDay
+            val dayTasks = tasksByDay[day] ?: continue
+            if (dayTasks.isNotEmpty()) {
+                val completed = dayTasks.count { it.isCompleted }
+                heatMap[day] = completed to dayTasks.size
             }
         }
 
         return heatMap to tasksByDay
-    }
-
-    /**
-     * Load all tasks for a month grouped by day-of-month.
-     * Includes virtual recurring instances for accurate calendar display.
-     * Used by Google-style month grid view.
-     */
-    suspend fun getMonthTasksByDay(year: Int, month: Int): Map<Int, List<Task>> {
-        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        val calendar = Calendar.getInstance()
-        calendar.set(year, month, 1)
-        val maxDay = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
-        val dates = (1..maxDay).map { day -> calendar.set(year, month, day); sdf.format(calendar.time) }
-
-        // Get all physical tasks for the month
-        val allTasks = dao.getTasksForDatesSync(dates)
-
-        // Group physical tasks by their date
-        val grouped = mutableMapOf<Int, MutableList<Task>>()
-        for (task in allTasks) {
-            if (task.isRecurrenceTemplate) {
-                // Template on its creation date
-                val templateDay = try {
-                    val d = sdf.parse(task.createdDate); val c = Calendar.getInstance(); c.time = d!!
-                    if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month) c.get(Calendar.DAY_OF_MONTH) else null
-                } catch (_: Exception) { null }
-                if (templateDay != null) {
-                    grouped.getOrPut(templateDay) { mutableListOf() }.add(task.copy(
-                        recurrenceType = null, recurrenceInterval = null, recurrenceDays = null, recurrenceEndDate = null
-                    ))
-                }
-                continue
-            }
-            val taskDay = try {
-                val d = sdf.parse(task.createdDate); val c = Calendar.getInstance(); c.time = d!!
-                if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month) c.get(Calendar.DAY_OF_MONTH) else null
-            } catch (_: Exception) { null }
-            if (taskDay != null) grouped.getOrPut(taskDay) { mutableListOf() }.add(task)
-        }
-
-        // Add virtual recurring instances
-        val templates = dao.getAllRecurrenceTemplates().filter {
-            it.source != "google_calendar" && it.recurrenceType != "rollover"
-        }
-        val fromDate = dates.first(); val toDate = dates.last()
-        for (template in templates) {
-            val instances = dao.getInstancesForTemplate(template.id)
-            val existingDates = instances.map { it.createdDate }.toSet() + template.createdDate
-            val virtualDates = com.theblankstate.preamble.recurrence.RecurrenceGenerator.generateDates(template, fromDate, toDate)
-            for (date in virtualDates) {
-                if (date in existingDates) continue
-                val parsed = sdf.parse(date) ?: continue
-                val dayCal = Calendar.getInstance().apply { time = parsed }
-                val day = dayCal.get(Calendar.DAY_OF_MONTH)
-                val virtualTask = template.copy(
-                    id = "vri_${template.id}_$date", createdDate = date,
-                    isCompleted = false, completedTimestamp = null, completedDate = null,
-                    recurrenceType = null, recurrenceInterval = null, recurrenceDays = null, recurrenceEndDate = null,
-                    recurrenceParentId = template.id
-                )
-                grouped.getOrPut(day) { mutableListOf() }.add(virtualTask)
-            }
-        }
-        return grouped
     }
 
     fun getCompletedCount(): Flow<Int> = dao.getCompletedTasksCount()
@@ -571,26 +546,51 @@ class TaskRepository(
         }
 
         val statsMap = dao.getStatsForDates(dates).associate { it.createdDate to it }
+        val today = todayString()
+
+        // Count rollover tasks per day (getStatsForDates misses pending rollover)
+        val rolloverCounts = mutableMapOf<Int, Pair<Int, Int>>() // day → (completed, total)
+        val allTasks = dao.getTasksForDatesSync(dates)
+        val processedRolloverIds = mutableSetOf<String>()
+        for (task in allTasks) {
+            if (task.recurrenceType != "rollover") continue
+            if (task.id in processedRolloverIds) continue
+            processedRolloverIds.add(task.id)
+            if (!task.isCompleted) {
+                val createdDate = sdf.parse(task.createdDate) ?: continue
+                val todayDate = sdf.parse(today) ?: continue
+                for (day in 1..maxDay) {
+                    calendar.set(year, month, day)
+                    val dayDate = calendar.time
+                    if (!dayDate.before(createdDate) && !dayDate.after(todayDate)) {
+                        val prev = rolloverCounts[day] ?: (0 to 0)
+                        rolloverCounts[day] = prev.first to (prev.second + 1)
+                    }
+                }
+            } else if (task.completedDate != null) {
+                try {
+                    val d = sdf.parse(task.completedDate!!); val c = Calendar.getInstance(); c.time = d!!
+                    if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month) {
+                        val day = c.get(Calendar.DAY_OF_MONTH)
+                        val prev = rolloverCounts[day] ?: (0 to 0)
+                        rolloverCounts[day] = (prev.first + 1) to (prev.second + 1)
+                    }
+                } catch (_: Exception) { }
+            }
+        }
 
         // Virtual expansion: count recurring instances that don't have physical rows
         val templates = dao.getAllRecurrenceTemplates().filter {
             it.source != "google_calendar" && it.recurrenceType != "rollover"
         }
-        // Collect per-template dates that already have physical instances
-        val perTemplateInstanceDates = mutableMapOf<String, MutableSet<String>>()
-        for (template in templates) {
-            val instances = dao.getInstancesForTemplate(template.id)
-            val dateSet = mutableSetOf<String>()
-            instances.forEach { dateSet.add(it.createdDate) }
-            // Also add the template's own creation date (template itself covers that date)
-            dateSet.add(template.createdDate)
-            perTemplateInstanceDates[template.id] = dateSet
-        }
+        val templateIds = templates.map { it.id }
+        val instancesByParent = if (templateIds.isNotEmpty()) {
+            dao.getRecurrenceInstancesForParents(templateIds).groupBy { it.recurrenceParentId }
+        } else emptyMap()
 
-        // Count virtual instances per day, per template (skip dates that have physical rows for THAT specific template)
         val virtualCounts = mutableMapOf<Int, Int>()
         for (template in templates) {
-            val templateExistingDates = perTemplateInstanceDates[template.id] ?: emptySet()
+            val templateExistingDates = (instancesByParent[template.id]?.map { it.createdDate }?.toSet() ?: emptySet()) + template.createdDate
             val virtualDates = RecurrenceGenerator.generateDates(template, dates.first(), dates.last())
             for (date in virtualDates) {
                 if (date in templateExistingDates) continue
@@ -600,7 +600,6 @@ class TaskRepository(
                 virtualCounts[day] = (virtualCounts[day] ?: 0) + 1
             }
         }
-        Log.d("Recurrence", "HeatMap[$year-${month+1}]: ${templates.size} templates, virtualCounts=$virtualCounts")
 
         val result = mutableMapOf<Int, Pair<Int, Int>>()
         for (day in 1..maxDay) {
@@ -610,9 +609,11 @@ class TaskRepository(
             val physicalCompleted = stats?.completed ?: 0
             val physicalTotal = stats?.total ?: 0
             val virtualCount = virtualCounts[day] ?: 0
-            val totalForDay = physicalTotal + virtualCount
+            val rollover = rolloverCounts[day] ?: (0 to 0)
+            val totalForDay = physicalTotal + virtualCount + rollover.second
+            val completedForDay = physicalCompleted + rollover.first
             if (totalForDay > 0) {
-                result[day] = physicalCompleted to totalForDay
+                result[day] = completedForDay to totalForDay
             }
         }
         return result
@@ -628,59 +629,52 @@ class TaskRepository(
      */
     suspend fun getTasksForDateWithRecurrence(date: String): List<Task> {
         // 1. Get physical rows for this date
-        val physicalTasks = dao.getPendingTasksForDate(date) +
-            dao.getTasksByDateSync(date).filter { it.isCompleted }
-        Log.d("Recurrence", "DateQuery[$date]: ${physicalTasks.size} physical rows")
+        val pendingTasks = dao.getPendingTasksForDate(date)
+        val completedTasks = dao.getTasksByDateSync(date).filter { it.isCompleted }
+        val physicalTasks = pendingTasks + completedTasks
 
         // 2. Get all recurring templates (skip rollover & Google Calendar)
         val templates = dao.getAllRecurrenceTemplates().filter {
             it.source != "google_calendar" && it.recurrenceType != "rollover"
         }
-        Log.d("Recurrence", "DateQuery[$date]: ${templates.size} active templates found")
-
         if (templates.isEmpty()) return physicalTasks
 
-        // 3. Generate virtual instances for templates that don't have physical rows
+        // 3. Scoped instance query — only for our local templates
+        val templateIds = templates.map { it.id }
+        val instancesByParent = dao.getRecurrenceInstancesForParents(templateIds)
+            .groupBy { it.recurrenceParentId }
+
+        // 4. Generate virtual instances for templates that don't have physical rows
         val virtualInstances = mutableListOf<Task>()
         for (template in templates) {
-            // Check if a physical instance already exists for this template + date
-            val alreadyExists = dao.instanceExistsForDate(template.id, date) > 0
+            // Check if a physical instance already exists for this template + date (in-memory lookup)
+            val templateInstances = instancesByParent[template.id] ?: emptyList()
+            val alreadyExists = templateInstances.any { it.createdDate == date }
             // Also check if the template itself is on this date
             val isTemplateDate = template.createdDate == date
 
             if (!alreadyExists && !isTemplateDate) {
-                val instances = RecurrenceGenerator.generateVirtualInstances(
-                    template, date, date
+                virtualInstances.addAll(
+                    RecurrenceGenerator.generateVirtualInstances(template, date, date)
                 )
-                if (instances.isNotEmpty()) {
-                    Log.d("Recurrence", "DateQuery[$date]: +${instances.size} virtual from template '${template.title}' (type=${template.recurrenceType})")
-                }
-                virtualInstances.addAll(instances)
-            } else {
-                Log.d("Recurrence", "DateQuery[$date]: skipped '${template.title}' (alreadyExists=$alreadyExists, isTemplateDate=$isTemplateDate)")
             }
         }
 
-        // 4. Merge: physical tasks first, then virtual instances
-        // For recurrence templates: filter them out UNLESS this is their creation date
-        // (on creation date, the template IS the task — convert to display-safe instance)
-        val displayTasks = physicalTasks.map { task ->
-            if (task.isRecurrenceTemplate && task.createdDate == date) {
-                // Template on its own creation date — show it as a normal task
-                // Strip recurrence metadata so it renders like a regular task item
-                task.copy(
-                    recurrenceType = null,
-                    recurrenceInterval = null,
-                    recurrenceDays = null,
-                    recurrenceEndDate = null
+        // 5. Merge: physical tasks first, then virtual instances
+        val displayTasks = physicalTasks.mapNotNull { task ->
+            when {
+                task.recurrenceType == "rollover" -> task.copy(
+                    recurrenceType = null, recurrenceInterval = null,
+                    recurrenceDays = null, recurrenceEndDate = null
                 )
-            } else if (task.isRecurrenceTemplate) {
-                null // Template on OTHER dates — skip (virtual expansion handles those)
-            } else {
-                task // Normal task or physical recurring instance — show as-is
+                task.isRecurrenceTemplate && task.createdDate == date -> task.copy(
+                    recurrenceType = null, recurrenceInterval = null,
+                    recurrenceDays = null, recurrenceEndDate = null
+                )
+                task.isRecurrenceTemplate -> null
+                else -> task
             }
-        }.filterNotNull() + virtualInstances
-        Log.d("Recurrence", "DateQuery[$date]: TOTAL ${displayTasks.size} tasks (${physicalTasks.count { !it.isRecurrenceTemplate || it.createdDate == date }} physical + ${virtualInstances.size} virtual)")
+        } + virtualInstances
         return displayTasks.sortedWith(
             compareBy<Task> { it.isCompleted }
                 .thenByDescending { it.priority }

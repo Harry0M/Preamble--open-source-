@@ -140,6 +140,10 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE recurrenceParentId IS NOT NULL")
     suspend fun getAllRecurrenceInstances(): List<Task>
 
+    // Scoped query: only instances for specific template IDs (much faster than loading all 2000+)
+    @Query("SELECT * FROM tasks WHERE recurrenceParentId IN (:parentIds)")
+    suspend fun getRecurrenceInstancesForParents(parentIds: List<String>): List<Task>
+
     // ── Subtask queries ──
 
     @Query("SELECT * FROM tasks WHERE parentTaskId = :parentId ORDER BY isCompleted ASC, createdTimestamp ASC")

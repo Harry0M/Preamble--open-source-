@@ -200,24 +200,64 @@ class TaskViewModel(
             _calendarHeatMap.value = data.heatMap
             _calendarMonthTasks.value = data.tasksByDay
         }
+        // Pre-warm adjacent months in background (makes swiping instant)
+        preWarmAdjacentMonths(year, month)
         return data
+    }
+
+    /**
+     * Pre-warm prev/next month caches in background.
+     * Only loads if not already cached — zero overhead on cache hit.
+     */
+    private fun preWarmAdjacentMonths(year: Int, month: Int) {
+        val cal = java.util.Calendar.getInstance()
+        // Previous month
+        cal.set(year, month, 1)
+        cal.add(java.util.Calendar.MONTH, -1)
+        val prevY = cal.get(java.util.Calendar.YEAR)
+        val prevM = cal.get(java.util.Calendar.MONTH)
+        // Next month
+        cal.set(year, month, 1)
+        cal.add(java.util.Calendar.MONTH, 1)
+        val nextY = cal.get(java.util.Calendar.YEAR)
+        val nextM = cal.get(java.util.Calendar.MONTH)
+
+        if (_monthCache["$prevY-$prevM"] == null) {
+            viewModelScope.launch {
+                android.util.Log.d("CAL_PERF", "preWarm → loading prev $prevY-$prevM")
+                val (h, t) = repository.getMonthDataCombined(prevY, prevM)
+                _monthCache["$prevY-$prevM"] = MonthData(h, t)
+            }
+        }
+        if (_monthCache["$nextY-$nextM"] == null) {
+            viewModelScope.launch {
+                android.util.Log.d("CAL_PERF", "preWarm → loading next $nextY-$nextM")
+                val (h, t) = repository.getMonthDataCombined(nextY, nextM)
+                _monthCache["$nextY-$nextM"] = MonthData(h, t)
+            }
+        }
     }
 
     fun selectDate(date: String?) {
         _selectedDate.value = date
         if (date != null) {
+            // L1: per-date cache
             val cached = _dateTaskCache[date]
             if (cached != null) {
-                android.util.Log.d("CAL_PERF", "selectDate($date) → CACHE HIT (${cached.size} tasks)")
                 _selectedDateTasks.value = cached
                 return
             }
-            android.util.Log.d("CAL_PERF", "selectDate($date) → CACHE MISS → loading...")
+            // L2: extract from month cache (instant — no DB query needed)
+            val monthTasks = extractTasksFromMonthCache(date)
+            if (monthTasks != null) {
+                _dateTaskCache[date] = monthTasks
+                if (_dateTaskCache.size > 30) _dateTaskCache.remove(_dateTaskCache.keys.first())
+                _selectedDateTasks.value = monthTasks
+                return
+            }
+            // L3: fall back to DB query
             viewModelScope.launch {
-                val startTime = System.currentTimeMillis()
                 val tasks = repository.getTasksForDateWithRecurrence(date)
-                val elapsed = System.currentTimeMillis() - startTime
-                android.util.Log.d("CAL_PERF", "selectDate($date) → DB DONE in ${elapsed}ms | ${tasks.size} tasks")
                 _dateTaskCache[date] = tasks
                 if (_dateTaskCache.size > 30) _dateTaskCache.remove(_dateTaskCache.keys.first())
                 if (_selectedDate.value == date) _selectedDateTasks.value = tasks
@@ -227,14 +267,51 @@ class TaskViewModel(
         }
     }
 
+    /**
+     * Extract tasks for a specific date from the month cache.
+     * Returns sorted task list or null if the month isn't cached.
+     */
+    private fun extractTasksFromMonthCache(date: String): List<Task>? {
+        try {
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            val parsed = sdf.parse(date) ?: return null
+            val cal = java.util.Calendar.getInstance().apply { time = parsed }
+            val year = cal.get(java.util.Calendar.YEAR)
+            val month = cal.get(java.util.Calendar.MONTH)
+            val day = cal.get(java.util.Calendar.DAY_OF_MONTH)
+            val key = "$year-$month"
+            val monthData = _monthCache[key] ?: return null
+            val tasks = monthData.tasksByDay[day] ?: emptyList()
+            return tasks.sortedWith(
+                compareBy<Task> { it.isCompleted }
+                    .thenByDescending { it.priority }
+                    .thenByDescending { it.createdTimestamp }
+            )
+        } catch (_: Exception) {
+            return null
+        }
+    }
+
     /** Re-query calendar data after a mutation (toggle, delete, add) */
     fun refreshCalendarDate() {
         val date = _selectedDate.value ?: return
-        android.util.Log.d("CAL_PERF", "refreshCalendarDate($date) → invalidating caches")
+        android.util.Log.d("CAL_PERF", "refreshCalendarDate($date) → invalidating affected caches")
         _dateTaskCache.remove(date)
-        // Invalidate ALL cached months so pager pages re-load
-        _monthCache.clear()
-        // Increment tick to force produceState re-run in all visible pages
+        // Invalidate only the affected month (not ALL months)
+        try {
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            val parsed = sdf.parse(date)
+            if (parsed != null) {
+                val cal = java.util.Calendar.getInstance().apply { time = parsed }
+                val y = cal.get(java.util.Calendar.YEAR)
+                val m = cal.get(java.util.Calendar.MONTH)
+                _monthCache.remove("$y-$m")
+                android.util.Log.d("CAL_PERF", "refreshCalendarDate → invalidated month $y-$m")
+            }
+        } catch (_: Exception) {
+            _monthCache.clear() // fallback: clear all on parse error
+        }
+        // Increment tick to force produceState re-run in visible pages
         _calendarRefreshTick.value++
         viewModelScope.launch {
             val tasks = repository.getTasksForDateWithRecurrence(date)
