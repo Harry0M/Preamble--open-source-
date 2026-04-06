@@ -26,8 +26,14 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND createdDate = :date) OR (recurrenceType = 'rollover' AND isCompleted = 0 AND createdDate <= :date) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate = :date) ) AND parentTaskId IS NULL ORDER BY isCompleted ASC, CASE WHEN recurrenceType = 'rollover' AND isCompleted = 0 THEN 0 ELSE 1 END ASC, priority DESC, createdTimestamp DESC")
     fun getTasksByDate(date: String): Flow<List<Task>>
 
+    @Query("SELECT * FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND createdDate = :date) OR (recurrenceType = 'rollover' AND isCompleted = 0 AND createdDate <= :date) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate = :date) ) AND parentTaskId IS NULL ORDER BY isCompleted ASC, CASE WHEN recurrenceType = 'rollover' AND isCompleted = 0 THEN 0 ELSE 1 END ASC, priority DESC, createdTimestamp DESC")
+    suspend fun getTasksByDateSync(date: String): List<Task>
+
     @Query("SELECT * FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND createdDate IN (:dates)) OR (recurrenceType = 'rollover' AND isCompleted = 0 AND createdDate <= (SELECT MAX(d) FROM (SELECT :dates AS d))) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate IN (:dates)) ) AND parentTaskId IS NULL ORDER BY createdDate DESC, isCompleted ASC, priority DESC, createdTimestamp DESC")
     fun getTasksForDates(dates: List<String>): Flow<List<Task>>
+
+    @Query("SELECT * FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND createdDate IN (:dates)) OR (recurrenceType = 'rollover' AND isCompleted = 0 AND createdDate <= (SELECT MAX(d) FROM (SELECT :dates AS d))) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate IN (:dates)) ) AND parentTaskId IS NULL ORDER BY isCompleted ASC, priority DESC, createdTimestamp DESC")
+    suspend fun getTasksForDatesSync(dates: List<String>): List<Task>
 
     @Query("SELECT COUNT(*) FROM tasks WHERE isCompleted = 1")
     fun getCompletedTasksCount(): Flow<Int>
@@ -129,6 +135,10 @@ interface TaskDao {
 
     @Query("SELECT * FROM tasks WHERE recurrenceParentId = :parentId ORDER BY createdDate DESC")
     suspend fun getInstancesForTemplate(parentId: String): List<Task>
+
+    // Batch query: get ALL instances at once (avoids N+1 per-template queries)
+    @Query("SELECT * FROM tasks WHERE recurrenceParentId IS NOT NULL")
+    suspend fun getAllRecurrenceInstances(): List<Task>
 
     // ── Subtask queries ──
 

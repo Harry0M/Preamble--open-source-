@@ -1,6 +1,7 @@
 package com.theblankstate.preamble.data
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -25,7 +26,16 @@ data class Subtask(
     val isCompleted: Boolean = false
 )
 
-@Entity(tableName = "tasks")
+@Entity(
+    tableName = "tasks",
+    indices = [
+        Index(value = ["createdDate"]),
+        Index(value = ["recurrenceType", "recurrenceParentId"]),
+        Index(value = ["recurrenceParentId", "createdDate"]),
+        Index(value = ["isCompleted", "createdDate"]),
+        Index(value = ["source"])
+    ]
+)
 data class Task(
     @PrimaryKey
     val id: String = UUID.randomUUID().toString(),

@@ -208,7 +208,7 @@ fun TaskItem(
                 onClick = { onDetail?.invoke() ?: run { showDetailDialog = true } },
                 onLongClick = { onDetail?.invoke() ?: run { showDetailDialog = true } }
             )
-            .padding(vertical = 12.dp, horizontal = 8.dp),
+            .padding(vertical = 8.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // For info-only events (holidays, birthdays, etc.) show a styled material icon instead of checkbox
@@ -305,7 +305,8 @@ fun TaskItem(
             
             Text(
                 text = strippedTitle,
-                style = MaterialTheme.typography.bodyLarge.copy(
+                style = MaterialTheme.typography.bodyMedium.copy(
+                    fontWeight = FontWeight.SemiBold,
                     textDecoration = if (task.isCompleted) {
                         TextDecoration.LineThrough
                     } else {
@@ -317,7 +318,7 @@ fun TaskItem(
                     isOverdue -> errorColor
                     else -> MaterialTheme.colorScheme.onSurface
                 },
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
 

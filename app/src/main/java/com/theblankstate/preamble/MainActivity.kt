@@ -271,13 +271,72 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 statsState = stats,
                 modifier = Modifier.padding(innerPadding)
             )
-            2 -> CalendarScreen(
-                selectedDateTasks = viewModel.selectedDateTasks.collectAsState().value,
-                heatMap = viewModel.calendarHeatMap.collectAsState().value,
-                onDateSelected = { viewModel.selectDate(it) },
-                onMonthChanged = { year, month -> viewModel.loadHeatMap(year, month) },
-                modifier = Modifier.padding(innerPadding)
-            )
+            2 -> {
+                var calendarDetailTask by remember { mutableStateOf<com.theblankstate.preamble.data.Task?>(null) }
+                var showCalendarAddSheet by remember { mutableStateOf(false) }
+                var calendarEditTask by remember { mutableStateOf<com.theblankstate.preamble.data.Task?>(null) }
+
+                CalendarScreen(
+                    selectedDateTasks = viewModel.selectedDateTasks.collectAsState().value,
+                    heatMap = viewModel.calendarHeatMap.collectAsState().value,
+                    monthTasksByDay = viewModel.calendarMonthTasks.collectAsState().value,
+                    getCachedMonthData = { key -> viewModel.getCachedMonthData(key) },
+                    loadMonthData = { y, m -> viewModel.loadMonthDataSuspend(y, m) },
+                    refreshTick = viewModel.calendarRefreshTick.collectAsState().value,
+                    onDateSelected = { viewModel.selectDate(it) },
+                    onMonthChanged = { year, month -> viewModel.loadHeatMap(year, month) },
+                    onToggleTask = { viewModel.toggleTask(it) },
+                    onDeleteTask = { viewModel.deleteTask(it) },
+                    onTaskDetail = { calendarDetailTask = it },
+                    onAddTask = { showCalendarAddSheet = true },
+                    modifier = Modifier.padding(innerPadding)
+                )
+
+                // TaskDetailBottomSheet — with edit support (past tasks read-only)
+                calendarDetailTask?.let { task ->
+                    val todayDate = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date()) }
+                    val isPast = task.createdDate < todayDate
+                    com.theblankstate.preamble.ui.components.TaskDetailBottomSheet(
+                        task = task,
+                        onDismiss = { calendarDetailTask = null },
+                        onEdit = if (!isPast && !task.isInfoOnly) {{ calendarEditTask = task; calendarDetailTask = null }} else null,
+                        onDelete = {
+                            if (!isPast) {
+                                viewModel.deleteTask(task)
+                            }
+                            calendarDetailTask = null
+                        }
+                    )
+                }
+
+                // Edit task sheet
+                if (calendarEditTask != null) {
+                    com.theblankstate.preamble.ui.components.EditTaskSheet(
+                        task = calendarEditTask!!,
+                        onDismiss = { calendarEditTask = null },
+                        onUpdateTask = { title, date, time, priority, description, tags ->
+                            viewModel.updateTask(calendarEditTask!!, title, date, time, priority, description, tags, null, 0, null, null)
+                            calendarEditTask = null
+                        }
+                    )
+                }
+
+                // Add task sheet
+                if (showCalendarAddSheet) {
+                    com.theblankstate.preamble.ui.components.AddTaskSheet(
+                        onDismiss = { showCalendarAddSheet = false },
+                        onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks ->
+                            viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks)
+                            showCalendarAddSheet = false
+                        },
+                        onAddRecurringTask = { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks ->
+                            viewModel.addRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks)
+                            showCalendarAddSheet = false
+                        },
+                        aiChatViewModel = aiChatViewModel
+                    )
+                }
+            }
             3 -> SettingsScreen(
                 modifier = Modifier.padding(innerPadding)
             )

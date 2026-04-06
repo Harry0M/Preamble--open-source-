@@ -22,12 +22,16 @@ class RecurrenceWorker(
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         val today = TaskRepository.todayString()
 
+        // Only pre-generate today + tomorrow as physical rows.
+        // Calendar view handles all other dates via virtual expansion (no DB rows needed).
+        // Physical rows are only needed for: HomeScreen today list + tomorrow's alarm scheduling.
         val cal = Calendar.getInstance()
-        cal.add(Calendar.DAY_OF_YEAR, 7)
+        cal.add(Calendar.DAY_OF_YEAR, 2)
         val toDate = sdf.format(cal.time)
 
         val templates = dao.getAllRecurrenceTemplates()
         var generated = 0
+        Log.d("Recurrence", "Worker: found ${templates.size} templates, range=$today → $toDate")
 
         for (template in templates) {
             // Skip Google Calendar templates — Google handles its own recurrence expansion
@@ -54,10 +58,11 @@ class RecurrenceWorker(
                     )
                     dao.insertTask(instance)
                     generated++
+                    Log.d("Recurrence", "Worker: materialized '${template.title}' for $date")
                 }
             }
         }
-        Log.d(TAG, "Generated $generated recurring task instances")
+        Log.d("Recurrence", "Worker: DONE — generated $generated physical instances")
         return Result.success()
     }
 

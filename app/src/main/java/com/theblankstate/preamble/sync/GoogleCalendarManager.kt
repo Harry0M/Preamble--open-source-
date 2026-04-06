@@ -797,7 +797,7 @@ object GoogleCalendarManager {
         if (recurrenceType == null) return null
 
         val freq = when (recurrenceType) {
-            "daily" -> "DAILY"
+            "daily", "custom" -> "DAILY"
             "weekly" -> "WEEKLY"
             "monthly" -> "MONTHLY"
             "yearly" -> "YEARLY"
@@ -824,7 +824,7 @@ object GoogleCalendarManager {
 
         // UNTIL
         if (!recurrenceEndDate.isNullOrEmpty()) {
-            val until = recurrenceEndDate.replace("-", "") + "T235959Z"
+            val until = recurrenceEndDate.replace("-", "") + "T000000Z"
             parts.add("UNTIL=$until")
         }
 

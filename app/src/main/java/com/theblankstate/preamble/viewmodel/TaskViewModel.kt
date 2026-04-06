@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -111,26 +113,144 @@ class TaskViewModel(
     }
 
     private val _selectedDate = MutableStateFlow<String?>(null)
-    
-    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val selectedDateTasks: StateFlow<List<Task>> = _selectedDate
-        .flatMapLatest { dateStr: String? -> 
-            if (dateStr == null) flowOf(emptyList()) else repository.getTasksForDate(dateStr) 
+
+    // Calendar selected-date tasks: uses virtual expansion to show recurring instances
+    private val _selectedDateTasks = MutableStateFlow<List<Task>>(emptyList())
+    val selectedDateTasks: StateFlow<List<Task>> = _selectedDateTasks.asStateFlow()
+
+    // ══════════════════════════════════════════════════════════════
+    // GOOGLE CALENDAR-STYLE DATA ARCHITECTURE
+    // • Plain HashMap cache (non-reactive = zero Compose overhead)
+    // • Each pager page loads its own data via suspend function
+    // • No shared state between pages = no cascade recomposition
+    // ══════════════════════════════════════════════════════════════
+
+    @androidx.compose.runtime.Immutable
+    data class MonthData(
+        val heatMap: Map<Int, Pair<Int, Int>>,
+        val tasksByDay: Map<Int, List<Task>>
+    )
+
+
+    // Plain HashMap — NOT reactive. Read/write only on Main thread.
+    // Zero Compose overhead. No recomposition triggered by mutations.
+    private val _monthCache = HashMap<String, MonthData>()
+
+    // Per-date task cache (also non-reactive)
+    private val _dateTaskCache = mutableMapOf<String, List<Task>>()
+
+    // Track current month for auto-refresh on mutations
+    private var _heatMapYear = 0
+    private var _heatMapMonth = 0
+
+    // Legacy flows for backward compat (used by non-pager views)
+    private val _calendarHeatMap = MutableStateFlow<Map<Int, Pair<Int, Int>>>(emptyMap())
+    val calendarHeatMap: StateFlow<Map<Int, Pair<Int, Int>>> = _calendarHeatMap.asStateFlow()
+    private val _calendarMonthTasks = MutableStateFlow<Map<Int, List<Task>>>(emptyMap())
+    val calendarMonthTasks: StateFlow<Map<Int, List<Task>>> = _calendarMonthTasks.asStateFlow()
+
+    // Refresh tick — increments on every cache invalidation.
+    // Used as produceState key so pager pages re-load after mutations/sync.
+    private val _calendarRefreshTick = MutableStateFlow(0)
+    val calendarRefreshTick: StateFlow<Int> = _calendarRefreshTick.asStateFlow()
+
+    // Warm calendar cache on ViewModel creation (Fix #4)
+    // By the time user switches to Calendar tab, current month is ready
+    // MUST be after _monthCache declaration (Kotlin init order)
+    init {
+        viewModelScope.launch {
+            val cal = java.util.Calendar.getInstance()
+            val y = cal.get(java.util.Calendar.YEAR)
+            val m = cal.get(java.util.Calendar.MONTH)
+            // Set heatmap tracking BEFORE loading, so legacy flows are also updated
+            _heatMapYear = y
+            _heatMapMonth = m
+            android.util.Log.d("CAL_PERF", "init → pre-warming cache for $y-$m")
+            loadMonthDataSuspend(y, m)
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
+
+    /**
+     * Synchronous cache lookup. Called during composition for instant initial value.
+     * Returns null if not cached (page will then load async).
+     */
+    fun getCachedMonthData(key: String): MonthData? = _monthCache[key]
+
+    /**
+     * Suspend function — called from each page's produceState.
+     * Checks cache first (instant), then loads from DB if needed.
+     * Each page calls this independently — no shared reactive state.
+     */
+    suspend fun loadMonthDataSuspend(year: Int, month: Int): MonthData {
+        val key = "$year-$month"
+        _monthCache[key]?.let {
+            android.util.Log.d("CAL_PERF", "loadMonthDataSuspend($key) → CACHE HIT")
+            return it
+        }
+        android.util.Log.d("CAL_PERF", "loadMonthDataSuspend($key) → CACHE MISS → loading...")
+        val startTime = System.currentTimeMillis()
+        // Fix #3: Combined method — 4 queries instead of 22+
+        val (heatMap, tasksByDay) = repository.getMonthDataCombined(year, month)
+        val elapsed = System.currentTimeMillis() - startTime
+        android.util.Log.d("CAL_PERF", "loadMonthDataSuspend($key) → DB DONE in ${elapsed}ms | ${tasksByDay.values.sumOf { it.size }} tasks")
+        val data = MonthData(heatMap, tasksByDay)
+        _monthCache[key] = data
+        // Update legacy flows if this is the current month
+        if (year == _heatMapYear && month == _heatMapMonth) {
+            _calendarHeatMap.value = data.heatMap
+            _calendarMonthTasks.value = data.tasksByDay
+        }
+        return data
+    }
 
     fun selectDate(date: String?) {
         _selectedDate.value = date
+        if (date != null) {
+            val cached = _dateTaskCache[date]
+            if (cached != null) {
+                android.util.Log.d("CAL_PERF", "selectDate($date) → CACHE HIT (${cached.size} tasks)")
+                _selectedDateTasks.value = cached
+                return
+            }
+            android.util.Log.d("CAL_PERF", "selectDate($date) → CACHE MISS → loading...")
+            viewModelScope.launch {
+                val startTime = System.currentTimeMillis()
+                val tasks = repository.getTasksForDateWithRecurrence(date)
+                val elapsed = System.currentTimeMillis() - startTime
+                android.util.Log.d("CAL_PERF", "selectDate($date) → DB DONE in ${elapsed}ms | ${tasks.size} tasks")
+                _dateTaskCache[date] = tasks
+                if (_dateTaskCache.size > 30) _dateTaskCache.remove(_dateTaskCache.keys.first())
+                if (_selectedDate.value == date) _selectedDateTasks.value = tasks
+            }
+        } else {
+            _selectedDateTasks.value = emptyList()
+        }
     }
 
-    // Calendar heat map
-    private val _calendarHeatMap = MutableStateFlow<Map<Int, Pair<Int, Int>>>(emptyMap())
-    val calendarHeatMap: StateFlow<Map<Int, Pair<Int, Int>>> = _calendarHeatMap.asStateFlow()
+    /** Re-query calendar data after a mutation (toggle, delete, add) */
+    fun refreshCalendarDate() {
+        val date = _selectedDate.value ?: return
+        android.util.Log.d("CAL_PERF", "refreshCalendarDate($date) → invalidating caches")
+        _dateTaskCache.remove(date)
+        // Invalidate ALL cached months so pager pages re-load
+        _monthCache.clear()
+        // Increment tick to force produceState re-run in all visible pages
+        _calendarRefreshTick.value++
+        viewModelScope.launch {
+            val tasks = repository.getTasksForDateWithRecurrence(date)
+            _dateTaskCache[date] = tasks
+            _selectedDateTasks.value = tasks
+            if (_heatMapYear > 0) {
+                loadMonthDataSuspend(_heatMapYear, _heatMapMonth)
+            }
+        }
+    }
 
     fun loadHeatMap(year: Int, month: Int) {
-        viewModelScope.launch {
-            _calendarHeatMap.value = repository.getMonthlyHeatMap(year, month)
-        }
+        android.util.Log.d("CAL_PERF", "loadHeatMap($year, $month)")
+        _heatMapYear = year
+        _heatMapMonth = month
+        // Each page handles its own data via produceState — no need to load here
     }
 
     private val _statsState = MutableStateFlow(StatsState())
@@ -327,6 +447,7 @@ class TaskViewModel(
             // Optimistic: toggle locally FIRST
             repository.toggleTask(task)
             refreshStats()
+            refreshCalendarDate()
 
             // Then sync to Google in background via WorkManager
             val newCompleted = !task.isCompleted
@@ -385,6 +506,7 @@ class TaskViewModel(
             // Delete locally first for Optimistic UI
             repository.deleteTask(task)
             refreshStats()
+            refreshCalendarDate()
 
             // Store for undo
             pendingDeleteTask = task
