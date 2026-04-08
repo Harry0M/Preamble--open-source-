@@ -43,7 +43,7 @@ class TaskRepository(
 
     fun getTasksForDate(date: String): Flow<List<Task>> = dao.getTasksByDate(date)
 
-    fun getTasksForDates(dates: List<String>): Flow<List<Task>> = dao.getTasksForDates(dates)
+    fun getTasksForDates(dates: List<String>): Flow<List<Task>> = dao.getTasksForDates(dates, dates.maxOrNull() ?: "")
 
     /**
      * COMBINED: Load heatMap + tasksByDay in a single pass.
@@ -62,7 +62,8 @@ class TaskRepository(
         val fromDate = dates.first(); val toDate = dates.last()
 
         // 2-3 queries total (down from 22+)
-        val allTasks = dao.getTasksForDatesSync(dates)
+        val allTasks = dao.getTasksForDatesSync(dates, toDate)
+        android.util.Log.d("ROLLOVER", "getMonthDataCombined($year-${month+1}): loaded ${allTasks.size} tasks total, ${allTasks.count { it.recurrenceType == "rollover" }} rollover (toDate=$toDate)")
         val templates = dao.getAllRecurrenceTemplates().filter {
             it.source != "google_calendar" && it.recurrenceType != "rollover"
         }
@@ -90,21 +91,24 @@ class TaskRepository(
                 )
                 if (!task.isCompleted) {
                     // Pending rollover: show on every day from creation through today (within this month)
-                    val createdDate = sdf.parse(task.createdDate) ?: continue
-                    val todayDate = sdf.parse(today) ?: continue
+                    // Use string comparison to avoid calendar.time carrying wall-clock hours past midnight
+                    var addedDays = 0
                     for (day in 1..maxDay) {
                         calendar.set(year, month, day)
-                        val dayDate = calendar.time
-                        if (!dayDate.before(createdDate) && !dayDate.after(todayDate)) {
+                        val dayStr = sdf.format(calendar.time)
+                        if (dayStr >= task.createdDate && dayStr <= today) {
                             tasksByDay.getOrPut(day) { mutableListOf() }.add(displayTask)
+                            addedDays++
                         }
                     }
+                    android.util.Log.d("ROLLOVER", "getMonthDataCombined: task='${task.title}' createdDate=${task.createdDate} today=$today → spread across $addedDays day(s) in $year-${month+1}")
                 } else if (task.completedDate != null) {
                     // Completed rollover: show only on completion date
                     try {
                         val d = sdf.parse(task.completedDate!!); val c = Calendar.getInstance(); c.time = d!!
                         if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month) {
                             tasksByDay.getOrPut(c.get(Calendar.DAY_OF_MONTH)) { mutableListOf() }.add(displayTask)
+                            android.util.Log.d("ROLLOVER", "getMonthDataCombined: completed task='${task.title}' → shown on day ${c.get(Calendar.DAY_OF_MONTH)}")
                         }
                     } catch (_: Exception) { }
                 }
@@ -550,19 +554,17 @@ class TaskRepository(
 
         // Count rollover tasks per day (getStatsForDates misses pending rollover)
         val rolloverCounts = mutableMapOf<Int, Pair<Int, Int>>() // day → (completed, total)
-        val allTasks = dao.getTasksForDatesSync(dates)
+        val allTasks = dao.getTasksForDatesSync(dates, dates.last())
         val processedRolloverIds = mutableSetOf<String>()
         for (task in allTasks) {
             if (task.recurrenceType != "rollover") continue
             if (task.id in processedRolloverIds) continue
             processedRolloverIds.add(task.id)
             if (!task.isCompleted) {
-                val createdDate = sdf.parse(task.createdDate) ?: continue
-                val todayDate = sdf.parse(today) ?: continue
                 for (day in 1..maxDay) {
                     calendar.set(year, month, day)
-                    val dayDate = calendar.time
-                    if (!dayDate.before(createdDate) && !dayDate.after(todayDate)) {
+                    val dayStr = sdf.format(calendar.time)
+                    if (dayStr >= task.createdDate && dayStr <= today) {
                         val prev = rolloverCounts[day] ?: (0 to 0)
                         rolloverCounts[day] = prev.first to (prev.second + 1)
                     }

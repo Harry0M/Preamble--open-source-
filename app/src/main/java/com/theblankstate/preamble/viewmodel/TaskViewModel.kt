@@ -507,6 +507,7 @@ class TaskViewModel(
             }
             scheduleOrCancelAlarm(finalTask)
             refreshStats()
+            invalidateCalendarForDate(taskDate)
         }
     }
 
@@ -887,12 +888,33 @@ class TaskViewModel(
             }
             triggerRecurrenceGeneration()
             refreshStats()
+            invalidateCalendarForDate(taskDate)
         }
     }
 
     private fun triggerRecurrenceGeneration() {
         val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.recurrence.RecurrenceWorker>().build()
         androidx.work.WorkManager.getInstance(appContext).enqueue(workRequest)
+    }
+
+    /** Clears the month cache for [taskDate] and forces calendar pages to reload. */
+    private suspend fun invalidateCalendarForDate(taskDate: String) {
+        try {
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            val parsed = sdf.parse(taskDate)
+            if (parsed != null) {
+                val cal = java.util.Calendar.getInstance().apply { time = parsed }
+                val y = cal.get(java.util.Calendar.YEAR)
+                val m = cal.get(java.util.Calendar.MONTH)
+                _monthCache.remove("$y-$m")
+                _dateTaskCache.remove(taskDate)
+                android.util.Log.d("ROLLOVER", "invalidateCalendarForDate($taskDate) → cleared month $y-$m, tick=${_calendarRefreshTick.value + 1}")
+            }
+        } catch (_: Exception) {
+            _monthCache.clear()
+        }
+        _calendarRefreshTick.value++
+        if (_heatMapYear > 0) loadMonthDataSuspend(_heatMapYear, _heatMapMonth)
     }
 
     // ── Subtask methods ──
