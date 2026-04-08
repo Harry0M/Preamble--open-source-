@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
@@ -102,6 +103,7 @@ class TaskViewModel(
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class, kotlinx.coroutines.FlowPreview::class)
     val searchResults: StateFlow<List<Task>> = _searchQuery
         .debounce(300)
+        .distinctUntilChanged()
         .flatMapLatest { query ->
             if (query.isBlank()) flowOf(emptyList())
             else repository.searchTasks(query)
@@ -378,6 +380,17 @@ class TaskViewModel(
             }
         }
 
+        // Reactively update selectedDateTasks when today's tasks change in the DB.
+        // This ensures isSyncing flag changes (from WorkManager) propagate to CalendarScreen
+        // without requiring a manual refresh or app restart.
+        viewModelScope.launch {
+            _allTodayTasks.collect { freshTodayTasks ->
+                if (_selectedDate.value == today) {
+                    _selectedDateTasks.value = freshTodayTasks
+                }
+            }
+        }
+
     }
 
     // ── Pull-to-refresh Google sync ──
@@ -584,7 +597,7 @@ class TaskViewModel(
             // Delete locally first for Optimistic UI
             repository.deleteTask(task)
             refreshStats()
-            refreshCalendarDate()
+            invalidateCalendarForDate(task.createdDate)
 
             // Store for undo
             pendingDeleteTask = task
@@ -672,6 +685,9 @@ class TaskViewModel(
             }
 
             refreshStats()
+            // Invalidate calendar for the task's date so calendar updates immediately
+            val dateToInvalidate = task.createdDate
+            invalidateCalendarForDate(dateToInvalidate)
 
             _snackbarEvent.tryEmit(SnackbarEvent(
                 message = "All recurrences deleted",

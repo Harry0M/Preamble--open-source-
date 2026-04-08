@@ -1,5 +1,6 @@
 package com.theblankstate.preamble.data
 
+import androidx.compose.runtime.Stable
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -8,24 +9,28 @@ import com.google.gson.reflect.TypeToken
 import java.util.UUID
 
 // Nested data classes for advanced fields
+@Stable
 data class Media(
     val url: String,
     val type: String, // MIME type
     val size: Long? = null
 )
 
+@Stable
 data class Link(
     val url: String,
     val title: String? = null,
     val addedAt: Long = System.currentTimeMillis()
 )
 
+@Stable
 data class Subtask(
     val id: String = UUID.randomUUID().toString(),
     val title: String,
     val isCompleted: Boolean = false
 )
 
+@Stable
 @Entity(
     tableName = "tasks",
     indices = [
@@ -94,7 +99,6 @@ data class Task(
     val isRecurrenceTemplate: Boolean get() = recurrenceType != null && recurrenceParentId == null
     val isRecurrenceInstance: Boolean get() = recurrenceParentId != null
     val isSubtask: Boolean get() = parentTaskId != null
-    val tagList: List<String> get() = tags?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList()
     // Calendar event type helpers
     val isHoliday: Boolean get() = eventType == "holiday"
     val isBirthday: Boolean get() = eventType == "birthday"
@@ -103,10 +107,11 @@ data class Task(
     val hasAttendees: Boolean get() = !attendeesJson.isNullOrBlank()
     val hasReminders: Boolean get() = !remindersJson.isNullOrBlank()
     val hasAttachments: Boolean get() = !attachmentsJson.isNullOrBlank()
-    // Advanced fields helpers
-    val media: Media? get() = mediaJson?.let { Gson().fromJson(it, Media::class.java) }
-    val links: List<Link> get() = linksJson?.let { Gson().fromJson(it, object : TypeToken<List<Link>>() {}.type) } ?: emptyList()
-    val subtasks: List<Subtask> get() = subtasksJson?.let { Gson().fromJson(it, object : TypeToken<List<Subtask>>() {}.type) } ?: emptyList()
-    val syncMetadata: Map<String, Any>? get() = syncMetadataJson?.let { Gson().fromJson(it, object : TypeToken<Map<String, Any>>() {}.type) }
+    // Lazily parsed: computed once per instance, not on every access
+    val tagList: List<String> by lazy { tags?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: emptyList() }
+    val media: Media? by lazy { mediaJson?.let { Gson().fromJson(it, Media::class.java) } }
+    val links: List<Link> by lazy { linksJson?.let { Gson().fromJson(it, object : TypeToken<List<Link>>() {}.type) } ?: emptyList() }
+    val subtasks: List<Subtask> by lazy { subtasksJson?.let { Gson().fromJson(it, object : TypeToken<List<Subtask>>() {}.type) } ?: emptyList() }
+    val syncMetadata: Map<String, Any>? by lazy { syncMetadataJson?.let { Gson().fromJson(it, object : TypeToken<Map<String, Any>>() {}.type) } }
 }
 

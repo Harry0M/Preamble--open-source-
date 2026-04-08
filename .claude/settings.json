@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep:*)",
+      "Bash(find /c/Users/palha/preamble/app/src/main/java/com/theblankstate/preamble/ui -name \"*.kt\" -exec wc -l {} +)",
+      "Bash(grep -E \"\\\\.kt$\")",
+      "Read(//c/Users/palha/preamble/app/src/main/java/com/theblankstate/preamble/ui/components/**)",
+      "Bash(find /c/Users/palha/preamble/app/src/main/java/com/theblankstate/preamble/ui -name \"*.kt\" -type f -exec wc -l {} +)",
+      "Read(//c/Users/palha/preamble/app/src/main/java/com/theblankstate/preamble/ui/screens/**)"
+    ]
+  }
+}

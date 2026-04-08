@@ -60,10 +60,12 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -80,6 +82,10 @@ import com.theblankstate.preamble.data.Task
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// Haptic config provided once at the screen level, read by every TaskItem without extra lookups
+data class HapticConfig(val enabled: Boolean, val vibrator: android.os.Vibrator?)
+val LocalHapticConfig = staticCompositionLocalOf { HapticConfig(true, null) }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -98,20 +104,9 @@ fun TaskItem(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    // Read haptic preference
-    val hapticEnabled = remember {
-        context.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
-            .getBoolean("haptic_feedback_enabled", true)
-    }
-    val vibrator = remember {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            val vibratorManager = context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
-            vibratorManager?.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
-        }
-    }
+    val hapticConfig = LocalHapticConfig.current
+    val hapticEnabled = hapticConfig.enabled
+    val vibrator = hapticConfig.vibrator
     val isSnoozed = remember(task.snoozedUntil) {
         task.snoozedUntil != null && task.snoozedUntil > System.currentTimeMillis()
     }

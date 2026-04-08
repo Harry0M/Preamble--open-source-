@@ -78,6 +78,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -95,6 +96,8 @@ import androidx.compose.ui.unit.dp
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.PredefinedTags
 import com.theblankstate.preamble.ui.components.AddTaskSheet
+import com.theblankstate.preamble.ui.components.HapticConfig
+import com.theblankstate.preamble.ui.components.LocalHapticConfig
 import com.theblankstate.preamble.ui.components.TaskDetailBottomSheet
 import com.theblankstate.preamble.ui.components.TaskDetailSheet
 import com.theblankstate.preamble.ui.components.RichDateBadge
@@ -192,6 +195,11 @@ fun HomeScreen(
     // Background full sync flag — only shown in UI on very first sync (no prior data)
     val isBgSyncing by com.theblankstate.preamble.sync.GoogleCalendarManager.isBgSyncing.collectAsState()
     val lastCalSyncTime by com.theblankstate.preamble.sync.GoogleCalendarManager.lastSyncTime.collectAsState()
+    // Theme + pomodoro state hoisted here so they're collected once, not buried inside nested lambdas
+    val themeMode by ThemePreferences.themeMode.collectAsState()
+    val colorfulCards by ThemePreferences.colorfulCards.collectAsState()
+    val isTimelineEnabled by ThemePreferences.timelineUi.collectAsState()
+    val pomodoroState by PomodoroTimerService.state.collectAsState()
     val hasSyncedBefore = remember {
         context.getSharedPreferences("PreamblePrefs", android.content.Context.MODE_PRIVATE)
             .getLong("last_sync_time", 0L) > 0L
@@ -393,7 +401,6 @@ fun HomeScreen(
                             )
                         }
 
-                        val isTimelineEnabled = ThemePreferences.timelineUi.collectAsState().value
                         IconButton(
                             onClick = { ThemePreferences.setTimelineUi(context, !isTimelineEnabled) }
                         ) {
@@ -427,7 +434,6 @@ fun HomeScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     // Pomodoro FAB
-                    val pomodoroState by PomodoroTimerService.state.collectAsState()
                     FloatingActionButton(
                         onClick = {
                             pomodoroTaskId = null
@@ -492,10 +498,8 @@ fun HomeScreen(
                 }
             }
         ) { padding ->
-            val themeMode = ThemePreferences.themeMode.collectAsState().value
             val isDarkTheme = isSystemInDarkTheme()
             val isLightMode = themeMode == ThemePreferences.ThemeMode.LIGHT || (themeMode == ThemePreferences.ThemeMode.SYSTEM && !isDarkTheme)
-            val colorfulCards = ThemePreferences.colorfulCards.collectAsState().value
 
             val cardColors = listOf(
                 Color(0xFFE3F2FD), // Blue
@@ -506,8 +510,20 @@ fun HomeScreen(
                 Color(0xFFFFFDE7)  // Yellow
             )
 
-            val isTimelineEnabled = ThemePreferences.timelineUi.collectAsState().value
-
+            // Provide haptic config once for all TaskItems — avoids per-item SharedPrefs + system service lookups
+            val hapticConfig = remember {
+                val prefs = context.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+                val enabled = prefs.getBoolean("haptic_feedback_enabled", true)
+                val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                    val vm = context.getSystemService(android.content.Context.VIBRATOR_MANAGER_SERVICE) as? android.os.VibratorManager
+                    vm?.defaultVibrator
+                } else {
+                    @Suppress("DEPRECATION")
+                    context.getSystemService(android.content.Context.VIBRATOR_SERVICE) as? android.os.Vibrator
+                }
+                HapticConfig(enabled, vibrator)
+            }
+            CompositionLocalProvider(LocalHapticConfig provides hapticConfig) {
             Column(modifier = Modifier.fillMaxSize().padding(padding)) {
                 if (showSyncIndicator) {
                     androidx.compose.material3.LinearProgressIndicator(
@@ -543,14 +559,13 @@ fun HomeScreen(
 
                 // Tag filter chips — show only tags that exist on user's tasks
                 if (onTagFilterChanged != null && !isSearchActive) {
-                    // Collect unique tags from today's tasks
+                    // Collect unique tags from today's tasks — O(n+m) via pre-built index map
                     val usedTags = remember(tasks) {
+                        val tagIndexMap = PredefinedTags.tags.withIndex()
+                            .associate { (i, t) -> t.name.lowercase() to i }
                         tasks.flatMap { task -> task.tagList }
                             .distinct()
-                            .sortedBy { tagName -> 
-                                val idx = PredefinedTags.tags.indexOfFirst { it.name.equals(tagName, ignoreCase = true) }
-                                if (idx >= 0) idx else Int.MAX_VALUE
-                            }
+                            .sortedBy { tagName -> tagIndexMap[tagName.lowercase()] ?: Int.MAX_VALUE }
                     }
                     if (usedTags.isNotEmpty()) {
                         LazyRow(
@@ -664,10 +679,10 @@ fun HomeScreen(
             ) {
                 // Today's tasks with timeline view
                 if (tasks.isNotEmpty()) {
-                    item {
-                        val completed = tasks.count { it.isCompleted }
+                    item(key = "progress_bar") {
+                        val completed = remember(tasks) { tasks.count { it.isCompleted } }
                         val total = tasks.size
-                        val progress = if (total > 0) completed.toFloat() / total else 0f
+                        val progress = remember(tasks) { if (total > 0) completed.toFloat() / total else 0f }
 
                         Column(
                             modifier = Modifier
@@ -703,7 +718,7 @@ fun HomeScreen(
                     }
 
                     if (isTimelineEnabled) {
-                        item {
+                        item(key = "timeline_today") {
                             val bgColor = if (isLightMode) {
                                 if (colorfulCards) cardColors[0] else MaterialTheme.colorScheme.surfaceVariant
                             } else Color.Transparent
@@ -757,39 +772,33 @@ fun HomeScreen(
                                         // Today's tasks: show all inside card with key{} for smart recomposition skipping
                                         tasks.forEach { task ->
                                             key(task.id) {
-                                                androidx.compose.animation.AnimatedVisibility(
-                                                    visible = true,
-                                                    enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically(),
-                                                    exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.shrinkVertically()
-                                                ) {
-                                                    Column(modifier = Modifier.animateContentSize()) {
-                                                        SwipeableTaskItem(
-                                                            task = task,
-                                                            onToggle = { onToggleTask(task) },
-                                                            onDelete = { taskToDelete = task },
-                                                            onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
-                                                            onDetail = { taskToShowDetail = task },
-                                                            onStartPomodoro = {
-                                                                pomodoroTaskId = task.id
-                                                                pomodoroTaskTitle = task.title
-                                                                showPomodoroSheet = true
-                                                            },
-                                                            onRetrySync = onRetrySync?.let { retry -> { retry(task) } },
-                                                            isEditable = true,
-                                                            subtaskCount = subtaskCounts[task.id],
-                                                            isExpanded = expandedTasks.contains(task.id),
-                                                            onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } }
+                                                Column(modifier = Modifier.animateContentSize()) {
+                                                    SwipeableTaskItem(
+                                                        task = task,
+                                                        onToggle = { onToggleTask(task) },
+                                                        onDelete = { taskToDelete = task },
+                                                        onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
+                                                        onDetail = { taskToShowDetail = task },
+                                                        onStartPomodoro = {
+                                                            pomodoroTaskId = task.id
+                                                            pomodoroTaskTitle = task.title
+                                                            showPomodoroSheet = true
+                                                        },
+                                                        onRetrySync = onRetrySync?.let { retry -> { retry(task) } },
+                                                        isEditable = true,
+                                                        subtaskCount = subtaskCounts[task.id],
+                                                        isExpanded = expandedTasks.contains(task.id),
+                                                        onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } }
+                                                    )
+                                                    // Show subtasks when expanded
+                                                    if (expandedTasks.contains(task.id) && subtasksProvider != null) {
+                                                        val subtasks by subtasksProvider(task.id).collectAsState(initial = emptyList())
+                                                        SubtaskList(
+                                                            subtasks = subtasks,
+                                                            onToggleSubtask = { subtask -> onToggleSubtask?.invoke(subtask.id, !subtask.isCompleted) },
+                                                            onAddSubtask = { title -> onAddSubtask?.invoke(task.id, title) },
+                                                            onDeleteSubtask = { subtask -> onDeleteSubtask?.invoke(subtask.id) }
                                                         )
-                                                        // Show subtasks when expanded
-                                                        if (expandedTasks.contains(task.id) && subtasksProvider != null) {
-                                                            val subtasks by subtasksProvider(task.id).collectAsState(initial = emptyList())
-                                                            SubtaskList(
-                                                                subtasks = subtasks,
-                                                                onToggleSubtask = { subtask -> onToggleSubtask?.invoke(subtask.id, !subtask.isCompleted) },
-                                                                onAddSubtask = { title -> onAddSubtask?.invoke(task.id, title) },
-                                                                onDeleteSubtask = { subtask -> onDeleteSubtask?.invoke(subtask.id) }
-                                                            )
-                                                        }
                                                     }
                                                 }
                                             }
@@ -864,7 +873,7 @@ fun HomeScreen(
                 pastTasks.forEach { (date, tasksForDate) ->
                     if (tasksForDate.isNotEmpty()) {
                         if (isTimelineEnabled) {
-                            item {
+                            item(key = "timeline_$date") {
                                 val bgColor = if (isLightMode) {
                                     if (colorfulCards) cardColors[colorIndex % cardColors.size] else MaterialTheme.colorScheme.surfaceVariant
                                 } else Color.Transparent
@@ -954,7 +963,7 @@ fun HomeScreen(
                                 }
                             }
                         } else {
-                            item {
+                            item(key = "header_$date") {
                                 RichDateBadge(
                                     dateStr = date,
                                     modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
@@ -985,6 +994,7 @@ fun HomeScreen(
             } // PullToRefreshBox
             } // else (not searching)
             } // Column
+            } // CompositionLocalProvider
         }
 
         // Voice wave overlay at the bottom — sits in outer Box, on top of Scaffold

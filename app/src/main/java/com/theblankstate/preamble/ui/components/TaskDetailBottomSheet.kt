@@ -37,10 +37,12 @@ import androidx.compose.material.icons.filled.Attachment
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.EventRepeat
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Link
@@ -55,11 +57,16 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Videocam
+import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.WbSunny
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
@@ -68,8 +75,12 @@ import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -154,20 +165,33 @@ fun TaskDetailBottomSheet(
                 verticalAlignment = Alignment.Top
             ) {
                 // Title
-                Text(
-                    text = task.title.removePrefix("📅 ").trim(),
-                    style = MaterialTheme.typography.headlineSmall.copy(
-                        fontWeight = FontWeight.Bold,
-                        textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
-                    ),
-                    color = if (task.isCompleted)
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                    else
-                        MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    val cleanTitle = task.title.removePrefix("📅 ").trim()
+                    Text(
+                        text = cleanTitle,
+                        style = MaterialTheme.typography.headlineSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            textDecoration = if (task.isCompleted) TextDecoration.LineThrough else null
+                        ),
+                        color = if (task.isCompleted)
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                        else
+                            MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    // Full title in small text — always visible when headline truncates
+                    if (cleanTitle.length > 35) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = cleanTitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
 
                 // Action buttons
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -315,19 +339,24 @@ fun TaskDetailBottomSheet(
                     }
                 }
 
-                // Recurrence
-                if (task.googleRecurrenceInfo != null || task.isRecurrenceTemplate) {
+                // Recurrence — rich card for local recurring tasks, simple row for Google
+                if (task.googleRecurrenceInfo != null && !task.isRecurrenceTemplate) {
+                    // Google Calendar recurrence: show as simple row
                     Spacer(modifier = Modifier.height(8.dp))
                     DetailRow(
                         icon = Icons.Default.Repeat,
                         iconColor = MaterialTheme.colorScheme.tertiary
                     ) {
                         Text(
-                            text = task.googleRecurrenceInfo ?: "Repeating",
+                            text = task.googleRecurrenceInfo!!,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                } else if (task.isRecurrenceTemplate || (task.recurrenceParentId != null && task.recurrenceType != null)) {
+                    // Local recurring task — show rich card
+                    Spacer(modifier = Modifier.height(8.dp))
+                    RecurrenceCard(task = task)
                 }
 
                 // Rollover info + snooze
@@ -344,31 +373,8 @@ fun TaskDetailBottomSheet(
                             } else null
                         } catch (e: Exception) { null }
                     }
-                    if (daysRolledOver != null && daysRolledOver > 0) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.tertiaryContainer
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    Icons.Default.Repeat,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.onTertiaryContainer
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = if (task.isCompleted) "Completed $daysRolledOver days late" else "Pending for $daysRolledOver days",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onTertiaryContainer
-                                )
-                            }
-                        }
-                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    RolloverStuckCard(task = task, daysRolledOver = daysRolledOver ?: 0)
                     // Snooze / Unsnooze section
                     val isSnoozed = task.snoozedUntil != null && task.snoozedUntil > System.currentTimeMillis()
                     if (!task.isCompleted && (onSnooze != null || (isSnoozed && onUnsnooze != null))) {
@@ -1405,6 +1411,181 @@ private fun parseAttachments(json: String?): List<Map<String, String>> {
     }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Rollover "Stuck Task" Card — visual timeline showing how long task is pending
+// ─────────────────────────────────────────────────────────────────────────────
+
+private data class RolloverTier(
+    val bgColor: Color,
+    val accentColor: Color,
+    val emoji: String,
+    val headline: String,
+    val subline: String
+)
+
+@Composable
+private fun RolloverStuckCard(task: Task, daysRolledOver: Int) {
+    // Urgency tiers — pure visual, no functional change
+    val tier = when {
+        task.isCompleted -> RolloverTier(
+            bgColor = Color(0xFF10B981).copy(alpha = 0.08f),
+            accentColor = Color(0xFF059669),
+            emoji = "✅",
+            headline = "Finally done!",
+            subline = if (daysRolledOver > 0) "Completed after $daysRolledOver day${if (daysRolledOver > 1) "s" else ""}" else "Completed today"
+        )
+        daysRolledOver >= 7 -> RolloverTier(
+            bgColor = Color(0xFFDC2626).copy(alpha = 0.08f),
+            accentColor = Color(0xFFDC2626),
+            emoji = "🔥",
+            headline = "On fire — $daysRolledOver days!",
+            subline = "Waiting since ${formatDaysAgoDate(task.createdDate)}"
+        )
+        daysRolledOver >= 3 -> RolloverTier(
+            bgColor = Color(0xFFF97316).copy(alpha = 0.08f),
+            accentColor = Color(0xFFEA580C),
+            emoji = "⚠️",
+            headline = "Getting overdue",
+            subline = "Carrying over for $daysRolledOver day${if (daysRolledOver > 1) "s" else ""} now"
+        )
+        daysRolledOver >= 1 -> RolloverTier(
+            bgColor = Color(0xFFF59E0B).copy(alpha = 0.08f),
+            accentColor = Color(0xFFD97706),
+            emoji = "⏳",
+            headline = "Moved from yesterday",
+            subline = "Rolled over $daysRolledOver day${if (daysRolledOver > 1) "s" else ""} ago"
+        )
+        else -> RolloverTier(
+            bgColor = Color(0xFF6366F1).copy(alpha = 0.08f),
+            accentColor = Color(0xFF4F46E5),
+            emoji = "📌",
+            headline = "Active task",
+            subline = "Created today — keep going!"
+        )
+    }
+
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = tier.bgColor,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            // Top row: emoji badge + headline
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = tier.accentColor.copy(alpha = 0.14f),
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Text(text = tier.emoji, style = MaterialTheme.typography.titleMedium)
+                    }
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = tier.headline,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = tier.accentColor
+                    )
+                    Text(
+                        text = tier.subline,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = tier.accentColor.copy(alpha = 0.75f)
+                    )
+                }
+            }
+
+            // Pending progress bar — shown when task has been pending 1+ days (or completed late)
+            if (daysRolledOver >= 1) {
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Cap the scale at 14 days for a full bar; beyond 14 the bar just stays full
+                val scaleMax = daysRolledOver.coerceAtLeast(14)
+                val rawProgress = daysRolledOver.toFloat() / scaleMax
+
+                var targetProgress by remember { mutableFloatStateOf(0f) }
+                LaunchedEffect(daysRolledOver) { targetProgress = rawProgress }
+                val animatedProgress by animateFloatAsState(
+                    targetValue = targetProgress,
+                    animationSpec = tween(durationMillis = 700),
+                    label = "rolloverProgress"
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.HourglassBottom,
+                            contentDescription = null,
+                            tint = tier.accentColor,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Pending duration",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = tier.accentColor.copy(alpha = 0.7f)
+                        )
+                    }
+                    Text(
+                        text = "$daysRolledOver day${if (daysRolledOver > 1) "s" else ""}",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = tier.accentColor
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Canvas(
+                    modifier = Modifier.fillMaxWidth().height(8.dp)
+                ) {
+                    val segmentCount = 14
+                    val gap = 3.dp.toPx()
+                    val segW = (size.width - gap * (segmentCount - 1)) / segmentCount
+                    val filledSegs = (segmentCount * animatedProgress).toInt()
+                    for (i in 0 until segmentCount) {
+                        val x = i * (segW + gap)
+                        drawRoundRect(
+                            color = if (i < filledSegs) tier.accentColor else tier.accentColor.copy(alpha = 0.15f),
+                            topLeft = androidx.compose.ui.geometry.Offset(x, 0f),
+                            size = androidx.compose.ui.geometry.Size(segW, size.height),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
+                        )
+                    }
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Day 1",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = tier.accentColor.copy(alpha = 0.45f)
+                    )
+                    Text(
+                        text = if (task.isCompleted) "Completed" else "Today",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = tier.accentColor,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun formatDaysAgoDate(dateStr: String): String {
+    return try {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val display = SimpleDateFormat("d MMM", Locale.getDefault())
+        display.format(sdf.parse(dateStr)!!)
+    } catch (_: Exception) { dateStr }
+}
+
 private fun parseOrganizer(json: String?): Map<String, String>? {
     if (json.isNullOrBlank()) return null
     return try {
@@ -1412,5 +1593,269 @@ private fun parseOrganizer(json: String?): Map<String, String>? {
         Gson().fromJson(json, type)
     } catch (e: Exception) {
         null
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Recurrence Card — rich visual block for local recurring tasks
+// ─────────────────────────────────────────────────────────────────────────────
+
+private fun formatRecurrencePattern(
+    recurrenceType: String?,
+    interval: Int?,
+    days: String?
+): String {
+    val n = interval ?: 1
+    return when (recurrenceType) {
+        "daily" -> if (n == 1) "Every day" else "Every $n days"
+        "weekly" -> {
+            val dayNames = days?.split(",")?.mapNotNull { d ->
+                when (d.trim()) {
+                    "2" -> "Mon"; "3" -> "Tue"; "4" -> "Wed"
+                    "5" -> "Thu"; "6" -> "Fri"; "7" -> "Sat"; "1" -> "Sun"
+                    else -> null
+                }
+            }
+            val dayStr = if (!dayNames.isNullOrEmpty()) " on ${dayNames.joinToString(", ")}" else ""
+            if (n == 1) "Every week$dayStr" else "Every $n weeks$dayStr"
+        }
+        "monthly" -> if (n == 1) "Every month" else "Every $n months"
+        "yearly" -> if (n == 1) "Every year" else "Every $n years"
+        "custom" -> if (n == 1) "Custom repeat" else "Every $n days (custom)"
+        else -> "Repeating"
+    }
+}
+
+@Composable
+private fun RecurrenceCard(task: Task) {
+    val sdf = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
+    val displaySdf = remember { SimpleDateFormat("d MMM yyyy", Locale.getDefault()) }
+
+    // Compute progress: elapsed days from createdDate to today relative to endDate
+    val progressData = remember(task.createdDate, task.recurrenceEndDate) {
+        try {
+            val start = sdf.parse(task.createdDate) ?: return@remember null
+            val today = sdf.parse(sdf.format(Date())) ?: return@remember null
+            val end = task.recurrenceEndDate?.let { sdf.parse(it) }
+            val elapsed = ((today.time - start.time) / 86_400_000L).toInt().coerceAtLeast(0)
+            if (end != null && end.after(start)) {
+                val total = ((end.time - start.time) / 86_400_000L).toInt()
+                Triple(elapsed, total, (elapsed.toFloat() / total).coerceIn(0f, 1f))
+            } else {
+                Triple(elapsed, -1, -1f) // no end date
+            }
+        } catch (_: Exception) { null }
+    }
+
+    val patternText = remember(task.recurrenceType, task.recurrenceInterval, task.recurrenceDays) {
+        formatRecurrencePattern(task.recurrenceType, task.recurrenceInterval, task.recurrenceDays)
+    }
+    val startText = remember(task.createdDate) {
+        try { displaySdf.format(sdf.parse(task.createdDate)!!) } catch (_: Exception) { task.createdDate }
+    }
+    val endText = remember(task.recurrenceEndDate) {
+        task.recurrenceEndDate?.let {
+            try { displaySdf.format(sdf.parse(it)!!) } catch (_: Exception) { it }
+        }
+    }
+
+    // Accent color for the recurrence type
+    val accentColor = when (task.recurrenceType) {
+        "daily" -> Color(0xFF7C3AED)   // Violet
+        "weekly" -> Color(0xFF0891B2)  // Cyan
+        "monthly" -> Color(0xFF059669) // Emerald
+        "yearly" -> Color(0xFFD97706)  // Amber
+        else -> Color(0xFF6366F1)      // Indigo
+    }
+
+    // Animated progress for smooth appearance
+    var targetProgress by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(progressData) {
+        targetProgress = progressData?.third?.coerceAtLeast(0f) ?: 0f
+    }
+    val animatedProgress by animateFloatAsState(
+        targetValue = targetProgress,
+        animationSpec = tween(durationMillis = 800),
+        label = "recurrenceProgress"
+    )
+
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = accentColor.copy(alpha = 0.08f),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            // Header row: icon + pattern label
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = accentColor.copy(alpha = 0.15f),
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        Icon(
+                            imageVector = Icons.Default.EventRepeat,
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.width(12.dp))
+                Column {
+                    Text(
+                        text = "Recurring Task",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = accentColor.copy(alpha = 0.8f),
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = patternText,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = accentColor
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Start & End date row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Start date pill
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = accentColor.copy(alpha = 0.12f),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DateRange,
+                            contentDescription = null,
+                            tint = accentColor,
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Column {
+                            Text(
+                                text = "Started",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = accentColor.copy(alpha = 0.7f)
+                            )
+                            Text(
+                                text = startText,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = accentColor
+                            )
+                        }
+                    }
+                }
+                // End date pill (or Ongoing badge)
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (endText != null) accentColor.copy(alpha = 0.12f)
+                            else Color(0xFF10B981).copy(alpha = 0.12f),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (endText != null) Icons.Default.Event else Icons.Default.Repeat,
+                            contentDescription = null,
+                            tint = if (endText != null) accentColor else Color(0xFF10B981),
+                            modifier = Modifier.size(14.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Column {
+                            Text(
+                                text = if (endText != null) "Ends" else "Status",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (endText != null) accentColor.copy(alpha = 0.7f)
+                                        else Color(0xFF10B981).copy(alpha = 0.7f)
+                            )
+                            Text(
+                                text = endText ?: "Ongoing",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (endText != null) accentColor else Color(0xFF10B981)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Progress bar (only if end date exists)
+            if (progressData != null && progressData.third >= 0f) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Progress",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = accentColor.copy(alpha = 0.7f)
+                    )
+                    Text(
+                        text = "${(animatedProgress * 100).toInt()}%  ·  ${progressData.first}/${progressData.second} days",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = accentColor
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                // Segmented progress bar matching the app's WaveProgressBar aesthetic
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                ) {
+                    val segmentCount = 20
+                    val gap = 3.dp.toPx()
+                    val segW = (size.width - gap * (segmentCount - 1)) / segmentCount
+                    val filledSegs = (segmentCount * animatedProgress).toInt()
+                    for (i in 0 until segmentCount) {
+                        val x = i * (segW + gap)
+                        drawRoundRect(
+                            color = if (i < filledSegs) accentColor else accentColor.copy(alpha = 0.15f),
+                            topLeft = androidx.compose.ui.geometry.Offset(x, 0f),
+                            size = androidx.compose.ui.geometry.Size(segW, size.height),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(4.dp.toPx())
+                        )
+                    }
+                }
+            } else if (progressData != null) {
+                // No end date — show elapsed days counter
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Schedule,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Text(
+                        text = if (progressData.first == 0) "Started today"
+                               else "Running for ${progressData.first} day${if (progressData.first > 1) "s" else ""}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = accentColor,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
     }
 }
