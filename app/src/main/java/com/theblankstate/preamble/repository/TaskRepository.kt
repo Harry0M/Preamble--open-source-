@@ -21,7 +21,6 @@ class TaskRepository(
     private val dao: TaskDao,
     private val syncManager: FirebaseTaskSyncManager? = null
 ) {
-
     // Track recently deleted IDs to prevent sync from re-inserting them
     private val recentlyDeletedIds = mutableSetOf<String>()
 
@@ -38,8 +37,11 @@ class TaskRepository(
     }
 
     val tasksFlow: Flow<List<Task>> = dao.getAllTasksFlow()
-    
+
     suspend fun getTaskById(id: String): Task? = dao.getTaskById(id)
+
+    suspend fun getCalendarEventCount(): Int = dao.getAllCalendarTaskIds().size
+    suspend fun getGoogleTaskCount(): Int = dao.getAllGoogleTaskIds().size
 
     fun getTasksForDate(date: String): Flow<List<Task>> = dao.getTasksByDate(date)
 
@@ -836,6 +838,7 @@ class TaskRepository(
 
     companion object {
         private const val TAG = "TaskRepository"
+        private const val TAG_SYNC = "PreambleSyncDiag"
 
         fun todayString(): String {
             return SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
@@ -927,12 +930,17 @@ class TaskRepository(
      */
     suspend fun syncCalendarEvents(events: List<Task>) {
         val existingTasks = dao.getAllCalendarTasks().associateBy { it.id }
+        Log.d(TAG_SYNC, "CAL_FULL_SYNC: incoming=${events.size} existing=${existingTasks.size}")
 
         // Handle cancelled recurring instances first — delete them from local DB
         val cancelledEvents = events.filter { it.deletedFromGoogle }
+        if (cancelledEvents.isNotEmpty()) {
+            Log.d(TAG_SYNC, "CAL_FULL_SYNC: cancelled=${cancelledEvents.size}")
+        }
         for (cancelled in cancelledEvents) {
             val existing = existingTasks[cancelled.id]
             if (existing != null) {
+                Log.d(TAG_SYNC, "  DEL_CANCELLED: '${existing.title}' id=${existing.id}")
                 dao.deleteTask(existing)
             }
         }
@@ -946,6 +954,7 @@ class TaskRepository(
         if (parentIdsFromInstances.isNotEmpty()) {
             val parentsToRemove = existingTasks.values.filter { it.id in parentIdsFromInstances }
             for (parent in parentsToRemove) {
+                Log.d(TAG_SYNC, "  DEL_ORPHAN_MASTER: '${parent.title}' id=${parent.id}")
                 dao.deleteTask(parent)
             }
         }
@@ -984,6 +993,7 @@ class TaskRepository(
         }
 
         if (eventsToInsert.isNotEmpty()) {
+            Log.d(TAG_SYNC, "CAL_FULL_SYNC: upserting ${eventsToInsert.size} events")
             dao.insertTasks(eventsToInsert)
         }
 
@@ -993,7 +1003,9 @@ class TaskRepository(
         val removedIds = existingCalendarIds - newEventIds - cancelledIds
         if (removedIds.isNotEmpty()) {
             val toRemove = existingTasks.values.filter { it.id in removedIds && !it.isCompleted }
+            Log.w(TAG_SYNC, "⚠️ CAL_FULL_SYNC_DELETE: removing ${toRemove.size} of ${removedIds.size} missing events (existing=${existingCalendarIds.size} fetched=${newEventIds.size})")
             for (task in toRemove) {
+                Log.d(TAG_SYNC, "  DEL_MISSING: '${task.title}' id=${task.id} date=${task.createdDate}")
                 dao.deleteTask(task)
             }
         }
@@ -1019,16 +1031,22 @@ class TaskRepository(
         val existingIds = dao.getAllGoogleTaskIds().toSet()
         val newIds = tasks.map { it.id }.toSet()
         val existingTasks = dao.getAllGoogleTasks().associateBy { it.id }
+        Log.d(TAG_SYNC, "GTASK_FULL_SYNC: incoming=${tasks.size} existing=${existingTasks.size} autoDelete=$autoDeleteFromApp")
 
         // Also handle explicit deletedFromGoogle markers from fetch
         val explicitlyDeletedTasks = tasks.filter { it.deletedFromGoogle }
+        if (explicitlyDeletedTasks.isNotEmpty()) {
+            Log.d(TAG_SYNC, "GTASK_FULL_SYNC: explicitlyDeleted=${explicitlyDeletedTasks.size}")
+        }
         for (deletedTask in explicitlyDeletedTasks) {
             val existing = existingTasks[deletedTask.id]
             if (existing != null) {
                 if (autoDeleteFromApp) {
+                    Log.d(TAG_SYNC, "  DEL_EXPLICIT: '${existing.title}' id=${existing.id}")
                     dao.deleteTask(existing)
                     syncManager?.deleteTask(existing.id)
                 } else {
+                    Log.d(TAG_SYNC, "  MARK_DELETED: '${existing.title}' id=${existing.id}")
                     dao.updateTask(existing.copy(deletedFromGoogle = true, updatedTimestamp = System.currentTimeMillis()))
                 }
             }
@@ -1064,17 +1082,22 @@ class TaskRepository(
         }
 
         if (tasksToInsert.isNotEmpty()) {
+            Log.d(TAG_SYNC, "GTASK_FULL_SYNC: upserting ${tasksToInsert.size} tasks")
             dao.insertTasks(tasksToInsert)
         }
 
         // Handle tasks removed from Google
         val removedIds = existingIds - newIds
         if (removedIds.isNotEmpty()) {
-            for (task in existingTasks.values.filter { it.id in removedIds && !it.deletedFromGoogle }) {
+            val toProcess = existingTasks.values.filter { it.id in removedIds && !it.deletedFromGoogle }
+            Log.w(TAG_SYNC, "⚠️ GTASK_FULL_SYNC_DELETE: ${toProcess.size} tasks missing from API (existing=${existingIds.size} fetched=${newIds.size})")
+            for (task in toProcess) {
                 if (autoDeleteFromApp) {
+                    Log.d(TAG_SYNC, "  DEL_MISSING: '${task.title}' id=${task.id} date=${task.createdDate}")
                     dao.deleteTask(task)
                     syncManager?.deleteTask(task.id)
                 } else {
+                    Log.d(TAG_SYNC, "  MARK_MISSING: '${task.title}' id=${task.id} date=${task.createdDate}")
                     dao.updateTask(task.copy(deletedFromGoogle = true, updatedTimestamp = System.currentTimeMillis()))
                 }
             }
@@ -1089,6 +1112,7 @@ class TaskRepository(
     suspend fun quickSyncGoogleTasks(tasks: List<Task>, autoDeleteFromApp: Boolean = false) {
         if (tasks.isEmpty()) return
         val existingTasks = dao.getAllGoogleTasks().associateBy { it.id }
+        Log.d(TAG_SYNC, "GTASK_QUICK_SYNC: incoming=${tasks.size} existing=${existingTasks.size}")
 
         // Handle deleted tasks — remove them or mark them from local DB
         val deletedTasks = tasks.filter { it.deletedFromGoogle }
@@ -1143,6 +1167,7 @@ class TaskRepository(
     suspend fun quickSyncCalendarEvents(events: List<Task>) {
         if (events.isEmpty()) return
         val existingTasks = dao.getAllCalendarTasks().associateBy { it.id }
+        Log.d(TAG_SYNC, "CAL_QUICK_SYNC: incoming=${events.size} existing=${existingTasks.size}")
 
         // Handle cancelled recurring instances — delete them from local DB
         val cancelledEvents = events.filter { it.deletedFromGoogle }

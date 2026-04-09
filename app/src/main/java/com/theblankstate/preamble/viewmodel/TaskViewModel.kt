@@ -383,11 +383,42 @@ class TaskViewModel(
         // Reactively update selectedDateTasks when today's tasks change in the DB.
         // This ensures isSyncing flag changes (from WorkManager) propagate to CalendarScreen
         // without requiring a manual refresh or app restart.
+        // Also invalidates calendar cache when task count changes (handles notification quick-add).
         viewModelScope.launch {
+            var prevCount = -1
             _allTodayTasks.collect { freshTodayTasks ->
                 if (_selectedDate.value == today) {
                     _selectedDateTasks.value = freshTodayTasks
                 }
+                // When task count changes (e.g. notification quick-add), invalidate calendar
+                if (prevCount >= 0 && freshTodayTasks.size != prevCount) {
+                    invalidateAllCalendarCaches()
+                }
+                prevCount = freshTodayTasks.size
+            }
+        }
+
+        // Invalidate calendar caches when Google sync completes (background or foreground).
+        // This handles: first-launch population, background WorkManager sync, notification quick-add.
+        viewModelScope.launch {
+            var prevCalTime = GoogleCalendarManager.lastSyncTime.value
+            var prevTaskTime = GoogleTasksManager.lastSyncTime.value
+            GoogleCalendarManager.lastSyncTime.collect { newTime ->
+                if (newTime > prevCalTime && prevCalTime > 0L) {
+                    android.util.Log.d("CAL_PERF", "Calendar sync detected (${newTime - prevCalTime}ms delta) → invalidating caches")
+                    invalidateAllCalendarCaches()
+                }
+                prevCalTime = newTime
+            }
+        }
+        viewModelScope.launch {
+            var prevTaskTime = GoogleTasksManager.lastSyncTime.value
+            GoogleTasksManager.lastSyncTime.collect { newTime ->
+                if (newTime > prevTaskTime && prevTaskTime > 0L) {
+                    android.util.Log.d("CAL_PERF", "Tasks sync detected (${newTime - prevTaskTime}ms delta) → invalidating caches")
+                    invalidateAllCalendarCaches()
+                }
+                prevTaskTime = newTime
             }
         }
 
@@ -408,7 +439,7 @@ class TaskViewModel(
             _isRefreshing.value = true
             try {
                 val app = appContext.applicationContext as com.theblankstate.preamble.PreambleApplication
-                GoogleSyncCoordinator.syncLinkedData(
+                val summary = GoogleSyncCoordinator.syncLinkedData(
                     context = appContext,
                     forceFull = false,
                     isManual = true,
@@ -419,6 +450,11 @@ class TaskViewModel(
                 // If neither Google service is linked, sync with Firebase instead
                 if (!GoogleTasksManager.isLinked.value && !GoogleCalendarManager.isLinked.value) {
                     app.repository.forceSyncFirebase()
+                }
+
+                // Invalidate calendar cache so new synced data shows immediately
+                if (summary.performedAnySync) {
+                    invalidateAllCalendarCaches()
                 }
             } catch (e: Throwable) {
                 android.util.Log.e("TaskViewModel", "Pull-to-refresh sync failed", e)
@@ -911,6 +947,25 @@ class TaskViewModel(
     private fun triggerRecurrenceGeneration() {
         val workRequest = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.recurrence.RecurrenceWorker>().build()
         androidx.work.WorkManager.getInstance(appContext).enqueue(workRequest)
+    }
+
+    /** Clears ALL month caches and forces calendar pages to reload.
+     *  Used after sync or external data changes (e.g. notification quick-add).
+     *  Loads fresh data into cache BEFORE incrementing tick — so when pages
+     *  re-render, getCachedMonthData() returns fresh data instantly (no flicker). */
+    fun invalidateAllCalendarCaches() {
+        _monthCache.clear()
+        _dateTaskCache.clear()
+        android.util.Log.d("CAL_PERF", "invalidateAllCalendarCaches → cleared all, pre-loading before tick bump")
+        viewModelScope.launch {
+            // Pre-load current month into cache FIRST
+            if (_heatMapYear > 0) {
+                loadMonthDataSuspend(_heatMapYear, _heatMapMonth)
+            }
+            // THEN increment tick — pages re-render with initialValue = fresh cached data
+            _calendarRefreshTick.value++
+            android.util.Log.d("CAL_PERF", "invalidateAllCalendarCaches → tick=${_calendarRefreshTick.value} (data pre-loaded)")
+        }
     }
 
     /** Clears the month cache for [taskDate] and forces calendar pages to reload. */

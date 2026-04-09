@@ -619,7 +619,7 @@ fun HomeScreen(
                             modifier = Modifier.padding(bottom = 4.dp)
                         )
                     }
-                    items(searchResults, key = { it.id }) { task ->
+                    items(searchResults, key = { "search_${it.id}" }) { task ->
                         Column(modifier = Modifier.animateContentSize()) {
                             SwipeableTaskItem(
                                 task = task,
@@ -810,7 +810,7 @@ fun HomeScreen(
                     } else {
                         items(
                             items = tasks,
-                            key = { it.id }
+                            key = { "today_${it.id}" }
                         ) { task ->
                             Column(modifier = Modifier.animateContentSize()) {
                                 SwipeableTaskItem(
@@ -972,7 +972,7 @@ fun HomeScreen(
 
                             items(
                                 items = tasksForDate,
-                                key = { it.id }
+                                key = { "past_${date}_${it.id}" }
                             ) { task ->
                                 TaskItem(
                                     task = task,

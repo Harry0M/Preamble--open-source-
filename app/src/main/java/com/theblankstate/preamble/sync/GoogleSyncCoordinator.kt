@@ -56,7 +56,14 @@ object GoogleSyncCoordinator {
                 if (usedIncrementalTasks) {
                     app.repository.quickSyncGoogleTasks(tasks, autoDelete)
                 } else {
-                    app.repository.syncGoogleTasks(tasks, autoDelete)
+                    // SAFETY: Full sync with 0 tasks would delete everything.
+                    // Only proceed if we actually fetched tasks, otherwise skip.
+                    val existingCount = app.repository.getGoogleTaskCount()
+                    if (tasks.isEmpty() && existingCount > 0) {
+                        Log.w(TAG, "  ⚠️ TASKS_SAFETY: Full sync returned 0 tasks but $existingCount exist locally — SKIPPING delete-sync to prevent data loss")
+                    } else {
+                        app.repository.syncGoogleTasks(tasks, autoDelete)
+                    }
                 }
                 Log.i(TAG, "  ✅ TASKS_WRITTEN_TO_ROOM: ${tasks.size} tasks")
             } catch (e: Throwable) {
@@ -90,8 +97,15 @@ object GoogleSyncCoordinator {
                     Log.i(TAG, "  CALENDAR: writing via quickSync (incremental merge)")
                     app.repository.quickSyncCalendarEvents(calendarResult.events)
                 } else {
-                    Log.i(TAG, "  CALENDAR: writing via fullSync (replace+merge)")
-                    app.repository.syncCalendarEvents(calendarResult.events)
+                    // SAFETY: Full sync with 0 events would delete everything.
+                    // Only proceed if we actually fetched events, otherwise skip.
+                    val existingCount = app.repository.getCalendarEventCount()
+                    if (calendarResult.events.isEmpty() && existingCount > 0) {
+                        Log.w(TAG, "  ⚠️ CALENDAR_SAFETY: Full sync returned 0 events but $existingCount exist locally — SKIPPING delete-sync to prevent data loss")
+                    } else {
+                        Log.i(TAG, "  CALENDAR: writing via fullSync (replace+merge)")
+                        app.repository.syncCalendarEvents(calendarResult.events)
+                    }
                 }
                 Log.i(TAG, "  ✅ CALENDAR_WRITTEN_TO_ROOM: ${calendarResult.events.size} events")
             } catch (e: Throwable) {

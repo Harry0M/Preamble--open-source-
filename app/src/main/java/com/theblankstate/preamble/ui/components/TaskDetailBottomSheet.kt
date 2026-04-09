@@ -353,8 +353,8 @@ fun TaskDetailBottomSheet(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                } else if (task.isRecurrenceTemplate || (task.recurrenceParentId != null && task.recurrenceType != null)) {
-                    // Local recurring task — show rich card
+                } else if (task.isRecurrenceTemplate || task.recurrenceParentId != null) {
+                    // Local recurring task (template or instance) — show rich card
                     Spacer(modifier = Modifier.height(8.dp))
                     RecurrenceCard(task = task)
                 }

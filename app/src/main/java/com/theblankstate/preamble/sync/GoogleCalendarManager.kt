@@ -291,6 +291,8 @@ object GoogleCalendarManager {
 
             // Track whether ALL calendars used incremental sync
             var allIncremental = calendars.isNotEmpty()
+            // Track whether ANY calendar had a partial failure (410 / error returning empty)
+            var anyCalendarFailed = false
 
             // Fetch all calendars in parallel for speed
             val allEvents = mutableListOf<Task>()
@@ -307,8 +309,23 @@ object GoogleCalendarManager {
                 val calendarResults = jobs.awaitAll()
                 for (result in calendarResults) {
                     allEvents.addAll(result.first)
-                    if (!result.second) allIncremental = false
+                    if (!result.second) {
+                        allIncremental = false
+                        // If a calendar returned 0 events AND wasn't incremental,
+                        // it likely had a 410 or error — mark as partial failure
+                        if (result.first.isEmpty()) anyCalendarFailed = true
+                    }
                 }
+            }
+
+            // SAFETY: If any calendar failed (410/error) and returned empty while others
+            // returned only incremental changes, treat the whole result as incremental.
+            // This prevents the full sync path from deleting all events from healthy calendars.
+            val effectiveIncremental = if (anyCalendarFailed && allEvents.isNotEmpty()) {
+                Log.w(TAG, "⚠️ SAFETY: Some calendars failed — forcing incremental mode to prevent mass deletion")
+                true
+            } else {
+                allIncremental
             }
 
             // Update last sync time
@@ -318,12 +335,15 @@ object GoogleCalendarManager {
                 .edit().putLong(KEY_LAST_SYNC, syncTime).apply()
 
             Log.i(TAG, "FETCH_COMPLETE: totalEvents=${allEvents.size} " +
-                "allIncremental=$allIncremental " +
-                "mode=${if (allIncremental) "🔄 INCREMENTAL (token-based)" else "🔄 FULL (no token)"}")
-            CalendarSyncResult(allEvents, isIncremental = allIncremental)
+                "allIncremental=$allIncremental anyCalendarFailed=$anyCalendarFailed " +
+                "effectiveIncremental=$effectiveIncremental " +
+                "mode=${if (effectiveIncremental) "🔄 INCREMENTAL (safe)" else "🔄 FULL"}")
+            CalendarSyncResult(allEvents, isIncremental = effectiveIncremental)
         } catch (e: Throwable) {
             Log.e(TAG, "❌ FETCH_FAILED: ${e.javaClass.simpleName}: ${e.message}", e)
-            CalendarSyncResult(emptyList(), isIncremental = false)
+            // Throw instead of returning empty — returning empty with isIncremental=false
+            // causes syncCalendarEvents (full sync path) to DELETE all existing events!
+            throw e
         } finally {
             _isSyncing.value = false
             if (isManual) _isManualSyncing.value = false
