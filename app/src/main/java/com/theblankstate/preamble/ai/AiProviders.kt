@@ -1,5 +1,6 @@
 package com.theblankstate.preamble.ai
 
+import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -29,8 +30,18 @@ class MistralProvider(private val apiKey: String) : AiProvider {
 
     override suspend fun chat(messages: List<ChatMessage>, tools: List<AiTool>): AiResponse =
         withContext(Dispatchers.IO) {
+            val model = "mistral-small-latest"
+            Log.d(TAG, "┌─── Mistral API Request ───")
+            Log.d(TAG, "│ Model: $model")
+            Log.d(TAG, "│ Messages: ${messages.size} (system + user)")
+            Log.d(TAG, "│ Tools: ${tools.map { it.name }}")
+            messages.forEachIndexed { i, msg ->
+                val preview = msg.content.take(200).replace("\n", " ")
+                Log.d(TAG, "│ Msg[$i] role=${msg.role}: $preview${if (msg.content.length > 200) "..." else ""}")
+            }
+
             val body = JsonObject().apply {
-                addProperty("model", "mistral-small-latest")
+                addProperty("model", model)
                 add("messages", gson.toJsonTree(messages.map { msg ->
                     mapOf("role" to msg.role, "content" to msg.content).let {
                         if (msg.toolCallId != null) it + ("tool_call_id" to msg.toolCallId) else it
@@ -56,6 +67,8 @@ class MistralProvider(private val apiKey: String) : AiProvider {
                 }
             }
 
+            Log.d(TAG, "│ Request body size: ${body.toString().length} chars")
+
             val request = Request.Builder()
                 .url("https://api.mistral.ai/v1/chat/completions")
                 .addHeader("Authorization", "Bearer $apiKey")
@@ -64,9 +77,25 @@ class MistralProvider(private val apiKey: String) : AiProvider {
                 .build()
 
             val response = client.newCall(request).execute()
-            val json = JsonParser.parseString(response.body?.string()).asJsonObject
+            val responseBody = response.body?.string() ?: ""
+            
+            Log.d(TAG, "│ HTTP Status: ${response.code}")
+            Log.d(TAG, "│ Response size: ${responseBody.length} chars")
+            
+            if (!response.isSuccessful) {
+                Log.e(TAG, "└─── Mistral API ERROR ───")
+                Log.e(TAG, "  HTTP ${response.code}: ${responseBody.take(500)}")
+                throw RuntimeException("Mistral API error ${response.code}: ${responseBody.take(300)}")
+            }
+            
+            val json = JsonParser.parseString(responseBody).asJsonObject
+            Log.d(TAG, "└─── Parsing response ───")
             parseOpenAiStyleResponse(json)
         }
+
+    companion object {
+        private const val TAG = "PreambleAI"
+    }
 }
 
 class OpenAiProvider(private val apiKey: String) : AiProvider {
@@ -283,9 +312,12 @@ class ClaudeProvider(private val apiKey: String) : AiProvider {
 
 // Shared parser for OpenAI-style responses (Mistral + OpenAI use the same format)
 internal fun parseOpenAiStyleResponse(json: JsonObject): AiResponse {
+    val tag = "PreambleAI"
     val choices = json.getAsJsonArray("choices")
     if (choices == null || choices.size() == 0) {
         val errorMsg = json.getAsJsonObject("error")?.get("message")?.asString
+        Log.e(tag, "  ✘ No choices in response. Error: ${errorMsg ?: "unknown"}")
+        Log.e(tag, "  Full response: ${json.toString().take(500)}")
         return AiResponse(errorMsg ?: "Error processing response", null)
     }
 
@@ -293,18 +325,31 @@ internal fun parseOpenAiStyleResponse(json: JsonObject): AiResponse {
     val text = message.get("content")?.let { if (it.isJsonNull) null else it.asString }
 
     val toolCallsArray = message.getAsJsonArray("tool_calls")
+    Log.d(tag, "  Content: ${text?.take(100) ?: "null"}")
+    Log.d(tag, "  Tool calls: ${toolCallsArray?.size() ?: 0}")
+    
     val toolCalls = toolCallsArray?.map { tc ->
         val obj = tc.asJsonObject
         val fn = obj.getAsJsonObject("function")
-        val argsJson = JsonParser.parseString(fn.get("arguments").asString).asJsonObject
+        val fnName = fn.get("name").asString
+        val argsRaw = fn.get("arguments").asString
+        Log.d(tag, "  Tool: $fnName")
+        Log.d(tag, "  Args raw: $argsRaw")
+        
+        val argsJson = JsonParser.parseString(argsRaw).asJsonObject
         val args = mutableMapOf<String, String>()
-        argsJson.entrySet().forEach { (k, v) -> args[k] = v.asString }
+        argsJson.entrySet().forEach { (k, v) ->
+            val value = if (v.isJsonPrimitive) v.asString else v.toString()
+            args[k] = value
+            Log.d(tag, "    $k = $value")
+        }
         ToolCall(
             id = obj.get("id")?.asString ?: "call_${System.currentTimeMillis()}",
-            name = fn.get("name").asString,
+            name = fnName,
             arguments = args
         )
     }
 
+    Log.d(tag, "  ✓ Parsed ${toolCalls?.size ?: 0} tool calls")
     return AiResponse(text, toolCalls?.ifEmpty { null })
 }

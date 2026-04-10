@@ -682,6 +682,42 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                 }
             }
 
+            // ── AI Features ──
+            SectionTitle("AI Features")
+            SettingsCard {
+                Column {
+                    var smartBreakdownEnabled by remember {
+                        mutableStateOf(
+                            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                .getBoolean("ai_smart_breakdown", false)
+                        )
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Smart Task Breakdown", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "AI auto-generates subtasks for complex tasks like party planning, trip packing, exam prep etc.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                        Switch(
+                            checked = smartBreakdownEnabled,
+                            onCheckedChange = { enabled ->
+                                smartBreakdownEnabled = enabled
+                                context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                    .edit().putBoolean("ai_smart_breakdown", enabled).apply()
+                            }
+                        )
+                    }
+                }
+            }
             // ── Notifications ──
             SectionTitle("Notifications")
             SettingsCard {

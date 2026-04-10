@@ -31,17 +31,31 @@ object TaskTools {
         return h in 0..23 && m in 0..59
     }
 
+    /**
+     * Parse a comma-separated subtasks string into a clean list.
+     * Handles whitespace, empty entries, and deduplication.
+     */
+    fun parseSubtasks(subtasksStr: String?): List<String> {
+        if (subtasksStr.isNullOrBlank()) return emptyList()
+        return subtasksStr.split(",")
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
+
     val tools = listOf(
         AiTool(
             name = "add_task",
-            description = "Add a new task. If the user specifies a date, use date parameter (format: YYYY-MM-DD). If they specify a time/deadline, use deadline_time (format: HH:mm in 24h). ALWAYS provide at least 1 tag.",
+            description = "Add a new task. If the user specifies a date, use date parameter (format: YYYY-MM-DD). If they specify a time/deadline, use deadline_time (format: HH:mm in 24h). ALWAYS provide at least 1 tag. If user mentions a list of items, create subtasks.",
             parameters = listOf(
-                ToolParam("title", "string", "Short, clean task title. Remove temporal/urgency words.", required = true),
+                ToolParam("title", "string", "Short but self-explanatory task title. Remove temporal/urgency words but keep core action and key context. If list of items, show first 2-3 items + 'etc'.", required = true),
                 ToolParam("date", "string", "Date for the task in YYYY-MM-DD format. Omit for today.", required = false),
                 ToolParam("deadline_time", "string", "Deadline time in HH:mm 24-hour format", required = false),
                 ToolParam("priority", "integer", "Priority: 0=None, 1=Low, 2=Medium, 3=High. Default to 1 for general tasks.", required = false),
                 ToolParam("tags", "string", "REQUIRED. 1-4 comma-separated tags from: ${com.theblankstate.preamble.data.PredefinedTags.aiTagNames}. Example: 'Health,Fitness' or 'Work,Meeting'.", required = true),
-                ToolParam("recurrence", "string", "Recurrence pattern: daily, weekly, monthly, yearly. Only set if user explicitly requests repetition.", required = false)
+                ToolParam("recurrence", "string", "Recurrence pattern: daily, weekly, monthly, yearly. Only set if user explicitly requests repetition.", required = false),
+                ToolParam("subtasks", "string", "Comma-separated list of subtask items. Only when user mentions 3+ related items/steps. Example: 'Blue color,Yellow color,Pink color' or 'Lamp,Stove,Tent,Powerbank'. Do NOT create subtasks for simple single tasks.", required = false),
+                ToolParam("description", "string", "Brief 1-2 sentence description providing context about the task. Always generate this. Example: 'Bazaar se art supplies kharidne hain' or 'Regular health checkup appointment'. Use same language as user.", required = false)
             )
         ),
         AiTool(
@@ -83,7 +97,9 @@ object TaskTools {
             parameters = listOf(
                 ToolParam("title", "string", "The task/reminder title", required = true),
                 ToolParam("time", "string", "Time for reminder in HH:mm 24-hour format", required = true),
-                ToolParam("date", "string", "Date in YYYY-MM-DD format. Omit for today.", required = false)
+                ToolParam("date", "string", "Date in YYYY-MM-DD format. Omit for today.", required = false),
+                ToolParam("subtasks", "string", "Comma-separated subtask items if applicable.", required = false),
+                ToolParam("description", "string", "Brief description providing context.", required = false)
             )
         )
     )
@@ -100,14 +116,17 @@ object TaskTools {
                 val deadlineTime = call.arguments["deadline_time"]
                 val priority = call.arguments["priority"]?.toIntOrNull() ?: 0
                 val tags = call.arguments["tags"]
+                val description = call.arguments["description"]
+                val subtasksList = parseSubtasks(call.arguments["subtasks"])
                 if (date != null && !isValidDate(date)) return "Error: invalid date format '$date', expected YYYY-MM-DD"
                 if (deadlineTime != null && !isValidTime(deadlineTime)) return "Error: invalid time format '$deadlineTime', expected HH:mm"
-                viewModel.addTask(title, date = date, deadlineTime = deadlineTime, priority = priority, tags = tags)
+                viewModel.addTask(title, date = date, deadlineTime = deadlineTime, priority = priority, tags = tags, description = description, subtasks = subtasksList)
                 "Task \"$title\" added successfully" +
                         (if (date != null) " for $date" else "") +
                         (if (deadlineTime != null) " with deadline at $deadlineTime" else "") +
                         (if (priority > 0) " [Priority $priority]" else "") +
-                        (if (tags != null) " [Tag: $tags]" else "")
+                        (if (tags != null) " [Tag: $tags]" else "") +
+                        (if (subtasksList.isNotEmpty()) " with ${subtasksList.size} subtasks" else "")
             }
 
             "modify_task" -> {
@@ -168,9 +187,11 @@ object TaskTools {
                 val title = call.arguments["title"] ?: return "Error: title is required"
                 val time = call.arguments["time"] ?: return "Error: time is required"
                 val date = call.arguments["date"]
+                val description = call.arguments["description"]
+                val subtasksList = parseSubtasks(call.arguments["subtasks"])
                 if (!isValidTime(time)) return "Error: invalid time format '$time', expected HH:mm"
                 if (date != null && !isValidDate(date)) return "Error: invalid date format '$date', expected YYYY-MM-DD"
-                viewModel.addTask(title, date, time)
+                viewModel.addTask(title, date, time, description = description, subtasks = subtasksList)
                 "Reminder set: \"$title\" at $time" + (if (date != null) " on $date" else " today")
             }
 

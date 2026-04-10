@@ -13,8 +13,10 @@ import java.util.Locale
 /**
  * Background worker that retries AI parsing for tasks that failed due to network
  * or other transient errors. The raw task is already in the DB with isSyncing=true.
- * On success, silently updates the task with AI-refined data.
- * On failure, returns Result.retry() for exponential backoff.
+ * On success, silently updates the task with AI-refined data (title, date, time, tags,
+ * priority, recurrence, description, subtasks).
+ * On network failure, returns Result.retry() for exponential backoff.
+ * On non-network failure (bad input, API error), saves task as-is and returns Result.success().
  */
 class AiParsingWorker(
     appContext: Context,
@@ -55,8 +57,10 @@ class AiParsingWorker(
 
         return try {
             val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+            val smartBreakdown = applicationContext.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+                .getBoolean("ai_smart_breakdown", false)
             val systemMsg = ChatMessage("system",
-                AiPromptFactory.buildSystemPrompt()
+                AiPromptFactory.buildSystemPrompt(smartBreakdown = smartBreakdown)
             )
             val userMsg = ChatMessage("user", rawText)
 
@@ -72,6 +76,8 @@ class AiParsingWorker(
                             val tags = call.arguments["tags"]
                             val priority = call.arguments["priority"]?.toIntOrNull() ?: 0
                             val recurrence = call.arguments["recurrence"]
+                            val description = call.arguments["description"]
+                            val subtasksList = TaskTools.parseSubtasks(call.arguments["subtasks"])
                             val validRecurrence = recurrence?.takeIf { it in listOf("daily", "weekly", "monthly", "yearly") }
 
                             val updated = task.copy(
@@ -80,6 +86,7 @@ class AiParsingWorker(
                                 deadlineTime = time,
                                 tags = tags,
                                 priority = priority,
+                                description = description ?: task.description,
                                 recurrenceType = validRecurrence ?: task.recurrenceType,
                                 isSyncing = false,
                                 updatedTimestamp = System.currentTimeMillis()
@@ -87,6 +94,11 @@ class AiParsingWorker(
                             app.repository.updateTask(updated)
                             if (tags != null) {
                                 app.repository.saveTagOverride(taskId, tags)
+                            }
+                            // Add subtasks if AI generated them
+                            if (subtasksList.isNotEmpty()) {
+                                app.repository.addSubtasks(taskId, subtasksList)
+                                Log.d(TAG, "Added ${subtasksList.size} subtasks to task $taskId")
                             }
                         }
                         else -> {
@@ -96,17 +108,32 @@ class AiParsingWorker(
                     }
                 }
             } else {
-                // No tool calls — keep raw task as-is
+                // No tool calls — AI couldn't parse input, save raw task as-is
+                Log.w(TAG, "AI returned no tool calls for task $taskId, saving as-is")
                 app.repository.updateTask(task.copy(isSyncing = false))
             }
 
             Log.d(TAG, "AI parsing succeeded for task $taskId")
             Result.success()
 
-        } catch (e: Exception) {
-            Log.e(TAG, "AI parsing failed for task $taskId, will retry", e)
-            // Keep isSyncing=true so UI still shows the shimmer/spinner
+        } catch (e: java.net.UnknownHostException) {
+            // Network error — retry with exponential backoff
+            Log.e(TAG, "Network error for task $taskId, will retry", e)
             Result.retry()
+        } catch (e: java.net.SocketTimeoutException) {
+            // Timeout — retry with exponential backoff
+            Log.e(TAG, "Timeout for task $taskId, will retry", e)
+            Result.retry()
+        } catch (e: java.io.IOException) {
+            // I/O error (connection reset, etc.) — retry
+            Log.e(TAG, "I/O error for task $taskId, will retry", e)
+            Result.retry()
+        } catch (e: Exception) {
+            // Non-network error (JSON parse failure, API returned garbage, etc.)
+            // Don't retry endlessly — save the task as-is and move on
+            Log.e(TAG, "AI parsing failed (non-retryable) for task $taskId, saving raw", e)
+            app.repository.updateTask(task.copy(isSyncing = false))
+            Result.success()
         }
     }
 

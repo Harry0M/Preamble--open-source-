@@ -383,18 +383,32 @@ class TaskViewModel(
         // Reactively update selectedDateTasks when today's tasks change in the DB.
         // This ensures isSyncing flag changes (from WorkManager) propagate to CalendarScreen
         // without requiring a manual refresh or app restart.
-        // Also invalidates calendar cache when task count changes (handles notification quick-add).
+        // Also invalidates calendar cache when task count OR content changes
+        // (handles notification quick-add AND AI parsing updates).
         viewModelScope.launch {
             var prevCount = -1
+            var prevContentFingerprint = ""
             _allTodayTasks.collect { freshTodayTasks ->
                 if (_selectedDate.value == today) {
                     _selectedDateTasks.value = freshTodayTasks
                 }
-                // When task count changes (e.g. notification quick-add), invalidate calendar
-                if (prevCount >= 0 && freshTodayTasks.size != prevCount) {
+                // Build a lightweight fingerprint of task content that AI parsing changes:
+                // title, date, deadlineTime, isSyncing. When AI refines a task, at least
+                // one of these will change (title gets refined, date/time may be set,
+                // isSyncing flips false). This is O(n) string concat — negligible for
+                // typical daily task counts (5-30 tasks).
+                val contentFingerprint = freshTodayTasks.joinToString("|") {
+                    "${it.id}:${it.title}:${it.createdDate}:${it.deadlineTime}:${it.isSyncing}"
+                }
+                val contentChanged = prevContentFingerprint.isNotEmpty() &&
+                    contentFingerprint != prevContentFingerprint
+                // When task count changes (e.g. notification quick-add) OR task content
+                // changes (e.g. AI parsing refines title/date/time), invalidate calendar
+                if (prevCount >= 0 && (freshTodayTasks.size != prevCount || contentChanged)) {
                     invalidateAllCalendarCaches()
                 }
                 prevCount = freshTodayTasks.size
+                prevContentFingerprint = contentFingerprint
             }
         }
 

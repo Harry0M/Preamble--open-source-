@@ -8,7 +8,8 @@
       "Bash(find /c/Users/palha/preamble/app/src/main/java/com/theblankstate/preamble/ui -name \"*.kt\" -type f -exec wc -l {} +)",
       "Read(//c/Users/palha/preamble/app/src/main/java/com/theblankstate/preamble/ui/screens/**)",
       "Bash(./gradlew assembleDebug)",
-      "Bash(./gradlew compileDebugKotlin)"
+      "Bash(./gradlew compileDebugKotlin)",
+      "Bash(pip install:*)"
     ]
   }
 }

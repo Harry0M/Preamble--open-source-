@@ -53,8 +53,10 @@ class AiChatViewModel(
             _isLoading.value = true
             val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
             val contextTasks = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
+            val smartBreakdown = application.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+                .getBoolean("ai_smart_breakdown", false)
             val systemMsg = ChatMessage("system",
-                AiPromptFactory.buildSystemPrompt(contextTasks)
+                AiPromptFactory.buildSystemPrompt(contextTasks, smartBreakdown = smartBreakdown)
             )
             val userMsg = ChatMessage("user", text)
 
@@ -102,8 +104,10 @@ class AiChatViewModel(
             _isLoading.value = true
             val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
             val contextTasks = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
+            val smartBreakdown = application.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+                .getBoolean("ai_smart_breakdown", false)
             val systemMsg = ChatMessage("system",
-                AiPromptFactory.buildSystemPrompt(contextTasks)
+                AiPromptFactory.buildSystemPrompt(contextTasks, smartBreakdown = smartBreakdown)
             )
             val userMsg = ChatMessage("user", text)
 
