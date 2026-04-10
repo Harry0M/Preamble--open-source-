@@ -30,6 +30,58 @@ data class Subtask(
     val isCompleted: Boolean = false
 )
 
+/**
+ * Reminder for a task. Supports two modes:
+ * - Relative: `minutesBefore` minutes before the task's deadline time
+ * - Exact: absolute `epochMs` timestamp (for date-specific reminders)
+ */
+@Stable
+data class Reminder(
+    val minutesBefore: Int? = null,    // e.g. 10 = "10 min before"
+    val epochMs: Long? = null,         // Exact trigger time (for calendar date reminders)
+    val type: String = "before"        // "before" or "exact"
+) {
+    companion object {
+        const val MAX_REMINDERS = 5
+        val DEFAULT = Reminder(minutesBefore = 10, type = "before") // 10 min before
+
+        fun fromJson(json: String?): List<Reminder> {
+            if (json.isNullOrBlank()) return emptyList()
+            return try {
+                Gson().fromJson(json, object : TypeToken<List<Reminder>>() {}.type)
+            } catch (e: Exception) {
+                // Fallback: try parsing Google Calendar format [{method, minutes}]
+                try {
+                    val googleReminders: List<Map<String, Any>> = Gson().fromJson(json, object : TypeToken<List<Map<String, Any>>>() {}.type)
+                    googleReminders.mapNotNull { map ->
+                        val minutes = (map["minutes"] as? Number)?.toInt()
+                        if (minutes != null) Reminder(minutesBefore = minutes, type = "before") else null
+                    }
+                } catch (_: Exception) { emptyList() }
+            }
+        }
+
+        fun toJson(reminders: List<Reminder>): String? {
+            if (reminders.isEmpty()) return null
+            return Gson().toJson(reminders)
+        }
+    }
+
+    /** Display text for the UI */
+    fun displayText(): String = when {
+        type == "exact" && epochMs != null -> {
+            val sdf = java.text.SimpleDateFormat("MMM dd, hh:mm a", java.util.Locale.getDefault())
+            sdf.format(java.util.Date(epochMs))
+        }
+        minutesBefore != null -> when {
+            minutesBefore < 60 -> "$minutesBefore min before"
+            minutesBefore < 1440 -> "${minutesBefore / 60} hour${if (minutesBefore / 60 > 1) "s" else ""} before"
+            else -> "${minutesBefore / 1440} day${if (minutesBefore / 1440 > 1) "s" else ""} before"
+        }
+        else -> "Reminder"
+    }
+}
+
 @Stable
 @Entity(
     tableName = "tasks",
@@ -113,5 +165,36 @@ data class Task(
     val links: List<Link> by lazy { linksJson?.let { Gson().fromJson(it, object : TypeToken<List<Link>>() {}.type) } ?: emptyList() }
     val subtasks: List<Subtask> by lazy { subtasksJson?.let { Gson().fromJson(it, object : TypeToken<List<Subtask>>() {}.type) } ?: emptyList() }
     val syncMetadata: Map<String, Any>? by lazy { syncMetadataJson?.let { Gson().fromJson(it, object : TypeToken<Map<String, Any>>() {}.type) } }
+    val localReminders: List<Reminder> by lazy { Reminder.fromJson(remindersJson) }
+
+    /**
+     * Compute trigger times in epoch millis for each reminder.
+     * Returns list of (reminderIndex, triggerMs) pairs.
+     */
+    fun computeReminderTriggerMs(): List<Pair<Int, Long>> {
+        val reminders = localReminders
+        if (reminders.isEmpty()) return emptyList()
+
+        // Base time: task's deadline time on its date
+        val baseMs = if (deadlineTime != null) {
+            try {
+                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                sdf.parse("$createdDate $deadlineTime")?.time
+            } catch (_: Exception) { null }
+        } else null
+
+        return reminders.mapIndexedNotNull { index, reminder ->
+            val triggerMs = when (reminder.type) {
+                "exact" -> reminder.epochMs
+                "before" -> {
+                    if (baseMs != null && reminder.minutesBefore != null) {
+                        baseMs - (reminder.minutesBefore * 60 * 1000L)
+                    } else null
+                }
+                else -> null
+            }
+            if (triggerMs != null) Pair(index, triggerMs) else null
+        }
+    }
 }
 

@@ -147,15 +147,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun requestExactAlarmPermission() {
+        // USE_EXACT_ALARM is auto-granted for alarm/calendar apps (cannot be revoked by user)
+        // No runtime permission request needed
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val alarmManager = getSystemService(android.app.AlarmManager::class.java)
             if (!alarmManager.canScheduleExactAlarms()) {
-                try {
-                    val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
-                        data = Uri.parse("package:$packageName")
-                    }
-                    startActivity(intent)
-                } catch (_: Exception) { }
+                android.util.Log.w("MainActivity", "USE_EXACT_ALARM not granted — this shouldn't happen for alarm apps")
             }
         }
     }
@@ -264,6 +261,8 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 onUnsnoozeTask = { taskId -> viewModel.unsnoozeTask(taskId) },
                 onCopyTaskToToday = { task -> viewModel.copyTaskToToday(task) },
                 onDeleteAllRecurrences = { task -> viewModel.deleteAllRecurrences(task) },
+                onAddReminder = { task, reminder -> viewModel.addReminder(task, reminder) },
+                onRemoveReminder = { task, index -> viewModel.removeReminder(task, index) },
                 snackbarEvent = viewModel.snackbarEvent,
                 modifier = Modifier.padding(innerPadding)
             )

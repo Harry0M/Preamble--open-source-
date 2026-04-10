@@ -55,8 +55,16 @@ class RecurrenceWorker(
                         recurrenceDays = null,
                         recurrenceEndDate = null,
                         recurrenceParentId = template.id
+                        // remindersJson is inherited from template via copy()
                     )
                     dao.insertTask(instance)
+                    // Schedule all reminders for this instance
+                    if (instance.deadlineTime != null && !instance.isAlarmPaused) {
+                        com.theblankstate.preamble.notification.TaskAlarmManager.scheduleReminders(
+                            applicationContext, instance
+                        )
+                        Log.d("Recurrence", "Scheduled reminders for '${instance.title}' on ${instance.createdDate}")
+                    }
                     generated++
                     Log.d("Recurrence", "Worker: materialized '${template.title}' for $date")
                 }

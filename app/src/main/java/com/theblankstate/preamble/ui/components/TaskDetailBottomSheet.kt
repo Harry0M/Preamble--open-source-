@@ -129,6 +129,8 @@ fun TaskDetailBottomSheet(
     onSnooze: ((Long) -> Unit)? = null,
     onUnsnooze: (() -> Unit)? = null,
     onCopyToToday: (() -> Unit)? = null,
+    onAddReminder: ((com.theblankstate.preamble.data.Reminder) -> Unit)? = null,
+    onRemoveReminder: ((Int) -> Unit)? = null,
     isPastTask: Boolean = false
 ) {
     val context = LocalContext.current
@@ -643,21 +645,216 @@ fun TaskDetailBottomSheet(
             }
 
             // ═══════════════════════════════════════════════════════════════
-            // REMINDERS
+            // REMINDERS (interactive)
             // ═══════════════════════════════════════════════════════════════
-            if (task.hasReminders) {
+            if (task.hasReminders || (onAddReminder != null && !task.isInfoOnly && task.deadlineTime != null)) {
                 Spacer(modifier = Modifier.height(16.dp))
-                val reminders = parseReminders(task.remindersJson)
+                val reminders = task.localReminders
+                var showAddReminderMenu by remember { mutableStateOf(false) }
+                var showCustomTimePicker by remember { mutableStateOf(false) }
+
                 DetailSection(title = "Reminders") {
-                    reminders.forEach { reminder ->
-                        DetailRow(
-                            icon = Icons.Default.Notifications,
-                            iconColor = GoogleYellow
+                    // Existing reminders with delete button
+                    reminders.forEachIndexed { index, reminder ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = formatReminderTime(reminder),
-                                style = MaterialTheme.typography.bodyMedium
+                            Icon(
+                                Icons.Default.Notifications,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = GoogleYellow
                             )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = reminder.displayText(),
+                                style = MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (onRemoveReminder != null && !isPastTask) {
+                                IconButton(
+                                    onClick = { onRemoveReminder(index) },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Remove reminder",
+                                        modifier = Modifier.size(18.dp),
+                                        tint = MaterialTheme.colorScheme.error.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Add reminder button (max 5)
+                    if (onAddReminder != null && !isPastTask && reminders.size < com.theblankstate.preamble.data.Reminder.MAX_REMINDERS) {
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (showAddReminderMenu) {
+                            // Preset options
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        "Add Reminder",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(bottom = 8.dp)
+                                    )
+                                    val presets = listOf(
+                                        "5 min before" to 5,
+                                        "10 min before" to 10,
+                                        "15 min before" to 15,
+                                        "30 min before" to 30,
+                                        "1 hour before" to 60,
+                                        "1 day before" to 1440
+                                    )
+                                    // Show as 2-column grid
+                                    for (row in presets.chunked(2)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            for ((label, minutes) in row) {
+                                                val alreadyExists = reminders.any { it.minutesBefore == minutes && it.type == "before" }
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = if (alreadyExists)
+                                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
+                                                    else
+                                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                                    modifier = Modifier
+                                                        .weight(1f)
+                                                        .padding(vertical = 3.dp)
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .clickable(enabled = !alreadyExists) {
+                                                            onAddReminder(com.theblankstate.preamble.data.Reminder(minutesBefore = minutes, type = "before"))
+                                                            showAddReminderMenu = false
+                                                        }
+                                                ) {
+                                                    Text(
+                                                        text = if (alreadyExists) "✓ $label" else label,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                                        color = if (alreadyExists)
+                                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                                        else
+                                                            MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // Custom exact time option
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.1f),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { showCustomTimePicker = true }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                Icons.Default.Schedule,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(16.dp),
+                                                tint = MaterialTheme.colorScheme.tertiary
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                "Custom date & time",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.tertiary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // "+ Add Reminder" chip
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable { showAddReminderMenu = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Notifications,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        "+ Add Reminder",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+
+                        // Custom time picker dialog
+                        if (showCustomTimePicker) {
+                            val ctx = LocalContext.current
+                            LaunchedEffect(Unit) {
+                                // Date picker first, then time picker
+                                val now = java.util.Calendar.getInstance()
+                                android.app.DatePickerDialog(
+                                    ctx,
+                                    { _, year, month, day ->
+                                        // Now show time picker
+                                        android.app.TimePickerDialog(
+                                            ctx,
+                                            { _, hour, minute ->
+                                                val cal = java.util.Calendar.getInstance().apply {
+                                                    set(year, month, day, hour, minute, 0)
+                                                    set(java.util.Calendar.MILLISECOND, 0)
+                                                }
+                                                onAddReminder(
+                                                    com.theblankstate.preamble.data.Reminder(
+                                                        epochMs = cal.timeInMillis,
+                                                        type = "exact"
+                                                    )
+                                                )
+                                                showCustomTimePicker = false
+                                                showAddReminderMenu = false
+                                            },
+                                            now.get(java.util.Calendar.HOUR_OF_DAY),
+                                            now.get(java.util.Calendar.MINUTE),
+                                            false
+                                        ).apply {
+                                            setOnDismissListener { showCustomTimePicker = false }
+                                            show()
+                                        }
+                                    },
+                                    now.get(java.util.Calendar.YEAR),
+                                    now.get(java.util.Calendar.MONTH),
+                                    now.get(java.util.Calendar.DAY_OF_MONTH)
+                                ).apply {
+                                    setOnDismissListener { showCustomTimePicker = false }
+                                    show()
+                                }
+                            }
                         }
                     }
                 }

@@ -170,6 +170,8 @@ fun HomeScreen(
     onUnsnoozeTask: ((String) -> Unit)? = null,
     onCopyTaskToToday: ((Task) -> Unit)? = null,
     onDeleteAllRecurrences: ((Task) -> Unit)? = null,
+    onAddReminder: ((Task, com.theblankstate.preamble.data.Reminder) -> Unit)? = null,
+    onRemoveReminder: ((Task, Int) -> Unit)? = null,
     snackbarEvent: SharedFlow<TaskViewModel.SnackbarEvent>? = null,
     modifier: Modifier = Modifier
 ) {
@@ -1377,6 +1379,12 @@ fun HomeScreen(
             } else null,
             onCopyToToday = if (isPast && !hasRecurrenceForToday && onCopyTaskToToday != null) {{
                 onCopyTaskToToday(task)
+            }} else null,
+            onAddReminder = if (!isPast && onAddReminder != null) {{ reminder ->
+                onAddReminder(task, reminder)
+            }} else null,
+            onRemoveReminder = if (!isPast && onRemoveReminder != null) {{ index ->
+                onRemoveReminder(task, index)
             }} else null,
             isPastTask = isPast
         )

@@ -568,7 +568,14 @@ class TaskViewModel(
                     current + (finalTask.id to Pair(0, subtasks.size))
                 }
             }
-            scheduleOrCancelAlarm(finalTask)
+            // Auto-set default 10-min reminder for tasks with a deadline time
+            val taskWithReminder = if (deadlineTime != null && finalTask.remindersJson == null) {
+                val defaultReminders = listOf(com.theblankstate.preamble.data.Reminder.DEFAULT)
+                val updated = finalTask.copy(remindersJson = com.theblankstate.preamble.data.Reminder.toJson(defaultReminders))
+                repository.updateTask(updated)
+                updated
+            } else finalTask
+            scheduleOrCancelAlarm(taskWithReminder)
             refreshStats()
             invalidateCalendarForDate(taskDate)
         }
@@ -590,8 +597,15 @@ class TaskViewModel(
             refreshStats()
             refreshCalendarDate()
 
-            // Then sync to Google in background via WorkManager
             val newCompleted = !task.isCompleted
+            // Cancel or reschedule alarms based on new completion state
+            if (newCompleted) {
+                com.theblankstate.preamble.notification.TaskAlarmManager.cancelAllReminders(appContext, task.id)
+            } else {
+                // Un-completing: reschedule reminders
+                val updatedTask = repository.getTaskById(task.id)
+                if (updatedTask != null) scheduleOrCancelAlarm(updatedTask)
+            }
             if (task.source == "google_tasks" && task.id.startsWith("gtask_")) {
                 val googleId = task.id.removePrefix("gtask_")
                 // Mark as syncing optimistically
@@ -637,8 +651,8 @@ class TaskViewModel(
         }
 
         viewModelScope.launch {
-            // Cancel alarm if task had a deadline
-            com.theblankstate.preamble.notification.TaskAlarmManager.cancelAlarm(
+            // Cancel all reminder alarms for this task
+            com.theblankstate.preamble.notification.TaskAlarmManager.cancelAllReminders(
                 appContext, task.id
             )
             // Mark as deleted BEFORE any sync can re-insert it
@@ -720,7 +734,7 @@ class TaskViewModel(
 
             // Delete all instances
             for (instance in instances) {
-                com.theblankstate.preamble.notification.TaskAlarmManager.cancelAlarm(appContext, instance.id)
+                com.theblankstate.preamble.notification.TaskAlarmManager.cancelAllReminders(appContext, instance.id)
                 repository.markAsDeleted(instance.id)
                 repository.deleteTask(instance)
                 commitDelete(instance)
@@ -728,7 +742,7 @@ class TaskViewModel(
 
             // Delete the template itself
             if (template != null) {
-                com.theblankstate.preamble.notification.TaskAlarmManager.cancelAlarm(appContext, template.id)
+                com.theblankstate.preamble.notification.TaskAlarmManager.cancelAllReminders(appContext, template.id)
                 repository.markAsDeleted(template.id)
                 repository.deleteTask(template)
                 commitDelete(template)
@@ -849,14 +863,22 @@ class TaskViewModel(
     }
 
     /**
-     * Determines whether an alarm should be scheduled. Paused alarms, or alarms with NO deadline NO custom time,
-     * are canceled. Active alarms are calculated and securely scheduled into TaskAlarmManager.
+     * Determines whether reminders should be scheduled. Paused/completed tasks get cancelled.
+     * Active reminder alarms are calculated and scheduled via TaskAlarmManager.
      */
     private fun scheduleOrCancelAlarm(task: Task) {
-        if (task.isAlarmPaused) {
-            com.theblankstate.preamble.notification.TaskAlarmManager.cancelAlarm(appContext, task.id)
+        if (task.isAlarmPaused || task.isCompleted) {
+            com.theblankstate.preamble.notification.TaskAlarmManager.cancelAllReminders(appContext, task.id)
             return
         }
+
+        // If task has reminders in remindersJson, use multi-reminder system
+        if (task.hasReminders) {
+            com.theblankstate.preamble.notification.TaskAlarmManager.scheduleReminders(appContext, task)
+            return
+        }
+
+        // Legacy fallback: single alarm from customAlarmTimeMs or deadlineTime
         val triggerMs = task.customAlarmTimeMs ?: run {
             if (task.deadlineTime == null) return@run null
             try {
@@ -868,7 +890,7 @@ class TaskViewModel(
         if (triggerMs != null && triggerMs > System.currentTimeMillis()) {
             com.theblankstate.preamble.notification.TaskAlarmManager.scheduleAlarm(appContext, task.id, task.title, triggerMs)
         } else {
-            com.theblankstate.preamble.notification.TaskAlarmManager.cancelAlarm(appContext, task.id)
+            com.theblankstate.preamble.notification.TaskAlarmManager.cancelAllReminders(appContext, task.id)
         }
     }
 
@@ -882,6 +904,36 @@ class TaskViewModel(
             repository.updateTask(updated)
             scheduleOrCancelAlarm(updated)
             refreshStats()
+        }
+    }
+
+    /** Add a reminder to a task (max 5) */
+    fun addReminder(task: Task, reminder: com.theblankstate.preamble.data.Reminder) {
+        viewModelScope.launch {
+            val current = task.localReminders.toMutableList()
+            if (current.size >= com.theblankstate.preamble.data.Reminder.MAX_REMINDERS) return@launch
+            current.add(reminder)
+            val updated = task.copy(
+                remindersJson = com.theblankstate.preamble.data.Reminder.toJson(current),
+                updatedTimestamp = System.currentTimeMillis()
+            )
+            repository.updateTask(updated)
+            scheduleOrCancelAlarm(updated)
+        }
+    }
+
+    /** Remove a reminder by index */
+    fun removeReminder(task: Task, index: Int) {
+        viewModelScope.launch {
+            val current = task.localReminders.toMutableList()
+            if (index < 0 || index >= current.size) return@launch
+            current.removeAt(index)
+            val updated = task.copy(
+                remindersJson = com.theblankstate.preamble.data.Reminder.toJson(current),
+                updatedTimestamp = System.currentTimeMillis()
+            )
+            repository.updateTask(updated)
+            scheduleOrCancelAlarm(updated)
         }
     }
 

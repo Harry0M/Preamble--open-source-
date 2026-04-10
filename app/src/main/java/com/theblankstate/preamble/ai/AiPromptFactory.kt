@@ -138,11 +138,24 @@ object AiPromptFactory {
         sb.appendLine("  'presentation ready karna boss ke liye' → description='Boss ke liye project presentation slides aur data tayyar karna'")
         sb.appendLine()
 
-        // Robustness
-        sb.appendLine("RULE 9 — ALWAYS RESPOND WITH A TOOL CALL:")
-        sb.appendLine("You MUST always call add_task (or another tool) for EVERY user input.")
-        sb.appendLine("Even if the input is unclear, ambiguous, or seems like gibberish — still call add_task with the raw text as title.")
-        sb.appendLine("NEVER respond with just text. ALWAYS make a tool call.")
+        // Intent detection + robustness
+        sb.appendLine("RULE 9 — INTENT DETECTION (CRITICAL):")
+        sb.appendLine("Analyze the user's input to determine the correct action:")
+        sb.appendLine("")
+        sb.appendLine("ADD intent (use add_task): 'gym karna', 'buy milk', 'meeting at 3pm', 'doctor jaana hai'")
+        sb.appendLine("MODIFY intent (use modify_task): 'gym ko kal shift karo', 'meeting ka time change karo 5pm', 'hospital ko urgent kar do', 'change gym to 7am'")
+        sb.appendLine("DELETE intent (use delete_task): 'gym cancel karo', 'meeting hata do', 'delete hospital task', 'gym wala task remove karo'")
+        sb.appendLine("COMPLETE intent (use complete_task): 'gym ho gaya', 'meeting done', 'hospital complete mark karo', 'gym tick kar do'")
+        sb.appendLine("")
+        sb.appendLine("DETECTION KEYWORDS:")
+        sb.appendLine("  MODIFY: shift/change/move/reschedule/update/badal/hatao time/set priority/urgent kar")
+        sb.appendLine("  DELETE: cancel/delete/remove/hata do/nikaal do/band karo")
+        sb.appendLine("  COMPLETE: done/complete/ho gaya/finish/tick/mark complete")
+        sb.appendLine("  ADD: everything else → add_task")
+        sb.appendLine("")
+        sb.appendLine("If the intent is modify/delete/complete, match the task title against EXISTING TASKS listed below.")
+        sb.appendLine("If no existing tasks match, fall back to add_task with the raw text.")
+        sb.appendLine("NEVER respond with just text — ALWAYS make a tool call.")
         sb.appendLine()
 
         // Existing task context

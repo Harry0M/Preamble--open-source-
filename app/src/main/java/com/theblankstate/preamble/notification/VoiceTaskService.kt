@@ -230,12 +230,29 @@ class VoiceTaskService : Service() {
                                     val newTime = call.arguments["new_time"]
                                     val newPriority = call.arguments["new_priority"]?.toIntOrNull()
                                     val newTags = call.arguments["new_tags"]
+                                    Log.d("PreambleAI", "  modify_task: target='$targetTitle'")
                                     modifyInterpretedTask(app, targetTitle, newTitle, newDate, newTime, newPriority, newTags)
-                                    // If there was an optimistic placeholder, remove it since we modified an existing task
-                                    if (existingTaskId != null) {
-                                        val placeholder = app.repository.getTaskById(existingTaskId)
-                                        if (placeholder != null) app.repository.deleteTask(placeholder)
-                                    }
+                                    // Remove optimistic placeholder since we modified an existing task
+                                    cleanupPlaceholder(app, existingTaskId)
+                                }
+                                "delete_task" -> {
+                                    val targetTitle = call.arguments["title"] ?: title
+                                    Log.d("PreambleAI", "  delete_task: target='$targetTitle'")
+                                    deleteInterpretedTask(app, targetTitle)
+                                    // Remove optimistic placeholder
+                                    cleanupPlaceholder(app, existingTaskId)
+                                }
+                                "complete_task" -> {
+                                    val targetTitle = call.arguments["title"] ?: title
+                                    Log.d("PreambleAI", "  complete_task: target='$targetTitle'")
+                                    completeInterpretedTask(app, targetTitle)
+                                    // Remove optimistic placeholder
+                                    cleanupPlaceholder(app, existingTaskId)
+                                }
+                                "list_tasks" -> {
+                                    // List is informational — just clean up placeholder
+                                    Log.d("PreambleAI", "  list_tasks — cleaning up placeholder")
+                                    cleanupPlaceholder(app, existingTaskId)
                                 }
                                 else -> {
                                     if (existingTaskId != null) {
@@ -362,6 +379,8 @@ class VoiceTaskService : Service() {
         if (tags != null) {
             app.repository.saveTagOverride(taskId, tags)
         }
+        // Schedule alarm if task has a deadline time
+        scheduleAlarmForTask(updated)
     }
 
     /** Just flip isSyncing=false on a raw placeholder task */
@@ -394,9 +413,54 @@ class VoiceTaskService : Service() {
             if (newTags != null) {
                 app.repository.saveTagOverride(updated.id, newTags)
             }
+            // Reschedule reminders if time changed
+            if (newTime != null) {
+                TaskAlarmManager.scheduleReminders(applicationContext, updated)
+            }
+            Log.d("PreambleAI", "  Modified task '${task.title}' → '${updated.title}'")
         } else {
-            // Fallback: If AI fails to find the task, just create a new one with the details to be safe
+            Log.w("PreambleAI", "  No matching task found for modify '$targetTitle', creating new")
             saveInterpretedTask(app, newTitle ?: targetTitle, newDate, newTime, newTags, newPriority ?: 0)
+        }
+    }
+
+    /** Delete a task found by title match */
+    private suspend fun deleteInterpretedTask(app: PreambleApplication, targetTitle: String) {
+        val allTasks = app.repository.tasksFlow.firstOrNull() ?: emptyList()
+        val task = com.theblankstate.preamble.ai.TaskTools.findMatchingTask(targetTitle, allTasks)
+        if (task != null) {
+            // Cancel all alarms
+            TaskAlarmManager.cancelAllReminders(applicationContext, task.id)
+            app.repository.markAsDeleted(task.id)
+            app.repository.deleteTask(task)
+            Log.d("PreambleAI", "  Deleted task '${task.title}'")
+        } else {
+            Log.w("PreambleAI", "  No matching task found for delete '$targetTitle'")
+        }
+    }
+
+    /** Complete a task found by title match */
+    private suspend fun completeInterpretedTask(app: PreambleApplication, targetTitle: String) {
+        val allTasks = app.repository.tasksFlow.firstOrNull() ?: emptyList()
+        val task = com.theblankstate.preamble.ai.TaskTools.findMatchingTask(targetTitle, allTasks)
+        if (task != null && !task.isCompleted) {
+            app.repository.toggleTask(task)
+            // Cancel alarms for completed task
+            TaskAlarmManager.cancelAllReminders(applicationContext, task.id)
+            Log.d("PreambleAI", "  Completed task '${task.title}'")
+        } else {
+            Log.w("PreambleAI", "  No matching task found for complete '$targetTitle'")
+        }
+    }
+
+    /** Remove the optimistic placeholder task that was inserted before AI processing */
+    private suspend fun cleanupPlaceholder(app: PreambleApplication, existingTaskId: String?) {
+        if (existingTaskId != null) {
+            val placeholder = app.repository.getTaskById(existingTaskId)
+            if (placeholder != null) {
+                app.repository.deleteTask(placeholder)
+                Log.d("PreambleAI", "  Cleaned up optimistic placeholder '$existingTaskId'")
+            }
         }
     }
 
@@ -447,6 +511,8 @@ class VoiceTaskService : Service() {
                 }
                 localTaskCreated = true
                 createdTaskId = localTask.id
+                // Schedule alarm if task has a deadline time
+                scheduleAlarmForTask(localTask)
             }
         }
 
@@ -469,8 +535,28 @@ class VoiceTaskService : Service() {
                 app.repository.saveTagOverride(localTask.id, tags)
             }
             createdTaskId = localTask.id
+            // Schedule alarm if task has a deadline time
+            scheduleAlarmForTask(localTask)
         }
         return createdTaskId
+    }
+
+    /** Auto-set default reminder and schedule all reminders for a task with deadlineTime */
+    private suspend fun scheduleAlarmForTask(task: com.theblankstate.preamble.data.Task) {
+        val time = task.deadlineTime ?: return
+        val app = applicationContext as PreambleApplication
+
+        // Auto-set default 10-min reminder if no reminders exist
+        val taskWithReminder = if (task.remindersJson == null) {
+            val defaultReminders = listOf(com.theblankstate.preamble.data.Reminder.DEFAULT)
+            val updated = task.copy(remindersJson = com.theblankstate.preamble.data.Reminder.toJson(defaultReminders))
+            app.repository.updateTask(updated)
+            updated
+        } else task
+
+        // Schedule all reminders
+        TaskAlarmManager.scheduleReminders(applicationContext, taskWithReminder)
+        Log.d("PreambleAlarm", "Scheduled reminders for '${task.title}'")
     }
 
     override fun onDestroy() {
