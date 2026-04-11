@@ -53,10 +53,16 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
+    /** Deep link target parsed from the incoming intent (preamble://…). */
+    private val _deepLinkTarget = mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ThemePreferences.init(this)
         enableEdgeToEdge()
+
+        // Parse deep link from launch intent
+        _deepLinkTarget.value = parseDeepLink(intent)
 
         val prefs = getSharedPreferences("preamble_prefs", MODE_PRIVATE)
         val onboardingDone = prefs.getBoolean("onboarding_done", false)
@@ -73,6 +79,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             PreambleTheme {
                 var showOnboarding by remember { mutableStateOf(!onboardingDone) }
+                val deepLinkTarget by _deepLinkTarget
 
                 if (showOnboarding) {
                     OnboardingScreen(
@@ -88,10 +95,40 @@ class MainActivity : ComponentActivity() {
                     val viewModel: TaskViewModel = viewModel(
                         factory = TaskViewModel.Factory(app.repository, app)
                     )
-                    PreambleApp(viewModel = viewModel)
+                    PreambleApp(
+                        viewModel = viewModel,
+                        deepLinkTarget = deepLinkTarget,
+                        onDeepLinkConsumed = { _deepLinkTarget.value = null }
+                    )
                 }
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        parseDeepLink(intent)?.let { target ->
+            _deepLinkTarget.value = target
+        }
+    }
+
+    /**
+     * Parse deep link from intent.
+     * Supported schemes:
+     *   preamble://home
+     *   preamble://settings
+     *   preamble://settings/theme
+     *   preamble://settings/calendar
+     *   preamble://settings/notifications
+     *   preamble://stats
+     *   preamble://calendar
+     */
+    private fun parseDeepLink(intent: Intent?): String? {
+        val data = intent?.data ?: return null
+        if (data.scheme != "preamble") return null
+        val host = data.host ?: return null
+        val path = data.path?.trimStart('/') ?: ""
+        return if (path.isNotEmpty()) "$host/$path" else host
     }
 
     override fun onResume() {
@@ -163,11 +200,31 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun PreambleApp(viewModel: TaskViewModel) {
+fun PreambleApp(
+    viewModel: TaskViewModel,
+    deepLinkTarget: String? = null,
+    onDeepLinkConsumed: () -> Unit = {}
+) {
     var selectedTab by remember { mutableIntStateOf(0) }
     val tasks by viewModel.todayTasks.collectAsState()
     val pastTasks by viewModel.pastTasks.collectAsState()
     val stats by viewModel.statsState.collectAsState()
+
+    // Handle deep link navigation
+    androidx.compose.runtime.LaunchedEffect(deepLinkTarget) {
+        if (deepLinkTarget != null) {
+            when {
+                deepLinkTarget.startsWith("home") -> selectedTab = 0
+                deepLinkTarget.startsWith("stats") -> {
+                    selectedTab = 1
+                    viewModel.refreshStats()
+                }
+                deepLinkTarget.startsWith("calendar") -> selectedTab = 2
+                deepLinkTarget.startsWith("settings") -> selectedTab = 3
+            }
+            onDeepLinkConsumed()
+        }
+    }
 
     val aiChatViewModel: AiChatViewModel = viewModel(
         factory = AiChatViewModel.Factory(
@@ -264,6 +321,9 @@ fun PreambleApp(viewModel: TaskViewModel) {
                 onAddReminder = { task, reminder -> viewModel.addReminder(task, reminder) },
                 onRemoveReminder = { task, index -> viewModel.removeReminder(task, index) },
                 snackbarEvent = viewModel.snackbarEvent,
+                adminTasks = viewModel.adminTasks.collectAsState().value,
+                onDismissAdminTask = { viewModel.dismissAdminTask(it) },
+                onAdminTaskAction = { viewModel.adminTaskActioned(it) },
                 modifier = Modifier.padding(innerPadding)
             )
             1 -> StatsScreen(

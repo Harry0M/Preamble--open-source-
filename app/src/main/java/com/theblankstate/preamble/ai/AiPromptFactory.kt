@@ -16,7 +16,7 @@ object AiPromptFactory {
      * Build the universal system prompt.
      * @param existingTasks Optional list of tasks for modify/delete context
      */
-    fun buildSystemPrompt(existingTasks: List<Task>? = null, smartBreakdown: Boolean = false): String {
+    fun buildSystemPrompt(existingTasks: List<Task>? = null, smartBreakdown: Boolean = false, isNotificationEdit: Boolean = false): String {
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         val currentTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
@@ -160,12 +160,29 @@ object AiPromptFactory {
 
         // Existing task context
         if (!existingTasks.isNullOrEmpty()) {
-            sb.appendLine("EXISTING TASKS (for modify/delete/complete):")
-            existingTasks.take(20).forEachIndexed { i, task ->
-                val time = if (task.deadlineTime != null) " at ${task.deadlineTime}" else ""
-                val pri = if (task.priority > 0) " [P${task.priority}]" else ""
-                val tags = if (!task.tags.isNullOrBlank()) " {${task.tags}}" else ""
-                sb.appendLine("  ${i + 1}. \"${task.title}\" on ${task.createdDate}$time$pri$tags")
+            // Filter out optimistic placeholders (isSyncing) — they confuse the AI
+            val realTasks = existingTasks.filter { !it.isSyncing }
+
+            val tasksToShow = if (isNotificationEdit) {
+                // For notification edits: show today's tasks first, then recent incomplete,
+                // then all others — sorted so the most likely edit targets appear first.
+                // Show up to 40 tasks so AI has enough context to find the right task.
+                val today = SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(Date())
+                val todayTasks = realTasks.filter { it.createdDate == today && !it.isCompleted }
+                val recentOther = realTasks.filter { it.createdDate != today && !it.isCompleted }
+                    .sortedByDescending { it.createdDate }
+                (todayTasks + recentOther).take(40)
+            } else {
+                realTasks.take(20)
+            }
+
+            if (tasksToShow.isNotEmpty()) {
+                sb.appendLine("EXISTING TASKS (for modify/delete/complete):")
+                tasksToShow.forEachIndexed { i, task ->
+                    val time = if (task.deadlineTime != null) " at ${task.deadlineTime}" else ""
+                    val pri = if (task.priority > 0) " [P${task.priority}]" else ""
+                    sb.appendLine("  ${i + 1}. \"${task.title}\" on ${task.createdDate}$time$pri")
+                }
             }
         }
 

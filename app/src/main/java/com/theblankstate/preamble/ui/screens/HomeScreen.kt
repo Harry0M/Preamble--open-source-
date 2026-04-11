@@ -130,6 +130,9 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 
 import androidx.compose.ui.text.font.FontWeight
+import com.theblankstate.preamble.data.AdminTask
+import com.theblankstate.preamble.ui.components.AdminTaskCard
+import com.theblankstate.preamble.ui.components.AdminTaskDetailSheet
 import com.theblankstate.preamble.viewmodel.TaskViewModel
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -173,6 +176,9 @@ fun HomeScreen(
     onAddReminder: ((Task, com.theblankstate.preamble.data.Reminder) -> Unit)? = null,
     onRemoveReminder: ((Task, Int) -> Unit)? = null,
     snackbarEvent: SharedFlow<TaskViewModel.SnackbarEvent>? = null,
+    adminTasks: List<AdminTask> = emptyList(),
+    onDismissAdminTask: ((String) -> Unit)? = null,
+    onAdminTaskAction: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
@@ -180,6 +186,7 @@ fun HomeScreen(
     var taskToDelete by remember { mutableStateOf<Task?>(null) }
     var taskToEdit by remember { mutableStateOf<Task?>(null) }
     var taskToShowDetail by remember { mutableStateOf<Task?>(null) }
+    var adminTaskToShow by remember { mutableStateOf<AdminTask?>(null) }
     var showAlarmSheet by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
     var showPomodoroSheet by remember { mutableStateOf(false) }
@@ -679,6 +686,37 @@ fun HomeScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Admin broadcast tasks — shown above regular tasks
+                if (adminTasks.isNotEmpty()) {
+                    item(key = "admin_tasks_section") {
+                        Text(
+                            "For You",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                    }
+                    items(
+                        items = adminTasks,
+                        key = { "admin_${it.id}" }
+                    ) { adminTask ->
+                        AdminTaskCard(
+                            task = adminTask,
+                            onDismiss = { onDismissAdminTask?.invoke(adminTask.id) },
+                            onAction = { onAdminTaskAction?.invoke(adminTask.id) },
+                            onClick = {
+                                if (!adminTask.directRedirect) {
+                                    adminTaskToShow = adminTask
+                                }
+                            }
+                        )
+                    }
+                    item(key = "admin_tasks_spacer") {
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
+                }
+
                 // Today's tasks with timeline view
                 if (tasks.isNotEmpty()) {
                     item(key = "progress_bar") {
@@ -1165,27 +1203,57 @@ fun HomeScreen(
     if (showAlarmSheet) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         val nextAlarm = alarmManager.nextAlarmClock
-        // Collect all tasks heavily factoring independent Alarm parameters
-        val allTasksWithAlarms = remember(tasks, pastTasks) {
+
+        // AlarmEntry: one row per upcoming reminder/alarm
+        data class AlarmEntry(
+            val task: Task,
+            val triggerMs: Long,
+            val isLegacy: Boolean,   // true = single customAlarmTimeMs / deadlineTime alarm
+            val description: String  // e.g. "10 min before" or "5:30 PM"
+        )
+
+        val allAlarmEntries = remember(tasks, pastTasks) {
             val allTasks = mutableListOf<Task>()
             allTasks.addAll(tasks)
             pastTasks.values.forEach { allTasks.addAll(it) }
             val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+            val timeFmt = SimpleDateFormat("hh:mm a", Locale.getDefault())
             val now = System.currentTimeMillis()
-            
-            allTasks.mapNotNull { task ->
-                val triggerMs = task.customAlarmTimeMs ?: run {
-                    if (task.deadlineTime == null) return@mapNotNull null
-                    try {
-                        sdf.parse("${task.createdDate} ${task.deadlineTime}")?.time
-                    } catch (_: Exception) { null }
+            val entries = mutableListOf<AlarmEntry>()
+
+            for (task in allTasks) {
+                if (task.isCompleted || task.isAlarmPaused) continue
+
+                if (task.hasReminders) {
+                    // New multi-reminder system
+                    val reminders = task.localReminders
+                    for ((index, triggerMs) in task.computeReminderTriggerMs()) {
+                        if (triggerMs > now) {
+                            val desc = reminders.getOrNull(index)?.displayText()
+                                ?: timeFmt.format(Date(triggerMs))
+                            entries.add(AlarmEntry(task, triggerMs, isLegacy = false, desc))
+                        }
+                    }
+                } else {
+                    // Legacy single-alarm system
+                    val triggerMs = task.customAlarmTimeMs ?: run {
+                        if (task.deadlineTime == null) null
+                        else try { sdf.parse("${task.createdDate} ${task.deadlineTime}")?.time }
+                             catch (_: Exception) { null }
+                    } ?: continue
+                    if (triggerMs > now) {
+                        entries.add(AlarmEntry(
+                            task, triggerMs, isLegacy = true,
+                            timeFmt.format(Date(triggerMs))
+                        ))
+                    }
                 }
-                
-                if (triggerMs != null) {
-                    Pair(task, triggerMs)
-                } else null
-            }.sortedBy { it.second }.map { it.first }
+            }
+            entries.sortedBy { it.triggerMs }
         }
+
+        // Kept for legacy edit controls
+        val allTasksWithAlarms = allAlarmEntries.map { it.task }.distinctBy { it.id }
 
         var taskForTimePicker by remember { mutableStateOf<Task?>(null) }
         var taskInitialTimeForPicker by remember { mutableStateOf<Long>(0L) }
@@ -1244,96 +1312,100 @@ fun HomeScreen(
                     )
                 }
 
-                if (allTasksWithAlarms.isEmpty()) {
+                if (allAlarmEntries.isEmpty()) {
                     Text(
-                        "No upcoming task alarms",
+                        "No upcoming reminders",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    allTasksWithAlarms.forEach { task ->
-                        val triggerMs = task.customAlarmTimeMs ?: run {
-                            val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-                            try { sdf.parse("${task.createdDate} ${task.deadlineTime}")?.time } catch (_: Exception) { 0L }
-                        } ?: 0L
-                        
-                        val timeStr = SimpleDateFormat("MMM dd, hh:mm a", Locale.getDefault()).format(Date(triggerMs))
-                        val isCustom = task.customAlarmTimeMs != null
+                    val dateFmt = SimpleDateFormat("MMM dd, hh:mm a", Locale.getDefault())
+                    allAlarmEntries.forEach { entry ->
+                        val task = entry.task
+                        val triggerMs = entry.triggerMs
+                        val timeStr = dateFmt.format(Date(triggerMs))
 
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 8.dp)
-                                .alpha(if (task.isCompleted) 0.5f else 1f),
+                                .padding(vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                if (task.isAlarmPaused) Icons.Filled.Close else Icons.Filled.Alarm,
+                                Icons.Filled.Alarm,
                                 contentDescription = null,
                                 modifier = Modifier.size(20.dp),
-                                tint = if (task.isAlarmPaused) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
+                                tint = MaterialTheme.colorScheme.primary
                             )
                             Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
                                 Text(
                                     task.title,
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Medium,
-                                    maxLines = 1,
-                                    color = if (task.isAlarmPaused) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface
+                                    maxLines = 1
                                 )
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
-                                        .clickable {
-                                            taskInitialTimeForPicker = triggerMs
-                                            taskForTimePicker = task
+                                if (entry.isLegacy) {
+                                    // Legacy alarm: show time with edit/nudge controls
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .clip(androidx.compose.foundation.shape.RoundedCornerShape(4.dp))
+                                            .clickable {
+                                                taskInitialTimeForPicker = triggerMs
+                                                taskForTimePicker = task
+                                            }
+                                            .padding(vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            timeStr,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        if (task.customAlarmTimeMs != null) {
+                                            Text(
+                                                " • Edited",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.padding(start = 4.dp)
+                                            )
                                         }
-                                        .padding(vertical = 2.dp)
-                                ) {
+                                        Icon(
+                                            Icons.Filled.Edit,
+                                            contentDescription = "Edit Time",
+                                            modifier = Modifier.size(16.dp).padding(start = 4.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                } else {
+                                    // New reminder system: show description + time
                                     Text(
-                                        if (task.isAlarmPaused) "Paused ($timeStr)" else timeStr,
+                                        "${entry.description}  •  $timeStr",
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
-                                    if (isCustom && !task.isAlarmPaused) {
-                                        Text(
-                                            " • Edited",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(start = 4.dp)
-                                        )
-                                    }
-                                    Icon(
-                                        Icons.Filled.Edit,
-                                        contentDescription = "Edit Time",
-                                        modifier = Modifier.size(16.dp).padding(start = 4.dp),
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
                                 }
                             }
-                            // Direct Nudge and Pause controls
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
-                                    onClick = { onUpdateAlarmStatus(task, triggerMs - (10 * 60 * 1000L), task.isAlarmPaused) },
-                                    modifier = Modifier.size(32.dp),
-                                    enabled = !task.isCompleted
-                                ) {
-                                    Text("-10m", style = MaterialTheme.typography.labelSmall)
+                            if (entry.isLegacy) {
+                                // Nudge and pause controls for legacy alarms
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(
+                                        onClick = { onUpdateAlarmStatus(task, triggerMs - (10 * 60 * 1000L), task.isAlarmPaused) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Text("-10m", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    IconButton(
+                                        onClick = { onUpdateAlarmStatus(task, triggerMs + (10 * 60 * 1000L), task.isAlarmPaused) },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Text("+10m", style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    androidx.compose.material3.Switch(
+                                        checked = !task.isAlarmPaused,
+                                        onCheckedChange = { isResumed -> onUpdateAlarmStatus(task, task.customAlarmTimeMs, !isResumed) },
+                                        modifier = Modifier.scale(0.7f)
+                                    )
                                 }
-                                IconButton(
-                                    onClick = { onUpdateAlarmStatus(task, triggerMs + (10 * 60 * 1000L), task.isAlarmPaused) },
-                                    modifier = Modifier.size(32.dp),
-                                    enabled = !task.isCompleted
-                                ) {
-                                    Text("+10m", style = MaterialTheme.typography.labelSmall)
-                                }
-                                androidx.compose.material3.Switch(
-                                    checked = !task.isAlarmPaused && !task.isCompleted,
-                                    onCheckedChange = { isResumed -> onUpdateAlarmStatus(task, task.customAlarmTimeMs, !isResumed) },
-                                    modifier = Modifier.scale(0.7f),
-                                    enabled = !task.isCompleted
-                                )
                             }
                         }
                     }
@@ -1429,6 +1501,18 @@ fun HomeScreen(
             onDismiss = { showPomodoroSheet = false },
             taskId = pomodoroTaskId,
             taskTitle = pomodoroTaskTitle
+        )
+    }
+
+    // Admin task detail sheet
+    adminTaskToShow?.let { adminTask ->
+        AdminTaskDetailSheet(
+            task = adminTask,
+            onDismiss = { adminTaskToShow = null },
+            onAction = {
+                onAdminTaskAction?.invoke(adminTask.id)
+                adminTaskToShow = null
+            }
         )
     }
 }

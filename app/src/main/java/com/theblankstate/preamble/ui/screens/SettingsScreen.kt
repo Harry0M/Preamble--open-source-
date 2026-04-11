@@ -49,7 +49,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.shape.RoundedCornerShape
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -715,6 +720,197 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                     .edit().putBoolean("ai_smart_breakdown", enabled).apply()
                             }
                         )
+                    }
+
+                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+                    var notifEditEnabled by remember {
+                        mutableStateOf(
+                            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                .getBoolean("ai_notif_edit", false)
+                        )
+                    }
+                    var showExperimentalSheet by remember { mutableStateOf(false) }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text("AI Edit from Notification", style = MaterialTheme.typography.bodyLarge)
+                                // Experimental badge
+                                Surface(
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = Color(0xFFFFF3E0)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Science,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(11.dp),
+                                            tint = Color(0xFFE65100)
+                                        )
+                                        Text(
+                                            "Experimental",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = Color(0xFFE65100),
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                    }
+                                }
+                            }
+                            Text(
+                                "Type edit/delete commands in notification. AI may occasionally misidentify tasks.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                        Switch(
+                            checked = notifEditEnabled,
+                            onCheckedChange = { enabled ->
+                                if (enabled) {
+                                    // Show confirmation sheet before enabling
+                                    showExperimentalSheet = true
+                                } else {
+                                    notifEditEnabled = false
+                                    context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                        .edit().putBoolean("ai_notif_edit", false).apply()
+                                }
+                            }
+                        )
+                    }
+
+                    // Experimental feature confirmation bottom sheet
+                    if (showExperimentalSheet) {
+                        ModalBottomSheet(
+                            onDismissRequest = { showExperimentalSheet = false },
+                            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp)
+                                    .padding(bottom = 32.dp),
+                                verticalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                // Header
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = Color(0xFFFFF3E0)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Science,
+                                            contentDescription = null,
+                                            modifier = Modifier.padding(10.dp).size(28.dp),
+                                            tint = Color(0xFFE65100)
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            "Experimental Feature",
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            "AI Edit from Notification",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+
+                                // What it does
+                                Text(
+                                    "What this feature does:",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    listOf(
+                                        "\"gym cancel karo\" → deletes your Gym task",
+                                        "\"meeting ko kal shift karo\" → moves Meeting to tomorrow",
+                                        "\"hospital urgent kar do\" → sets Hospital task to High priority",
+                                        "\"camping ka alarm 7:30 baje set karo\" → adds reminder to Camping task"
+                                    ).forEach { example ->
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text("•", color = MaterialTheme.colorScheme.primary)
+                                            Text(example, style = MaterialTheme.typography.bodySmall)
+                                        }
+                                    }
+                                }
+
+                                // Warning
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = Color(0xFFFFF8E1)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Warning,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp),
+                                            tint = Color(0xFFF57F17)
+                                        )
+                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            Text(
+                                                "Use with caution",
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = Color(0xFFF57F17)
+                                            )
+                                            Text(
+                                                "AI uses fuzzy matching to find tasks. It may occasionally modify or delete the wrong task if multiple tasks have similar names. Always verify important tasks after using edit commands.",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color(0xFF795548)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Buttons
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    OutlinedButton(
+                                        onClick = { showExperimentalSheet = false },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("Cancel")
+                                    }
+                                    Button(
+                                        onClick = {
+                                            notifEditEnabled = true
+                                            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                                .edit().putBoolean("ai_notif_edit", true).apply()
+                                            showExperimentalSheet = false
+                                        },
+                                        modifier = Modifier.weight(1f)
+                                    ) {
+                                        Text("I Understand, Enable")
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

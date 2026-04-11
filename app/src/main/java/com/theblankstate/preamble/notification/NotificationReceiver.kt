@@ -54,6 +54,7 @@ class NotificationReceiver : BroadcastReceiver() {
                     val aiIntent = Intent(context, VoiceTaskService::class.java).apply {
                         putExtra(VoiceTaskService.EXTRA_TEXT_COMMAND, taskText)
                         putExtra(VoiceTaskService.EXTRA_TASK_ID, rawTask.id)
+                        putExtra(VoiceTaskService.EXTRA_IS_NOTIFICATION, true)
                     }
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                         context.startForegroundService(aiIntent)

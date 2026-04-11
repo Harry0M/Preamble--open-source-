@@ -199,14 +199,67 @@ object TaskTools {
         }
     }
 
+    /**
+     * Industry-grade fuzzy task matching with multi-factor scoring.
+     * Never matches optimistic placeholder tasks (isSyncing=true).
+     * Handles Hinglish/Hindi partial words, word reordering, and prefix matching.
+     */
     fun findMatchingTask(query: String, tasks: List<Task>): Task? {
-        val lower = query.lowercase()
-        // Exact match first
-        tasks.find { it.title.lowercase() == lower }?.let { return it }
-        // Contains match
-        tasks.find { it.title.lowercase().contains(lower) }?.let { return it }
-        // Query contained in task
-        tasks.find { lower.contains(it.title.lowercase()) }?.let { return it }
-        return null
+        // Never match against optimistic placeholders — they were inserted before AI ran
+        val candidates = tasks.filter { !it.isSyncing }
+        if (candidates.isEmpty()) return null
+
+        val lower = query.lowercase().trim()
+
+        // 1. Exact title match
+        candidates.find { it.title.lowercase() == lower }?.let { return it }
+
+        // Filler/stop words to ignore during tokenization
+        val stopWords = setOf(
+            "ko", "ka", "ki", "ke", "se", "me", "hai", "kar", "do", "de",
+            "the", "to", "a", "an", "is", "it", "in", "on", "at", "of",
+            "karo", "dena", "lena", "wala", "wali", "mujhe", "use", "isko"
+        )
+
+        fun tokenize(text: String): List<String> =
+            text.lowercase().split(Regex("[\\s,./\\-]+"))
+                .map { it.trim() }
+                .filter { it.length >= 2 && it !in stopWords }
+
+        val queryTokens = tokenize(query)
+
+        data class Scored(val task: Task, val score: Float)
+
+        val scored = candidates.mapNotNull { task ->
+            val titleLower = task.title.lowercase()
+            val titleTokens = tokenize(task.title)
+            var score = 0f
+
+            // Tier 1: full-string contains (highest signal)
+            if (titleLower.contains(lower)) score += 5f
+            if (lower.contains(titleLower) && titleLower.length > 3) score += 4f
+
+            // Tier 2: word-level exact overlap (bidirectional)
+            if (queryTokens.isNotEmpty() && titleTokens.isNotEmpty()) {
+                val common = queryTokens.intersect(titleTokens.toSet())
+                score += common.size.toFloat() / titleTokens.size * 3f   // precision
+                score += common.size.toFloat() / queryTokens.size * 3f   // recall
+            }
+
+            // Tier 3: prefix matching — "camp" matches "camping", "prep" matches "preparation"
+            for (qt in queryTokens) {
+                for (tt in titleTokens) {
+                    val prefLen = minOf(qt.length, tt.length, 5)
+                    if (prefLen >= 3 && qt.take(prefLen) == tt.take(prefLen)) score += 0.8f
+                }
+            }
+
+            // Tier 4: single strong keyword match (e.g., "gym" in "Gym karna")
+            if (queryTokens.any { qt -> titleTokens.any { tt -> tt == qt } }) score += 1f
+
+            if (score >= 1.0f) Scored(task, score) else null
+        }
+
+        return scored.maxByOrNull { it.score }?.task
     }
 }

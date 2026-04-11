@@ -299,6 +299,203 @@ app.get('/api/stats', requireAuth, async (req, res) => {
   }
 });
 
+// ─── Broadcasts (Admin Tasks) Routes ───
+
+// List all broadcasts
+app.get('/api/broadcasts', requireAuth, async (req, res) => {
+  try {
+    const snap = await firestoreDb.collection('broadcasts').orderBy('createdAt', 'desc').get();
+    const broadcasts = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json({ broadcasts });
+  } catch (err) {
+    console.error('Error fetching broadcasts:', err);
+    res.status(500).json({ error: 'Failed to fetch broadcasts' });
+  }
+});
+
+// Create broadcast
+app.post('/api/broadcasts', requireAuth, async (req, res) => {
+  try {
+    const id = generateId();
+    const now = Date.now();
+
+    // Parse tags from JSON string or array
+    let tags = [];
+    if (req.body.tags) {
+      try {
+        tags = typeof req.body.tags === 'string' ? JSON.parse(req.body.tags) : req.body.tags;
+      } catch (e) { tags = []; }
+    }
+
+    const broadcast = {
+      title: req.body.title || 'Untitled',
+      description: req.body.description || null,
+      imageUrl: req.body.imageUrl || null,
+      actionUrl: req.body.actionUrl || null,
+      deepLink: req.body.deepLink || null,
+      actionLabel: req.body.actionLabel || 'Open Now',
+      type: req.body.type || 'announcement',
+      tags: tags,
+      directRedirect: req.body.directRedirect || false,
+      priority: parseInt(req.body.priority) || 0,
+      createdAt: now,
+      expiresAt: req.body.expiresAt ? parseInt(req.body.expiresAt) : null,
+      active: req.body.active !== false,
+      featureKey: req.body.featureKey || null,
+      dismissible: req.body.dismissible !== false
+    };
+
+    await firestoreDb.collection('broadcasts').doc(id).set(broadcast);
+    res.json({ success: true, id, broadcast });
+  } catch (err) {
+    console.error('Error creating broadcast:', err);
+    res.status(500).json({ error: 'Failed to create broadcast' });
+  }
+});
+
+// Update broadcast
+app.put('/api/broadcasts/:id', requireAuth, async (req, res) => {
+  try {
+    const updates = { ...req.body };
+    delete updates.id;
+
+    // Parse tags if provided
+    if (updates.tags && typeof updates.tags === 'string') {
+      try { updates.tags = JSON.parse(updates.tags); } catch (e) { delete updates.tags; }
+    }
+    if (updates.priority) updates.priority = parseInt(updates.priority);
+    if (updates.expiresAt) updates.expiresAt = parseInt(updates.expiresAt);
+
+    await firestoreDb.collection('broadcasts').doc(req.params.id).update(updates);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error updating broadcast:', err);
+    res.status(500).json({ error: 'Failed to update broadcast' });
+  }
+});
+
+// Delete broadcast
+app.delete('/api/broadcasts/:id', requireAuth, async (req, res) => {
+  try {
+    await firestoreDb.collection('broadcasts').doc(req.params.id).delete();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting broadcast:', err);
+    res.status(500).json({ error: 'Failed to delete broadcast' });
+  }
+});
+
+// Toggle broadcast active status
+app.post('/api/broadcasts/:id/toggle', requireAuth, async (req, res) => {
+  try {
+    const doc = await firestoreDb.collection('broadcasts').doc(req.params.id).get();
+    if (!doc.exists) return res.status(404).json({ error: 'Not found' });
+    const currentActive = doc.data().active !== false;
+    await firestoreDb.collection('broadcasts').doc(req.params.id).update({ active: !currentActive });
+    res.json({ success: true, active: !currentActive });
+  } catch (err) {
+    console.error('Error toggling broadcast:', err);
+    res.status(500).json({ error: 'Failed to toggle broadcast' });
+  }
+});
+
+// ─── Push Notifications Routes ───
+
+// Send notification to all users (topic-based)
+app.post('/api/notifications/send', requireAuth, async (req, res) => {
+  try {
+    const { title, body, deepLink, url, channelType, targetType, targetUid } = req.body;
+
+    if (!title || !body) {
+      return res.status(400).json({ error: 'Title and body are required' });
+    }
+
+    const dataPayload = {
+      title,
+      body,
+      channelType: channelType || 'broadcast'
+    };
+    if (deepLink) dataPayload.deepLink = deepLink;
+    if (url) dataPayload.url = url;
+
+    let sent = 0;
+
+    if (targetType === 'single' && targetUid) {
+      // Send to specific user via their FCM token
+      const userDoc = await firestoreDb.collection('users').doc(targetUid).get();
+      const token = userDoc.exists ? userDoc.data().fcmToken : null;
+      if (!token) {
+        return res.status(400).json({ error: 'User has no FCM token' });
+      }
+      await admin.messaging().send({
+        token,
+        data: dataPayload,
+        android: { priority: 'high' }
+      });
+      sent = 1;
+    } else {
+      // Send to all users who have FCM tokens
+      const usersSnap = await firestoreDb.collection('users').get();
+      const tokens = [];
+      usersSnap.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.fcmToken && !data.blocked) {
+          tokens.push(data.fcmToken);
+        }
+      });
+
+      if (tokens.length === 0) {
+        return res.json({ success: true, sent: 0, message: 'No users with FCM tokens found' });
+      }
+
+      // Send in batches of 500 (FCM limit)
+      for (let i = 0; i < tokens.length; i += 500) {
+        const batch = tokens.slice(i, i + 500);
+        const response = await admin.messaging().sendEachForMulticast({
+          tokens: batch,
+          data: dataPayload,
+          android: { priority: 'high' }
+        });
+        sent += response.successCount;
+      }
+    }
+
+    // Log the notification
+    await firestoreDb.collection('notification_log').add({
+      title,
+      body,
+      deepLink: deepLink || null,
+      url: url || null,
+      channelType: channelType || 'broadcast',
+      targetType: targetType || 'all',
+      targetUid: targetUid || null,
+      sentAt: Date.now(),
+      sentCount: sent,
+      sentBy: req.session.user.email
+    });
+
+    res.json({ success: true, sent });
+  } catch (err) {
+    console.error('Error sending notification:', err);
+    res.status(500).json({ error: 'Failed to send notification: ' + err.message });
+  }
+});
+
+// Get notification history
+app.get('/api/notifications/history', requireAuth, async (req, res) => {
+  try {
+    const snap = await firestoreDb.collection('notification_log')
+      .orderBy('sentAt', 'desc')
+      .limit(50)
+      .get();
+    const history = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json({ history });
+  } catch (err) {
+    console.error('Error fetching notification history:', err);
+    res.status(500).json({ error: 'Failed to fetch history' });
+  }
+});
+
 // ─── Serve Frontend ───
 
 app.get('/dashboard', requireAuth, (req, res) => {
@@ -311,6 +508,14 @@ app.get('/users', requireAuth, (req, res) => {
 
 app.get('/users/:uid', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'user-detail.html'));
+});
+
+app.get('/broadcasts', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'broadcasts.html'));
+});
+
+app.get('/notifications', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'notifications.html'));
 });
 
 app.get('/', (req, res) => {

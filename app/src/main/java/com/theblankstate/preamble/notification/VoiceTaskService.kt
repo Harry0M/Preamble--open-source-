@@ -54,10 +54,11 @@ class VoiceTaskService : Service() {
         
         val textCommand = intent?.getStringExtra(EXTRA_TEXT_COMMAND)
         val existingTaskId = intent?.getStringExtra(EXTRA_TASK_ID)
-        
+        val isNotification = intent?.getBooleanExtra(EXTRA_IS_NOTIFICATION, false) ?: false
+
         if (!textCommand.isNullOrBlank()) {
             // Text command from notification or external source
-            saveTask(textCommand, existingTaskId)
+            saveTask(textCommand, existingTaskId, isNotification)
         } else {
             // Voice mode: listen via microphone
             startListening()
@@ -162,7 +163,7 @@ class VoiceTaskService : Service() {
      * If existingTaskId is non-null, the raw task is already in DB (optimistic insert);
      * we just refine it in place. Otherwise, we save fresh.
      */
-    private fun saveTask(title: String, existingTaskId: String? = null) {
+    private fun saveTask(title: String, existingTaskId: String? = null, isNotification: Boolean = false) {
         val app = applicationContext as PreambleApplication
 
         CoroutineScope(Dispatchers.IO).launch {
@@ -182,15 +183,29 @@ class VoiceTaskService : Service() {
                     Log.d("PreambleAI", "  SmartBreakdown: $smartBreakdown")
                     Log.d("PreambleAI", "  Context tasks: ${allTasks.size}")
                     
+                    // Restrict to add-only tools when notification edit is disabled
+                    val aiNotifEditEnabled = getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+                        .getBoolean("ai_notif_edit", false)
+                    val toolsToUse = if (isNotification && !aiNotifEditEnabled) {
+                        com.theblankstate.preamble.ai.TaskTools.tools
+                            .filter { it.name in listOf("add_task", "set_reminder") }
+                    } else {
+                        com.theblankstate.preamble.ai.TaskTools.tools
+                    }
+
                     val systemMsg = com.theblankstate.preamble.ai.ChatMessage("system",
-                        com.theblankstate.preamble.ai.AiPromptFactory.buildSystemPrompt(allTasks, smartBreakdown = smartBreakdown)
+                        com.theblankstate.preamble.ai.AiPromptFactory.buildSystemPrompt(
+                            allTasks,
+                            smartBreakdown = smartBreakdown,
+                            isNotificationEdit = isNotification && aiNotifEditEnabled
+                        )
                     )
                     val userMsg = com.theblankstate.preamble.ai.ChatMessage("user", title)
 
-                    Log.d("PreambleAI", "  Calling AI...")
+                    Log.d("PreambleAI", "  Calling AI... (notif=$isNotification, editEnabled=$aiNotifEditEnabled, tools=${toolsToUse.map { it.name }})")
                     val response = provider.chat(
                         listOf(systemMsg, userMsg),
-                        com.theblankstate.preamble.ai.TaskTools.tools
+                        toolsToUse
                     )
                     Log.d("PreambleAI", "  AI response: text=${response.text?.take(100)}, toolCalls=${response.toolCalls?.size ?: 0}")
 
@@ -206,20 +221,48 @@ class VoiceTaskService : Service() {
                                     val recurrence = call.arguments["recurrence"]
                                     val description = call.arguments["description"]
                                     val subtasksList = com.theblankstate.preamble.ai.TaskTools.parseSubtasks(call.arguments["subtasks"])
-                                    
+
                                     Log.d("PreambleAI", "  Parsed: title='$taskTitle', date=$date, time=$time, tags=$tags, pri=$priority, desc=${description?.take(50)}, subtasks=${subtasksList.size}")
-                                    
-                                    if (existingTaskId != null) {
-                                        updateExistingTask(app, existingTaskId, taskTitle, date, time, tags, priority, recurrence, description)
-                                        // Add subtasks to the existing task
-                                        if (subtasksList.isNotEmpty()) {
-                                            app.repository.addSubtasks(existingTaskId, subtasksList)
-                                        }
-                                    } else {
-                                        val savedTaskId = saveInterpretedTask(app, taskTitle, date, time, tags, priority, recurrence, description)
-                                        // Add subtasks to the newly created task
-                                        if (savedTaskId != null && subtasksList.isNotEmpty()) {
-                                            app.repository.addSubtasks(savedTaskId, subtasksList)
+
+                                    // set_reminder from notification (only when feature is ON):
+                                    // if an existing task matches the title, add the alarm to THAT task.
+                                    val handledAsReminderOnExisting = if (call.name == "set_reminder" && isNotification && aiNotifEditEnabled && time != null) {
+                                        val allCurrentTasks = app.repository.tasksFlow.firstOrNull() ?: emptyList()
+                                        val matchedTask = com.theblankstate.preamble.ai.TaskTools.findMatchingTask(taskTitle, allCurrentTasks)
+                                        if (matchedTask != null) {
+                                            Log.d("PreambleAI", "  set_reminder → adding alarm to existing task '${matchedTask.title}'")
+                                            val triggerMs = timeStringToEpochMs(time, date)
+                                            if (triggerMs != null) {
+                                                val currentReminders = matchedTask.localReminders.toMutableList()
+                                                if (currentReminders.size < com.theblankstate.preamble.data.Reminder.MAX_REMINDERS) {
+                                                    currentReminders.add(com.theblankstate.preamble.data.Reminder(epochMs = triggerMs, type = "exact"))
+                                                    val updated = matchedTask.copy(
+                                                        remindersJson = com.theblankstate.preamble.data.Reminder.toJson(currentReminders),
+                                                        updatedTimestamp = System.currentTimeMillis()
+                                                    )
+                                                    app.repository.updateTask(updated)
+                                                    TaskAlarmManager.scheduleReminders(applicationContext, updated)
+                                                }
+                                            }
+                                            cleanupPlaceholder(app, existingTaskId)
+                                            CoroutineScope(Dispatchers.Main).launch {
+                                                Toast.makeText(applicationContext, "✓ Reminder added to: ${matchedTask.title}", Toast.LENGTH_SHORT).show()
+                                            }
+                                            true
+                                        } else false
+                                    } else false
+
+                                    if (!handledAsReminderOnExisting) {
+                                        if (existingTaskId != null) {
+                                            updateExistingTask(app, existingTaskId, taskTitle, date, time, tags, priority, recurrence, description)
+                                            if (subtasksList.isNotEmpty()) {
+                                                app.repository.addSubtasks(existingTaskId, subtasksList)
+                                            }
+                                        } else {
+                                            val savedTaskId = saveInterpretedTask(app, taskTitle, date, time, tags, priority, recurrence, description)
+                                            if (savedTaskId != null && subtasksList.isNotEmpty()) {
+                                                app.repository.addSubtasks(savedTaskId, subtasksList)
+                                            }
                                         }
                                     }
                                 }
@@ -231,23 +274,41 @@ class VoiceTaskService : Service() {
                                     val newPriority = call.arguments["new_priority"]?.toIntOrNull()
                                     val newTags = call.arguments["new_tags"]
                                     Log.d("PreambleAI", "  modify_task: target='$targetTitle'")
-                                    modifyInterpretedTask(app, targetTitle, newTitle, newDate, newTime, newPriority, newTags)
+                                    val modified = modifyInterpretedTask(app, targetTitle, newTitle, newDate, newTime, newPriority, newTags)
                                     // Remove optimistic placeholder since we modified an existing task
                                     cleanupPlaceholder(app, existingTaskId)
+                                    if (isNotification) {
+                                        val msg = if (modified) "✓ Task updated: ${newTitle ?: targetTitle}" else "⚠ Task not found: $targetTitle"
+                                        CoroutineScope(Dispatchers.Main).launch {
+                                            Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
                                 }
                                 "delete_task" -> {
                                     val targetTitle = call.arguments["title"] ?: title
                                     Log.d("PreambleAI", "  delete_task: target='$targetTitle'")
-                                    deleteInterpretedTask(app, targetTitle)
+                                    val deleted = deleteInterpretedTask(app, targetTitle)
                                     // Remove optimistic placeholder
                                     cleanupPlaceholder(app, existingTaskId)
+                                    if (isNotification) {
+                                        val msg = if (deleted) "✓ Task deleted: $targetTitle" else "⚠ Task not found: $targetTitle"
+                                        CoroutineScope(Dispatchers.Main).launch {
+                                            Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
                                 }
                                 "complete_task" -> {
                                     val targetTitle = call.arguments["title"] ?: title
                                     Log.d("PreambleAI", "  complete_task: target='$targetTitle'")
-                                    completeInterpretedTask(app, targetTitle)
+                                    val completed = completeInterpretedTask(app, targetTitle)
                                     // Remove optimistic placeholder
                                     cleanupPlaceholder(app, existingTaskId)
+                                    if (isNotification) {
+                                        val msg = if (completed) "✓ Task completed: $targetTitle" else "⚠ Task not found: $targetTitle"
+                                        CoroutineScope(Dispatchers.Main).launch {
+                                            Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
                                 }
                                 "list_tasks" -> {
                                     // List is informational — just clean up placeholder
@@ -389,6 +450,7 @@ class VoiceTaskService : Service() {
         app.repository.updateTask(existing.copy(isSyncing = false, updatedTimestamp = System.currentTimeMillis()))
     }
 
+    /** Returns true if a matching task was found and modified */
     private suspend fun modifyInterpretedTask(
         app: PreambleApplication,
         targetTitle: String,
@@ -397,7 +459,7 @@ class VoiceTaskService : Service() {
         newTime: String?,
         newPriority: Int?,
         newTags: String?
-    ) {
+    ): Boolean {
         val allTasks = app.repository.tasksFlow.firstOrNull() ?: emptyList()
         val task = com.theblankstate.preamble.ai.TaskTools.findMatchingTask(targetTitle, allTasks)
         if (task != null) {
@@ -418,38 +480,42 @@ class VoiceTaskService : Service() {
                 TaskAlarmManager.scheduleReminders(applicationContext, updated)
             }
             Log.d("PreambleAI", "  Modified task '${task.title}' → '${updated.title}'")
+            return true
         } else {
             Log.w("PreambleAI", "  No matching task found for modify '$targetTitle', creating new")
             saveInterpretedTask(app, newTitle ?: targetTitle, newDate, newTime, newTags, newPriority ?: 0)
+            return false
         }
     }
 
-    /** Delete a task found by title match */
-    private suspend fun deleteInterpretedTask(app: PreambleApplication, targetTitle: String) {
+    /** Delete a task found by title match. Returns true if found and deleted. */
+    private suspend fun deleteInterpretedTask(app: PreambleApplication, targetTitle: String): Boolean {
         val allTasks = app.repository.tasksFlow.firstOrNull() ?: emptyList()
         val task = com.theblankstate.preamble.ai.TaskTools.findMatchingTask(targetTitle, allTasks)
         if (task != null) {
-            // Cancel all alarms
             TaskAlarmManager.cancelAllReminders(applicationContext, task.id)
             app.repository.markAsDeleted(task.id)
             app.repository.deleteTask(task)
             Log.d("PreambleAI", "  Deleted task '${task.title}'")
+            return true
         } else {
             Log.w("PreambleAI", "  No matching task found for delete '$targetTitle'")
+            return false
         }
     }
 
-    /** Complete a task found by title match */
-    private suspend fun completeInterpretedTask(app: PreambleApplication, targetTitle: String) {
+    /** Complete a task found by title match. Returns true if found and completed. */
+    private suspend fun completeInterpretedTask(app: PreambleApplication, targetTitle: String): Boolean {
         val allTasks = app.repository.tasksFlow.firstOrNull() ?: emptyList()
         val task = com.theblankstate.preamble.ai.TaskTools.findMatchingTask(targetTitle, allTasks)
         if (task != null && !task.isCompleted) {
             app.repository.toggleTask(task)
-            // Cancel alarms for completed task
             TaskAlarmManager.cancelAllReminders(applicationContext, task.id)
             Log.d("PreambleAI", "  Completed task '${task.title}'")
+            return true
         } else {
             Log.w("PreambleAI", "  No matching task found for complete '$targetTitle'")
+            return false
         }
     }
 
@@ -541,6 +607,14 @@ class VoiceTaskService : Service() {
         return createdTaskId
     }
 
+    /** Convert AI time string "HH:mm" + optional date to epoch millis for today (or given date). */
+    private fun timeStringToEpochMs(timeStr: String, dateStr: String? = null): Long? {
+        return try {
+            val today = dateStr ?: java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date())
+            java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).parse("$today $timeStr")?.time
+        } catch (_: Exception) { null }
+    }
+
     /** Auto-set default reminder and schedule all reminders for a task with deadlineTime */
     private suspend fun scheduleAlarmForTask(task: com.theblankstate.preamble.data.Task) {
         val time = task.deadlineTime ?: return
@@ -571,5 +645,6 @@ class VoiceTaskService : Service() {
         private const val VOICE_NOTIFICATION_ID = 1002
         const val EXTRA_TEXT_COMMAND = "extra_text_command"
         const val EXTRA_TASK_ID = "extra_task_id"
+        const val EXTRA_IS_NOTIFICATION = "is_notification"
     }
 }

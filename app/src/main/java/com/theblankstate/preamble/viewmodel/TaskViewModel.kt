@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.theblankstate.preamble.data.AdminTask
 import com.theblankstate.preamble.data.TaskInputValidator
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.notification.TaskNotificationManager
+import com.theblankstate.preamble.repository.AdminTaskRepository
 import com.theblankstate.preamble.repository.TaskRepository
 import com.theblankstate.preamble.sync.GoogleCalendarManager
 import com.theblankstate.preamble.sync.GoogleSyncCoordinator
@@ -49,6 +51,28 @@ class TaskViewModel(
 ) : ViewModel() {
 
     private val today = TaskRepository.todayString()
+
+    // ── Admin Tasks (broadcasts) ──
+    private val adminTaskRepo = AdminTaskRepository(appContext)
+    val adminTasks: StateFlow<List<AdminTask>> = adminTaskRepo.adminTasks
+
+    init {
+        refreshAdminTasks()
+    }
+
+    fun refreshAdminTasks() {
+        viewModelScope.launch {
+            adminTaskRepo.refresh()
+        }
+    }
+
+    fun dismissAdminTask(taskId: String) {
+        adminTaskRepo.dismissTask(taskId)
+    }
+
+    fun adminTaskActioned(taskId: String) {
+        adminTaskRepo.markInteracted(taskId)
+    }
 
     // Shared constraint: only run sync workers when network is available
     private val networkConstraints = androidx.work.Constraints.Builder()

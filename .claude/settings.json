@@ -9,7 +9,9 @@
       "Read(//c/Users/palha/preamble/app/src/main/java/com/theblankstate/preamble/ui/screens/**)",
       "Bash(./gradlew assembleDebug)",
       "Bash(./gradlew compileDebugKotlin)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Read(//c/Users/palha/preamble/**)",
+      "Bash(./gradlew :app:compileDebugKotlin)"
     ]
   }
 }

@@ -40,6 +40,8 @@ class PreambleApplication : Application() {
         FirebaseTaskSyncManager.enableOfflinePersistence()
         syncManager.start()
         TaskNotificationManager.createChannel(this)
+        com.theblankstate.preamble.notification.PreambleFcmService.createChannels(this)
+        persistFcmToken()
         GoogleCalendarManager.init(this)
         GoogleTasksManager.init(this)
         MobileAds.initialize(this) {
@@ -116,6 +118,22 @@ class PreambleApplication : Application() {
     private fun generateRecurrenceInstancesNow() {
         val workRequest = androidx.work.OneTimeWorkRequestBuilder<RecurrenceWorker>().build()
         WorkManager.getInstance(this).enqueue(workRequest)
+    }
+
+    private fun persistFcmToken() {
+        appScope.launch(Dispatchers.IO) {
+            try {
+                com.google.firebase.messaging.FirebaseMessaging.getInstance().token
+                    .addOnSuccessListener { token ->
+                        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: return@addOnSuccessListener
+                        com.google.firebase.firestore.FirebaseFirestore.getInstance("preamble")
+                            .collection("users").document(uid)
+                            .update(mapOf("fcmToken" to token, "fcmTokenUpdatedAt" to System.currentTimeMillis()))
+                    }
+            } catch (e: Exception) {
+                android.util.Log.w("PreambleApp", "FCM token persist failed", e)
+            }
+        }
     }
 
     private fun observeTaskChangesForWidget() {
