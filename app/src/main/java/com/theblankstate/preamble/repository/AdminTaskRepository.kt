@@ -96,7 +96,6 @@ class AdminTaskRepository(private val appContext: Context) {
     private suspend fun fetchRemoteBroadcasts(): List<AdminTask> = withContext(Dispatchers.IO) {
         try {
             val snapshot = firestore.collection(COLLECTION)
-                .whereEqualTo("active", true)
                 .get()
                 .await()
 

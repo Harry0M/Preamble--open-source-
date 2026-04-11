@@ -23,6 +23,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           Users
         </a>
+        <a href="/groups" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><circle cx="19" cy="7" r="3"/><path d="M21 21v-2a3 3 0 0 0-2-2.83"/></svg>
+          Groups
+        </a>
         <a href="/broadcasts" class="nav-item">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
           Broadcasts
@@ -68,6 +72,51 @@
 
       <!-- Tasks Tab -->
       <div id="tasksTab">
+        <!-- Task Filters -->
+        <div class="card" style="margin-bottom:1rem;">
+          <div style="padding:1rem 1.5rem;display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;">
+            <div class="search-bar" style="flex:1;min-width:180px;margin:0;">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input type="text" id="taskSearch" placeholder="Search tasks..." oninput="applyTaskFilters()">
+            </div>
+            <select class="form-control" id="filterTaskStatus" onchange="applyTaskFilters()" style="width:auto;min-width:120px;">
+              <option value="all">All Status</option>
+              <option value="pending">Pending</option>
+              <option value="completed">Completed</option>
+            </select>
+            <select class="form-control" id="filterTaskPriority" onchange="applyTaskFilters()" style="width:auto;min-width:120px;">
+              <option value="all">All Priority</option>
+              <option value="3">High</option>
+              <option value="2">Medium</option>
+              <option value="1">Low</option>
+              <option value="0">None</option>
+            </select>
+            <select class="form-control" id="filterTaskSource" onchange="applyTaskFilters()" style="width:auto;min-width:130px;">
+              <option value="all">All Sources</option>
+              <option value="local">Local</option>
+              <option value="google_calendar">Google Calendar</option>
+              <option value="google_tasks">Google Tasks</option>
+            </select>
+            <select class="form-control" id="filterTaskTags" onchange="applyTaskFilters()" style="width:auto;min-width:120px;">
+              <option value="all">All Tags</option>
+            </select>
+            <select class="form-control" id="filterTaskDate" onchange="applyTaskFilters()" style="width:auto;min-width:130px;">
+              <option value="all">All Dates</option>
+              <option value="today">Created Today</option>
+              <option value="week">This Week</option>
+              <option value="month">This Month</option>
+              <option value="has_deadline">Has Deadline</option>
+              <option value="recurring">Recurring</option>
+            </select>
+            <select class="form-control" id="sortTasks" onchange="applyTaskFilters()" style="width:auto;min-width:130px;">
+              <option value="updated">Sort: Updated</option>
+              <option value="priority">Sort: Priority</option>
+              <option value="title">Sort: Title</option>
+              <option value="deadline">Sort: Deadline</option>
+            </select>
+          </div>
+        </div>
+
         <div class="card">
           <div class="task-list-header">
             <h3 id="taskCount">Tasks (0)</h3>
@@ -76,6 +125,7 @@
               Add Task
             </button>
           </div>
+          <div style="padding:0 1.5rem 0.25rem;font-size:0.75rem;color:var(--gray-500);" id="filteredCount"></div>
           <div id="tasksList">
             <div class="loading"><div class="spinner"></div> Loading tasks...</div>
           </div>
@@ -280,17 +330,72 @@
 
     function renderTasks() {
       document.getElementById('taskCount').textContent = `Tasks (${currentTasks.length})`;
+      populateTagFilter();
+      applyTaskFilters();
+    }
+
+    function populateTagFilter() {
+      const tagSet = new Set();
+      currentTasks.forEach(t => {
+        if (t.tags) t.tags.split(',').forEach(tag => { const trimmed = tag.trim(); if (trimmed) tagSet.add(trimmed); });
+      });
+      const select = document.getElementById('filterTaskTags');
+      select.innerHTML = '<option value="all">All Tags</option>' +
+        [...tagSet].sort().map(tag => `<option value="${escapeHtml(tag)}">${escapeHtml(tag)}</option>`).join('');
+    }
+
+    function applyTaskFilters() {
+      const query = (document.getElementById('taskSearch').value || '').toLowerCase().trim();
+      const status = document.getElementById('filterTaskStatus').value;
+      const priority = document.getElementById('filterTaskPriority').value;
+      const source = document.getElementById('filterTaskSource').value;
+      const tag = document.getElementById('filterTaskTags').value;
+      const dateFilter = document.getElementById('filterTaskDate').value;
+      const sortBy = document.getElementById('sortTasks').value;
+      const now = Date.now();
+      const todayStr = new Date().toISOString().slice(0, 10);
+
+      let filtered = currentTasks.filter(t => {
+        if (query && !(t.title || '').toLowerCase().includes(query) && !(t.description || '').toLowerCase().includes(query) && !(t.tags || '').toLowerCase().includes(query)) return false;
+        if (status === 'pending' && t.isCompleted) return false;
+        if (status === 'completed' && !t.isCompleted) return false;
+        if (priority !== 'all' && (t.priority || 0) !== parseInt(priority)) return false;
+        if (source !== 'all' && (t.source || 'local') !== source) return false;
+        if (tag !== 'all' && !(t.tags || '').split(',').map(s => s.trim()).includes(tag)) return false;
+        if (dateFilter === 'today' && t.createdDate !== todayStr) return false;
+        if (dateFilter === 'week') {
+          const d = new Date(t.createdDate);
+          if (isNaN(d) || now - d.getTime() > 604800000) return false;
+        }
+        if (dateFilter === 'month') {
+          const d = new Date(t.createdDate);
+          if (isNaN(d) || now - d.getTime() > 2592000000) return false;
+        }
+        if (dateFilter === 'has_deadline' && !t.deadlineTime) return false;
+        if (dateFilter === 'recurring' && !t.recurrenceType) return false;
+        return true;
+      });
+
+      if (sortBy === 'priority') filtered.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+      else if (sortBy === 'title') filtered.sort((a, b) => (a.title || '').localeCompare(b.title || ''));
+      else if (sortBy === 'deadline') filtered.sort((a, b) => (a.deadlineTime || 'zzz').localeCompare(b.deadlineTime || 'zzz'));
+      else filtered.sort((a, b) => (b.updatedTimestamp || 0) - (a.updatedTimestamp || 0));
+
+      document.getElementById('filteredCount').textContent =
+        filtered.length === currentTasks.length ? '' : `Showing ${filtered.length} of ${currentTasks.length} tasks`;
+      renderFilteredTasks(filtered);
+    }
+
+    function renderFilteredTasks(tasks) {
       const container = document.getElementById('tasksList');
 
-      if (currentTasks.length === 0) {
-        container.innerHTML = '<div class="empty-state"><h4>No tasks yet</h4><p style="color:var(--gray-500);">Add a task using the button above</p></div>';
+      if (tasks.length === 0) {
+        container.innerHTML = '<div class="empty-state"><h4>No tasks match filters</h4><p style="color:var(--gray-500);">Try adjusting your filters or add a task</p></div>';
         return;
       }
 
       const priorityLabels = ['None', 'Low', 'Medium', 'High'];
-      const sorted = [...currentTasks].sort((a, b) => (b.updatedTimestamp || 0) - (a.updatedTimestamp || 0));
-
-      container.innerHTML = sorted.map(t => `
+      container.innerHTML = tasks.map(t => `
         <div class="task-item">
           <div class="task-check ${t.isCompleted ? 'completed' : ''}"></div>
           <div class="task-content">
@@ -301,6 +406,7 @@
               ${t.priority > 0 ? `<span class="badge badge-priority-${t.priority}">${priorityLabels[t.priority]}</span>` : ''}
               ${t.tags ? `<span>🏷 ${t.tags}</span>` : ''}
               ${t.source !== 'local' ? `<span>📡 ${t.source}</span>` : ''}
+              ${t.recurrenceType ? `<span>🔁 ${t.recurrenceType}</span>` : ''}
               ${t.description ? `<span>📝 ${t.description.substring(0, 40)}${t.description.length > 40 ? '...' : ''}</span>` : ''}
             </div>
           </div>
@@ -343,6 +449,14 @@
           <div class="form-group">
             <label>Last Seen (Firestore)</label>
             <div style="color: var(--gray-300);">${u.lastSeenAt ? formatDate(u.lastSeenAt) : 'N/A'}</div>
+          </div>
+          <div class="form-group">
+            <label>Gender</label>
+            <div style="color: var(--gray-300);">${u.gender ? `<span style="text-transform:capitalize;">${escapeHtml(u.gender)}</span>` : 'Not set'}</div>
+          </div>
+          <div class="form-group">
+            <label>Age</label>
+            <div style="color: var(--gray-300);">${u.age || 'Not set'}</div>
           </div>
           <div class="form-group">
             <label>Auth Disabled</label>

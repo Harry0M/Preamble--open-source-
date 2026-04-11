@@ -91,21 +91,27 @@ class PreambleFcmService : FirebaseMessagingService() {
     ) {
         val channelId = if (channelType == "promo") CHANNEL_PROMO else CHANNEL_BROADCAST
 
-        // Build intent: deep link > external URL > just open app
+        // Build intent: deep link > external URL > open app at home
         val intent = when {
             !deepLink.isNullOrBlank() -> {
-                Intent(Intent.ACTION_VIEW, Uri.parse(deepLink)).apply {
-                    setPackage(packageName)
+                // Deep links go to MainActivity explicitly (not ACTION_VIEW which may not resolve)
+                Intent(this, MainActivity::class.java).apply {
+                    action = Intent.ACTION_VIEW
+                    data = Uri.parse(deepLink)
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 }
             }
             !externalUrl.isNullOrBlank() -> {
+                // External URLs open in browser — do NOT set package so system resolves it
                 Intent(Intent.ACTION_VIEW, Uri.parse(externalUrl)).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             }
             else -> {
+                // Default: open home screen via deep link so admin tasks are visible
                 Intent(this, MainActivity::class.java).apply {
+                    action = Intent.ACTION_VIEW
+                    data = Uri.parse("preamble://home")
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 }
             }

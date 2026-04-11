@@ -686,37 +686,6 @@ fun HomeScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Admin broadcast tasks — shown above regular tasks
-                if (adminTasks.isNotEmpty()) {
-                    item(key = "admin_tasks_section") {
-                        Text(
-                            "For You",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(vertical = 4.dp)
-                        )
-                    }
-                    items(
-                        items = adminTasks,
-                        key = { "admin_${it.id}" }
-                    ) { adminTask ->
-                        AdminTaskCard(
-                            task = adminTask,
-                            onDismiss = { onDismissAdminTask?.invoke(adminTask.id) },
-                            onAction = { onAdminTaskAction?.invoke(adminTask.id) },
-                            onClick = {
-                                if (!adminTask.directRedirect) {
-                                    adminTaskToShow = adminTask
-                                }
-                            }
-                        )
-                    }
-                    item(key = "admin_tasks_spacer") {
-                        Spacer(modifier = Modifier.height(4.dp))
-                    }
-                }
-
                 // Today's tasks with timeline view
                 if (tasks.isNotEmpty()) {
                     item(key = "progress_bar") {
@@ -755,6 +724,23 @@ fun HomeScreen(
                                 inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
                             )
                         }
+                    }
+
+                    // Admin broadcast tasks — below progress bar, above regular tasks
+                    items(
+                        items = adminTasks,
+                        key = { "admin_${it.id}" }
+                    ) { adminTask ->
+                        AdminTaskCard(
+                            task = adminTask,
+                            onDismiss = { onDismissAdminTask?.invoke(adminTask.id) },
+                            onAction = { onAdminTaskAction?.invoke(adminTask.id) },
+                            onClick = {
+                                if (!adminTask.directRedirect) {
+                                    adminTaskToShow = adminTask
+                                }
+                            }
+                        )
                     }
 
                     if (isTimelineEnabled) {

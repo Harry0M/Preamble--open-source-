@@ -103,6 +103,8 @@ app.get('/api/users', requireAuth, async (req, res) => {
         lastSeenAt: data.lastSeenAt || null,
         updatedTimestamp: data.updatedTimestamp || null,
         blocked: data.blocked || false,
+        gender: data.gender || null,
+        age: data.age || null,
         taskCount: tasksSnap.size
       });
     }
@@ -148,6 +150,8 @@ app.get('/api/users/:uid', requireAuth, async (req, res) => {
         lastSeenAt: userData.lastSeenAt || null,
         updatedTimestamp: userData.updatedTimestamp || null,
         blocked: userData.blocked || false,
+        gender: userData.gender || null,
+        age: userData.age || null,
         disabled: authUser?.disabled || false,
         creationTime: authUser?.metadata?.creationTime || null,
         lastSignInTime: authUser?.metadata?.lastSignInTime || null
@@ -305,7 +309,15 @@ app.get('/api/stats', requireAuth, async (req, res) => {
 app.get('/api/broadcasts', requireAuth, async (req, res) => {
   try {
     const snap = await firestoreDb.collection('broadcasts').orderBy('createdAt', 'desc').get();
-    const broadcasts = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const broadcasts = snap.docs.map(doc => {
+      const data = doc.data();
+      // Ensure tags is always an array (may be stored as JSON string from older creates)
+      if (typeof data.tags === 'string') {
+        try { data.tags = JSON.parse(data.tags); } catch(e) { data.tags = []; }
+      }
+      if (!Array.isArray(data.tags)) data.tags = [];
+      return { id: doc.id, ...data };
+    });
     res.json({ broadcasts });
   } catch (err) {
     console.error('Error fetching broadcasts:', err);
@@ -313,7 +325,7 @@ app.get('/api/broadcasts', requireAuth, async (req, res) => {
   }
 });
 
-// Create broadcast
+// Create broadcast (+ auto-send push notification)
 app.post('/api/broadcasts', requireAuth, async (req, res) => {
   try {
     const id = generateId();
@@ -342,11 +354,64 @@ app.post('/api/broadcasts', requireAuth, async (req, res) => {
       expiresAt: req.body.expiresAt ? parseInt(req.body.expiresAt) : null,
       active: req.body.active !== false,
       featureKey: req.body.featureKey || null,
-      dismissible: req.body.dismissible !== false
+      dismissible: req.body.dismissible !== false,
+      targetType: req.body.targetType || 'all',    // all, group, single
+      targetGroupId: req.body.targetGroupId || null,
+      targetUids: req.body.targetUids || null
     };
 
     await firestoreDb.collection('broadcasts').doc(id).set(broadcast);
-    res.json({ success: true, id, broadcast });
+
+    // Auto-send push notification if broadcast is active and notify is enabled
+    let notifySent = 0;
+    if (broadcast.active && req.body.autoNotify !== false) {
+      const dataPayload = {
+        title: broadcast.title,
+        body: broadcast.description || broadcast.title,
+        channelType: 'broadcast',
+        deepLink: broadcast.deepLink || 'preamble://home'  // default to home so app navigates
+      };
+
+      try {
+        if (broadcast.targetType === 'group' && broadcast.targetGroupId) {
+          const groupDoc = await firestoreDb.collection('user_groups').doc(broadcast.targetGroupId).get();
+          if (groupDoc.exists) {
+            const uids = await resolveGroupMembers(groupDoc.data());
+            notifySent = await sendNotificationToUids(uids, dataPayload);
+          }
+        } else if (broadcast.targetType === 'single' && broadcast.targetUids) {
+          const uids = Array.isArray(broadcast.targetUids) ? broadcast.targetUids : [broadcast.targetUids];
+          notifySent = await sendNotificationToUids(uids, dataPayload);
+        } else {
+          // Send to all
+          const usersSnap = await firestoreDb.collection('users').get();
+          const tokens = [];
+          usersSnap.docs.forEach(doc => {
+            const data = doc.data();
+            if (data.fcmToken && !data.blocked) tokens.push(data.fcmToken);
+          });
+          notifySent = await sendToTokens(tokens, dataPayload);
+        }
+
+        // Log the auto-notification
+        await firestoreDb.collection('notification_log').add({
+          title: broadcast.title,
+          body: broadcast.description || broadcast.title,
+          deepLink: broadcast.deepLink || null,
+          channelType: 'broadcast',
+          targetType: broadcast.targetType || 'all',
+          targetGroupId: broadcast.targetGroupId || null,
+          sentAt: Date.now(),
+          sentCount: notifySent,
+          sentBy: req.session.user.email,
+          source: 'broadcast_auto'
+        });
+      } catch (notifyErr) {
+        console.error('Auto-notify failed (broadcast still created):', notifyErr);
+      }
+    }
+
+    res.json({ success: true, id, broadcast, notifySent });
   } catch (err) {
     console.error('Error creating broadcast:', err);
     res.status(500).json({ error: 'Failed to create broadcast' });
@@ -399,12 +464,159 @@ app.post('/api/broadcasts/:id/toggle', requireAuth, async (req, res) => {
   }
 });
 
+// ─── User Groups Routes ───
+
+// List all groups
+app.get('/api/groups', requireAuth, async (req, res) => {
+  try {
+    const snap = await firestoreDb.collection('user_groups').orderBy('createdAt', 'desc').get();
+    const groups = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json({ groups });
+  } catch (err) {
+    console.error('Error fetching groups:', err);
+    res.status(500).json({ error: 'Failed to fetch groups' });
+  }
+});
+
+// Create group
+app.post('/api/groups', requireAuth, async (req, res) => {
+  try {
+    const id = generateId();
+    const group = {
+      name: req.body.name || 'Untitled Group',
+      description: req.body.description || null,
+      filterType: req.body.filterType || 'manual',  // manual, gender, age, auto
+      filterGender: req.body.filterGender || null,   // male, female, other
+      filterAgeMin: req.body.filterAgeMin ? parseInt(req.body.filterAgeMin) : null,
+      filterAgeMax: req.body.filterAgeMax ? parseInt(req.body.filterAgeMax) : null,
+      manualUids: req.body.manualUids || [],          // manually added user UIDs
+      createdAt: Date.now()
+    };
+
+    await firestoreDb.collection('user_groups').doc(id).set(group);
+    res.json({ success: true, id, group });
+  } catch (err) {
+    console.error('Error creating group:', err);
+    res.status(500).json({ error: 'Failed to create group' });
+  }
+});
+
+// Update group
+app.put('/api/groups/:id', requireAuth, async (req, res) => {
+  try {
+    const updates = { ...req.body };
+    delete updates.id;
+    if (updates.filterAgeMin) updates.filterAgeMin = parseInt(updates.filterAgeMin);
+    if (updates.filterAgeMax) updates.filterAgeMax = parseInt(updates.filterAgeMax);
+
+    await firestoreDb.collection('user_groups').doc(req.params.id).update(updates);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error updating group:', err);
+    res.status(500).json({ error: 'Failed to update group' });
+  }
+});
+
+// Delete group
+app.delete('/api/groups/:id', requireAuth, async (req, res) => {
+  try {
+    await firestoreDb.collection('user_groups').doc(req.params.id).delete();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting group:', err);
+    res.status(500).json({ error: 'Failed to delete group' });
+  }
+});
+
+// Resolve group members — returns list of UIDs matching the group's filters
+app.get('/api/groups/:id/members', requireAuth, async (req, res) => {
+  try {
+    const groupDoc = await firestoreDb.collection('user_groups').doc(req.params.id).get();
+    if (!groupDoc.exists) return res.status(404).json({ error: 'Group not found' });
+
+    const group = groupDoc.data();
+    const uids = await resolveGroupMembers(group);
+    res.json({ count: uids.length, uids });
+  } catch (err) {
+    console.error('Error resolving group members:', err);
+    res.status(500).json({ error: 'Failed to resolve members' });
+  }
+});
+
+// Helper: resolve group member UIDs based on filters
+async function resolveGroupMembers(group) {
+  if (group.filterType === 'manual') {
+    return group.manualUids || [];
+  }
+
+  const usersSnap = await firestoreDb.collection('users').get();
+  const uids = [];
+
+  for (const doc of usersSnap.docs) {
+    const data = doc.data();
+    if (data.blocked) continue;
+
+    let match = true;
+
+    if (group.filterGender && data.gender) {
+      if (data.gender !== group.filterGender) match = false;
+    } else if (group.filterGender && !data.gender) {
+      match = false; // user has no gender data, skip
+    }
+
+    if (match && group.filterAgeMin != null && data.age != null) {
+      if (data.age < group.filterAgeMin) match = false;
+    }
+    if (match && group.filterAgeMax != null && data.age != null) {
+      if (data.age > group.filterAgeMax) match = false;
+    }
+    if (match && (group.filterAgeMin != null || group.filterAgeMax != null) && data.age == null) {
+      match = false; // no age data, can't filter
+    }
+
+    if (match) uids.push(doc.id);
+  }
+
+  return uids;
+}
+
+// Helper: send FCM notification to a list of UIDs (deduplicates)
+async function sendNotificationToUids(uids, dataPayload) {
+  const uniqueUids = [...new Set(uids)];
+  const tokens = [];
+  for (const uid of uniqueUids) {
+    const userDoc = await firestoreDb.collection('users').doc(uid).get();
+    if (userDoc.exists) {
+      const token = userDoc.data().fcmToken;
+      if (token && !userDoc.data().blocked) tokens.push(token);
+    }
+  }
+  return await sendToTokens(tokens, dataPayload);
+}
+
+// Helper: send FCM to token list in batches (deduplicates tokens)
+async function sendToTokens(tokens, dataPayload) {
+  tokens = [...new Set(tokens)]; // Remove duplicate tokens
+  if (tokens.length === 0) return 0;
+  let sent = 0;
+  for (let i = 0; i < tokens.length; i += 500) {
+    const batch = tokens.slice(i, i + 500);
+    const response = await admin.messaging().sendEachForMulticast({
+      tokens: batch,
+      data: dataPayload,
+      android: { priority: 'high' }
+    });
+    sent += response.successCount;
+  }
+  return sent;
+}
+
 // ─── Push Notifications Routes ───
 
-// Send notification to all users (topic-based)
+// Send notification to users (all, single, or group)
 app.post('/api/notifications/send', requireAuth, async (req, res) => {
   try {
-    const { title, body, deepLink, url, channelType, targetType, targetUid } = req.body;
+    const { title, body, deepLink, url, channelType, targetType, targetUid, targetGroupId } = req.body;
 
     if (!title || !body) {
       return res.status(400).json({ error: 'Title and body are required' });
@@ -433,6 +645,14 @@ app.post('/api/notifications/send', requireAuth, async (req, res) => {
         android: { priority: 'high' }
       });
       sent = 1;
+    } else if (targetType === 'group' && targetGroupId) {
+      // Send to a user group
+      const groupDoc = await firestoreDb.collection('user_groups').doc(targetGroupId).get();
+      if (!groupDoc.exists) {
+        return res.status(400).json({ error: 'Group not found' });
+      }
+      const uids = await resolveGroupMembers(groupDoc.data());
+      sent = await sendNotificationToUids(uids, dataPayload);
     } else {
       // Send to all users who have FCM tokens
       const usersSnap = await firestoreDb.collection('users').get();
@@ -443,21 +663,7 @@ app.post('/api/notifications/send', requireAuth, async (req, res) => {
           tokens.push(data.fcmToken);
         }
       });
-
-      if (tokens.length === 0) {
-        return res.json({ success: true, sent: 0, message: 'No users with FCM tokens found' });
-      }
-
-      // Send in batches of 500 (FCM limit)
-      for (let i = 0; i < tokens.length; i += 500) {
-        const batch = tokens.slice(i, i + 500);
-        const response = await admin.messaging().sendEachForMulticast({
-          tokens: batch,
-          data: dataPayload,
-          android: { priority: 'high' }
-        });
-        sent += response.successCount;
-      }
+      sent = await sendToTokens(tokens, dataPayload);
     }
 
     // Log the notification
@@ -469,6 +675,7 @@ app.post('/api/notifications/send', requireAuth, async (req, res) => {
       channelType: channelType || 'broadcast',
       targetType: targetType || 'all',
       targetUid: targetUid || null,
+      targetGroupId: targetGroupId || null,
       sentAt: Date.now(),
       sentCount: sent,
       sentBy: req.session.user.email
@@ -516,6 +723,10 @@ app.get('/broadcasts', requireAuth, (req, res) => {
 
 app.get('/notifications', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'notifications.html'));
+});
+
+app.get('/groups', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'groups.html'));
 });
 
 app.get('/', (req, res) => {

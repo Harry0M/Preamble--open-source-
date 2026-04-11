@@ -23,6 +23,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           Users
         </a>
+        <a href="/groups" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><circle cx="19" cy="7" r="3"/><path d="M21 21v-2a3 3 0 0 0-2-2.83"/></svg>
+          Groups
+        </a>
         <a href="/broadcasts" class="nav-item">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
           Broadcasts
@@ -73,9 +77,17 @@
 
             <div class="form-group">
               <label>Target</label>
-              <select class="form-control" id="nTarget" onchange="toggleTargetUid()">
+              <select class="form-control" id="nTarget" onchange="toggleTargetFields()">
                 <option value="all">All Users</option>
+                <option value="group">User Group</option>
                 <option value="single">Specific User</option>
+              </select>
+            </div>
+
+            <div class="form-group" id="targetGroupField" style="display:none;">
+              <label>Select Group</label>
+              <select class="form-control" id="nTargetGroup">
+                <option value="">Loading groups...</option>
               </select>
             </div>
 
@@ -138,11 +150,30 @@
     document.addEventListener('DOMContentLoaded', async () => {
       await checkAuth();
       loadHistory();
+      loadGroupOptions();
     });
 
-    function toggleTargetUid() {
+    function toggleTargetFields() {
       const target = document.getElementById('nTarget').value;
       document.getElementById('targetUidGroup').style.display = target === 'single' ? 'block' : 'none';
+      document.getElementById('targetGroupField').style.display = target === 'group' ? 'block' : 'none';
+    }
+
+    async function loadGroupOptions() {
+      try {
+        const res = await fetch('/api/groups');
+        const data = await res.json();
+        const select = document.getElementById('nTargetGroup');
+        if (!data.groups || data.groups.length === 0) {
+          select.innerHTML = '<option value="">No groups created yet</option>';
+          return;
+        }
+        select.innerHTML = data.groups.map(g =>
+          `<option value="${g.id}">${escapeHtml(g.name)} (${g.filterType})</option>`
+        ).join('');
+      } catch (err) {
+        console.error('Failed to load groups:', err);
+      }
     }
 
     async function sendNotification() {
@@ -156,6 +187,7 @@
         body,
         targetType,
         targetUid: targetType === 'single' ? document.getElementById('nTargetUid').value.trim() : null,
+        targetGroupId: targetType === 'group' ? document.getElementById('nTargetGroup').value : null,
         channelType: document.getElementById('nChannel').value,
         deepLink: document.getElementById('nDeepLink').value || null,
         url: document.getElementById('nUrl').value.trim() || null

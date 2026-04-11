@@ -23,6 +23,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           Users
         </a>
+        <a href="/groups" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><circle cx="19" cy="7" r="3"/><path d="M21 21v-2a3 3 0 0 0-2-2.83"/></svg>
+          Groups
+        </a>
         <a href="/broadcasts" class="nav-item">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
           Broadcasts
@@ -54,27 +58,79 @@
         <p>Manage all Preamble users</p>
       </div>
 
-      <!-- Search -->
-      <div class="search-bar">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="text" id="searchInput" placeholder="Search by email or UID..." oninput="filterUsers()">
+      <!-- Filters Bar -->
+      <div class="card" style="margin-bottom:1rem;">
+        <div style="padding:1rem 1.5rem;display:flex;flex-wrap:wrap;gap:0.75rem;align-items:center;">
+          <div class="search-bar" style="flex:1;min-width:200px;margin:0;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input type="text" id="searchInput" placeholder="Search by email or UID..." oninput="applyFilters()">
+          </div>
+          <select class="form-control" id="filterStatus" onchange="applyFilters()" style="width:auto;min-width:120px;">
+            <option value="all">All Status</option>
+            <option value="active">Active</option>
+            <option value="blocked">Blocked</option>
+          </select>
+          <select class="form-control" id="filterGender" onchange="applyFilters()" style="width:auto;min-width:120px;">
+            <option value="all">All Gender</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="other">Other</option>
+            <option value="unknown">Not Set</option>
+          </select>
+          <select class="form-control" id="filterTasks" onchange="applyFilters()" style="width:auto;min-width:140px;">
+            <option value="all">All Task Counts</option>
+            <option value="0">0 tasks</option>
+            <option value="1-10">1-10 tasks</option>
+            <option value="11-50">11-50 tasks</option>
+            <option value="50+">50+ tasks</option>
+          </select>
+          <select class="form-control" id="filterActivity" onchange="applyFilters()" style="width:auto;min-width:140px;">
+            <option value="all">All Activity</option>
+            <option value="today">Active today</option>
+            <option value="week">Active this week</option>
+            <option value="month">Active this month</option>
+            <option value="inactive">Inactive 30+ days</option>
+          </select>
+          <select class="form-control" id="sortBy" onchange="applyFilters()" style="width:auto;min-width:130px;">
+            <option value="lastSeen">Sort: Last Active</option>
+            <option value="tasks">Sort: Task Count</option>
+            <option value="email">Sort: Email</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Mass Actions Bar (hidden until selection) -->
+      <div class="card" id="massActionBar" style="margin-bottom:1rem;display:none;">
+        <div style="padding:0.75rem 1.5rem;display:flex;align-items:center;gap:0.75rem;background:var(--accent-dim);border-radius:var(--radius);">
+          <span id="selectedCount" style="font-weight:600;color:var(--accent);">0 selected</span>
+          <button type="button" class="btn btn-secondary" onclick="massCreateGroup()" style="font-size:0.75rem;">Create Group</button>
+          <button type="button" class="btn btn-secondary" onclick="massSendNotification()" style="font-size:0.75rem;">Send Notification</button>
+          <button type="button" class="btn btn-secondary" onclick="massBlock(true)" style="font-size:0.75rem;">Block</button>
+          <button type="button" class="btn btn-secondary" onclick="massBlock(false)" style="font-size:0.75rem;">Unblock</button>
+          <div style="flex:1;"></div>
+          <button type="button" class="btn btn-ghost" onclick="clearSelection()" style="font-size:0.75rem;">Clear</button>
+        </div>
       </div>
 
       <!-- Users Table -->
       <div class="card">
+        <div style="padding:0.5rem 1.5rem 0;font-size:0.75rem;color:var(--gray-500);" id="userCount"></div>
         <div class="table-container">
           <table>
             <thead>
               <tr>
+                <th style="width:40px;"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()" style="width:auto;"></th>
                 <th>Email</th>
                 <th>UID</th>
+                <th>Gender</th>
+                <th>Age</th>
                 <th>Tasks</th>
                 <th>Status</th>
                 <th>Last Active</th>
               </tr>
             </thead>
             <tbody id="usersTableBody">
-              <tr><td colspan="5" class="loading"><div class="spinner"></div> Loading users...</td></tr>
+              <tr><td colspan="8" class="loading"><div class="spinner"></div> Loading users...</td></tr>
             </tbody>
           </table>
         </div>
@@ -87,6 +143,7 @@
   <script src="/js/app.js"></script>
   <script>
     let allUsers = [];
+    let selectedUids = new Set();
 
     document.addEventListener('DOMContentLoaded', async () => {
       await checkAuth();
@@ -98,47 +155,168 @@
         const res = await fetch('/api/users');
         const data = await res.json();
         allUsers = data.users || [];
-        renderUsers(allUsers);
+        applyFilters();
       } catch (err) {
         console.error('Failed to load users:', err);
-        document.getElementById('usersTableBody').innerHTML = 
-          '<tr><td colspan="5" class="empty-state"><h4>Failed to load users</h4></td></tr>';
+        document.getElementById('usersTableBody').innerHTML =
+          '<tr><td colspan="8" class="empty-state"><h4>Failed to load users</h4></td></tr>';
       }
     }
 
-    function filterUsers() {
+    function applyFilters() {
       const query = document.getElementById('searchInput').value.toLowerCase().trim();
-      if (!query) {
-        renderUsers(allUsers);
-        return;
-      }
-      const filtered = allUsers.filter(u => 
-        (u.email || '').toLowerCase().includes(query) || 
-        (u.uid || '').toLowerCase().includes(query)
-      );
+      const status = document.getElementById('filterStatus').value;
+      const gender = document.getElementById('filterGender').value;
+      const tasks = document.getElementById('filterTasks').value;
+      const activity = document.getElementById('filterActivity').value;
+      const sortBy = document.getElementById('sortBy').value;
+      const now = Date.now();
+
+      let filtered = allUsers.filter(u => {
+        if (query && !(u.email || '').toLowerCase().includes(query) && !(u.uid || '').toLowerCase().includes(query)) return false;
+        if (status === 'active' && u.blocked) return false;
+        if (status === 'blocked' && !u.blocked) return false;
+        if (gender === 'male' && u.gender !== 'male') return false;
+        if (gender === 'female' && u.gender !== 'female') return false;
+        if (gender === 'other' && u.gender !== 'other') return false;
+        if (gender === 'unknown' && u.gender) return false;
+
+        if (tasks === '0' && u.taskCount !== 0) return false;
+        if (tasks === '1-10' && (u.taskCount < 1 || u.taskCount > 10)) return false;
+        if (tasks === '11-50' && (u.taskCount < 11 || u.taskCount > 50)) return false;
+        if (tasks === '50+' && u.taskCount <= 50) return false;
+
+        if (activity === 'today' && (!u.lastSeenAt || now - u.lastSeenAt > 86400000)) return false;
+        if (activity === 'week' && (!u.lastSeenAt || now - u.lastSeenAt > 604800000)) return false;
+        if (activity === 'month' && (!u.lastSeenAt || now - u.lastSeenAt > 2592000000)) return false;
+        if (activity === 'inactive' && u.lastSeenAt && now - u.lastSeenAt < 2592000000) return false;
+
+        return true;
+      });
+
+      // Sort
+      if (sortBy === 'tasks') filtered.sort((a, b) => b.taskCount - a.taskCount);
+      else if (sortBy === 'email') filtered.sort((a, b) => (a.email || '').localeCompare(b.email || ''));
+      else filtered.sort((a, b) => (b.lastSeenAt || 0) - (a.lastSeenAt || 0));
+
+      document.getElementById('userCount').textContent = `Showing ${filtered.length} of ${allUsers.length} users`;
       renderUsers(filtered);
     }
 
     function renderUsers(users) {
       const tbody = document.getElementById('usersTableBody');
       if (users.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="5" class="empty-state"><h4>No users found</h4></td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-state"><h4>No users match filters</h4></td></tr>';
         return;
       }
 
-      tbody.innerHTML = users
-        .sort((a, b) => (b.lastSeenAt || 0) - (a.lastSeenAt || 0))
-        .map(u => `
-          <tr class="clickable-row" onclick="window.location='/users/${u.uid}'">
-            <td>${escapeHtml(u.email)}</td>
-            <td style="font-family: monospace; font-size: 0.75rem; color: var(--gray-500);">${u.uid.substring(0, 16)}...</td>
-            <td>${u.taskCount}</td>
-            <td>${u.blocked 
-              ? '<span class="badge badge-blocked">Blocked</span>' 
-              : '<span class="badge badge-active">Active</span>'}</td>
-            <td>${u.lastSeenAt ? formatDate(u.lastSeenAt) : 'Never'}</td>
-          </tr>
-        `).join('');
+      tbody.innerHTML = users.map(u => `
+        <tr>
+          <td><input type="checkbox" class="user-cb" data-uid="${u.uid}" ${selectedUids.has(u.uid) ? 'checked' : ''} onchange="toggleUser('${u.uid}', this.checked)" style="width:auto;"></td>
+          <td class="clickable-row" onclick="window.location='/users/${u.uid}'" style="cursor:pointer;">${escapeHtml(u.email)}</td>
+          <td style="font-family:monospace;font-size:0.75rem;color:var(--gray-500);">${u.uid.substring(0, 16)}...</td>
+          <td>${u.gender ? `<span class="badge badge-active" style="text-transform:capitalize;">${u.gender}</span>` : '<span style="color:var(--gray-600);">—</span>'}</td>
+          <td>${u.age || '<span style="color:var(--gray-600);">—</span>'}</td>
+          <td>${u.taskCount}</td>
+          <td>${u.blocked
+            ? '<span class="badge badge-blocked">Blocked</span>'
+            : '<span class="badge badge-active">Active</span>'}</td>
+          <td>${u.lastSeenAt ? formatDate(u.lastSeenAt) : 'Never'}</td>
+        </tr>
+      `).join('');
+    }
+
+    function toggleUser(uid, checked) {
+      if (checked) selectedUids.add(uid); else selectedUids.delete(uid);
+      updateMassBar();
+    }
+
+    function toggleSelectAll() {
+      const checked = document.getElementById('selectAll').checked;
+      document.querySelectorAll('.user-cb').forEach(cb => {
+        cb.checked = checked;
+        if (checked) selectedUids.add(cb.dataset.uid); else selectedUids.delete(cb.dataset.uid);
+      });
+      updateMassBar();
+    }
+
+    function clearSelection() {
+      selectedUids.clear();
+      document.querySelectorAll('.user-cb').forEach(cb => cb.checked = false);
+      document.getElementById('selectAll').checked = false;
+      updateMassBar();
+    }
+
+    function updateMassBar() {
+      const bar = document.getElementById('massActionBar');
+      const count = selectedUids.size;
+      bar.style.display = count > 0 ? 'block' : 'none';
+      document.getElementById('selectedCount').textContent = `${count} selected`;
+    }
+
+    async function massCreateGroup() {
+      const name = prompt('Group name:');
+      if (!name) return;
+      try {
+        const res = await fetch('/api/groups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, filterType: 'manual', manualUids: [...selectedUids] })
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(`Group "${name}" created with ${selectedUids.size} users`);
+          clearSelection();
+        } else showToast(data.error || 'Failed', 'error');
+      } catch (err) { showToast('Failed', 'error'); }
+    }
+
+    async function massSendNotification() {
+      const title = prompt('Notification title:');
+      if (!title) return;
+      const body = prompt('Notification body:');
+      if (!body) return;
+      // Create temp group, send, then delete
+      try {
+        const grpRes = await fetch('/api/groups', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: '_temp_mass_' + Date.now(), filterType: 'manual', manualUids: [...selectedUids] })
+        });
+        const grpData = await grpRes.json();
+        if (!grpData.success) return showToast('Failed to create temp group', 'error');
+
+        const notifRes = await fetch('/api/notifications/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, body, targetType: 'group', targetGroupId: grpData.id })
+        });
+        const notifData = await notifRes.json();
+        // Clean up temp group
+        await fetch(`/api/groups/${grpData.id}`, { method: 'DELETE' });
+        if (notifData.success) {
+          showToast(`Notification sent to ${notifData.sent} users`);
+          clearSelection();
+        }
+      } catch (err) { showToast('Failed', 'error'); }
+    }
+
+    async function massBlock(block) {
+      if (!confirm(`${block ? 'Block' : 'Unblock'} ${selectedUids.size} users?`)) return;
+      let success = 0;
+      for (const uid of selectedUids) {
+        try {
+          const res = await fetch(`/api/users/${uid}/block`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ blocked: block })
+          });
+          if ((await res.json()).success) success++;
+        } catch (e) {}
+      }
+      showToast(`${success} users ${block ? 'blocked' : 'unblocked'}`);
+      clearSelection();
+      loadUsers();
     }
   </script>
 </body>

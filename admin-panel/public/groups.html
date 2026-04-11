@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>User Groups — Preamble Admin</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <h1>Preamble</h1>
+        <span>Admin Panel</span>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="/dashboard" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Dashboard
+        </a>
+        <a href="/users" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Users
+        </a>
+        <a href="/groups" class="nav-item active">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><circle cx="19" cy="7" r="3"/><path d="M21 21v-2a3 3 0 0 0-2-2.83"/></svg>
+          Groups
+        </a>
+        <a href="/broadcasts" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+          Broadcasts
+        </a>
+        <a href="/notifications" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          Notifications
+        </a>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="user-info">
+          <div class="user-avatar" id="adminAvatar"></div>
+          <div class="user-meta">
+            <div class="user-name" id="adminName">Admin</div>
+            <div class="user-email" id="adminEmail">admin@email.com</div>
+          </div>
+        </div>
+        <button type="button" class="logout-btn" onclick="logout()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Sign Out
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <div class="page-header">
+        <h2>User Groups</h2>
+        <p>Create groups by gender, age, or manual selection to target broadcasts and notifications</p>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:2rem;">
+        <!-- Create / Edit Group -->
+        <div class="card">
+          <div class="card-header">
+            <h3 id="formTitle">Create Group</h3>
+          </div>
+          <div class="card-body">
+            <input type="hidden" id="editGroupId">
+
+            <div class="form-group">
+              <label>Group Name *</label>
+              <input type="text" class="form-control" id="gName" placeholder="e.g. Young Males, Premium Users">
+            </div>
+
+            <div class="form-group">
+              <label>Description</label>
+              <input type="text" class="form-control" id="gDesc" placeholder="Optional description">
+            </div>
+
+            <div class="form-group">
+              <label>Filter Type</label>
+              <select class="form-control" id="gFilterType" onchange="toggleFilters()">
+                <option value="manual">Manual (pick users)</option>
+                <option value="auto">Auto (gender + age filters)</option>
+              </select>
+            </div>
+
+            <!-- Auto filters -->
+            <div id="autoFilters" style="display:none;">
+              <div class="form-group">
+                <label>Gender</label>
+                <select class="form-control" id="gGender">
+                  <option value="">Any</option>
+                  <option value="male">Male</option>
+                  <option value="female">Female</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+                <div class="form-group">
+                  <label>Min Age</label>
+                  <input type="number" class="form-control" id="gAgeMin" placeholder="e.g. 18">
+                </div>
+                <div class="form-group">
+                  <label>Max Age</label>
+                  <input type="number" class="form-control" id="gAgeMax" placeholder="e.g. 30">
+                </div>
+              </div>
+            </div>
+
+            <!-- Manual user selection -->
+            <div id="manualFilters">
+              <div class="form-group">
+                <label>User UIDs (comma-separated)</label>
+                <textarea class="form-control" id="gManualUids" rows="3" placeholder="Paste user UIDs, one per line or comma-separated"></textarea>
+              </div>
+            </div>
+
+            <div style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+              <button type="button" class="btn btn-primary" onclick="saveGroup()" style="flex:1;">Save Group</button>
+              <button type="button" class="btn btn-secondary" onclick="resetForm()" style="flex:0;">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Groups List -->
+        <div class="card" style="align-self:start;">
+          <div class="card-header">
+            <h3>All Groups</h3>
+          </div>
+          <div id="groupsContainer" style="max-height:600px;overflow-y:auto;">
+            <div class="loading"><div class="spinner"></div> Loading...</div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script src="/js/app.js"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', async () => {
+      await checkAuth();
+      loadGroups();
+    });
+
+    function toggleFilters() {
+      const type = document.getElementById('gFilterType').value;
+      document.getElementById('autoFilters').style.display = type === 'auto' ? 'block' : 'none';
+      document.getElementById('manualFilters').style.display = type === 'manual' ? 'block' : 'none';
+    }
+
+    function resetForm() {
+      document.getElementById('editGroupId').value = '';
+      document.getElementById('gName').value = '';
+      document.getElementById('gDesc').value = '';
+      document.getElementById('gFilterType').value = 'manual';
+      document.getElementById('gGender').value = '';
+      document.getElementById('gAgeMin').value = '';
+      document.getElementById('gAgeMax').value = '';
+      document.getElementById('gManualUids').value = '';
+      document.getElementById('formTitle').textContent = 'Create Group';
+      toggleFilters();
+    }
+
+    async function saveGroup() {
+      const name = document.getElementById('gName').value.trim();
+      if (!name) return showToast('Group name is required', 'error');
+
+      const editId = document.getElementById('editGroupId').value;
+      const filterType = document.getElementById('gFilterType').value;
+
+      const payload = {
+        name,
+        description: document.getElementById('gDesc').value.trim() || null,
+        filterType,
+        filterGender: filterType === 'auto' ? (document.getElementById('gGender').value || null) : null,
+        filterAgeMin: filterType === 'auto' ? (document.getElementById('gAgeMin').value || null) : null,
+        filterAgeMax: filterType === 'auto' ? (document.getElementById('gAgeMax').value || null) : null,
+        manualUids: filterType === 'manual'
+          ? document.getElementById('gManualUids').value.split(/[,\n]/).map(s => s.trim()).filter(Boolean)
+          : []
+      };
+
+      try {
+        const url = editId ? `/api/groups/${editId}` : '/api/groups';
+        const method = editId ? 'PUT' : 'POST';
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast(editId ? 'Group updated' : 'Group created');
+          resetForm();
+          loadGroups();
+        } else {
+          showToast(data.error || 'Failed', 'error');
+        }
+      } catch (err) {
+        showToast('Request failed', 'error');
+      }
+    }
+
+    async function loadGroups() {
+      try {
+        const res = await fetch('/api/groups');
+        const data = await res.json();
+        const container = document.getElementById('groupsContainer');
+
+        if (!data.groups || data.groups.length === 0) {
+          container.innerHTML = '<div class="empty-state"><h4>No groups yet</h4><p>Create your first group to target broadcasts</p></div>';
+          return;
+        }
+
+        container.innerHTML = data.groups.map(g => {
+          const filterDesc = g.filterType === 'auto'
+            ? [g.filterGender, g.filterAgeMin || g.filterAgeMax ? `Age ${g.filterAgeMin || '?'}-${g.filterAgeMax || '?'}` : ''].filter(Boolean).join(', ') || 'All users'
+            : `${(g.manualUids || []).length} users`;
+
+          return `
+          <div style="padding:1rem 1.5rem;border-bottom:1px solid var(--glass-border);">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+              <div style="flex:1;min-width:0;">
+                <div style="font-weight:600;font-size:0.875rem;color:var(--white);">${escapeHtml(g.name)}</div>
+                ${g.description ? `<div style="font-size:0.8125rem;color:var(--gray-300);margin-top:2px;">${escapeHtml(g.description)}</div>` : ''}
+                <div style="display:flex;gap:0.75rem;margin-top:6px;font-size:0.6875rem;color:var(--gray-500);">
+                  <span style="color:var(--accent);">${escapeHtml(g.filterType)}</span>
+                  <span>${escapeHtml(filterDesc)}</span>
+                  <span>${formatDate(g.createdAt)}</span>
+                </div>
+              </div>
+              <div style="display:flex;gap:0.5rem;margin-left:1rem;">
+                <button class="btn btn-secondary" style="padding:0.25rem 0.5rem;font-size:0.75rem;" onclick='editGroup(${JSON.stringify(g).replace(/'/g, "&#39;")})'>Edit</button>
+                <button class="btn btn-danger" style="padding:0.25rem 0.5rem;font-size:0.75rem;" onclick="deleteGroup('${g.id}')">Delete</button>
+              </div>
+            </div>
+          </div>`;
+        }).join('');
+      } catch (err) {
+        console.error('Failed to load groups:', err);
+      }
+    }
+
+    function editGroup(g) {
+      document.getElementById('editGroupId').value = g.id;
+      document.getElementById('gName').value = g.name || '';
+      document.getElementById('gDesc').value = g.description || '';
+      document.getElementById('gFilterType').value = g.filterType || 'manual';
+      document.getElementById('gGender').value = g.filterGender || '';
+      document.getElementById('gAgeMin').value = g.filterAgeMin || '';
+      document.getElementById('gAgeMax').value = g.filterAgeMax || '';
+      document.getElementById('gManualUids').value = (g.manualUids || []).join('\n');
+      document.getElementById('formTitle').textContent = 'Edit Group';
+      toggleFilters();
+    }
+
+    async function deleteGroup(id) {
+      if (!confirm('Delete this group?')) return;
+      try {
+        const res = await fetch(`/api/groups/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Group deleted');
+          loadGroups();
+        }
+      } catch (err) {
+        showToast('Failed to delete', 'error');
+      }
+    }
+  </script>
+</body>
+</html>

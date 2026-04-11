@@ -475,6 +475,8 @@ class TaskViewModel(
     fun syncGoogleData() {
         viewModelScope.launch {
             _isRefreshing.value = true
+            // Also refresh admin tasks (broadcasts) on pull-to-refresh
+            refreshAdminTasks()
             try {
                 val app = appContext.applicationContext as com.theblankstate.preamble.PreambleApplication
                 val summary = GoogleSyncCoordinator.syncLinkedData(

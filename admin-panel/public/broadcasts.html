@@ -23,6 +23,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
           Users
         </a>
+        <a href="/groups" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M3 21v-2a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v2"/><circle cx="19" cy="7" r="3"/><path d="M21 21v-2a3 3 0 0 0-2-2.83"/></svg>
+          Groups
+        </a>
         <a href="/broadcasts" class="nav-item active">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
           Broadcasts
@@ -55,6 +59,37 @@
           <p>Send in-app cards to all users — announcements, features, promotions, socials</p>
         </div>
         <button type="button" class="btn btn-primary" onclick="openCreateModal()">+ New Broadcast</button>
+      </div>
+
+      <!-- Quick Templates -->
+      <div class="card" style="margin-bottom:1.5rem;">
+        <div class="card-header"><h3>Quick Templates</h3></div>
+        <div style="padding:1rem 1.5rem;display:flex;flex-wrap:wrap;gap:0.5rem;">
+          <button type="button" class="btn btn-secondary" onclick="useTemplate('announcement')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="margin-right:4px;"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+            Announcement
+          </button>
+          <button type="button" class="btn btn-secondary" onclick="useTemplate('update')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="margin-right:4px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            App Update
+          </button>
+          <button type="button" class="btn btn-secondary" onclick="useTemplate('social')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="margin-right:4px;"><path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/></svg>
+            Follow Us
+          </button>
+          <button type="button" class="btn btn-secondary" onclick="useTemplate('review')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="margin-right:4px;"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            Rate App
+          </button>
+          <button type="button" class="btn btn-secondary" onclick="useTemplate('promo')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="margin-right:4px;"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+            Premium Upsell
+          </button>
+          <button type="button" class="btn btn-secondary" onclick="useTemplate('tip')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14" style="margin-right:4px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            Feature Tip
+          </button>
+        </div>
       </div>
 
       <!-- Broadcasts List -->
@@ -158,11 +193,23 @@
         </div>
 
         <div class="form-group">
-          <label>Tags (JSON array)</label>
-          <input type="text" class="form-control" id="fTags" placeholder='[{"name":"New","color":"#6366F1"}]'>
-          <div style="font-size:0.6875rem;color:var(--gray-500);margin-top:0.25rem;">
-            Format: [{"name":"Tag Name","color":"#HEX"}] — each tag gets a colored chip in the app
+          <label>Tags</label>
+          <div id="tagChips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;min-height:24px;"></div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="text" class="form-control" id="fTagName" placeholder="Tag name" style="flex:1;">
+            <input type="color" id="fTagColor" value="#6366F1" style="width:40px;height:36px;padding:2px;border:1px solid var(--glass-border);border-radius:var(--radius);background:transparent;cursor:pointer;">
+            <button type="button" class="btn btn-secondary" onclick="addTag()" style="white-space:nowrap;">+ Add</button>
           </div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;">
+            <button type="button" class="tag-preset" onclick="addPresetTag('New','#6366F1')" style="font-size:0.6875rem;padding:2px 8px;border:1px solid #6366F133;background:#6366F118;color:#6366F1;border-radius:12px;cursor:pointer;">New</button>
+            <button type="button" class="tag-preset" onclick="addPresetTag('Update','#4CAF50')" style="font-size:0.6875rem;padding:2px 8px;border:1px solid #4CAF5033;background:#4CAF5018;color:#4CAF50;border-radius:12px;cursor:pointer;">Update</button>
+            <button type="button" class="tag-preset" onclick="addPresetTag('Premium','#FF9800')" style="font-size:0.6875rem;padding:2px 8px;border:1px solid #FF980033;background:#FF980018;color:#FF9800;border-radius:12px;cursor:pointer;">Premium</button>
+            <button type="button" class="tag-preset" onclick="addPresetTag('Social','#E91E63')" style="font-size:0.6875rem;padding:2px 8px;border:1px solid #E91E6333;background:#E91E6318;color:#E91E63;border-radius:12px;cursor:pointer;">Social</button>
+            <button type="button" class="tag-preset" onclick="addPresetTag('Tip','#00BCD4')" style="font-size:0.6875rem;padding:2px 8px;border:1px solid #00BCD433;background:#00BCD418;color:#00BCD4;border-radius:12px;cursor:pointer;">Tip</button>
+            <button type="button" class="tag-preset" onclick="addPresetTag('Review','#FF5722')" style="font-size:0.6875rem;padding:2px 8px;border:1px solid #FF572233;background:#FF572218;color:#FF5722;border-radius:12px;cursor:pointer;">Review</button>
+            <button type="button" class="tag-preset" onclick="addPresetTag('Important','#F44336')" style="font-size:0.6875rem;padding:2px 8px;border:1px solid #F4433633;background:#F4433618;color:#F44336;border-radius:12px;cursor:pointer;">Important</button>
+          </div>
+          <input type="hidden" id="fTags">
         </div>
 
         <div class="form-row">
@@ -184,6 +231,32 @@
           <label>Expires At (optional, leave empty for no expiry)</label>
           <input type="datetime-local" class="form-control" id="fExpiresAt">
         </div>
+
+        <hr style="border-color:var(--glass-border);margin:1rem 0;">
+
+        <div class="form-group">
+          <label>Target Audience</label>
+          <select class="form-control" id="fTargetType" onchange="toggleBroadcastTarget()">
+            <option value="all">All Users</option>
+            <option value="group">User Group</option>
+          </select>
+        </div>
+
+        <div class="form-group" id="fTargetGroupField" style="display:none;">
+          <label>Select Group</label>
+          <select class="form-control" id="fTargetGroupId">
+            <option value="">Loading groups...</option>
+          </select>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
+              <input type="checkbox" id="fAutoNotify" checked style="width:auto;">
+              Send push notification on create
+            </label>
+          </div>
+        </div>
       </div>
       <div class="modal-footer">
         <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
@@ -197,11 +270,144 @@
   <script src="/js/app.js"></script>
   <script>
     let editingId = null;
+    let currentTags = [];
+
+    function renderTagChips() {
+      const container = document.getElementById('tagChips');
+      container.innerHTML = currentTags.map((t, i) =>
+        `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:12px;font-size:0.75rem;font-weight:600;background:${t.color}22;color:${t.color};border:1px solid ${t.color}33;">
+          ${escapeHtml(t.name)}
+          <span onclick="removeTag(${i})" style="cursor:pointer;font-size:1rem;line-height:1;opacity:0.7;">&times;</span>
+        </span>`
+      ).join('');
+      document.getElementById('fTags').value = JSON.stringify(currentTags);
+    }
+
+    function addTag() {
+      const nameInput = document.getElementById('fTagName');
+      const name = nameInput.value.trim();
+      if (!name) return;
+      const color = document.getElementById('fTagColor').value;
+      currentTags.push({ name, color });
+      nameInput.value = '';
+      renderTagChips();
+    }
+
+    function addPresetTag(name, color) {
+      if (currentTags.some(t => t.name === name)) return;
+      currentTags.push({ name, color });
+      renderTagChips();
+    }
+
+    function removeTag(index) {
+      currentTags.splice(index, 1);
+      renderTagChips();
+    }
 
     document.addEventListener('DOMContentLoaded', async () => {
       await checkAuth();
       loadBroadcasts();
+      loadBroadcastGroupOptions();
+      document.getElementById('fTagName').addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); addTag(); }
+      });
     });
+
+    const TEMPLATES = {
+      announcement: {
+        title: 'Important Update',
+        description: 'We have something exciting to share with you!',
+        type: 'announcement',
+        actionLabel: 'Learn More',
+        priority: 50,
+        tags: [{ name: 'Update', color: '#4CAF50' }]
+      },
+      update: {
+        title: 'New Version Available!',
+        description: 'We just shipped new features and improvements. Update now to get the best experience.',
+        type: 'announcement',
+        actionLabel: 'Update Now',
+        priority: 80,
+        tags: [{ name: 'New Version', color: '#2196F3' }],
+        deepLink: 'preamble://home'
+      },
+      social: {
+        title: 'Follow Us on Instagram',
+        description: 'Stay updated with tips, tricks and behind-the-scenes content. Follow @preambleapp!',
+        type: 'social',
+        actionLabel: 'Follow Now',
+        priority: 30,
+        tags: [{ name: 'Social', color: '#E91E63' }],
+        actionUrl: 'https://instagram.com/preambleapp',
+        directRedirect: true
+      },
+      review: {
+        title: 'Enjoying Preamble?',
+        description: 'Your review helps us grow and build better features for you. It only takes a moment!',
+        type: 'social',
+        actionLabel: 'Rate Now',
+        priority: 40,
+        tags: [{ name: 'Review', color: '#FF9800' }],
+        actionUrl: 'https://play.google.com/store/apps/details?id=com.theblankstate.preamble',
+        directRedirect: true
+      },
+      promo: {
+        title: 'Unlock Premium Features',
+        description: 'Custom themes, advanced stats, and more — watch a quick ad to unlock for free!',
+        type: 'promotion',
+        actionLabel: 'Unlock Free',
+        priority: 60,
+        tags: [{ name: 'Premium', color: '#6366F1' }],
+        deepLink: 'preamble://settings/theme'
+      },
+      tip: {
+        title: 'Did You Know?',
+        description: 'You can break down complex tasks into subtasks with AI. Try it on your next big task!',
+        type: 'feature',
+        actionLabel: 'Try Now',
+        priority: 40,
+        tags: [{ name: 'Tip', color: '#00BCD4' }],
+        deepLink: 'preamble://home'
+      }
+    };
+
+    function useTemplate(key) {
+      const t = TEMPLATES[key];
+      if (!t) return;
+      openCreateModal();
+      document.getElementById('fTitle').value = t.title || '';
+      document.getElementById('fDescription').value = t.description || '';
+      document.getElementById('fType').value = t.type || 'announcement';
+      document.getElementById('fPriority').value = t.priority || 0;
+      document.getElementById('fActionLabel').value = t.actionLabel || 'Open Now';
+      document.getElementById('fActionUrl').value = t.actionUrl || '';
+      document.getElementById('fDeepLink').value = t.deepLink || '';
+      currentTags = JSON.parse(JSON.stringify(t.tags || []));
+      renderTagChips();
+      document.getElementById('fDirectRedirect').checked = t.directRedirect || false;
+    }
+
+    function toggleBroadcastTarget() {
+      const type = document.getElementById('fTargetType').value;
+      document.getElementById('fTargetGroupField').style.display = type === 'group' ? 'block' : 'none';
+    }
+
+    async function loadBroadcastGroupOptions() {
+      try {
+        const res = await fetch('/api/groups');
+        const data = await res.json();
+        const select = document.getElementById('fTargetGroupId');
+        if (!data.groups || data.groups.length === 0) {
+          select.innerHTML = '<option value="">No groups created yet</option>';
+          return;
+        }
+        select.innerHTML = data.groups.map(g =>
+          `<option value="${g.id}">${escapeHtml(g.name)} (${g.filterType})</option>`
+        ).join('');
+      } catch (err) {
+        console.error('Failed to load groups:', err);
+      }
+    }
 
     async function loadBroadcasts() {
       try {
@@ -221,7 +427,10 @@
             promotion: 'warning',
             social: 'danger'
           };
-          const tagsHtml = (b.tags || []).map(t =>
+          let parsedTags = b.tags || [];
+          if (typeof parsedTags === 'string') { try { parsedTags = JSON.parse(parsedTags); } catch(e) { parsedTags = []; } }
+          if (!Array.isArray(parsedTags)) parsedTags = [];
+          const tagsHtml = parsedTags.map(t =>
             `<span class="badge" style="background:${t.color}22;color:${t.color};margin-right:4px;">${escapeHtml(t.name)}</span>`
           ).join('') || '<span style="color:var(--gray-600)">—</span>';
 
@@ -282,10 +491,14 @@
       document.getElementById('fActionUrl').value = '';
       document.getElementById('fDeepLink').value = '';
       document.getElementById('fImageUrl').value = '';
-      document.getElementById('fTags').value = '';
+      currentTags = [];
+      renderTagChips();
       document.getElementById('fDirectRedirect').checked = false;
       document.getElementById('fDismissible').checked = true;
       document.getElementById('fExpiresAt').value = '';
+      document.getElementById('fTargetType').value = 'all';
+      document.getElementById('fAutoNotify').checked = true;
+      document.getElementById('fTargetGroupField').style.display = 'none';
       document.getElementById('broadcastModal').classList.add('active');
     }
 
@@ -308,10 +521,17 @@
       document.getElementById('fActionUrl').value = b.actionUrl || '';
       document.getElementById('fDeepLink').value = b.deepLink || '';
       document.getElementById('fImageUrl').value = b.imageUrl || '';
-      document.getElementById('fTags').value = b.tags ? JSON.stringify(b.tags) : '';
+      let loadedTags = b.tags || [];
+      if (typeof loadedTags === 'string') { try { loadedTags = JSON.parse(loadedTags); } catch(e) { loadedTags = []; } }
+      currentTags = Array.isArray(loadedTags) ? JSON.parse(JSON.stringify(loadedTags)) : [];
+      renderTagChips();
       document.getElementById('fDirectRedirect').checked = b.directRedirect || false;
       document.getElementById('fDismissible').checked = b.dismissible !== false;
       document.getElementById('fExpiresAt').value = b.expiresAt ? new Date(b.expiresAt).toISOString().slice(0, 16) : '';
+      document.getElementById('fTargetType').value = b.targetType || 'all';
+      document.getElementById('fTargetGroupId').value = b.targetGroupId || '';
+      document.getElementById('fAutoNotify').checked = false; // Don't re-notify on edit
+      toggleBroadcastTarget();
 
       document.getElementById('broadcastModal').classList.add('active');
     }
@@ -321,11 +541,19 @@
       editingId = null;
     }
 
+    let isSubmitting = false;
     async function submitBroadcast() {
+      if (isSubmitting) return;
       const title = document.getElementById('fTitle').value.trim();
       if (!title) return showToast('Title is required', 'error');
 
+      isSubmitting = true;
+      const btn = document.getElementById('modalSubmitBtn');
+      btn.disabled = true;
+      btn.textContent = 'Sending...';
+
       const expiresAtStr = document.getElementById('fExpiresAt').value;
+      const targetType = document.getElementById('fTargetType').value;
       const payload = {
         title,
         description: document.getElementById('fDescription').value.trim() || null,
@@ -336,10 +564,13 @@
         actionUrl: document.getElementById('fActionUrl').value.trim() || null,
         deepLink: document.getElementById('fDeepLink').value || null,
         imageUrl: document.getElementById('fImageUrl').value.trim() || null,
-        tags: document.getElementById('fTags').value.trim() || '[]',
+        tags: JSON.stringify(currentTags),
         directRedirect: document.getElementById('fDirectRedirect').checked,
         dismissible: document.getElementById('fDismissible').checked,
-        expiresAt: expiresAtStr ? new Date(expiresAtStr).getTime() : null
+        expiresAt: expiresAtStr ? new Date(expiresAtStr).getTime() : null,
+        targetType,
+        targetGroupId: targetType === 'group' ? document.getElementById('fTargetGroupId').value : null,
+        autoNotify: document.getElementById('fAutoNotify').checked
       };
 
       try {
@@ -352,7 +583,9 @@
         });
         const data = await res.json();
         if (data.success) {
-          showToast(editingId ? 'Broadcast updated' : 'Broadcast created');
+          const msg = editingId ? 'Broadcast updated' :
+            (data.notifySent ? `Broadcast created — notification sent to ${data.notifySent} user${data.notifySent !== 1 ? 's' : ''}` : 'Broadcast created');
+          showToast(msg);
           closeModal();
           loadBroadcasts();
         } else {
@@ -360,6 +593,10 @@
         }
       } catch (err) {
         showToast('Request failed', 'error');
+      } finally {
+        isSubmitting = false;
+        btn.disabled = false;
+        btn.textContent = editingId ? 'Save Changes' : 'Create';
       }
     }
 

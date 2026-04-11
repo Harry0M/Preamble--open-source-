@@ -47,6 +47,8 @@ import com.theblankstate.preamble.ui.screens.StatsScreen
 import com.theblankstate.preamble.sync.GoogleSyncCoordinator
 import com.theblankstate.preamble.ui.theme.PreambleTheme
 import com.theblankstate.preamble.ui.theme.ThemePreferences
+import com.theblankstate.preamble.auth.AuthManager
+import com.theblankstate.preamble.ui.components.ProfileSetupDialog
 import com.theblankstate.preamble.viewmodel.TaskViewModel
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
@@ -95,6 +97,29 @@ class MainActivity : ComponentActivity() {
                     val viewModel: TaskViewModel = viewModel(
                         factory = TaskViewModel.Factory(app.repository, app)
                     )
+
+                    // Show profile setup dialog once if signed in but profile not collected
+                    val profileDone = prefs.getBoolean("profile_setup_done", false)
+                    var showProfileDialog by remember {
+                        mutableStateOf(
+                            !profileDone && AuthManager.isSignedIn()
+                        )
+                    }
+
+                    if (showProfileDialog) {
+                        ProfileSetupDialog(
+                            onSubmit = { gender, age ->
+                                prefs.edit().putBoolean("profile_setup_done", true).apply()
+                                showProfileDialog = false
+                                saveProfileToFirestore(gender, age)
+                            },
+                            onSkip = {
+                                prefs.edit().putBoolean("profile_setup_done", true).apply()
+                                showProfileDialog = false
+                            }
+                        )
+                    }
+
                     PreambleApp(
                         viewModel = viewModel,
                         deepLinkTarget = deepLinkTarget,
@@ -197,6 +222,28 @@ class MainActivity : ComponentActivity() {
     private fun postNotification() {
         // Notification is automatically managed by TaskNotificationService
     }
+
+    private fun saveProfileToFirestore(gender: String?, age: Int?) {
+        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: return
+        val updates = mutableMapOf<String, Any>()
+        if (gender != null) updates["gender"] = gender
+        if (age != null) updates["age"] = age
+
+        if (updates.isEmpty()) return
+
+        lifecycleScope.launch {
+            try {
+                com.google.firebase.firestore.FirebaseFirestore.getInstance("preamble")
+                    .collection("users").document(uid)
+                    .update(updates)
+                    .addOnFailureListener { e ->
+                        android.util.Log.w("MainActivity", "Failed to save profile", e)
+                    }
+            } catch (e: Exception) {
+                android.util.Log.e("MainActivity", "Error saving profile", e)
+            }
+        }
+    }
 }
 
 @Composable
@@ -213,6 +260,8 @@ fun PreambleApp(
     // Handle deep link navigation
     androidx.compose.runtime.LaunchedEffect(deepLinkTarget) {
         if (deepLinkTarget != null) {
+            // Refresh admin tasks whenever a deep link brings us back
+            viewModel.refreshAdminTasks()
             when {
                 deepLinkTarget.startsWith("home") -> selectedTab = 0
                 deepLinkTarget.startsWith("stats") -> {
@@ -224,6 +273,18 @@ fun PreambleApp(
             }
             onDeepLinkConsumed()
         }
+    }
+
+    // Refresh admin tasks when app resumes (e.g. after tapping a notification)
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshAdminTasks()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     val aiChatViewModel: AiChatViewModel = viewModel(
