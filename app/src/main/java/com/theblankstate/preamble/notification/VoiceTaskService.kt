@@ -615,20 +615,27 @@ class VoiceTaskService : Service() {
         } catch (_: Exception) { null }
     }
 
-    /** Auto-set default reminder and schedule all reminders for a task with deadlineTime */
+    /** Auto-set default reminder and schedule all reminders for a task */
     private suspend fun scheduleAlarmForTask(task: com.theblankstate.preamble.data.Task) {
-        val time = task.deadlineTime ?: return
         val app = applicationContext as PreambleApplication
 
-        // Auto-set default 10-min reminder if no reminders exist
+        // Auto-set default reminder if no reminders exist
         val taskWithReminder = if (task.remindersJson == null) {
-            val defaultReminders = listOf(com.theblankstate.preamble.data.Reminder.DEFAULT)
-            val updated = task.copy(remindersJson = com.theblankstate.preamble.data.Reminder.toJson(defaultReminders))
-            app.repository.updateTask(updated)
-            updated
+            val defaultReminder = if (task.deadlineTime != null) {
+                // Tasks with deadline: 10-min-before reminder
+                com.theblankstate.preamble.data.Reminder.DEFAULT
+            } else {
+                // All-day tasks (no deadline): 9 AM morning reminder on task date
+                com.theblankstate.preamble.data.Reminder.defaultAllDay(task.createdDate)
+            }
+            if (defaultReminder != null) {
+                val updated = task.copy(remindersJson = com.theblankstate.preamble.data.Reminder.toJson(listOf(defaultReminder)))
+                app.repository.updateTask(updated)
+                updated
+            } else task
         } else task
 
-        // Schedule all reminders
+        // Schedule all reminders (works for both "before" and "exact" types)
         TaskAlarmManager.scheduleReminders(applicationContext, taskWithReminder)
         Log.d("PreambleAlarm", "Scheduled reminders for '${task.title}'")
     }

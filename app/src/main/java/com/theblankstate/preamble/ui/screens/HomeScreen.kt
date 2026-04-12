@@ -1220,6 +1220,11 @@ fun HomeScreen(
                             entries.add(AlarmEntry(task, triggerMs, isLegacy = false, desc))
                         }
                     }
+                    // Also show snoozed alarm if present (set via alarm snooze button)
+                    val snoozeMs = task.customAlarmTimeMs
+                    if (snoozeMs != null && snoozeMs > now) {
+                        entries.add(AlarmEntry(task, snoozeMs, isLegacy = true, "Snoozed → ${timeFmt.format(Date(snoozeMs))}"))
+                    }
                 } else {
                     // Legacy single-alarm system
                     val triggerMs = task.customAlarmTimeMs ?: run {
@@ -1401,7 +1406,12 @@ fun HomeScreen(
     }
 
     // Read-only task detail bottom sheet
-    taskToShowDetail?.let { task ->
+    taskToShowDetail?.let { snapshotTask ->
+        // Derive live task from reactive tasks list so UI updates in real-time (e.g. reminders)
+        val liveTask = tasks.find { it.id == snapshotTask.id }
+            ?: pastTasks.values.flatten().find { it.id == snapshotTask.id }
+            ?: snapshotTask
+        val task = liveTask
         val subtasks = subtasksProvider?.invoke(task.id)?.collectAsState(initial = emptyList())?.value ?: emptyList()
         val todayStr = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()) }
         val isPast = task.createdDate < todayStr

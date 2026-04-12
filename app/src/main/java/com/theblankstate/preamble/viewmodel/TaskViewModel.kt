@@ -594,12 +594,21 @@ class TaskViewModel(
                     current + (finalTask.id to Pair(0, subtasks.size))
                 }
             }
-            // Auto-set default 10-min reminder for tasks with a deadline time
-            val taskWithReminder = if (deadlineTime != null && finalTask.remindersJson == null) {
-                val defaultReminders = listOf(com.theblankstate.preamble.data.Reminder.DEFAULT)
-                val updated = finalTask.copy(remindersJson = com.theblankstate.preamble.data.Reminder.toJson(defaultReminders))
-                repository.updateTask(updated)
-                updated
+            // Auto-set default reminder for new tasks without existing reminders
+            val taskWithReminder = if (finalTask.remindersJson == null) {
+                val defaultReminder = if (deadlineTime != null) {
+                    // Tasks with deadline: 10-min-before reminder
+                    com.theblankstate.preamble.data.Reminder.DEFAULT
+                } else {
+                    // All-day tasks (no deadline): 9 AM morning reminder on task date
+                    val taskDate = finalTask.createdDate
+                    com.theblankstate.preamble.data.Reminder.defaultAllDay(taskDate)
+                }
+                if (defaultReminder != null) {
+                    val updated = finalTask.copy(remindersJson = com.theblankstate.preamble.data.Reminder.toJson(listOf(defaultReminder)))
+                    repository.updateTask(updated)
+                    updated
+                } else finalTask
             } else finalTask
             scheduleOrCancelAlarm(taskWithReminder)
             refreshStats()

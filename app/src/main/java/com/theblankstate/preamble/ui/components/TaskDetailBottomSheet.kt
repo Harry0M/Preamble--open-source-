@@ -647,7 +647,7 @@ fun TaskDetailBottomSheet(
             // ═══════════════════════════════════════════════════════════════
             // REMINDERS (interactive)
             // ═══════════════════════════════════════════════════════════════
-            if (task.hasReminders || (onAddReminder != null && !task.isInfoOnly && task.deadlineTime != null)) {
+            if (task.hasReminders || (onAddReminder != null && !task.isInfoOnly)) {
                 Spacer(modifier = Modifier.height(16.dp))
                 val reminders = task.localReminders
                 var showAddReminderMenu by remember { mutableStateOf(false) }
@@ -708,46 +708,189 @@ fun TaskDetailBottomSheet(
                                         fontWeight = FontWeight.SemiBold,
                                         modifier = Modifier.padding(bottom = 8.dp)
                                     )
-                                    val presets = listOf(
-                                        "5 min before" to 5,
-                                        "10 min before" to 10,
-                                        "15 min before" to 15,
-                                        "30 min before" to 30,
-                                        "1 hour before" to 60,
-                                        "1 day before" to 1440
-                                    )
-                                    // Show as 2-column grid
-                                    for (row in presets.chunked(2)) {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                        ) {
-                                            for ((label, minutes) in row) {
-                                                val alreadyExists = reminders.any { it.minutesBefore == minutes && it.type == "before" }
-                                                Surface(
-                                                    shape = RoundedCornerShape(8.dp),
-                                                    color = if (alreadyExists)
-                                                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
-                                                    else
-                                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                                    modifier = Modifier
-                                                        .weight(1f)
-                                                        .padding(vertical = 3.dp)
-                                                        .clip(RoundedCornerShape(8.dp))
-                                                        .clickable(enabled = !alreadyExists) {
-                                                            onAddReminder(com.theblankstate.preamble.data.Reminder(minutesBefore = minutes, type = "before"))
-                                                            showAddReminderMenu = false
-                                                        }
+                                    val now = System.currentTimeMillis()
+                                    val hasDeadline = task.deadlineTime != null
+
+                                    if (hasDeadline) {
+                                        // ── TASKS WITH DEADLINE ──
+                                        val deadlineEpoch = remember(task.createdDate, task.deadlineTime) {
+                                            try {
+                                                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                                                sdf.parse("${task.createdDate} ${task.deadlineTime}")?.time
+                                            } catch (_: Exception) { null }
+                                        }
+                                        val allBeforePresetsExpired = deadlineEpoch != null && (deadlineEpoch - 5 * 60 * 1000L) <= now
+
+                                        if (!allBeforePresetsExpired) {
+                                            // Normal mode: show "X min before" presets, filtering out expired ones
+                                            val beforePresets = listOf(
+                                                "5 min before" to 5,
+                                                "10 min before" to 10,
+                                                "15 min before" to 15,
+                                                "30 min before" to 30,
+                                                "1 hour before" to 60,
+                                                "1 day before" to 1440
+                                            ).filter { (_, minutes) ->
+                                                deadlineEpoch == null || (deadlineEpoch - minutes * 60 * 1000L) > now
+                                            }
+                                            for (row in beforePresets.chunked(2)) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                                 ) {
-                                                    Text(
-                                                        text = if (alreadyExists) "✓ $label" else label,
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                                        color = if (alreadyExists)
-                                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                                        else
-                                                            MaterialTheme.colorScheme.primary
-                                                    )
+                                                    for ((label, minutes) in row) {
+                                                        val alreadyExists = reminders.any { it.minutesBefore == minutes && it.type == "before" }
+                                                        Surface(
+                                                            shape = RoundedCornerShape(8.dp),
+                                                            color = if (alreadyExists)
+                                                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f)
+                                                            else
+                                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .padding(vertical = 3.dp)
+                                                                .clip(RoundedCornerShape(8.dp))
+                                                                .clickable(enabled = !alreadyExists) {
+                                                                    onAddReminder(com.theblankstate.preamble.data.Reminder(minutesBefore = minutes, type = "before"))
+                                                                    showAddReminderMenu = false
+                                                                }
+                                                        ) {
+                                                            Text(
+                                                                text = if (alreadyExists) "✓ $label" else label,
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                                                color = if (alreadyExists)
+                                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                                else
+                                                                    MaterialTheme.colorScheme.primary
+                                                            )
+                                                        }
+                                                    }
+                                                    if (row.size == 1) {
+                                                        Spacer(modifier = Modifier.weight(1f))
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            // Overdue mode: deadline has passed, show "from now" alternatives
+                                            Text(
+                                                "Deadline passed — remind from now",
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(bottom = 6.dp)
+                                            )
+                                            val fromNowPresets = listOf(
+                                                "In 5 min" to 5L,
+                                                "In 15 min" to 15L,
+                                                "In 30 min" to 30L,
+                                                "In 1 hour" to 60L
+                                            )
+                                            for (row in fromNowPresets.chunked(2)) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    for ((label, minutes) in row) {
+                                                        Surface(
+                                                            shape = RoundedCornerShape(8.dp),
+                                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                                            modifier = Modifier
+                                                                .weight(1f)
+                                                                .padding(vertical = 3.dp)
+                                                                .clip(RoundedCornerShape(8.dp))
+                                                                .clickable {
+                                                                    val triggerMs = System.currentTimeMillis() + minutes * 60 * 1000L
+                                                                    onAddReminder(com.theblankstate.preamble.data.Reminder(epochMs = triggerMs, type = "exact"))
+                                                                    showAddReminderMenu = false
+                                                                }
+                                                        ) {
+                                                            Text(
+                                                                text = label,
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                                                color = MaterialTheme.colorScheme.primary
+                                                            )
+                                                        }
+                                                    }
+                                                    if (row.size == 1) {
+                                                        Spacer(modifier = Modifier.weight(1f))
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        // ── ALL-DAY TASKS (no deadline) ──
+                                        // Show absolute time presets like industry apps (Todoist, Microsoft To Do, TickTick)
+                                        Text(
+                                            "All-day task — pick a reminder time",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.padding(bottom = 6.dp)
+                                        )
+                                        // Build smart presets based on current time of day
+                                        val cal = java.util.Calendar.getInstance()
+                                        val currentHour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+                                        val allDayPresets = remember(currentHour) {
+                                            val presets = mutableListOf<Pair<String, Long>>()
+                                            val c = java.util.Calendar.getInstance()
+
+                                            // "In 1 hour" — always useful
+                                            presets.add("In 1 hour" to (System.currentTimeMillis() + 60 * 60 * 1000L))
+
+                                            // "In 3 hours" — always useful
+                                            presets.add("In 3 hours" to (System.currentTimeMillis() + 3 * 60 * 60 * 1000L))
+
+                                            // "Today 6 PM" — only if before 6 PM
+                                            if (currentHour < 18) {
+                                                c.timeInMillis = System.currentTimeMillis()
+                                                c.set(java.util.Calendar.HOUR_OF_DAY, 18)
+                                                c.set(java.util.Calendar.MINUTE, 0)
+                                                c.set(java.util.Calendar.SECOND, 0)
+                                                c.set(java.util.Calendar.MILLISECOND, 0)
+                                                if (c.timeInMillis > System.currentTimeMillis()) {
+                                                    presets.add("Today 6 PM" to c.timeInMillis)
+                                                }
+                                            }
+
+                                            // "Tomorrow 9 AM" — always useful
+                                            c.timeInMillis = System.currentTimeMillis()
+                                            c.add(java.util.Calendar.DAY_OF_YEAR, 1)
+                                            c.set(java.util.Calendar.HOUR_OF_DAY, 9)
+                                            c.set(java.util.Calendar.MINUTE, 0)
+                                            c.set(java.util.Calendar.SECOND, 0)
+                                            c.set(java.util.Calendar.MILLISECOND, 0)
+                                            presets.add("Tomorrow 9 AM" to c.timeInMillis)
+
+                                            presets.toList()
+                                        }
+                                        for (row in allDayPresets.chunked(2)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                for ((label, epochMs) in row) {
+                                                    Surface(
+                                                        shape = RoundedCornerShape(8.dp),
+                                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                                        modifier = Modifier
+                                                            .weight(1f)
+                                                            .padding(vertical = 3.dp)
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .clickable {
+                                                                onAddReminder(com.theblankstate.preamble.data.Reminder(epochMs = epochMs, type = "exact"))
+                                                                showAddReminderMenu = false
+                                                            }
+                                                    ) {
+                                                        Text(
+                                                            text = label,
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                                            color = MaterialTheme.colorScheme.primary
+                                                        )
+                                                    }
+                                                }
+                                                if (row.size == 1) {
+                                                    Spacer(modifier = Modifier.weight(1f))
                                                 }
                                             }
                                         }

@@ -340,6 +340,13 @@ class FirebaseTaskSyncManager(
                 val local = localById[remote.id]
                 local == null || remote.updatedTimestamp >= local.updatedTimestamp
             }
+        }.map { remote ->
+            // Preserve local remindersJson if remote doesn't have it (backward compat:
+            // old Firestore docs were pushed before remindersJson was synced)
+            val local = localById[remote.id]
+            if (remote.remindersJson == null && local?.remindersJson != null) {
+                remote.copy(remindersJson = local.remindersJson)
+            } else remote
         }
 
         if (upserts.isNotEmpty()) {
@@ -606,7 +613,8 @@ data class RemoteTask(
     var isAlarmPaused: Boolean = false,
     var snoozedUntil: Long? = null,
     var mediaJson: String? = null,
-    var linksJson: String? = null
+    var linksJson: String? = null,
+    var remindersJson: String? = null
 ) {
     fun toLocal(fallbackId: String): Task? {
         val resolvedId = id.ifBlank { fallbackId }
@@ -642,7 +650,8 @@ data class RemoteTask(
             isAlarmPaused = isAlarmPaused,
             snoozedUntil = snoozedUntil,
             mediaJson = mediaJson,
-            linksJson = linksJson
+            linksJson = linksJson,
+            remindersJson = remindersJson
         )
     }
 
@@ -676,7 +685,8 @@ data class RemoteTask(
                 isAlarmPaused = task.isAlarmPaused,
                 snoozedUntil = task.snoozedUntil,
                 mediaJson = task.mediaJson,
-                linksJson = task.linksJson
+                linksJson = task.linksJson,
+                remindersJson = task.remindersJson
             )
         }
     }

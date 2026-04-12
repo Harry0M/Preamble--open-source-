@@ -44,6 +44,24 @@ data class Reminder(
     companion object {
         const val MAX_REMINDERS = 5
         val DEFAULT = Reminder(minutesBefore = 10, type = "before") // 10 min before
+        const val ALL_DAY_DEFAULT_HOUR = 9 // 9:00 AM morning reminder for all-day tasks
+
+        /** Create a default 9:00 AM reminder for all-day tasks (no deadline) */
+        fun defaultAllDay(taskDate: String): Reminder? {
+            return try {
+                val cal = java.util.Calendar.getInstance().apply {
+                    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault())
+                    time = sdf.parse(taskDate) ?: return null
+                    set(java.util.Calendar.HOUR_OF_DAY, ALL_DAY_DEFAULT_HOUR)
+                    set(java.util.Calendar.MINUTE, 0)
+                    set(java.util.Calendar.SECOND, 0)
+                    set(java.util.Calendar.MILLISECOND, 0)
+                }
+                if (cal.timeInMillis > System.currentTimeMillis()) {
+                    Reminder(epochMs = cal.timeInMillis, type = "exact")
+                } else null // Don't create past reminders
+            } catch (_: Exception) { null }
+        }
 
         fun fromJson(json: String?): List<Reminder> {
             if (json.isNullOrBlank()) return emptyList()

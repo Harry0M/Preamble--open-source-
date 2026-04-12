@@ -80,7 +80,7 @@ class AiParsingWorker(
                             val subtasksList = TaskTools.parseSubtasks(call.arguments["subtasks"])
                             val validRecurrence = recurrence?.takeIf { it in listOf("daily", "weekly", "monthly", "yearly") }
 
-                            val updated = task.copy(
+                            var updated = task.copy(
                                 title = refinedTitle,
                                 createdDate = date ?: today,
                                 deadlineTime = time,
@@ -91,9 +91,27 @@ class AiParsingWorker(
                                 isSyncing = false,
                                 updatedTimestamp = System.currentTimeMillis()
                             )
+                            // Auto-set default reminder if none exist
+                            if (updated.remindersJson == null) {
+                                val defaultReminder = if (time != null) {
+                                    // Tasks with deadline: 10-min-before reminder
+                                    com.theblankstate.preamble.data.Reminder.DEFAULT
+                                } else {
+                                    // All-day tasks (no deadline): 9 AM morning reminder
+                                    com.theblankstate.preamble.data.Reminder.defaultAllDay(updated.createdDate)
+                                }
+                                if (defaultReminder != null) {
+                                    updated = updated.copy(remindersJson = com.theblankstate.preamble.data.Reminder.toJson(listOf(defaultReminder)))
+                                }
+                            }
                             app.repository.updateTask(updated)
                             if (tags != null) {
                                 app.repository.saveTagOverride(taskId, tags)
+                            }
+                            // Schedule alarm reminders (works for both deadline and all-day tasks)
+                            if (updated.remindersJson != null) {
+                                com.theblankstate.preamble.notification.TaskAlarmManager.scheduleReminders(applicationContext, updated)
+                                Log.d(TAG, "Scheduled reminders for task $taskId")
                             }
                             // Add subtasks if AI generated them
                             if (subtasksList.isNotEmpty()) {
