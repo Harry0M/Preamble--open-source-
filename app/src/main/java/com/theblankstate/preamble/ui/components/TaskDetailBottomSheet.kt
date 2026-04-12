@@ -58,9 +58,16 @@ import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material.icons.filled.HourglassBottom
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.WbSunny
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Canvas
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -100,6 +107,34 @@ import com.theblankstate.preamble.data.Task
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// === DESIGN TOKENS === //
+private val SpaceXS = 4.dp
+private val SpaceSM = 8.dp
+private val SpaceMD = 12.dp
+private val SpaceLG = 16.dp
+private val SpaceXL = 24.dp
+private val SpaceXXL = 32.dp
+
+private val RadiusSM = 8.dp
+private val RadiusMD = 12.dp
+private val RadiusLG = 16.dp
+private val RadiusXL = 24.dp
+private val RadiusFull = 100.dp
+
+private val MinTouchTarget = 48.dp
+
+// Component Animation Helper
+@Composable
+private fun Modifier.pressClickEffect(): Modifier {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(targetValue = if (isPressed) 0.97f else 1f, label = "pressScale", animationSpec = tween(150))
+    return this.graphicsLayer {
+        scaleX = scale
+        scaleY = scale
+    }
+}
 
 // Color constants
 private val GoogleBlue = Color(0xFF4285F4)
@@ -143,7 +178,7 @@ fun TaskDetailBottomSheet(
         dragHandle = {
             Box(
                 modifier = Modifier
-                    .padding(vertical = 12.dp)
+                    .padding(vertical = SpaceMD)
                     .width(40.dp)
                     .height(4.dp)
                     .clip(RoundedCornerShape(2.dp))
@@ -155,8 +190,9 @@ fun TaskDetailBottomSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp)
-                .padding(bottom = 32.dp)
+                .animateContentSize(animationSpec = tween(250))
+                .padding(horizontal = SpaceXL)
+                .padding(bottom = SpaceXXL)
         ) {
             // ═══════════════════════════════════════════════════════════════
             // HEADER: Title + Action Buttons
@@ -208,24 +244,18 @@ fun TaskDetailBottomSheet(
                         }
                     }
 
-                    // Edit button (for non-info-only, non-past tasks)
-                    if (!task.isInfoOnly && onEdit != null) {
-                        IconButton(onClick = onEdit) {
+                    // Copy to Today button
+                    if (isPastTask && onCopyToToday != null && !task.isInfoOnly) {
+                        IconButton(onClick = {
+                            onCopyToToday()
+                            onDismiss()
+                        }) {
                             Icon(
-                                Icons.Default.Edit,
-                                contentDescription = "Edit",
+                                Icons.Default.ContentCopy,
+                                contentDescription = "Copy to Today",
                                 tint = MaterialTheme.colorScheme.primary
                             )
                         }
-                    }
-
-                    // Delete button
-                    IconButton(onClick = onDelete) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.error
-                        )
                     }
                 }
             }
@@ -237,43 +267,7 @@ fun TaskDetailBottomSheet(
             // ═══════════════════════════════════════════════════════════════
             SourceBadge(task)
 
-            // ═══════════════════════════════════════════════════════════════
-            // COPY TO TODAY (past tasks only)
-            // ═══════════════════════════════════════════════════════════════
-            if (isPastTask && onCopyToToday != null && !task.isInfoOnly) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = CopyTeal.copy(alpha = 0.12f),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .clickable {
-                            onCopyToToday()
-                            onDismiss()
-                        }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            Icons.Default.ContentCopy,
-                            contentDescription = null,
-                            modifier = Modifier.size(16.dp),
-                            tint = CopyTeal
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            "Copy to Today",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = CopyTeal
-                        )
-                    }
-                }
-            }
 
-            Spacer(modifier = Modifier.height(16.dp))
 
             // ═══════════════════════════════════════════════════════════════
             // TAGS & PRIORITY
@@ -341,178 +335,7 @@ fun TaskDetailBottomSheet(
                     }
                 }
 
-                // Recurrence — rich card for local recurring tasks, simple row for Google
-                if (task.googleRecurrenceInfo != null && !task.isRecurrenceTemplate) {
-                    // Google Calendar recurrence: show as simple row
-                    Spacer(modifier = Modifier.height(8.dp))
-                    DetailRow(
-                        icon = Icons.Default.Repeat,
-                        iconColor = MaterialTheme.colorScheme.tertiary
-                    ) {
-                        Text(
-                            text = task.googleRecurrenceInfo!!,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                } else if (task.isRecurrenceTemplate || task.recurrenceParentId != null) {
-                    // Local recurring task (template or instance) — show rich card
-                    Spacer(modifier = Modifier.height(8.dp))
-                    RecurrenceCard(task = task)
-                }
 
-                // Rollover info + snooze
-                if (task.recurrenceType == "rollover") {
-                    val daysRolledOver = remember(task.createdDate, task.isCompleted, task.completedDate) {
-                        try {
-                            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
-                            val createdDate = sdf.parse(task.createdDate)
-                            val targetDateStr = task.completedDate ?: sdf.format(Date())
-                            val targetDate = sdf.parse(targetDateStr)
-                            if (createdDate != null && targetDate != null && createdDate.before(targetDate)) {
-                                val diff = targetDate.time - createdDate.time
-                                (diff / (1000 * 60 * 60 * 24)).toInt()
-                            } else null
-                        } catch (e: Exception) { null }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    RolloverStuckCard(task = task, daysRolledOver = daysRolledOver ?: 0)
-                    // Snooze / Unsnooze section
-                    val isSnoozed = task.snoozedUntil != null && task.snoozedUntil > System.currentTimeMillis()
-                    if (!task.isCompleted && (onSnooze != null || (isSnoozed && onUnsnooze != null))) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        if (isSnoozed && onUnsnooze != null) {
-                            // Already snoozed — show unsnooze option
-                            val snoozedUntilText = remember(task.snoozedUntil) {
-                                val sdf = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
-                                sdf.format(java.util.Date(task.snoozedUntil!!))
-                            }
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = Color(0xFFFFF3E0),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            Icons.Default.Schedule,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp),
-                                            tint = Color(0xFFE65100)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            "Snoozed until $snoozedUntilText",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = Color(0xFFE65100)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = Color(0xFFE65100).copy(alpha = 0.12f),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .clickable {
-                                                onUnsnooze()
-                                                onDismiss()
-                                            }
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(vertical = 10.dp),
-                                            horizontalArrangement = Arrangement.Center,
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            content = {
-                                                Icon(
-                                                    Icons.Default.Notifications,
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(18.dp),
-                                                    tint = Color(0xFFE65100)
-                                                )
-                                                Spacer(modifier = Modifier.width(6.dp))
-                                                Text(
-                                                    "Unsnooze Now",
-                                                    style = MaterialTheme.typography.labelMedium,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = Color(0xFFE65100)
-                                                )
-                                            }
-                                        )
-                                    }
-                                }
-                            }
-                        } else if (onSnooze != null) {
-                            // Not snoozed — show snooze options
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Icon(
-                                            Icons.Default.AccessTime,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp),
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            "Snooze this task",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        listOf(
-                                            Triple("1 Hour", "1h", 1 * 60 * 60 * 1000L),
-                                            Triple("4 Hours", "4h", 4 * 60 * 60 * 1000L),
-                                            Triple("Tomorrow", "1d", 24 * 60 * 60 * 1000L)
-                                        ).forEach { (label, _, duration) ->
-                                            Surface(
-                                                shape = RoundedCornerShape(8.dp),
-                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                                modifier = Modifier
-                                                    .weight(1f)
-                                                    .clip(RoundedCornerShape(8.dp))
-                                                    .clickable {
-                                                        onSnooze(duration)
-                                                        onDismiss()
-                                                    }
-                                            ) {
-                                                Column(
-                                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp)
-                                                ) {
-                                                    Icon(
-                                                        Icons.Default.AccessTime,
-                                                        contentDescription = null,
-                                                        modifier = Modifier.size(18.dp),
-                                                        tint = MaterialTheme.colorScheme.primary
-                                                    )
-                                                    Spacer(modifier = Modifier.height(4.dp))
-                                                    Text(
-                                                        text = label,
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        fontWeight = FontWeight.Medium,
-                                                        color = MaterialTheme.colorScheme.primary
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
             }
 
             // ═══════════════════════════════════════════════════════════════
@@ -528,6 +351,19 @@ fun TaskDetailBottomSheet(
                     )
                 }
             }
+
+            // ═══════════════════════════════════════════════════════════════
+            // SUBTASKS (App-native only)
+            // ═══════════════════════════════════════════════════════════════
+            Spacer(modifier = Modifier.height(16.dp))
+            SubtaskSection(
+                parentTask = task,
+                subtasks = subtasks,
+                onAddSubtask = { title -> onAddSubtask?.invoke(title) },
+                onToggleSubtask = { subtaskId, isCompleted -> onToggleSubtask?.invoke(subtaskId, isCompleted) },
+                onDeleteSubtask = { subtaskId -> onDeleteSubtask?.invoke(subtaskId) },
+                onCompleteAllSubtasks = { onCompleteAllSubtasks?.invoke() }
+            )
 
             // ═══════════════════════════════════════════════════════════════
             // LOCATION WITH MAP PREVIEW
@@ -792,24 +628,30 @@ fun TaskDetailBottomSheet(
                                                 ) {
                                                     for ((label, minutes) in row) {
                                                         Surface(
-                                                            shape = RoundedCornerShape(8.dp),
-                                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                                            shape = RoundedCornerShape(RadiusMD),
+                                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
                                                             modifier = Modifier
                                                                 .weight(1f)
-                                                                .padding(vertical = 3.dp)
-                                                                .clip(RoundedCornerShape(8.dp))
+                                                                .padding(vertical = SpaceXS)
+                                                                .clip(RoundedCornerShape(RadiusMD))
                                                                 .clickable {
                                                                     val triggerMs = System.currentTimeMillis() + minutes * 60 * 1000L
                                                                     onAddReminder(com.theblankstate.preamble.data.Reminder(epochMs = triggerMs, type = "exact"))
                                                                     showAddReminderMenu = false
                                                                 }
+                                                                .pressClickEffect()
                                                         ) {
-                                                            Text(
-                                                                text = label,
-                                                                style = MaterialTheme.typography.labelSmall,
-                                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-                                                                color = MaterialTheme.colorScheme.primary
-                                                            )
+                                                            Box(
+                                                                modifier = Modifier.height(MinTouchTarget),
+                                                                contentAlignment = Alignment.Center
+                                                            ) {
+                                                                Text(
+                                                                    text = label,
+                                                                    style = MaterialTheme.typography.labelMedium,
+                                                                    fontWeight = FontWeight.SemiBold,
+                                                                    color = MaterialTheme.colorScheme.primary
+                                                                )
+                                                            }
                                                         }
                                                     }
                                                     if (row.size == 1) {
@@ -1004,6 +846,193 @@ fun TaskDetailBottomSheet(
             }
 
             // ═══════════════════════════════════════════════════════════════
+            // RECURRENCE & PROGRESS
+            // ═══════════════════════════════════════════════════════════════
+            if ((task.googleRecurrenceInfo != null && !task.isRecurrenceTemplate) || 
+                task.isRecurrenceTemplate || task.recurrenceParentId != null || 
+                task.recurrenceType == "rollover") {
+                
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                // Recurrence — rich card for local recurring tasks, simple row for Google
+                if (task.googleRecurrenceInfo != null && !task.isRecurrenceTemplate) {
+                    // Google Calendar recurrence: show as simple row
+                    DetailRow(
+                        icon = Icons.Default.Repeat,
+                        iconColor = MaterialTheme.colorScheme.tertiary
+                    ) {
+                        Text(
+                            text = task.googleRecurrenceInfo!!,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else if (task.isRecurrenceTemplate || task.recurrenceParentId != null) {
+                    // Local recurring task (template or instance) — show rich card
+                    RecurrenceCard(task = task, startCollapsed = task.recurrenceType == "rollover")
+                }
+
+                // Rollover info + snooze
+                if (task.recurrenceType == "rollover") {
+                    val daysRolledOver = remember(task.createdDate, task.isCompleted, task.completedDate) {
+                        try {
+                            val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+                            val createdDate = sdf.parse(task.createdDate)
+                            val targetDateStr = task.completedDate ?: sdf.format(Date())
+                            val targetDate = sdf.parse(targetDateStr)
+                            if (createdDate != null && targetDate != null && createdDate.before(targetDate)) {
+                                val diff = targetDate.time - createdDate.time
+                                (diff / (1000 * 60 * 60 * 24)).toInt()
+                            } else null
+                        } catch (e: Exception) { null }
+                    }
+                    if (task.isRecurrenceTemplate || task.recurrenceParentId != null || task.googleRecurrenceInfo != null) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                    RolloverStuckCard(task = task, daysRolledOver = daysRolledOver ?: 0)
+                    
+                    // Snooze / Unsnooze section
+                    val isSnoozed = task.snoozedUntil != null && task.snoozedUntil > System.currentTimeMillis()
+                    if (!task.isCompleted && (onSnooze != null || (isSnoozed && onUnsnooze != null))) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (isSnoozed && onUnsnooze != null) {
+                            // Already snoozed — show unsnooze option
+                            val snoozedUntilText = remember(task.snoozedUntil) {
+                                val sdf = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+                                sdf.format(java.util.Date(task.snoozedUntil!!))
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFFFF3E0),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.Schedule,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.secondary
+                                        )
+                                        Spacer(modifier = Modifier.width(SpaceSM))
+                                        Text(
+                                            "Snoozed until $snoozedUntilText",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.secondary
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(RadiusMD),
+                                        color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.12f),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(RadiusMD))
+                                            .clickable {
+                                                onUnsnooze()
+                                                onDismiss()
+                                            }
+                                            .pressClickEffect()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.height(MinTouchTarget),
+                                            horizontalArrangement = Arrangement.Center,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            content = {
+                                                Icon(
+                                                    Icons.Default.Notifications,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(20.dp),
+                                                    tint = MaterialTheme.colorScheme.secondary
+                                                )
+                                                Spacer(modifier = Modifier.width(SpaceSM))
+                                                Text(
+                                                    "Unsnooze Now",
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = MaterialTheme.colorScheme.secondary
+                                                )
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        } else if (onSnooze != null) {
+                            // Not snoozed — show snooze options
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.AccessTime,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            "Snooze this task",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        listOf(
+                                            Triple("1 Hour", "1h", 1 * 60 * 60 * 1000L),
+                                            Triple("4 Hours", "4h", 4 * 60 * 60 * 1000L),
+                                            Triple("Tomorrow", "1d", 24 * 60 * 60 * 1000L)
+                                        ).forEach { (label, _, duration) ->
+                                            Surface(
+                                                shape = RoundedCornerShape(RadiusMD),
+                                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(RoundedCornerShape(RadiusMD))
+                                                    .clickable {
+                                                        onSnooze(duration)
+                                                        onDismiss()
+                                                    }
+                                                    .pressClickEffect()
+                                            ) {
+                                                Column(
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    modifier = Modifier.defaultMinSize(minHeight = MinTouchTarget),
+                                                    verticalArrangement = Arrangement.Center
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.AccessTime,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(18.dp),
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                    Spacer(modifier = Modifier.height(SpaceXS))
+                                                    Text(
+                                                        text = label,
+                                                        style = MaterialTheme.typography.labelMedium,
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ═══════════════════════════════════════════════════════════════
             // ATTACHMENTS
             // ═══════════════════════════════════════════════════════════════
             if (task.hasAttachments) {
@@ -1167,18 +1196,6 @@ fun TaskDetailBottomSheet(
             }
 
             // ═══════════════════════════════════════════════════════════════
-            // SUBTASKS (App-native only)
-            // ═══════════════════════════════════════════════════════════════
-            SubtaskSection(
-                parentTask = task,
-                subtasks = subtasks,
-                onAddSubtask = { title -> onAddSubtask?.invoke(title) },
-                onToggleSubtask = { subtaskId, isCompleted -> onToggleSubtask?.invoke(subtaskId, isCompleted) },
-                onDeleteSubtask = { subtaskId -> onDeleteSubtask?.invoke(subtaskId) },
-                onCompleteAllSubtasks = { onCompleteAllSubtasks?.invoke() }
-            )
-
-            // ═══════════════════════════════════════════════════════════════
             // BANNER ADS
             // ═══════════════════════════════════════════════════════════════
             Spacer(modifier = Modifier.height(24.dp))
@@ -1211,6 +1228,46 @@ fun TaskDetailBottomSheet(
                     bannerAdView2.value = null
                 }
             }
+
+            // ═══════════════════════════════════════════════════════════════
+            // ACTIONS (Edit / Delete)
+            // ═══════════════════════════════════════════════════════════════
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(SpaceMD)
+            ) {
+                if (!task.isInfoOnly && onEdit != null) {
+                    androidx.compose.material3.Button(
+                        onClick = { onEdit() },
+                        modifier = Modifier.weight(1f).defaultMinSize(minHeight = MinTouchTarget),
+                        shape = RoundedCornerShape(RadiusFull),
+                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(SpaceSM))
+                        Text("Edit", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                
+                androidx.compose.material3.Button(
+                    onClick = { onDelete() },
+                    modifier = Modifier.weight(1f).defaultMinSize(minHeight = MinTouchTarget),
+                    shape = RoundedCornerShape(RadiusFull),
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer,
+                        contentColor = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(SpaceSM))
+                    Text("Delete", fontWeight = FontWeight.SemiBold)
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(SpaceLG))
 
             val adShape = RoundedCornerShape(12.dp)
             val primaryColor = MaterialTheme.colorScheme.primary
@@ -1299,26 +1356,23 @@ fun TaskDetailBottomSheet(
 
 @Composable
 private fun SourceBadge(task: Task) {
+    if (!task.isCalendarEvent && !task.isGoogleTask) return
+
     val (icon, text, color) = when {
         task.isCalendarEvent -> Triple(
             Icons.Default.Event,
             task.calendarName ?: "Google Calendar",
             GoogleBlue
         )
-        task.isGoogleTask -> Triple(
+        else -> Triple(
             Icons.AutoMirrored.Filled.Assignment,
             "Google Tasks",
             GoogleGreen
         )
-        else -> Triple(
-            Icons.Default.TaskAlt,
-            "Local Task",
-            MaterialTheme.colorScheme.primary
-        )
     }
 
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(RadiusMD),
         color = color.copy(alpha = 0.12f)
     ) {
         Row(
@@ -1358,21 +1412,15 @@ private fun LocationMapPreview(
                 .fillMaxWidth()
                 .height(140.dp)
                 .clip(RoundedCornerShape(16.dp))
-                .background(
-                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFFE8F5E9),  // Light green top
-                            Color(0xFFC8E6C9),  // Slightly darker green
-                            Color(0xFFB2DFDB)   // Teal bottom
-                        )
-                    )
-                )
+                .background(MaterialTheme.colorScheme.surfaceVariant)
         ) {
             // Decorative map-like grid lines
+            val gridColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)
+            val roadColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
+            
             androidx.compose.foundation.Canvas(
                 modifier = Modifier.fillMaxSize()
             ) {
-                val gridColor = Color(0xFF81C784).copy(alpha = 0.4f)
                 // Horizontal lines
                 for (i in 0..6) {
                     val y = (size.height / 7) * i
@@ -1395,10 +1443,10 @@ private fun LocationMapPreview(
                 }
                 // Diagonal "road" line
                 drawLine(
-                    color = Color(0xFFFFFFFF).copy(alpha = 0.6f),
+                    color = roadColor,
                     start = androidx.compose.ui.geometry.Offset(0f, size.height * 0.7f),
                     end = androidx.compose.ui.geometry.Offset(size.width, size.height * 0.3f),
-                    strokeWidth = 8f
+                    strokeWidth = 12f
                 )
             }
 
@@ -1440,7 +1488,7 @@ private fun LocationMapPreview(
                 }
             }
 
-            // Location text at bottom
+            val surfaceColor = MaterialTheme.colorScheme.surface
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1449,12 +1497,12 @@ private fun LocationMapPreview(
                         brush = androidx.compose.ui.graphics.Brush.verticalGradient(
                             colors = listOf(
                                 Color.Transparent,
-                                Color.White.copy(alpha = 0.9f),
-                                Color.White
+                                surfaceColor.copy(alpha = 0.9f),
+                                surfaceColor
                             )
                         )
                     )
-                    .padding(12.dp)
+                    .padding(SpaceMD)
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -1464,14 +1512,14 @@ private fun LocationMapPreview(
                         Icons.Default.LocationOn,
                         contentDescription = null,
                         tint = GoogleRed,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(SpaceSM))
                     Text(
                         text = location,
                         style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = Color(0xFF1F1F1F),
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f)
@@ -1491,9 +1539,9 @@ private fun LocationMapPreview(
 @Composable
 private fun PriorityChip(priority: Int) {
     val (text, color) = when (priority) {
-        3 -> "High Priority" to Color(0xFFD32F2F)
-        2 -> "Medium Priority" to Color(0xFFF57C00)
-        1 -> "Low Priority" to Color(0xFF388E3C)
+        3 -> "High Priority" to MaterialTheme.colorScheme.error
+        2 -> "Medium Priority" to MaterialTheme.colorScheme.secondary
+        1 -> "Low Priority" to MaterialTheme.colorScheme.tertiary
         else -> return
     }
 
@@ -1502,16 +1550,16 @@ private fun PriorityChip(priority: Int) {
         color = color.copy(alpha = 0.12f)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = SpaceMD, vertical = SpaceSM),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 Icons.Default.Flag,
                 contentDescription = null,
-                modifier = Modifier.size(14.dp),
+                modifier = Modifier.size(16.dp),
                 tint = color
             )
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(SpaceXS))
             Text(
                 text = text,
                 style = MaterialTheme.typography.labelMedium,
@@ -1525,10 +1573,10 @@ private fun PriorityChip(priority: Int) {
 @Composable
 private fun EventTypeChip(eventType: String) {
     val (text, icon, color) = when (eventType) {
-        "holiday" -> Triple("Holiday", Icons.Default.WbSunny, Color(0xFF4CAF50))
-        "birthday" -> Triple("Birthday", Icons.Default.Cake, Color(0xFFE91E63))
-        "focusTime" -> Triple("Focus Time", Icons.Default.Timer, Color(0xFF9C27B0))
-        "outOfOffice" -> Triple("Out of Office", Icons.Default.Event, Color(0xFF607D8B))
+        "holiday" -> Triple("Holiday", Icons.Default.WbSunny, MaterialTheme.colorScheme.secondary)
+        "birthday" -> Triple("Birthday", Icons.Default.Cake, MaterialTheme.colorScheme.tertiary)
+        "focusTime" -> Triple("Focus Time", Icons.Default.Timer, MaterialTheme.colorScheme.primary)
+        "outOfOffice" -> Triple("Out of Office", Icons.Default.Event, MaterialTheme.colorScheme.error)
         else -> return
     }
 
@@ -1537,16 +1585,16 @@ private fun EventTypeChip(eventType: String) {
         color = color.copy(alpha = 0.12f)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            modifier = Modifier.padding(horizontal = SpaceMD, vertical = SpaceSM),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 icon,
                 contentDescription = null,
-                modifier = Modifier.size(14.dp),
+                modifier = Modifier.size(16.dp),
                 tint = color
             )
-            Spacer(modifier = Modifier.width(4.dp))
+            Spacer(modifier = Modifier.width(SpaceXS))
             Text(
                 text = text,
                 style = MaterialTheme.typography.labelMedium,
@@ -1756,8 +1804,8 @@ private fun parseAttachments(json: String?): List<Map<String, String>> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 private data class RolloverTier(
-    val bgColor: Color,
-    val accentColor: Color,
+    val bgColor: androidx.compose.ui.graphics.Color,
+    val accentColor: androidx.compose.ui.graphics.Color,
     val emoji: String,
     val headline: String,
     val subline: String
@@ -1765,39 +1813,39 @@ private data class RolloverTier(
 
 @Composable
 private fun RolloverStuckCard(task: Task, daysRolledOver: Int) {
-    // Urgency tiers — pure visual, no functional change
+    // Urgency tiers mapped to semantic Material 3 colors adapting to dark mode
     val tier = when {
         task.isCompleted -> RolloverTier(
-            bgColor = Color(0xFF10B981).copy(alpha = 0.08f),
-            accentColor = Color(0xFF059669),
+            bgColor = MaterialTheme.colorScheme.tertiaryContainer,
+            accentColor = MaterialTheme.colorScheme.tertiary,
             emoji = "✅",
             headline = "Finally done!",
             subline = if (daysRolledOver > 0) "Completed after $daysRolledOver day${if (daysRolledOver > 1) "s" else ""}" else "Completed today"
         )
         daysRolledOver >= 7 -> RolloverTier(
-            bgColor = Color(0xFFDC2626).copy(alpha = 0.08f),
-            accentColor = Color(0xFFDC2626),
+            bgColor = MaterialTheme.colorScheme.errorContainer,
+            accentColor = MaterialTheme.colorScheme.error,
             emoji = "🔥",
             headline = "On fire — $daysRolledOver days!",
             subline = "Waiting since ${formatDaysAgoDate(task.createdDate)}"
         )
         daysRolledOver >= 3 -> RolloverTier(
-            bgColor = Color(0xFFF97316).copy(alpha = 0.08f),
-            accentColor = Color(0xFFEA580C),
+            bgColor = MaterialTheme.colorScheme.surfaceVariant,
+            accentColor = Color(0xFFE65100), // Fallback semantic tint
             emoji = "⚠️",
             headline = "Getting overdue",
             subline = "Carrying over for $daysRolledOver day${if (daysRolledOver > 1) "s" else ""} now"
         )
         daysRolledOver >= 1 -> RolloverTier(
-            bgColor = Color(0xFFF59E0B).copy(alpha = 0.08f),
-            accentColor = Color(0xFFD97706),
+            bgColor = MaterialTheme.colorScheme.secondaryContainer,
+            accentColor = MaterialTheme.colorScheme.secondary,
             emoji = "⏳",
             headline = "Moved from yesterday",
             subline = "Rolled over $daysRolledOver day${if (daysRolledOver > 1) "s" else ""} ago"
         )
         else -> RolloverTier(
-            bgColor = Color(0xFF6366F1).copy(alpha = 0.08f),
-            accentColor = Color(0xFF4F46E5),
+            bgColor = MaterialTheme.colorScheme.primaryContainer,
+            accentColor = MaterialTheme.colorScheme.primary,
             emoji = "📌",
             headline = "Active task",
             subline = "Created today — keep going!"
@@ -1805,15 +1853,15 @@ private fun RolloverStuckCard(task: Task, daysRolledOver: Int) {
     }
 
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(RadiusLG),
         color = tier.bgColor,
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
+        Column(modifier = Modifier.padding(SpaceLG)) {
             // Top row: emoji badge + headline
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(RadiusMD),
                     color = tier.accentColor.copy(alpha = 0.14f),
                     modifier = Modifier.size(40.dp)
                 ) {
@@ -1821,7 +1869,7 @@ private fun RolloverStuckCard(task: Task, daysRolledOver: Int) {
                         Text(text = tier.emoji, style = MaterialTheme.typography.titleMedium)
                     }
                 }
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(SpaceMD))
                 Column {
                     Text(
                         text = tier.headline,
@@ -1967,7 +2015,9 @@ private fun formatRecurrencePattern(
 }
 
 @Composable
-private fun RecurrenceCard(task: Task) {
+private fun RecurrenceCard(task: Task, startCollapsed: Boolean = false) {
+    var isExpanded by remember(task.id) { mutableStateOf(!startCollapsed) }
+
     val sdf = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
     val displaySdf = remember { SimpleDateFormat("d MMM yyyy", Locale.getDefault()) }
 
@@ -2042,7 +2092,7 @@ private fun RecurrenceCard(task: Task) {
                     }
                 }
                 Spacer(modifier = Modifier.width(12.dp))
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = "Recurring Task",
                         style = MaterialTheme.typography.labelSmall,
@@ -2056,9 +2106,21 @@ private fun RecurrenceCard(task: Task) {
                         color = accentColor
                     )
                 }
+                androidx.compose.material3.IconButton(
+                    onClick = { isExpanded = !isExpanded },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Toggle Expand",
+                        tint = accentColor
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            androidx.compose.animation.AnimatedVisibility(visible = isExpanded) {
+                Column {
+                    Spacer(modifier = Modifier.height(14.dp))
 
             // Start & End date row
             Row(
@@ -2196,6 +2258,8 @@ private fun RecurrenceCard(task: Task) {
                     )
                 }
             }
+                } // End inner animated Column
+            } // End AnimatedVisibility
         }
     }
 }
