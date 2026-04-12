@@ -1373,7 +1373,8 @@ private fun SourceBadge(task: Task) {
 
     Surface(
         shape = RoundedCornerShape(RadiusMD),
-        color = color.copy(alpha = 0.12f)
+        color = color.copy(alpha = 0.12f),
+        modifier = Modifier.padding(bottom = 12.dp)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
