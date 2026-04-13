@@ -88,6 +88,9 @@ class AlarmBootReceiver : BroadcastReceiver() {
                     }
                 }
 
+                // Restore daily 6 PM evening reminder
+                EveningReminderScheduler.schedule(context)
+
                 Log.d(TAG, "AlarmBootReceiver: restored=$restoredCount, firedImmediately=$firedImmediately (total tasks=${allTasks.size})")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to restore alarms", e)

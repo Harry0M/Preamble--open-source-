@@ -12,8 +12,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -52,17 +50,13 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.ViewHeadline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -195,8 +189,6 @@ fun HomeScreen(
     var adminTaskToShow by remember { mutableStateOf<AdminTask?>(null) }
     var showAlarmSheet by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
-    var showFilterRow by remember { mutableStateOf(false) }
-    var showViewMenu by remember { mutableStateOf(false) }
     var showPomodoroSheet by remember { mutableStateOf(false) }
     var pomodoroTaskId by remember { mutableStateOf<String?>(null) }
     var pomodoroTaskTitle by remember { mutableStateOf<String?>(null) }
@@ -363,11 +355,7 @@ fun HomeScreen(
                             val todayHoliday = tasks.firstOrNull { it.isInfoOnly && it.eventType == "holiday" && it.createdDate == todayStr }?.title
 
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                // Bold header title
-                                Text(
-                                    "Preamble",
-                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                                )
+                                Text("Preamble", style = MaterialTheme.typography.titleLarge)
                                 if (todayHoliday != null) {
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Box(
@@ -393,6 +381,17 @@ fun HomeScreen(
                         }
                     },
                     actions = {
+                        // Search icon
+                        IconButton(onClick = {
+                            isSearchActive = !isSearchActive
+                            if (!isSearchActive) onSearchQueryChanged("")
+                        }) {
+                            Icon(
+                                imageVector = if (isSearchActive) Icons.Filled.Close else Icons.Filled.Search,
+                                contentDescription = if (isSearchActive) "Close Search" else "Search"
+                            )
+                        }
+
                         // Alarm icon — shows all active alarms
                         IconButton(onClick = { showAlarmSheet = true }) {
                             Icon(
@@ -401,82 +400,23 @@ fun HomeScreen(
                             )
                         }
 
-                        // Filter button — toggles the filter/search chip row below (like CalendarScreen)
-                        IconButton(onClick = { showFilterRow = !showFilterRow }) {
+                        // Eisenhower Matrix toggle
+                        IconButton(onClick = { showEisenhowerView = !showEisenhowerView }) {
                             Icon(
-                                imageVector = Icons.Filled.FilterList,
-                                contentDescription = "Filters",
-                                tint = if (showFilterRow || selectedTagFilter != null)
-                                    MaterialTheme.colorScheme.primary
-                                else
-                                    MaterialTheme.colorScheme.onSurface
+                                imageVector = Icons.Filled.GridView,
+                                contentDescription = "Eisenhower Matrix",
+                                tint = if (showEisenhowerView) MaterialTheme.colorScheme.primary
+                                       else MaterialTheme.colorScheme.onSurface
                             )
                         }
 
-                        // Three-dot menu: Matrix + Timeline view toggles
-                        Box {
-                            IconButton(onClick = { showViewMenu = true }) {
-                                Icon(
-                                    imageVector = Icons.Filled.MoreVert,
-                                    contentDescription = "View Options"
-                                )
-                            }
-                            // Animated rounded-corner dropdown menu
-                            DropdownMenu(
-                                expanded = showViewMenu,
-                                onDismissRequest = { showViewMenu = false },
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                                    .animateContentSize(animationSpec = tween(200))
-                            ) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                imageVector = Icons.Filled.GridView,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(20.dp),
-                                                tint = if (showEisenhowerView) MaterialTheme.colorScheme.primary
-                                                       else MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Text(
-                                                "Eisenhower Matrix",
-                                                color = if (showEisenhowerView) MaterialTheme.colorScheme.primary
-                                                        else MaterialTheme.colorScheme.onSurface
-                                            )
-                                        }
-                                    },
-                                    onClick = {
-                                        showEisenhowerView = !showEisenhowerView
-                                        showViewMenu = false
-                                    }
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                imageVector = if (isTimelineEnabled) Icons.Filled.ViewHeadline else Icons.Filled.ViewAgenda,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(20.dp),
-                                                tint = if (isTimelineEnabled) MaterialTheme.colorScheme.primary
-                                                       else MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Text(
-                                                if (isTimelineEnabled) "Timeline View (On)" else "Timeline View (Off)",
-                                                color = if (isTimelineEnabled) MaterialTheme.colorScheme.primary
-                                                        else MaterialTheme.colorScheme.onSurface
-                                            )
-                                        }
-                                    },
-                                    onClick = {
-                                        ThemePreferences.setTimelineUi(context, !isTimelineEnabled)
-                                        showViewMenu = false
-                                    }
-                                )
-                            }
+                        IconButton(
+                            onClick = { ThemePreferences.setTimelineUi(context, !isTimelineEnabled) }
+                        ) {
+                            Icon(
+                                imageVector = if (isTimelineEnabled) Icons.Filled.ViewHeadline else Icons.Filled.ViewAgenda,
+                                contentDescription = "Toggle Timeline View"
+                            )
                         }
 
                         if (streak > 0) {
@@ -602,99 +542,72 @@ fun HomeScreen(
                     )
                 }
 
-                // Filter row — visible only when filter button is tapped (like CalendarScreen)
-                // Also contains: Search chip (first), All chip, tag chips
-                AnimatedVisibility(
-                    visible = showFilterRow,
-                    enter = expandVertically() + fadeIn(animationSpec = tween(200)),
-                    exit = shrinkVertically() + fadeOut(animationSpec = tween(200))
-                ) {
-                    Column {
-                        // Search bar — shown when Search chip is tapped
-                        AnimatedVisibility(visible = isSearchActive) {
-                            OutlinedTextField(
-                                value = searchQuery,
-                                onValueChange = onSearchQueryChanged,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                                placeholder = { Text("Search tasks...") },
-                                singleLine = true,
-                                shape = MaterialTheme.shapes.extraLarge,
-                                trailingIcon = {
-                                    if (searchQuery.isNotEmpty()) {
-                                        IconButton(onClick = { onSearchQueryChanged("") }) {
-                                            Icon(Icons.Filled.Close, contentDescription = "Clear")
-                                        }
-                                    }
-                                },
-                                leadingIcon = {
-                                    Icon(Icons.Filled.Search, contentDescription = "Search")
+                // Search bar
+                AnimatedVisibility(visible = isSearchActive) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = onSearchQueryChanged,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        placeholder = { Text("Search tasks...") },
+                        singleLine = true,
+                        shape = MaterialTheme.shapes.extraLarge,
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { onSearchQueryChanged("") }) {
+                                    Icon(Icons.Filled.Close, contentDescription = "Clear")
                                 }
-                            )
-                        }
-
-                        // Tag filter chips + Search chip (always first)
-                        if (onTagFilterChanged != null) {
-                            val usedTags = remember(tasks) {
-                                val tagIndexMap = PredefinedTags.tags.withIndex()
-                                    .associate { (i, t) -> t.name.lowercase() to i }
-                                tasks.flatMap { task -> task.tagList }
-                                    .distinct()
-                                    .sortedBy { tagName -> tagIndexMap[tagName.lowercase()] ?: Int.MAX_VALUE }
                             }
-                            LazyRow(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 4.dp),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                // Search chip — always first
-                                item {
-                                    FilterChip(
-                                        selected = isSearchActive,
-                                        onClick = {
-                                            isSearchActive = !isSearchActive
-                                            if (!isSearchActive) onSearchQueryChanged("")
-                                        },
-                                        label = { Text("Search", style = MaterialTheme.typography.labelSmall) },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.Filled.Search,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(14.dp)
-                                            )
-                                        }
-                                    )
-                                }
-                                // All chip
-                                item {
-                                    FilterChip(
-                                        selected = selectedTagFilter == null && !isSearchActive,
-                                        onClick = { onTagFilterChanged(null) },
-                                        label = { Text("All", style = MaterialTheme.typography.labelSmall) }
-                                    )
-                                }
-                                // Tag chips
-                                items(usedTags) { tagName: String ->
-                                    FilterChip(
-                                        selected = selectedTagFilter == tagName,
-                                        onClick = {
-                                            onTagFilterChanged(if (selectedTagFilter == tagName) null else tagName)
-                                        },
-                                        label = { Text(tagName, style = MaterialTheme.typography.labelSmall) },
-                                        leadingIcon = {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(8.dp)
-                                                    .background(
-                                                        PredefinedTags.colorForTag(tagName),
-                                                        shape = CircleShape
-                                                    )
-                                            )
-                                        }
-                                    )
-                                }
+                        },
+                        leadingIcon = {
+                            Icon(Icons.Filled.Search, contentDescription = "Search")
+                        }
+                    )
+                }
+
+                // Tag filter chips — show only tags that exist on user's tasks
+                if (onTagFilterChanged != null && !isSearchActive) {
+                    // Collect unique tags from today's tasks — O(n+m) via pre-built index map
+                    val usedTags = remember(tasks) {
+                        val tagIndexMap = PredefinedTags.tags.withIndex()
+                            .associate { (i, t) -> t.name.lowercase() to i }
+                        tasks.flatMap { task -> task.tagList }
+                            .distinct()
+                            .sortedBy { tagName -> tagIndexMap[tagName.lowercase()] ?: Int.MAX_VALUE }
+                    }
+                    if (usedTags.isNotEmpty()) {
+                        LazyRow(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            item {
+                                FilterChip(
+                                    selected = selectedTagFilter == null,
+                                    onClick = { onTagFilterChanged(null) },
+                                    label = { Text("All", style = MaterialTheme.typography.labelSmall) }
+                                )
+                            }
+                            items(usedTags) { tagName: String ->
+                                FilterChip(
+                                    selected = selectedTagFilter == tagName,
+                                    onClick = {
+                                        onTagFilterChanged(if (selectedTagFilter == tagName) null else tagName)
+                                    },
+                                    label = { Text(tagName, style = MaterialTheme.typography.labelSmall) },
+                                    leadingIcon = {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(8.dp)
+                                                .background(
+                                                    PredefinedTags.colorForTag(tagName),
+                                                    shape = CircleShape
+                                                )
+                                        )
+                                    }
+                                )
                             }
                         }
                     }

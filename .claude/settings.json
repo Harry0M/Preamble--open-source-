@@ -11,7 +11,9 @@
       "Bash(./gradlew compileDebugKotlin)",
       "Bash(pip install:*)",
       "Read(//c/Users/palha/preamble/**)",
-      "Bash(./gradlew :app:compileDebugKotlin)"
+      "Bash(./gradlew :app:compileDebugKotlin)",
+      "Read(//c/Users/palha/preamble/app/src/main/java/**)",
+      "Bash(xargs cat:*)"
     ]
   }
 }

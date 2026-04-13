@@ -62,6 +62,8 @@ class PreambleApplication : Application() {
         // Schedule recurring task instance generation
         scheduleRecurrenceWorker()
         generateRecurrenceInstancesNow()
+        // Schedule daily 6 PM evening task summary reminder
+        com.theblankstate.preamble.notification.EveningReminderScheduler.schedule(this)
         // Schedule periodic Google sync (every 15 min)
         scheduleGoogleSyncWorker()
         // Observe task changes to refresh home screen widget

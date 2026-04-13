@@ -82,6 +82,14 @@
             android:name=".notification.NotificationKeepAliveReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".notification.EveningReminderReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.theblankstate.preamble.EVENING_REMINDER" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".notification.AlarmRingtoneService"
             android:exported="false"
