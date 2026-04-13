@@ -685,6 +685,30 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                         }
                     )
                 }
+
+                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+
+                val showRecurrenceLabel by ThemePreferences.showRecurrenceLabel.collectAsState()
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Show Recurrence Labels", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Show 'Repeating' / 'Recurring' text on tasks (circle notation already differentiates types)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                    Switch(
+                        checked = showRecurrenceLabel,
+                        onCheckedChange = { ThemePreferences.setShowRecurrenceLabel(context, it) }
+                    )
+                }
             }
 
             // ── AI Features ──

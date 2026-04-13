@@ -1,6 +1,7 @@
 package com.theblankstate.preamble.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -31,6 +32,7 @@ import androidx.compose.material.icons.filled.Festival
 import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.ExpandLess
@@ -60,6 +62,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,7 +73,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -79,6 +86,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.theblankstate.preamble.data.PredefinedTags
 import com.theblankstate.preamble.data.Task
+import com.theblankstate.preamble.ui.theme.ThemePreferences
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -257,22 +265,112 @@ fun TaskItem(
                         color = MaterialTheme.colorScheme.primary
                     )
                 } else {
-                    val iconVector = when {
-                        task.isCompleted -> Icons.Default.CheckCircle
-                        isPastDayUncompleted -> Icons.Outlined.Cancel
-                        else -> Icons.Outlined.Circle
-                    }
-                    val iconTint = when {
+                    // Determine task archetype for visual encoding
+                    val isRollover = task.recurrenceType == "rollover"
+                    val isRecurring = task.isRecurrenceTemplate || task.isRecurrenceInstance
+
+                    val circleColor = when {
                         task.isCompleted -> MaterialTheme.colorScheme.primary
                         isPastDayUncompleted -> MaterialTheme.colorScheme.error
+                        isRollover -> MaterialTheme.colorScheme.tertiary
+                        isRecurring -> MaterialTheme.colorScheme.secondary
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     }
-                    Icon(
-                        imageVector = iconVector,
-                        contentDescription = if (task.isCompleted) "Completed" else if (isPastDayUncompleted) "Missed" else "Uncompleted",
-                        tint = iconTint,
-                        modifier = Modifier.size(24.dp) // Kept visual icon size the same
-                    )
+
+                    if (task.isCompleted) {
+                        // TaskAlt = circle with tick inside — matches task detail sheet exactly
+                        Icon(
+                            imageVector = Icons.Default.TaskAlt,
+                            contentDescription = "Completed",
+                            tint = circleColor,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    } else {
+                    // Canvas circle: encodes task type visually for uncompleted tasks
+                    // Normal       → solid ring
+                    // Rollover     → half dashed / half solid ring
+                    // Recurring    → fully dashed ring
+                    Canvas(
+                        modifier = Modifier.size(20.dp),
+                        contentDescription = when {
+                            isPastDayUncompleted -> "Missed"
+                            isRollover -> "Keep active until complete"
+                            isRecurring -> "Recurring"
+                            else -> "Uncompleted"
+                        }
+                    ) {
+                        val strokeWidthPx = 2.2f * density
+                        val radius = (size.minDimension / 2f) - (strokeWidthPx / 2f)
+                        val center = Offset(size.width / 2f, size.height / 2f)
+                        val topLeft = Offset(center.x - radius, center.y - radius)
+                        val arcSize = Size(radius * 2, radius * 2)
+
+                        if (isRollover) {
+                            // Half solid (top half) + half dashed (bottom half)
+                            // Solid arc: top semicircle (270° start, 180° sweep = left-top-right)
+                            drawArc(
+                                color = circleColor,
+                                startAngle = -180f,
+                                sweepAngle = 180f,
+                                useCenter = false,
+                                topLeft = topLeft,
+                                size = arcSize,
+                                style = Stroke(width = strokeWidthPx, cap = StrokeCap.Butt)
+                            )
+                            // Dashed arc: bottom semicircle (90° start, 180° sweep)
+                            val dashCount = 5
+                            val arcLengthPx = Math.PI.toFloat() * radius
+                            val dashLen = arcLengthPx / (dashCount * 2 - 1)
+                            val gapLen = dashLen
+                            val totalDash = dashLen + gapLen
+                            var sweepAccum = 0f
+                            repeat(dashCount) { i ->
+                                val startSweep = (sweepAccum / (arcLengthPx)) * 180f
+                                val dashSweep = (dashLen / arcLengthPx) * 180f
+                                drawArc(
+                                    color = circleColor,
+                                    startAngle = 0f + startSweep,
+                                    sweepAngle = dashSweep,
+                                    useCenter = false,
+                                    topLeft = topLeft,
+                                    size = arcSize,
+                                    style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
+                                )
+                                sweepAccum += totalDash
+                            }
+                        } else if (isRecurring) {
+                            // Fully dashed ring
+                            val dashCount = 8
+                            val fullCircumference = 2 * Math.PI.toFloat() * radius
+                            val dashLen = fullCircumference / (dashCount * 2 - 1)
+                            val gapLen = dashLen
+                            val totalDash = dashLen + gapLen
+                            var sweepAccum = 0f
+                            repeat(dashCount) { _ ->
+                                val startSweep = (sweepAccum / fullCircumference) * 360f
+                                val dashSweep = (dashLen / fullCircumference) * 360f
+                                drawArc(
+                                    color = circleColor,
+                                    startAngle = -90f + startSweep,
+                                    sweepAngle = dashSweep,
+                                    useCenter = false,
+                                    topLeft = topLeft,
+                                    size = arcSize,
+                                    style = Stroke(width = strokeWidthPx, cap = StrokeCap.Round)
+                                )
+                                sweepAccum += totalDash
+                            }
+                        } else {
+                            // Normal task: simple solid ring
+                            drawCircle(
+                                color = circleColor,
+                                radius = radius,
+                                center = center,
+                                style = Stroke(width = strokeWidthPx)
+                            )
+                        }
+                    }
+                    } // end uncompleted Canvas block
                 }
             }
         }
@@ -360,8 +458,9 @@ fun TaskItem(
                 }
             }
 
-            // Recurrence indicator
-            if (task.recurrenceParentId != null || task.isRecurrenceTemplate) {
+            // Recurrence indicator — shown only when 'Show Recurrence Labels' is enabled in Settings
+            val showRecurrenceLabel by ThemePreferences.showRecurrenceLabel.collectAsState()
+            if (showRecurrenceLabel && (task.recurrenceParentId != null || task.isRecurrenceTemplate)) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(top = 2.dp)
