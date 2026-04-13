@@ -13,6 +13,7 @@ object ThemePreferences {
     private const val KEY_THEME_MODE = "theme_mode"
     private const val KEY_COLORFUL_CARDS = "colorful_cards"
     private const val KEY_TIMELINE_UI = "timeline_ui"
+    private const val KEY_SHOW_RECURRENCE_LABEL = "show_recurrence_label"
 
     enum class ThemeMode { SYSTEM, LIGHT, DARK, AMOLED }
 
@@ -28,6 +29,9 @@ object ThemePreferences {
     private val _timelineUi = MutableStateFlow(true)
     val timelineUi: StateFlow<Boolean> = _timelineUi.asStateFlow()
 
+    private val _showRecurrenceLabel = MutableStateFlow(false)
+    val showRecurrenceLabel: StateFlow<Boolean> = _showRecurrenceLabel.asStateFlow()
+
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val colorHex = prefs.getString(KEY_COLOR, null)
@@ -41,6 +45,7 @@ object ThemePreferences {
         _themeMode.value = ThemeMode.valueOf(prefs.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name)
         _colorfulCards.value = prefs.getBoolean(KEY_COLORFUL_CARDS, false)
         _timelineUi.value = prefs.getBoolean(KEY_TIMELINE_UI, true)
+        _showRecurrenceLabel.value = prefs.getBoolean(KEY_SHOW_RECURRENCE_LABEL, false)
     }
 
     fun setColor(context: Context, color: Color?) {
@@ -76,6 +81,14 @@ object ThemePreferences {
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_TIMELINE_UI, enabled)
+            .apply()
+    }
+
+    fun setShowRecurrenceLabel(context: Context, enabled: Boolean) {
+        _showRecurrenceLabel.value = enabled
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_SHOW_RECURRENCE_LABEL, enabled)
             .apply()
     }
 
