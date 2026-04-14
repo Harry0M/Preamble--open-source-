@@ -89,7 +89,6 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val currentUser by AuthManager.currentUser.collectAsState()
     var signInLoading by remember { mutableStateOf(false) }
     var signOutLoading by remember { mutableStateOf(false) }
-    var parityCheckLoading by remember { mutableStateOf(false) }
 
     // Google Calendar & Tasks state (unified)
     val calendarLinked by GoogleCalendarManager.isLinked.collectAsState()
@@ -241,7 +240,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                         }
                                     }
                                 },
-                                enabled = !signOutLoading && !parityCheckLoading,
+                                enabled = !signOutLoading,
                                 shape = CircleShape
                             ) {
                                 if (signOutLoading) {
@@ -252,68 +251,7 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             }
                         }
 
-                        HorizontalDivider()
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(enabled = !parityCheckLoading && !signOutLoading) {
-                                    parityCheckLoading = true
-                                    scope.launch {
-                                        try {
-                                            val summary = app.repository.verifyFirebaseFirestoreParity()
-                                            when {
-                                                summary == null -> {
-                                                    Toast.makeText(
-                                                        context,
-                                                        "Parity check unavailable (sign in required)",
-                                                        Toast.LENGTH_SHORT
-                                                    ).show()
-                                                }
-                                                summary.isMatch -> {
-                                                    Toast.makeText(
-                                                        context,
-                                                        "Parity OK: tasks ${summary.tasksBaselineCount}, tag overrides ${summary.tagOverridesBaselineCount}",
-                                                        Toast.LENGTH_SHORT
-                                                    ).show()
-                                                }
-                                                else -> {
-                                                    Toast.makeText(
-                                                        context,
-                                                        "Parity mismatch detected. Check Logcat: FirebaseTaskSync",
-                                                        Toast.LENGTH_LONG
-                                                    ).show()
-                                                }
-                                            }
-                                        } catch (e: Throwable) {
-                                            Toast.makeText(
-                                                context,
-                                                "Parity check failed: ${e.message ?: "unknown error"}",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-                                        } finally {
-                                            parityCheckLoading = false
-                                        }
-                                    }
-                                }
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Validate Firestore Mirror", style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    "Compare local Room vs Firestore IDs/counts",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
-                            }
-                            if (parityCheckLoading) {
-                                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                            } else {
-                                Text("✓", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
-                            }
-                        }
                     }
                 } else {
                     Row(
@@ -393,7 +331,6 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             }
                         }
 
-                        HorizontalDivider()
 
                         // Sync Now — both Calendar + Tasks
                         Row(
@@ -437,7 +374,6 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             }
                         }
 
-                        HorizontalDivider()
 
                         // Voice tasks sync toggle
                         val syncVoice by GoogleTasksManager.syncVoiceTasks.collectAsState()
@@ -464,7 +400,6 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                             )
                         }
 
-                        HorizontalDivider()
 
                         // Auto-delete from app when deleted from Google
                         val autoDelete by GoogleTasksManager.autoDeleteGoogleTasks.collectAsState()
@@ -521,71 +456,6 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                     }
                 }
             }
-
-            // ── Feature Unlock Status ──
-            SectionTitle("Feature Unlock")
-            SettingsCard {
-                Column {
-                    // Theme Status
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { showThemeUnlockSheet = true }
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Theme Customization", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                if (themeUnlocked) "Unlocked — ${FeatureGateManager.formatRemaining(FeatureGateManager.themeRemainingMs())} remaining"
-                                else "Locked — Watch ad to unlock",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (themeUnlocked) MaterialTheme.colorScheme.primary
-                                       else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                        Icon(
-                            imageVector = if (themeUnlocked) Icons.Filled.CheckCircle else Icons.Outlined.Lock,
-                            contentDescription = if (themeUnlocked) "Unlocked" else "Locked",
-                            tint = if (themeUnlocked) MaterialTheme.colorScheme.primary
-                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-
-                    HorizontalDivider()
-
-                    // Stats Rank Status
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { showStatsUnlockSheet = true }
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Global Rank", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                if (statsUnlocked) "Unlocked — ${FeatureGateManager.formatRemaining(FeatureGateManager.statsRemainingMs())} remaining"
-                                else "Locked — Watch ad to unlock",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (statsUnlocked) MaterialTheme.colorScheme.primary
-                                       else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                        Icon(
-                            imageVector = if (statsUnlocked) Icons.Filled.CheckCircle else Icons.Outlined.Lock,
-                            contentDescription = if (statsUnlocked) "Unlocked" else "Locked",
-                            tint = if (statsUnlocked) MaterialTheme.colorScheme.primary
-                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-            }
-
             // ── Appearance ──
             SectionTitle("Appearance")
             SettingsCard {
@@ -620,7 +490,6 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                         }
                     }
 
-                    HorizontalDivider()
 
                     if (themeUnlocked) {
                         ThemeSelectorRow(context)
@@ -722,7 +591,6 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                         )
                     }
 
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
 
                     var notifEditEnabled by remember {
                         mutableStateOf(
@@ -740,11 +608,12 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
+                            Text("AI Edit from Notification", style = MaterialTheme.typography.bodyLarge)
                             Row(
+                                modifier = Modifier.padding(top = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text("AI Edit from Notification", style = MaterialTheme.typography.bodyLarge)
                                 // Experimental badge
                                 Surface(
                                     shape = RoundedCornerShape(4.dp),
@@ -769,12 +638,12 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                         )
                                     }
                                 }
+                                Text(
+                                    "Type edit/delete commands in notification.\nAI may occasionally misidentify tasks.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
                             }
-                            Text(
-                                "Type edit/delete commands in notification. AI may occasionally misidentify tasks.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
                         }
                         Switch(
                             checked = notifEditEnabled,
@@ -968,7 +837,6 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                         ) { Text("Grant Permission") }
                     }
                     if (notificationPrefEnabled) {
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -992,11 +860,12 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                 )
                             }
                         }
-                        Row(
+                        androidx.compose.foundation.layout.FlowRow(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             com.theblankstate.preamble.notification.NotificationUpdatePreference.values().forEach { mode ->
                                 FilterChip(
@@ -1009,13 +878,11 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                                             .apply()
                                     },
                                     label = { Text(mode.displayName) },
-                                    modifier = Modifier.weight(1f)
                                 )
                             }
                         }
                     }
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                     }
                 }
             }
@@ -1121,7 +988,6 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
 
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
 
                     Text(
                         "Terms of Service",
@@ -1148,7 +1014,6 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                     LibraryItem("Jetpack Compose", "UI Toolkit", "Apache 2.0")
                     LibraryItem("Room Database", "Local persistence", "Apache 2.0")
                     LibraryItem("Kotlin Coroutines", "Async operations", "Apache 2.0")

@@ -116,9 +116,18 @@ class TaskViewModel(
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(cal.time)
     }
 
-    val pastTasks: StateFlow<Map<String, List<Task>>> = repository.getTasksForDates(past10Dates)
+    private val _rawPastTasks: StateFlow<Map<String, List<Task>>> = repository.getTasksForDates(past10Dates)
         .map { tasks: List<Task> -> tasks.groupBy { it.createdDate } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    val pastTasks: StateFlow<Map<String, List<Task>>> = combine(
+        _rawPastTasks,
+        _selectedTagFilter
+    ) { byDate, tagFilter ->
+        if (tagFilter == null) byDate
+        else byDate.mapValues { (_, tasks) -> tasks.filter { it.tagList.contains(tagFilter) } }
+            .filterValues { it.isNotEmpty() }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     // Search
     private val _searchQuery = MutableStateFlow("")
