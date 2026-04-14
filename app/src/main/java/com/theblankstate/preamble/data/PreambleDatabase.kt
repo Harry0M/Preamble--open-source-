@@ -7,10 +7,11 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Task::class, TaskTagOverride::class], version = 18, exportSchema = false)
+@Database(entities = [Task::class, TaskTagOverride::class, PomodoroSession::class], version = 19, exportSchema = false)
 abstract class PreambleDatabase : RoomDatabase() {
 
     abstract fun taskDao(): TaskDao
+    abstract fun pomodoroSessionDao(): PomodoroSessionDao
 
     companion object {
         @Volatile
@@ -23,7 +24,7 @@ abstract class PreambleDatabase : RoomDatabase() {
                     PreambleDatabase::class.java,
                     "preamble_db"
                 )
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_18_19)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -213,6 +214,26 @@ abstract class PreambleDatabase : RoomDatabase() {
                 // Extended Google Tasks metadata columns
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `webViewLink` TEXT")
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `taskLinksJson` TEXT")
+            }
+        }
+
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `pomodoro_sessions` (
+                        `id` TEXT NOT NULL,
+                        `taskId` TEXT,
+                        `taskTitle` TEXT,
+                        `startTimestamp` INTEGER NOT NULL,
+                        `endTimestamp` INTEGER NOT NULL,
+                        `durationSeconds` INTEGER NOT NULL,
+                        `date` TEXT NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_pomodoro_sessions_taskId` ON `pomodoro_sessions` (`taskId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_pomodoro_sessions_date` ON `pomodoro_sessions` (`date`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_pomodoro_sessions_startTimestamp` ON `pomodoro_sessions` (`startTimestamp`)")
             }
         }
     }

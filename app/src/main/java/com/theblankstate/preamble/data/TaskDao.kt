@@ -166,6 +166,48 @@ interface TaskDao {
     @Query("SELECT * FROM tasks WHERE tags LIKE '%' || :tag || '%' AND parentTaskId IS NULL ORDER BY createdDate DESC, isCompleted ASC, priority DESC, createdTimestamp DESC")
     fun getTasksByTag(tag: String): Flow<List<Task>>
 
+    // ── Advanced Stats queries ──
+
+    @Query("""
+        SELECT
+            CASE
+                WHEN recurrenceType = 'rollover' THEN 'rollover'
+                WHEN recurrenceType IS NOT NULL AND recurrenceParentId IS NULL THEN 'recurring'
+                ELSE source
+            END as source,
+            COUNT(*) as count,
+            SUM(CASE WHEN isCompleted = 1 THEN 1 ELSE 0 END) as completed
+        FROM tasks
+        WHERE parentTaskId IS NULL
+        GROUP BY CASE
+            WHEN recurrenceType = 'rollover' THEN 'rollover'
+            WHEN recurrenceType IS NOT NULL AND recurrenceParentId IS NULL THEN 'recurring'
+            ELSE source
+        END
+    """)
+    suspend fun getTaskCountBySource(): List<SourceBreakdown>
+
+    @Query("SELECT COUNT(*) FROM tasks WHERE recurrenceType = 'rollover' AND parentTaskId IS NULL")
+    suspend fun getTotalRolloverCount(): Int
+
+    @Query("SELECT COUNT(*) FROM tasks WHERE recurrenceType = 'rollover' AND isCompleted = 1 AND parentTaskId IS NULL")
+    suspend fun getCompletedRolloverCount(): Int
+
+    @Query("SELECT tags, isCompleted FROM tasks WHERE tags IS NOT NULL AND tags != '' AND parentTaskId IS NULL")
+    suspend fun getTagCompletionData(): List<TagCompletionRow>
+
+    @Query("""
+        SELECT createdDate FROM (
+            SELECT
+                CASE WHEN recurrenceType = 'rollover' AND completedDate IS NOT NULL THEN completedDate ELSE createdDate END as createdDate,
+                COUNT(*) as total,
+                SUM(CASE WHEN isCompleted = 1 THEN 1 ELSE 0 END) as completed
+            FROM tasks WHERE parentTaskId IS NULL
+            GROUP BY CASE WHEN recurrenceType = 'rollover' AND completedDate IS NOT NULL THEN completedDate ELSE createdDate END
+        ) WHERE total > 0 AND total = completed ORDER BY createdDate DESC
+    """)
+    suspend fun getAllPerfectDates(): List<String>
+
     // ── Tag Override queries (for Google Calendar/Tasks tag persistence) ──
 
     @Query("SELECT * FROM task_tag_overrides WHERE googleId = :googleId")

@@ -13,6 +13,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.theblankstate.preamble.MainActivity
 import com.theblankstate.preamble.R
+import com.theblankstate.preamble.data.PomodoroSession
+import com.theblankstate.preamble.data.PomodoroSessionDao
+import com.theblankstate.preamble.data.PreambleDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -27,12 +30,15 @@ class PomodoroTimerService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var timerJob: Job? = null
+    private var pomodoroSessionDao: PomodoroSessionDao? = null
+    private var workPhaseStartTimestamp: Long = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        pomodoroSessionDao = PreambleDatabase.getInstance(applicationContext).pomodoroSessionDao()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -51,6 +57,7 @@ class PomodoroTimerService : Service() {
     }
 
     private fun startTimer(durationSeconds: Int, taskId: String?, taskTitle: String?) {
+        workPhaseStartTimestamp = System.currentTimeMillis()
         _state.value = PomodoroState(
             isRunning = true,
             remainingSeconds = durationSeconds,
@@ -85,6 +92,21 @@ class PomodoroTimerService : Service() {
         val current = _state.value
         when (current.currentPhase) {
             PomodoroPhase.WORK -> {
+                // Persist completed work session to DB
+                val now = System.currentTimeMillis()
+                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                val session = PomodoroSession(
+                    taskId = current.taskId,
+                    taskTitle = current.taskTitle,
+                    startTimestamp = workPhaseStartTimestamp,
+                    endTimestamp = now,
+                    durationSeconds = PomodoroDefaults.WORK_MINUTES * 60,
+                    date = sdf.format(java.util.Date(now))
+                )
+                serviceScope.launch(Dispatchers.IO) {
+                    try { pomodoroSessionDao?.insertSession(session) } catch (_: Exception) {}
+                }
+
                 val newSessions = current.sessionsCompleted + 1
                 val nextPhase = if (newSessions % PomodoroDefaults.SESSIONS_BEFORE_LONG_BREAK == 0) {
                     PomodoroPhase.LONG_BREAK
@@ -105,6 +127,7 @@ class PomodoroTimerService : Service() {
                 startCountdown()
             }
             PomodoroPhase.SHORT_BREAK, PomodoroPhase.LONG_BREAK -> {
+                workPhaseStartTimestamp = System.currentTimeMillis()
                 val workDuration = PomodoroDefaults.WORK_MINUTES * 60
                 _state.value = current.copy(
                     currentPhase = PomodoroPhase.WORK,

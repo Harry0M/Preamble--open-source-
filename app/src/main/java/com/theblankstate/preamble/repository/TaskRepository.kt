@@ -2,10 +2,15 @@ package com.theblankstate.preamble.repository
 
 import android.util.Log
 import com.google.gson.Gson
+import com.theblankstate.preamble.data.BestFocusDay
+import com.theblankstate.preamble.data.RolloverHealthData
+import com.theblankstate.preamble.data.TagStats
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.TaskDao
+import com.theblankstate.preamble.data.TaskFocusSummary
 import com.theblankstate.preamble.data.TaskInputValidator
 import com.theblankstate.preamble.data.TaskTagOverride
+import com.theblankstate.preamble.data.TaskTypeBreakdown
 import com.theblankstate.preamble.recurrence.RecurrenceGenerator
 import com.theblankstate.preamble.sync.FirebaseTaskSyncManager
 import com.theblankstate.preamble.sync.MirrorParitySummary
@@ -19,7 +24,8 @@ import java.util.Locale
 
 class TaskRepository(
     private val dao: TaskDao,
-    private val syncManager: FirebaseTaskSyncManager? = null
+    private val syncManager: FirebaseTaskSyncManager? = null,
+    private val pomodoroDao: com.theblankstate.preamble.data.PomodoroSessionDao? = null
 ) {
     // Track recently deleted IDs to prevent sync from re-inserting them
     private val recentlyDeletedIds = mutableSetOf<String>()
@@ -817,6 +823,191 @@ class TaskRepository(
                 dao.updateTask(updated)
                 syncManager?.pushTask(updated)
             }
+        }
+    }
+
+    // ── Advanced Stats Methods ──
+
+    suspend fun calculateLongestStreak(): Int {
+        val perfectDates = dao.getAllPerfectDates()
+        if (perfectDates.isEmpty()) return 0
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        var longest = 1
+        var current = 1
+        for (i in 1 until perfectDates.size) {
+            val prev = sdf.parse(perfectDates[i - 1]) ?: continue
+            val curr = sdf.parse(perfectDates[i]) ?: continue
+            val diffDays = ((prev.time - curr.time) / (1000 * 60 * 60 * 24)).toInt()
+            if (diffDays == 1) {
+                current++
+                if (current > longest) longest = current
+            } else {
+                current = 1
+            }
+        }
+        return longest
+    }
+
+    suspend fun getWeeklyConsistency(): Int {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val dates = (0 until 7).map { i ->
+            val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -6 + i) }
+            sdf.format(cal.time)
+        }
+        val statsMap = dao.getStatsForDates(dates).associate { it.createdDate to it }
+        return dates.count { dateStr ->
+            val stats = statsMap[dateStr]
+            stats != null && stats.total > 0 && stats.total == stats.completed
+        }
+    }
+
+    suspend fun getTaskBreakdownByType(): List<TaskTypeBreakdown> {
+        val breakdown = dao.getTaskCountBySource()
+        val total = breakdown.sumOf { it.count }.coerceAtLeast(1)
+        val labelMap = mapOf(
+            "local" to "Local",
+            "recurring" to "Recurring",
+            "rollover" to "Keep Active",
+            "google_calendar" to "Google Calendar",
+            "google_tasks" to "Google Tasks"
+        )
+        return breakdown.map { row ->
+            TaskTypeBreakdown(
+                label = labelMap[row.source] ?: row.source,
+                count = row.count,
+                percentage = row.count.toFloat() / total
+            )
+        }.sortedByDescending { it.count }
+    }
+
+    suspend fun getRolloverHealth(): RolloverHealthData {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val today = sdf.parse(todayString()) ?: return RolloverHealthData(0, 0f, null, 0, 0f)
+        val activeTasks = dao.getPendingRolloverTasks()
+        val totalCount = dao.getTotalRolloverCount()
+        val completedCount = dao.getCompletedRolloverCount()
+
+        if (activeTasks.isEmpty()) {
+            val rate = if (totalCount > 0) completedCount.toFloat() / totalCount else 0f
+            return RolloverHealthData(0, 0f, null, 0, rate)
+        }
+
+        val ages = activeTasks.mapNotNull { task ->
+            val created = sdf.parse(task.createdDate) ?: return@mapNotNull null
+            ((today.time - created.time) / (1000 * 60 * 60 * 24)).toInt()
+        }
+        val avgDays = if (ages.isNotEmpty()) ages.average().toFloat() else 0f
+        val oldestIdx = ages.indices.maxByOrNull { ages[it] } ?: 0
+        val rate = if (totalCount > 0) completedCount.toFloat() / totalCount else 0f
+
+        return RolloverHealthData(
+            activeCount = activeTasks.size,
+            averageDaysPending = avgDays,
+            oldestTaskTitle = activeTasks.getOrNull(oldestIdx)?.title,
+            oldestDaysPending = ages.maxOrNull() ?: 0,
+            completionRate = rate
+        )
+    }
+
+    suspend fun getTagAnalytics(): List<TagStats> {
+        val rows = dao.getTagCompletionData()
+        val tagMap = mutableMapOf<String, Pair<Int, Int>>() // tag -> (total, completed)
+        for (row in rows) {
+            val tags = row.tags?.split(",")?.map { it.trim() }?.filter { it.isNotEmpty() } ?: continue
+            for (tag in tags) {
+                val (total, completed) = tagMap.getOrDefault(tag, 0 to 0)
+                tagMap[tag] = (total + 1) to (completed + if (row.isCompleted) 1 else 0)
+            }
+        }
+        return tagMap.map { (tag, pair) ->
+            TagStats(
+                tag = tag,
+                totalCount = pair.first,
+                completedCount = pair.second,
+                completionRate = if (pair.first > 0) pair.second.toFloat() / pair.first else 0f
+            )
+        }.sortedByDescending { it.totalCount }
+    }
+
+    suspend fun getWeeklyComparison(): Pair<Int, Int> {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val thisWeekDates = (0 until 7).map { i ->
+            val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -6 + i) }
+            sdf.format(cal.time)
+        }
+        val lastWeekDates = (0 until 7).map { i ->
+            val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -13 + i) }
+            sdf.format(cal.time)
+        }
+        val thisWeekStats = dao.getStatsForDates(thisWeekDates)
+        val lastWeekStats = dao.getStatsForDates(lastWeekDates)
+        return thisWeekStats.sumOf { it.completed } to lastWeekStats.sumOf { it.completed }
+    }
+
+    suspend fun getMonthlyHeatmap(): Map<Int, Float> {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val cal = Calendar.getInstance()
+        val daysInMonth = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+        cal.set(Calendar.DAY_OF_MONTH, 1)
+        val dates = (0 until daysInMonth).map { i ->
+            val tempCal = Calendar.getInstance().apply {
+                set(Calendar.DAY_OF_MONTH, 1)
+                add(Calendar.DAY_OF_MONTH, i)
+            }
+            sdf.format(tempCal.time)
+        }
+        val statsMap = dao.getStatsForDates(dates).associate { it.createdDate to it }
+        val heatmap = mutableMapOf<Int, Float>()
+        for ((i, dateStr) in dates.withIndex()) {
+            val stats = statsMap[dateStr]
+            val density = if (stats != null && stats.total > 0) stats.completed.toFloat() / stats.total else 0f
+            heatmap[i + 1] = density
+        }
+        return heatmap
+    }
+
+    // ── Pomodoro Stats Methods ──
+
+    suspend fun getTodayFocusMinutes(): Int {
+        val seconds = pomodoroDao?.getTotalFocusSecondsForDate(todayString()) ?: 0
+        return seconds / 60
+    }
+
+    suspend fun getTodayPomodoroCount(): Int {
+        return pomodoroDao?.getSessionCountForDate(todayString()) ?: 0
+    }
+
+    suspend fun getTotalFocusHours(): Float {
+        val seconds = pomodoroDao?.getTotalFocusSecondsAllTime() ?: 0
+        return seconds / 3600f
+    }
+
+    suspend fun getAverageDailyFocusMinutes(): Int {
+        val seconds = pomodoroDao?.getAverageDailyFocusSeconds() ?: 0
+        return seconds / 60
+    }
+
+    suspend fun getBestFocusDayData(): BestFocusDay? {
+        return pomodoroDao?.getBestFocusDay()
+    }
+
+    suspend fun getTopFocusedTasks(limit: Int = 5): List<TaskFocusSummary> {
+        return pomodoroDao?.getTopFocusedTasks(limit) ?: emptyList()
+    }
+
+    suspend fun getWeeklyFocusData(): List<Pair<String, Int>> {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val daySdf = SimpleDateFormat("EEE", Locale.getDefault())
+        val dates = (0 until 7).map { i ->
+            val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -6 + i) }
+            sdf.format(cal.time)
+        }
+        val focusMap = pomodoroDao?.getFocusStatsByDates(dates)?.associate { it.date to it } ?: emptyMap()
+        return dates.map { dateStr ->
+            val cal = Calendar.getInstance().apply { time = sdf.parse(dateStr)!! }
+            val dayLabel = daySdf.format(cal.time)
+            val minutes = (focusMap[dateStr]?.totalSeconds ?: 0) / 60
+            dayLabel to minutes
         }
     }
 

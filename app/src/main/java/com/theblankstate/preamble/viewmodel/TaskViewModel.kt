@@ -35,6 +35,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 data class StatsState(
+    // Existing
     val totalCompleted: Int = 0,
     val totalTasks: Int = 0,
     val todayCompleted: Int = 0,
@@ -42,7 +43,37 @@ data class StatsState(
     val streak: Int = 0,
     val weeklyStats: List<Pair<String, Float>> = emptyList(),
     val dailyCompleted: List<Pair<String, Int>> = emptyList(),
-    val monthlyCompleted: List<Pair<String, Int>> = emptyList()
+    val monthlyCompleted: List<Pair<String, Int>> = emptyList(),
+    // Productivity Score
+    val productivityScore: Int = 0,
+    val productivityScoreTrend: Int = 0, // -1, 0, +1
+    // Pomodoro / Focus
+    val todayFocusMinutes: Int = 0,
+    val todayPomodoroSessions: Int = 0,
+    val totalFocusHours: Float = 0f,
+    val averageDailyFocusMinutes: Int = 0,
+    val bestFocusDay: String? = null,
+    val bestFocusDayMinutes: Int = 0,
+    val topFocusedTasks: List<com.theblankstate.preamble.data.TaskFocusSummary> = emptyList(),
+    val weeklyFocusData: List<Pair<String, Int>> = emptyList(),
+    // Task Type Breakdown
+    val taskTypeBreakdown: List<com.theblankstate.preamble.data.TaskTypeBreakdown> = emptyList(),
+    // Rollover Health
+    val activeRolloverCount: Int = 0,
+    val averageRolloverDaysPending: Float = 0f,
+    val oldestRolloverTaskTitle: String? = null,
+    val oldestRolloverDays: Int = 0,
+    val rolloverCompletionRate: Float = 0f,
+    // Streak & Consistency
+    val longestStreak: Int = 0,
+    val weeklyConsistencyDays: Int = 0,
+    val monthlyHeatmap: Map<Int, Float> = emptyMap(),
+    // Weekly Comparison
+    val thisWeekCompleted: Int = 0,
+    val lastWeekCompleted: Int = 0,
+    // Tag Analytics
+    val tagStats: List<com.theblankstate.preamble.data.TagStats> = emptyList(),
+    val mostActiveTag: String? = null
 )
 
 class TaskViewModel(
@@ -116,18 +147,9 @@ class TaskViewModel(
         java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(cal.time)
     }
 
-    private val _rawPastTasks: StateFlow<Map<String, List<Task>>> = repository.getTasksForDates(past10Dates)
+    val pastTasks: StateFlow<Map<String, List<Task>>> = repository.getTasksForDates(past10Dates)
         .map { tasks: List<Task> -> tasks.groupBy { it.createdDate } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
-
-    val pastTasks: StateFlow<Map<String, List<Task>>> = combine(
-        _rawPastTasks,
-        _selectedTagFilter
-    ) { byDate, tagFilter ->
-        if (tagFilter == null) byDate
-        else byDate.mapValues { (_, tasks) -> tasks.filter { it.tagList.contains(tagFilter) } }
-            .filterValues { it.isNotEmpty() }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     // Search
     private val _searchQuery = MutableStateFlow("")
@@ -518,16 +540,99 @@ class TaskViewModel(
         statsRefreshJob?.cancel()
         statsRefreshJob = viewModelScope.launch {
             delay(500)
-            val streak = repository.calculateStreak()
-            val weekly = repository.getWeeklyStats()
-            val daily = repository.getDailyStatsForRange(14)
-            val monthly = repository.getDailyStatsForRange(30)
+            // Run all stat queries in parallel
+            val streakDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.calculateStreak() }
+            val longestStreakDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.calculateLongestStreak() }
+            val weeklyDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getWeeklyStats() }
+            val dailyDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getDailyStatsForRange(14) }
+            val monthlyDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getDailyStatsForRange(30) }
+            val breakdownDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTaskBreakdownByType() }
+            val rolloverDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getRolloverHealth() }
+            val tagDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTagAnalytics() }
+            val consistencyDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getWeeklyConsistency() }
+            val weekCompareDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getWeeklyComparison() }
+            val heatmapDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getMonthlyHeatmap() }
+            // Pomodoro stats
+            val todayFocusDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTodayFocusMinutes() }
+            val todayPomCountDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTodayPomodoroCount() }
+            val totalFocusDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTotalFocusHours() }
+            val avgFocusDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getAverageDailyFocusMinutes() }
+            val bestDayDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getBestFocusDayData() }
+            val topTasksDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTopFocusedTasks() }
+            val weeklyFocusDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getWeeklyFocusData() }
+
+            val streak = streakDef.await()
+            val longestStreak = longestStreakDef.await()
+            val weekly = weeklyDef.await()
+            val daily = dailyDef.await()
+            val monthly = monthlyDef.await()
+            val breakdown = breakdownDef.await()
+            val rollover = rolloverDef.await()
+            val tags = tagDef.await()
+            val consistency = consistencyDef.await()
+            val (thisWeek, lastWeek) = weekCompareDef.await()
+            val heatmap = heatmapDef.await()
+            val todayFocus = todayFocusDef.await()
+            val todayPomCount = todayPomCountDef.await()
+            val totalFocus = totalFocusDef.await()
+            val avgFocus = avgFocusDef.await()
+            val bestDay = bestDayDef.await()
+            val topTasks = topTasksDef.await()
+            val weeklyFocus = weeklyFocusDef.await()
+
+            // Compute productivity score
+            val currentState = _statsState.value
+            val completionRate = if (currentState.totalTasks > 0)
+                currentState.totalCompleted.toFloat() / currentState.totalTasks else 0f
+            val streakBonus = (streak.toFloat() / 30f).coerceAtMost(1f)
+            val focusRatio = (todayFocus.toFloat() / 120f).coerceAtMost(1f)
+            val consistencyRate = consistency.toFloat() / 7f
+            val score = ((completionRate * 40f + streakBonus * 20f + focusRatio * 20f + consistencyRate * 20f)).toInt().coerceIn(0, 100)
+
+            // Approximate previous score for trend (simple: compare this vs last week completion)
+            val trend = when {
+                thisWeek > lastWeek -> 1
+                thisWeek < lastWeek -> -1
+                else -> 0
+            }
+
+            val bestDayFormatted = bestDay?.let {
+                try {
+                    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                    val displaySdf = java.text.SimpleDateFormat("MMM dd", java.util.Locale.getDefault())
+                    displaySdf.format(sdf.parse(it.date)!!)
+                } catch (_: Exception) { it.date }
+            }
+
             _statsState.update {
                 it.copy(
                     streak = streak,
+                    longestStreak = longestStreak,
                     weeklyStats = weekly,
                     dailyCompleted = daily,
-                    monthlyCompleted = monthly
+                    monthlyCompleted = monthly,
+                    productivityScore = score,
+                    productivityScoreTrend = trend,
+                    todayFocusMinutes = todayFocus,
+                    todayPomodoroSessions = todayPomCount,
+                    totalFocusHours = totalFocus,
+                    averageDailyFocusMinutes = avgFocus,
+                    bestFocusDay = bestDayFormatted,
+                    bestFocusDayMinutes = (bestDay?.totalSeconds ?: 0) / 60,
+                    topFocusedTasks = topTasks,
+                    weeklyFocusData = weeklyFocus,
+                    taskTypeBreakdown = breakdown,
+                    activeRolloverCount = rollover.activeCount,
+                    averageRolloverDaysPending = rollover.averageDaysPending,
+                    oldestRolloverTaskTitle = rollover.oldestTaskTitle,
+                    oldestRolloverDays = rollover.oldestDaysPending,
+                    rolloverCompletionRate = rollover.completionRate,
+                    weeklyConsistencyDays = consistency,
+                    monthlyHeatmap = heatmap,
+                    thisWeekCompleted = thisWeek,
+                    lastWeekCompleted = lastWeek,
+                    tagStats = tags,
+                    mostActiveTag = tags.firstOrNull()?.tag
                 )
             }
         }
