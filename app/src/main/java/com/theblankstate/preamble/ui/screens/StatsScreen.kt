@@ -23,7 +23,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.EmojiEvents
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
@@ -122,10 +121,6 @@ fun StatsScreen(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        Color(0xFF2CC5BE).copy(alpha = 0.28f)
-                    ),
                     colors = CardDefaults.cardColors(
                         containerColor = Color.Transparent
                     ),
@@ -137,9 +132,9 @@ fun StatsScreen(
                             .background(
                                 Brush.linearGradient(
                                     listOf(
-                                        Color(0xFFFFC52F).copy(alpha = 0.28f),
+                                        primaryColor.copy(alpha = 0.15f),
                                         MaterialTheme.colorScheme.surface,
-                                        Color(0xFF45C9C0).copy(alpha = 0.18f)
+                                        primaryColor.copy(alpha = 0.08f)
                                     )
                                 )
                             )
@@ -148,7 +143,7 @@ fun StatsScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
-                            text = "Weekly pulse",
+                            text = "Productivity Score",
                             style = MaterialTheme.typography.titleSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -156,21 +151,19 @@ fun StatsScreen(
                             modifier = Modifier
                                 .size(220.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFFFFD365).copy(alpha = 0.18f))
-                                .border(1.dp, Color(0xFFE0A907).copy(alpha = 0.22f), CircleShape),
+                                .background(primaryColor.copy(alpha = 0.12f)),
                             contentAlignment = Alignment.Center
                         ) {
                             Box(
                                 modifier = Modifier
                                     .size(182.dp)
                                     .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
-                                    .border(1.dp, Color(0xFFE0A907).copy(alpha = 0.28f), CircleShape),
+                                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
                                 contentAlignment = Alignment.Center
                             ) {
                                 AnimatedCircularGauge(
                                     score = statsState.productivityScore,
-                                    primaryColor = Color(0xFFE0A907),
+                                    primaryColor = primaryColor,
                                     modifier = Modifier.size(158.dp)
                                 )
                             }
@@ -178,14 +171,14 @@ fun StatsScreen(
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(20.dp))
-                                .background(Color(0xFF1F6C69).copy(alpha = 0.12f))
+                                .background(primaryColor.copy(alpha = 0.12f))
                                 .padding(horizontal = 14.dp, vertical = 6.dp)
                         ) {
                             Text(
                                 text = "${statsState.karmaLevel} · ${statsState.karmaPoints} pts",
                                 style = MaterialTheme.typography.labelMedium,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0F6965)
+                                color = primaryColor
                             )
                         }
                         TrendArrow(trend = statsState.productivityScoreTrend)
@@ -209,17 +202,19 @@ fun StatsScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         StatsCapsuleTile(
-                            label = "Steps",
+                            label = "Tasks Done",
                             value = "${statsState.todayCompleted}/${statsState.todayTotal}",
                             icon = Icons.Filled.CheckCircle,
                             tint = Color(0xFF45C9C0),
-                            isChecked = true,
+                            isChecked = statsState.todayCompleted > 0,
                             modifier = Modifier.weight(1f)
                         )
                         StatsCapsuleTile(
-                            label = "BPM",
-                            value = "${statsState.todayPomodoroSessions} - ${statsState.todayFocusMinutes}",
-                            icon = Icons.Filled.Favorite,
+                            label = "Focus Sessions",
+                            value = if (statsState.todayPomodoroSessions > 0)
+                                "${statsState.todayPomodoroSessions}x"
+                            else "—",
+                            icon = Icons.Filled.Timer,
                             tint = Color(0xFFDDE1E8),
                             isChecked = false,
                             modifier = Modifier.weight(1f)
@@ -230,17 +225,17 @@ fun StatsScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         StatsCapsuleTile(
-                            label = "AZM",
-                            value = "${statsState.streak}",
+                            label = "Streak",
+                            value = "${statsState.streak} days",
                             icon = Icons.Filled.LocalFireDepartment,
                             tint = Color(0xFF45C9C0),
-                            isChecked = true,
+                            isChecked = statsState.streak > 0,
                             modifier = Modifier.weight(1f)
                         )
                         StatsCapsuleTile(
-                            label = "Focus",
-                            value = "${statsState.todayFocusMinutes}m",
-                            icon = Icons.Filled.Timer,
+                            label = "This Week",
+                            value = "${statsState.thisWeekCompleted} done",
+                            icon = Icons.Filled.Leaderboard,
                             tint = Color(0xFFDDE1E8),
                             isChecked = false,
                             modifier = Modifier.weight(1f)
@@ -256,33 +251,72 @@ fun StatsScreen(
                 StatsSectionCard(title = "Streak & Consistency") {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        // Current streak — filled circle
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                "${statsState.streak}",
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = primaryColor
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(primaryColor.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "${statsState.streak}",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = primaryColor
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text("Current", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        // Longest streak — muted circle
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                "${statsState.longestStreak}",
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(56.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "${statsState.longestStreak}",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text("Longest", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
+                        // This week — capsule
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(
-                                "${statsState.weeklyConsistencyDays}/7",
-                                style = MaterialTheme.typography.headlineMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = if (statsState.weeklyConsistencyDays >= 5) Color(0xFF4CAF50) else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(
+                                        if (statsState.weeklyConsistencyDays >= 5)
+                                            primaryColor.copy(alpha = 0.18f)
+                                        else
+                                            MaterialTheme.colorScheme.surfaceVariant
+                                    )
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    "${statsState.weeklyConsistencyDays}/7",
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (statsState.weeklyConsistencyDays >= 5)
+                                        primaryColor
+                                    else
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(6.dp))
                             Text("This Week", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }

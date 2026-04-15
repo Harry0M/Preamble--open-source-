@@ -6,7 +6,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -238,7 +237,7 @@ fun HeatmapCalendar(
                             modifier = Modifier
                                 .weight(1f)
                                 .aspectRatio(1f)
-                                .clip(RoundedCornerShape(4.dp))
+                                .clip(RoundedCornerShape(8.dp))
                                 .background(bgColor),
                             contentAlignment = Alignment.Center
                         ) {
@@ -374,10 +373,6 @@ fun StatsSectionCard(
         modifier = modifier
             .fillMaxWidth()
             .then(if (isLocked) Modifier.clickable { onLockedClick() } else Modifier),
-        border = BorderStroke(
-            width = 1.dp,
-            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-        ),
         colors = CardDefaults.cardColors(
             containerColor = Color.Transparent
         ),
