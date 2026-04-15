@@ -127,6 +127,7 @@ fun SettingsScreen(
     val pmEndowedProgress by ThemePreferences.pmEndowedProgress.collectAsState()
     val pmVariableRewards by ThemePreferences.pmVariableRewards.collectAsState()
     val pmYearHeatmap    by ThemePreferences.pmYearHeatmap.collectAsState()
+    val expressiveNav    by ThemePreferences.expressiveNav.collectAsState()
 
     // Google sign-in launcher (grants Calendar + Tasks scopes together)
     val googleSignInLauncher = rememberLauncherForActivityResult(
@@ -735,6 +736,38 @@ fun SettingsScreen(
                             sub = "Tap the app title 7 times to discover a secret message",
                             checked = pmEasterEgg,
                             onToggle = { ThemePreferences.setPmEasterEgg(context, it) }
+                        )
+                    }
+                }
+            }
+
+            // ── Expressiveness ──
+            SectionTitle("Expressiveness")
+            SettingsCard {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Expressive Navigation",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                if (expressiveNav)
+                                    "Dynamic nav bar — tap icon to reveal label"
+                                else
+                                    "Classic nav bar with icons and labels",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = expressiveNav,
+                            onCheckedChange = { ThemePreferences.setExpressiveNav(context, it) }
                         )
                     }
                 }

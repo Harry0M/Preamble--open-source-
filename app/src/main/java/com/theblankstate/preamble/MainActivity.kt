@@ -48,6 +48,8 @@ import com.theblankstate.preamble.sync.GoogleSyncCoordinator
 import com.theblankstate.preamble.ui.theme.PreambleTheme
 import com.theblankstate.preamble.ui.theme.ThemePreferences
 import com.theblankstate.preamble.auth.AuthManager
+import com.theblankstate.preamble.ui.components.ExpressiveNavItem
+import com.theblankstate.preamble.ui.components.ExpressiveNavigationBar
 import com.theblankstate.preamble.ui.components.ProfileSetupDialog
 import com.theblankstate.preamble.viewmodel.TaskViewModel
 import androidx.lifecycle.lifecycleScope
@@ -256,6 +258,16 @@ fun PreambleApp(
     val tasks by viewModel.todayTasks.collectAsState()
     val pastTasks by viewModel.pastTasks.collectAsState()
     val stats by viewModel.statsState.collectAsState()
+    val expressiveNav by ThemePreferences.expressiveNav.collectAsState()
+
+    val expressiveNavItems = remember {
+        listOf(
+            ExpressiveNavItem("Tasks", Icons.Default.Home),
+            ExpressiveNavItem("Stats", Icons.Filled.Analytics),
+            ExpressiveNavItem("Calendar", Icons.Default.DateRange),
+            ExpressiveNavItem("Settings", Icons.Default.Settings),
+        )
+    }
 
     // Handle deep link navigation
     androidx.compose.runtime.LaunchedEffect(deepLinkTarget) {
@@ -297,45 +309,56 @@ fun PreambleApp(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-                    .navigationBarsPadding()
-            ) {
-                NavigationBar(
+            if (expressiveNav) {
+                ExpressiveNavigationBar(
+                    items = expressiveNavItems,
+                    selectedIndex = selectedTab,
+                    onItemSelected = { index ->
+                        selectedTab = index
+                        if (index == 1) viewModel.refreshStats()
+                    },
+                )
+            } else {
+                Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(50)),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                    tonalElevation = 8.dp
+                        .padding(horizontal = 16.dp, vertical = 12.dp)
+                        .navigationBarsPadding()
                 ) {
-                    NavigationBarItem(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        icon = { Icon(Icons.Default.Home, contentDescription = "Tasks") },
-                        label = { Text("Tasks") }
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 1,
-                        onClick = {
-                            selectedTab = 1
-                            viewModel.refreshStats()
-                        },
-                        icon = { Icon(Icons.Filled.Analytics, contentDescription = "Stats") },
-                        label = { Text("Stats") }
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 2,
-                        onClick = { selectedTab = 2 },
-                        icon = { Icon(Icons.Default.DateRange, contentDescription = "Calendar") },
-                        label = { Text("Calendar") }
-                    )
-                    NavigationBarItem(
-                        selected = selectedTab == 3,
-                        onClick = { selectedTab = 3 },
-                        icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
-                        label = { Text("Settings") }
-                    )
+                    NavigationBar(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(50)),
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        tonalElevation = 8.dp
+                    ) {
+                        NavigationBarItem(
+                            selected = selectedTab == 0,
+                            onClick = { selectedTab = 0 },
+                            icon = { Icon(Icons.Default.Home, contentDescription = "Tasks") },
+                            label = { Text("Tasks") }
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 1,
+                            onClick = {
+                                selectedTab = 1
+                                viewModel.refreshStats()
+                            },
+                            icon = { Icon(Icons.Filled.Analytics, contentDescription = "Stats") },
+                            label = { Text("Stats") }
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 2,
+                            onClick = { selectedTab = 2 },
+                            icon = { Icon(Icons.Default.DateRange, contentDescription = "Calendar") },
+                            label = { Text("Calendar") }
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 3,
+                            onClick = { selectedTab = 3 },
+                            icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                            label = { Text("Settings") }
+                        )
+                    }
                 }
             }
         }

@@ -31,6 +31,9 @@ object ThemePreferences {
     private const val KEY_PM_VARIABLE         = "pm_variable"
     private const val KEY_PM_HEATMAP          = "pm_heatmap"
 
+    // Expressive Navigation
+    private const val KEY_EXPRESSIVE_NAV      = "expressive_nav"
+
     enum class ThemeMode { SYSTEM, LIGHT, DARK, AMOLED }
 
     private val _themeColor = MutableStateFlow<Color?>(null)
@@ -91,6 +94,10 @@ object ThemePreferences {
     private val _pmYearHeatmap    = MutableStateFlow(true)
     val pmYearHeatmap: StateFlow<Boolean> = _pmYearHeatmap.asStateFlow()
 
+    // Expressive Navigation
+    private val _expressiveNav    = MutableStateFlow(false)
+    val expressiveNav: StateFlow<Boolean> = _expressiveNav.asStateFlow()
+
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val colorHex = prefs.getString(KEY_COLOR, null)
@@ -121,6 +128,7 @@ object ThemePreferences {
         _pmEndowedProgress.value= prefs.getBoolean(KEY_PM_ENDOWED, true)
         _pmVariableRewards.value= prefs.getBoolean(KEY_PM_VARIABLE, true)
         _pmYearHeatmap.value   = prefs.getBoolean(KEY_PM_HEATMAP, true)
+        _expressiveNav.value   = prefs.getBoolean(KEY_EXPRESSIVE_NAV, false)
     }
 
     fun setColor(context: Context, color: Color?) {
@@ -187,5 +195,6 @@ object ThemePreferences {
     fun setPmEndowedProgress(context: Context, v: Boolean) = setBool(context, KEY_PM_ENDOWED, _pmEndowedProgress, v)
     fun setPmVariableRewards(context: Context, v: Boolean) = setBool(context, KEY_PM_VARIABLE, _pmVariableRewards, v)
     fun setPmYearHeatmap(context: Context, v: Boolean)   = setBool(context, KEY_PM_HEATMAP, _pmYearHeatmap, v)
+    fun setExpressiveNav(context: Context, v: Boolean)   = setBool(context, KEY_EXPRESSIVE_NAV, _expressiveNav, v)
 
 }
