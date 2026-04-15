@@ -143,6 +143,36 @@ fun StatsScreen(
                             primaryColor = primaryColor,
                             modifier = Modifier.size(160.dp)
                         )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        // Karma level badge — Todoist-inspired progression
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(primaryColor.copy(alpha = 0.12f))
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = statsState.karmaLevel,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = primaryColor
+                                )
+                                Text(
+                                    text = "·",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = "${statsState.karmaPoints} pts",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
                         TrendArrow(trend = statsState.productivityScoreTrend)
                     }

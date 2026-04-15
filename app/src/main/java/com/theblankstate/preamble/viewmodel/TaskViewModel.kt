@@ -73,7 +73,10 @@ data class StatsState(
     val lastWeekCompleted: Int = 0,
     // Tag Analytics
     val tagStats: List<com.theblankstate.preamble.data.TagStats> = emptyList(),
-    val mostActiveTag: String? = null
+    val mostActiveTag: String? = null,
+    // Karma / Level System (Todoist-inspired)
+    val karmaPoints: Int = 0,
+    val karmaLevel: String = "Beginner"
 )
 
 class TaskViewModel(
@@ -596,6 +599,19 @@ class TaskViewModel(
                 else -> 0
             }
 
+            // Karma: tasks completed (10pts) + streak longevity (5pts/day) + focus hours (30pts/hr)
+            val karmaPoints = (currentState.totalCompleted * 10 + longestStreak * 5 + (totalFocus * 30).toInt()).coerceAtLeast(0)
+            val karmaLevel = when {
+                karmaPoints >= 7000 -> "Enlightened"
+                karmaPoints >= 4000 -> "Master"
+                karmaPoints >= 2000 -> "Expert"
+                karmaPoints >= 1000 -> "Productive"
+                karmaPoints >= 600  -> "Focused"
+                karmaPoints >= 300  -> "Consistent"
+                karmaPoints >= 100  -> "Getting Started"
+                else                -> "Beginner"
+            }
+
             val bestDayFormatted = bestDay?.let {
                 try {
                     val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
@@ -632,7 +648,9 @@ class TaskViewModel(
                     thisWeekCompleted = thisWeek,
                     lastWeekCompleted = lastWeek,
                     tagStats = tags,
-                    mostActiveTag = tags.firstOrNull()?.tag
+                    mostActiveTag = tags.firstOrNull()?.tag,
+                    karmaPoints = karmaPoints,
+                    karmaLevel = karmaLevel
                 )
             }
         }

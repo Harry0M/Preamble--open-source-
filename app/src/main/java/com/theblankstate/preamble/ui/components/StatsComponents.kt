@@ -22,11 +22,17 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.patrykandpatrick.vico.compose.cartesian.CartesianChartHost
+import com.patrykandpatrick.vico.compose.cartesian.axis.VerticalAxis
+import com.patrykandpatrick.vico.compose.cartesian.layer.rememberColumnCartesianLayer
+import com.patrykandpatrick.vico.compose.cartesian.rememberCartesianChart
+import com.patrykandpatrick.vico.compose.cartesian.data.CartesianChartModelProducer
+import com.patrykandpatrick.vico.compose.cartesian.data.columnSeries
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.TrendingDown
-import androidx.compose.material.icons.filled.TrendingFlat
-import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingFlat
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -137,9 +143,9 @@ fun AnimatedCircularGauge(
 @Composable
 fun TrendArrow(trend: Int, modifier: Modifier = Modifier) {
     val (icon, color) = when {
-        trend > 0 -> Icons.Filled.TrendingUp to Color(0xFF4CAF50)
-        trend < 0 -> Icons.Filled.TrendingDown to Color(0xFFF44336)
-        else -> Icons.Filled.TrendingFlat to MaterialTheme.colorScheme.onSurfaceVariant
+        trend > 0 -> Icons.AutoMirrored.Filled.TrendingUp to Color(0xFF4CAF50)
+        trend < 0 -> Icons.AutoMirrored.Filled.TrendingDown to Color(0xFFF44336)
+        else -> Icons.AutoMirrored.Filled.TrendingFlat to MaterialTheme.colorScheme.onSurfaceVariant
     }
     val label = when {
         trend > 0 -> "vs last week"
@@ -252,7 +258,7 @@ fun HeatmapCalendar(
 }
 
 /**
- * Focus bar chart for weekly pomodoro data.
+ * Focus bar chart for weekly pomodoro data — powered by Vico.
  */
 @Composable
 fun FocusBarChart(
@@ -260,48 +266,39 @@ fun FocusBarChart(
     primaryColor: Color,
     modifier: Modifier = Modifier
 ) {
-    val maxVal = data.maxOfOrNull { it.second }?.coerceAtLeast(1) ?: 1
+    if (data.isEmpty()) return
 
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.SpaceEvenly,
-        verticalAlignment = Alignment.Bottom
-    ) {
-        data.forEach { (day, minutes) ->
-            val rate = minutes.toFloat() / maxVal
-            val animatedRate by animateFloatAsState(
-                targetValue = rate,
-                animationSpec = tween(800),
-                label = "bar"
-            )
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Bottom,
-                modifier = Modifier.weight(1f)
-            ) {
-                Text(
-                    text = "${minutes}m",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 9.sp
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Box(
-                    modifier = Modifier
-                        .width(18.dp)
-                        .height((animatedRate * 70).dp.coerceAtLeast(3.dp))
-                        .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
-                        .background(
-                            if (minutes > 0) primaryColor.copy(alpha = 0.4f + animatedRate * 0.6f)
-                            else primaryColor.copy(alpha = 0.1f)
-                        )
-                )
-                Spacer(modifier = Modifier.height(4.dp))
+    val modelProducer = remember { CartesianChartModelProducer() }
+    LaunchedEffect(data) {
+        modelProducer.runTransaction {
+            val values: Array<Number> = data.map { it.second as Number }.toTypedArray()
+            columnSeries { series(*values) }
+        }
+    }
+
+    Column(modifier = modifier) {
+        CartesianChartHost(
+            chart = rememberCartesianChart(
+                rememberColumnCartesianLayer(),
+                startAxis = VerticalAxis.rememberStart(),
+            ),
+            modelProducer = modelProducer,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            data.forEach { (day, _) ->
                 Text(
                     text = day,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 10.sp
+                    fontSize = 10.sp,
+                    textAlign = TextAlign.Center
                 )
             }
         }
@@ -337,7 +334,7 @@ fun StatsSectionCard(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                Box(modifier = if (isLocked) Modifier.alpha(0.25f) else Modifier) {
+                Column(modifier = if (isLocked) Modifier.alpha(0.25f) else Modifier) {
                     content()
                 }
             }

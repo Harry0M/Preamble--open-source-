@@ -130,6 +130,9 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.5.0")
     implementation("io.coil-kt:coil-svg:2.5.0")
 
+    // Vico Charts (Jetpack Compose + Material3)
+    implementation("com.patrykandpatrick.vico:compose-m3:3.1.0")
+
     constraints {
         implementation("io.grpc:grpc-api:1.62.2") {
             version { strictly("1.62.2") }

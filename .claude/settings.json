@@ -13,7 +13,15 @@
       "Read(//c/Users/palha/preamble/**)",
       "Bash(./gradlew :app:compileDebugKotlin)",
       "Read(//c/Users/palha/preamble/app/src/main/java/**)",
-      "Bash(xargs cat:*)"
+      "Bash(xargs cat:*)",
+      "WebSearch",
+      "WebFetch(domain:www.todoist.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:trophy.so)",
+      "WebFetch(domain:guide.vico.patrykandpatrick.com)",
+      "WebFetch(domain:central.sonatype.com)",
+      "WebFetch(domain:api.vico.patrykandpatrick.com)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }
