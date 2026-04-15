@@ -473,24 +473,8 @@ fun HomeScreen(
                                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
                                         )
                                     }
-                                    if (todayHoliday != null) {
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(MaterialTheme.colorScheme.tertiaryContainer)
-                                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                                        ) {
-                                            Text(
-                                                text = todayHoliday,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onTertiaryContainer
-                                            )
-                                        }
-                                    }
                                 } // closes personal mode Row
-                                RichDateHeader(modifier = Modifier.padding(top = 2.dp), externalFestival = null)
+                                RichDateHeader(modifier = Modifier.padding(top = 2.dp), externalFestival = todayHoliday)
                             } else {
                                 // Classic mode — original layout preserved
                                 Row(
@@ -504,24 +488,8 @@ fun HomeScreen(
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
-                                    if (todayHoliday != null) {
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Box(
-                                            modifier = Modifier
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(MaterialTheme.colorScheme.tertiaryContainer)
-                                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                                        ) {
-                                            Text(
-                                                text = todayHoliday,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.onTertiaryContainer
-                                            )
-                                        }
-                                    }
                                 }
-                                RichDateHeader(modifier = Modifier.padding(top = 2.dp), externalFestival = null)
+                                RichDateHeader(modifier = Modifier.padding(top = 2.dp), externalFestival = todayHoliday)
                             }
                         }
                     },
