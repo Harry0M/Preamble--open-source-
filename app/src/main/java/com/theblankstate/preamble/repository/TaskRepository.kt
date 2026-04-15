@@ -966,6 +966,23 @@ class TaskRepository(
         return heatmap
     }
 
+    suspend fun getYearlyHeatmap(): Map<String, Float> {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        // Ensure we load the last 365 days
+        val dates = (0 until 365).map { i ->
+            val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -364 + i) }
+            sdf.format(cal.time)
+        }
+        val statsMap = dao.getStatsForDates(dates).associate { it.createdDate to it }
+        val heatmap = mutableMapOf<String, Float>()
+        for (dateStr in dates) {
+            val stats = statsMap[dateStr]
+            val density = if (stats != null && stats.total > 0) stats.completed.toFloat() / stats.total else 0f
+            heatmap[dateStr] = density
+        }
+        return heatmap
+    }
+
     // ── Pomodoro Stats Methods ──
 
     suspend fun getTodayFocusMinutes(): Int {

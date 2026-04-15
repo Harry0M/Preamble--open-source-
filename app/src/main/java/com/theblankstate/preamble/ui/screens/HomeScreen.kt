@@ -16,6 +16,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -205,6 +206,8 @@ fun HomeScreen(
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val context = LocalContext.current
     val activity = context as? Activity
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    var isLateNightDismissed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
 
     val isCalendarSyncing by com.theblankstate.preamble.sync.GoogleCalendarManager.isSyncing.collectAsState()
     val isManualSyncing by com.theblankstate.preamble.sync.GoogleCalendarManager.isManualSyncing.collectAsState()
@@ -230,6 +233,8 @@ fun HomeScreen(
     val pmMilestones    by ThemePreferences.pmMilestones.collectAsState()
     val pmSparkle       by ThemePreferences.pmSparkle.collectAsState()
     val pmEasterEgg     by ThemePreferences.pmEasterEgg.collectAsState()
+    val pmEndowedProgress by ThemePreferences.pmEndowedProgress.collectAsState()
+    val pmVariableRewards by ThemePreferences.pmVariableRewards.collectAsState()
 
     // Time-aware computed values (stable for the session — doesn't drift mid-use)
     val currentHour = remember { java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) }
@@ -255,6 +260,22 @@ fun HomeScreen(
     // Today's aggregate stats (needed at top level for LaunchedEffects)
     val todayCompleted = remember(tasks) { tasks.count { it.isCompleted } }
     val todayTotal = tasks.size
+
+    val handleToggleTask: (com.theblankstate.preamble.data.Task) -> Unit = remember(personalMode, pmVariableRewards, onToggleTask, context, haptics) {
+        { task ->
+            onToggleTask(task)
+            if (personalMode && pmVariableRewards && !task.isCompleted) {
+                val rand = Math.random()
+                if (rand < 0.3) {
+                    val cheers = listOf("Great job!", "Keep it up!", "Nice!", "You're doing great!", "Awesome!")
+                    android.widget.Toast.makeText(context, cheers.random(), android.widget.Toast.LENGTH_SHORT).show()
+                }
+                if (rand < 0.5) {
+                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                }
+            }
+        }
+    }
 
     // Easter egg state
     var easterEggTaps by remember { mutableStateOf(0) }
@@ -438,7 +459,11 @@ fun HomeScreen(
 
                             val titleClickMod = if (pmEasterEgg) Modifier.clickable {
                                 easterEggTaps++
-                                if (easterEggTaps >= 7) { showEasterEgg = true; easterEggTaps = 0 }
+                                if (easterEggTaps >= 7) { 
+                                    showEasterEgg = true
+                                    easterEggTaps = 0
+                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                }
                             } else Modifier
 
                             if (personalMode && pmGreeting) {
@@ -452,21 +477,30 @@ fun HomeScreen(
                                         var greetingFontSize by remember(greetingText) {
                                             mutableStateOf(titleLargeFontSize)
                                         }
-                                        Text(
-                                            text = greetingText,
-                                            style = MaterialTheme.typography.titleLarge.copy(
-                                                fontWeight = FontWeight.Bold,
-                                                fontSize = greetingFontSize
-                                            ),
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            overflow = TextOverflow.Clip,
-                                            onTextLayout = { result ->
-                                                if (result.hasVisualOverflow && greetingFontSize > androidx.compose.ui.unit.TextUnit(10f, androidx.compose.ui.unit.TextUnitType.Sp)) {
-                                                    greetingFontSize = greetingFontSize * 0.85f
+                                        androidx.compose.animation.AnimatedContent(
+                                            targetState = greetingText,
+                                            transitionSpec = {
+                                                fadeIn(animationSpec = tween(300)) togetherWith
+                                                fadeOut(animationSpec = tween(300))
+                                            },
+                                            label = "greetingAnimation"
+                                        ) { animatedText ->
+                                            Text(
+                                                text = animatedText,
+                                                style = MaterialTheme.typography.titleLarge.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = greetingFontSize
+                                                ),
+                                                maxLines = 1,
+                                                softWrap = false,
+                                                overflow = TextOverflow.Clip,
+                                                onTextLayout = { result ->
+                                                    if (result.hasVisualOverflow && greetingFontSize > androidx.compose.ui.unit.TextUnit(10f, androidx.compose.ui.unit.TextUnitType.Sp)) {
+                                                        greetingFontSize = greetingFontSize * 0.85f
+                                                    }
                                                 }
-                                            }
-                                        )
+                                            )
+                                        }
                                         Text(
                                             text = "Preamble",
                                             style = MaterialTheme.typography.labelSmall,
@@ -710,18 +744,38 @@ fun HomeScreen(
                 }
 
                 // Late-night care banner
-                if (personalMode && pmLateNight && isLateNight) {
+                AnimatedVisibility(
+                    visible = personalMode && pmLateNight && isLateNight && !isLateNightDismissed
+                ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.75f))
                             .padding(horizontal = 16.dp, vertical = 10.dp)
                     ) {
-                        androidx.compose.material3.Text(
-                            text = "It's late \u2014 don't forget to rest. Your tasks will wait for you.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            androidx.compose.material3.Text(
+                                text = "It's late \u2014 don't forget to rest. Your tasks will wait for you.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(
+                                onClick = { isLateNightDismissed = true },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = "Dismiss",
+                                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
                     }
                 }
 
@@ -838,7 +892,7 @@ fun HomeScreen(
                         Column(modifier = Modifier.animateContentSize()) {
                             SwipeableTaskItem(
                                 task = task,
-                                onToggle = { onToggleTask(task) },
+                                onToggle = { handleToggleTask(task) },
                                 onDelete = { taskToDelete = task },
                                 onEdit = if (onEditTask != null) {
                                     { taskToEdit = task }
@@ -871,7 +925,7 @@ fun HomeScreen(
             } else if (showEisenhowerView) {
                 EisenhowerGrid(
                     tasks = tasks,
-                    onToggleTask = onToggleTask,
+                    onToggleTask = handleToggleTask,
                     onUpdatePriority = { task, priority ->
                         onUpdateTaskPriority?.invoke(task, priority)
                     },
@@ -895,9 +949,14 @@ fun HomeScreen(
                 // Today's tasks with timeline view
                 if (tasks.isNotEmpty()) {
                     item(key = "progress_bar") {
-                        val completed = remember(tasks) { tasks.count { it.isCompleted } }
-                        val total = tasks.size
-                        val progress = remember(tasks) { if (total > 0) completed.toFloat() / total else 0f }
+                        val baseCompleted = remember(tasks) { tasks.count { it.isCompleted } }
+                        val baseTotal = tasks.size
+                        
+                        val endowedMode = personalMode && pmEndowedProgress
+                        val completed = if (endowedMode && baseTotal > 0) minOf(baseCompleted + 1, baseTotal + 1) else baseCompleted
+                        val total = if (endowedMode && baseTotal > 0) baseTotal + 1 else baseTotal
+                        
+                        val progress = if (total > 0) completed.toFloat() / total else 0f
                         val primaryColor = MaterialTheme.colorScheme.primary
 
                         // Smart progress label
@@ -963,6 +1022,13 @@ fun HomeScreen(
                                 animationSpec = androidx.compose.animation.core.tween(600),
                                 label = "sparkle"
                             )
+                            
+                            androidx.compose.runtime.LaunchedEffect(sparkleVisible) {
+                                if (sparkleVisible) {
+                                    kotlinx.coroutines.delay(200) // Wait for bar to fill
+                                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                }
+                            }
                             // Pulse the sheen when visible
                             val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "shine")
                             val shinePulse by infiniteTransition.animateFloat(
@@ -1089,7 +1155,7 @@ fun HomeScreen(
                                                 Column(modifier = Modifier.animateContentSize()) {
                                                     SwipeableTaskItem(
                                                         task = task,
-                                                        onToggle = { onToggleTask(task) },
+                                                        onToggle = { handleToggleTask(task) },
                                                         onDelete = { taskToDelete = task },
                                                         onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
                                                         onDetail = { taskToShowDetail = task },
@@ -1129,7 +1195,7 @@ fun HomeScreen(
                             Column(modifier = Modifier.animateContentSize()) {
                                 SwipeableTaskItem(
                                     task = task,
-                                    onToggle = { onToggleTask(task) },
+                                    onToggle = { handleToggleTask(task) },
                                     onDelete = { taskToDelete = task },
                                     onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
                                     onDetail = { taskToShowDetail = task },

@@ -58,7 +58,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SettingsScreen(modifier: Modifier = Modifier) {
+fun SettingsScreen(
+    yearlyHeatmap: Map<String, Float> = emptyMap(),
+    modifier: Modifier = Modifier
+) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val app = context.applicationContext as PreambleApplication
@@ -121,6 +124,9 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
     val pmMilestones     by ThemePreferences.pmMilestones.collectAsState()
     val pmSparkle        by ThemePreferences.pmSparkle.collectAsState()
     val pmEasterEgg      by ThemePreferences.pmEasterEgg.collectAsState()
+    val pmEndowedProgress by ThemePreferences.pmEndowedProgress.collectAsState()
+    val pmVariableRewards by ThemePreferences.pmVariableRewards.collectAsState()
+    val pmYearHeatmap    by ThemePreferences.pmYearHeatmap.collectAsState()
 
     // Google sign-in launcher (grants Calendar + Tasks scopes together)
     val googleSignInLauncher = rememberLauncherForActivityResult(
@@ -622,7 +628,45 @@ fun SettingsScreen(modifier: Modifier = Modifier) {
 
                     if (personalMode) {
                         HorizontalDivider()
+                        
+                        // Sunk Cost Heatmap
+                        if (pmYearHeatmap && yearlyHeatmap.isNotEmpty()) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("Your Investment", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text("A visual snapshot of your task completion over the last 365 days.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(modifier = Modifier.height(12.dp))
+                                com.theblankstate.preamble.ui.components.YearHeatmapCalendar(
+                                    heatmap = yearlyHeatmap,
+                                    primaryColor = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            HorizontalDivider()
+                        }
+                        
                         // Sub-toggles
+                        PersonalToggle(
+                            label = "Yearly Heatmap",
+                            sub = "Show your 365-day progress visualization above",
+                            checked = pmYearHeatmap,
+                            onToggle = { ThemePreferences.setPmYearHeatmap(context, it) }
+                        )
+                        HorizontalDivider()
+                        PersonalToggle(
+                            label = "The Momentum Engine",
+                            sub = "Visually pre-fills 1/1 tasks in the progress bar each day to lower friction",
+                            checked = pmEndowedProgress,
+                            onToggle = { ThemePreferences.setPmEndowedProgress(context, it) }
+                        )
+                        HorizontalDivider()
+                        PersonalToggle(
+                            label = "Variable Rewards",
+                            sub = "Unpredictable haptics and cheering messages when you complete tasks",
+                            checked = pmVariableRewards,
+                            onToggle = { ThemePreferences.setPmVariableRewards(context, it) }
+                        )
+                        HorizontalDivider()
                         PersonalToggle(
                             label = "Time-aware greeting",
                             sub = "\"Good Morning, ${com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.displayName?.split(" ")?.firstOrNull() ?: "you"}\" — changes throughout the day",

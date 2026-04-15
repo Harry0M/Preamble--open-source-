@@ -68,6 +68,7 @@ data class StatsState(
     val longestStreak: Int = 0,
     val weeklyConsistencyDays: Int = 0,
     val monthlyHeatmap: Map<Int, Float> = emptyMap(),
+    val yearlyHeatmap: Map<String, Float> = emptyMap(),
     // Weekly Comparison
     val thisWeekCompleted: Int = 0,
     val lastWeekCompleted: Int = 0,
@@ -555,6 +556,7 @@ class TaskViewModel(
             val consistencyDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getWeeklyConsistency() }
             val weekCompareDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getWeeklyComparison() }
             val heatmapDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getMonthlyHeatmap() }
+            val yearlyHeatmapDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getYearlyHeatmap() }
             // Pomodoro stats
             val todayFocusDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTodayFocusMinutes() }
             val todayPomCountDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTodayPomodoroCount() }
@@ -575,6 +577,7 @@ class TaskViewModel(
             val consistency = consistencyDef.await()
             val (thisWeek, lastWeek) = weekCompareDef.await()
             val heatmap = heatmapDef.await()
+            val yearlyHeatmap = yearlyHeatmapDef.await()
             val todayFocus = todayFocusDef.await()
             val todayPomCount = todayPomCountDef.await()
             val totalFocus = totalFocusDef.await()
@@ -645,6 +648,7 @@ class TaskViewModel(
                     rolloverCompletionRate = rollover.completionRate,
                     weeklyConsistencyDays = consistency,
                     monthlyHeatmap = heatmap,
+                    yearlyHeatmap = yearlyHeatmap,
                     thisWeekCompleted = thisWeek,
                     lastWeekCompleted = lastWeek,
                     tagStats = tags,

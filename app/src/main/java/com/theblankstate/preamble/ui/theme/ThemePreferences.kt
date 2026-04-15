@@ -27,6 +27,9 @@ object ThemePreferences {
     private const val KEY_PM_MILESTONES       = "pm_milestones"
     private const val KEY_PM_SPARKLE          = "pm_sparkle"
     private const val KEY_PM_EASTER_EGG       = "pm_easter_egg"
+    private const val KEY_PM_ENDOWED          = "pm_endowed"
+    private const val KEY_PM_VARIABLE         = "pm_variable"
+    private const val KEY_PM_HEATMAP          = "pm_heatmap"
 
     enum class ThemeMode { SYSTEM, LIGHT, DARK, AMOLED }
 
@@ -79,6 +82,15 @@ object ThemePreferences {
     private val _pmEasterEgg      = MutableStateFlow(true)
     val pmEasterEgg: StateFlow<Boolean> = _pmEasterEgg.asStateFlow()
 
+    private val _pmEndowedProgress = MutableStateFlow(true)
+    val pmEndowedProgress: StateFlow<Boolean> = _pmEndowedProgress.asStateFlow()
+
+    private val _pmVariableRewards = MutableStateFlow(true)
+    val pmVariableRewards: StateFlow<Boolean> = _pmVariableRewards.asStateFlow()
+
+    private val _pmYearHeatmap    = MutableStateFlow(true)
+    val pmYearHeatmap: StateFlow<Boolean> = _pmYearHeatmap.asStateFlow()
+
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val colorHex = prefs.getString(KEY_COLOR, null)
@@ -106,6 +118,9 @@ object ThemePreferences {
         _pmMilestones.value    = prefs.getBoolean(KEY_PM_MILESTONES, true)
         _pmSparkle.value       = prefs.getBoolean(KEY_PM_SPARKLE, true)
         _pmEasterEgg.value     = prefs.getBoolean(KEY_PM_EASTER_EGG, true)
+        _pmEndowedProgress.value= prefs.getBoolean(KEY_PM_ENDOWED, true)
+        _pmVariableRewards.value= prefs.getBoolean(KEY_PM_VARIABLE, true)
+        _pmYearHeatmap.value   = prefs.getBoolean(KEY_PM_HEATMAP, true)
     }
 
     fun setColor(context: Context, color: Color?) {
@@ -169,5 +184,8 @@ object ThemePreferences {
     fun setPmMilestones(context: Context, v: Boolean)    = setBool(context, KEY_PM_MILESTONES, _pmMilestones, v)
     fun setPmSparkle(context: Context, v: Boolean)       = setBool(context, KEY_PM_SPARKLE, _pmSparkle, v)
     fun setPmEasterEgg(context: Context, v: Boolean)     = setBool(context, KEY_PM_EASTER_EGG, _pmEasterEgg, v)
+    fun setPmEndowedProgress(context: Context, v: Boolean) = setBool(context, KEY_PM_ENDOWED, _pmEndowedProgress, v)
+    fun setPmVariableRewards(context: Context, v: Boolean) = setBool(context, KEY_PM_VARIABLE, _pmVariableRewards, v)
+    fun setPmYearHeatmap(context: Context, v: Boolean)   = setBool(context, KEY_PM_HEATMAP, _pmYearHeatmap, v)
 
 }

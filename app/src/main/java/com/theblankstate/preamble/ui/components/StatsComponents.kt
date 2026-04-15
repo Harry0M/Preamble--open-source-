@@ -57,6 +57,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 
 /**
  * Animated circular gauge showing productivity score (0-100).
@@ -250,6 +252,57 @@ fun HeatmapCalendar(
                         }
                     } else {
                         Spacer(modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Yearly heatmap calendar (GitHub-style profile grid).
+ * Displays exactly 365 days (52 weeks) in a scrollable view.
+ */
+@Composable
+fun YearHeatmapCalendar(
+    heatmap: Map<String, Float>, // Date string to density 0-1
+    primaryColor: Color,
+    modifier: Modifier = Modifier
+) {
+    if (heatmap.isEmpty()) return
+    
+    // Sort dates chronologically to ensure they flow from oldest to newest
+    val sortedDates = remember(heatmap) { heatmap.keys.sorted() }
+    
+    // Each column has up to 7 items. We iterate over columns.
+    val numCols = (sortedDates.size + 6) / 7
+    
+    // We'll use a LazyRow so it scrolls nicely horizontally.
+    LazyRow(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 4.dp)
+    ) {
+        items(numCols) { col ->
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                for (row in 0 until 7) {
+                    val index = col * 7 + row
+                    if (index < sortedDates.size) {
+                        val dateKey = sortedDates[index]
+                        val density = heatmap[dateKey] ?: 0f
+                        val bgColor = if (density > 0f)
+                            primaryColor.copy(alpha = 0.15f + density * 0.75f)
+                        else
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        
+                        Box(
+                            modifier = Modifier
+                                .size(14.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(bgColor)
+                        )
+                    } else {
+                        Spacer(modifier = Modifier.size(14.dp))
                     }
                 }
             }

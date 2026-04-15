@@ -458,6 +458,7 @@ fun PreambleApp(
                 }
             }
             3 -> SettingsScreen(
+                yearlyHeatmap = stats.yearlyHeatmap,
                 modifier = Modifier.padding(innerPadding)
             )
         }
