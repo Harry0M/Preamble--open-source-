@@ -36,6 +36,22 @@ import androidx.compose.ui.unit.dp
 import com.theblankstate.preamble.pomodoro.PomodoroPhase
 import com.theblankstate.preamble.pomodoro.PomodoroTimerService
 import java.util.Locale
+import androidx.graphics.shapes.RoundedPolygon
+import androidx.graphics.shapes.star
+import androidx.graphics.shapes.Morph
+import androidx.graphics.shapes.CornerRounding
+import androidx.graphics.shapes.toPath
+import androidx.compose.ui.graphics.asComposePath
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.ui.graphics.PathMeasure
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.runtime.remember
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,15 +100,12 @@ fun PomodoroSheet(
 
             // Circular progress + time display
             Box(contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(
-                    progress = {
-                        if (pomodoroState.totalSeconds > 0)
-                            pomodoroState.remainingSeconds.toFloat() / pomodoroState.totalSeconds
-                        else 0f
-                    },
-                    modifier = Modifier.size(200.dp),
-                    strokeWidth = 8.dp,
-                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                DynamicShapeProgress(
+                    progress = if (pomodoroState.totalSeconds > 0)
+                        pomodoroState.remainingSeconds.toFloat() / pomodoroState.totalSeconds
+                    else 0f,
+                    isRunning = pomodoroState.isRunning && !pomodoroState.isPaused,
+                    modifier = Modifier.size(200.dp)
                 )
                 Text(
                     text = formatTime(pomodoroState.remainingSeconds),
@@ -175,4 +188,90 @@ private fun formatTime(totalSeconds: Int): String {
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
     return String.format(Locale.US, "%02d:%02d", minutes, seconds)
+}
+
+@Composable
+fun DynamicShapeProgress(
+    progress: Float,
+    isRunning: Boolean,
+    modifier: Modifier = Modifier
+) {
+    // We morph between a squircle-circle and a squiggly star when running
+    val startPolygon = remember {
+        RoundedPolygon.star(
+            numVerticesPerRadius = 8,
+            innerRadius = 0.85f,
+            rounding = CornerRounding(radius = 0.15f)
+        )
+    }
+    
+    val endPolygon = remember {
+        RoundedPolygon(
+            numVertices = 8,
+            rounding = CornerRounding(radius = 0.5f)
+        )
+    }
+    
+    val morph = remember { Morph(endPolygon, startPolygon) }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "morph")
+    val morphProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = if (isRunning) 1f else 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(4000, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "morphProgress"
+    )
+
+    val trackColor = MaterialTheme.colorScheme.surfaceVariant
+    val primaryColor = MaterialTheme.colorScheme.primary
+    
+    val pathMeasure = remember { PathMeasure() }
+
+    Canvas(modifier = modifier) {
+        val morphPath = morph.toPath(morphProgress)
+        val matrix = android.graphics.Matrix()
+        
+        // The default coordinates for graphics-shapes are [-1, 1]
+        // Scale to Canvas dimensions and center
+        val scale = (size.width / 2f) * 0.95f // 0.95f avoids clipping stroke
+        matrix.setScale(scale, scale)
+        matrix.postTranslate(size.width / 2f, size.height / 2f)
+        
+        // Rotating slightly offsets the star points
+        matrix.postRotate(-90f, size.width / 2f, size.height / 2f)
+        
+        morphPath.transform(matrix)
+        val composePath = morphPath.asComposePath()
+
+        // 1. Draw track (background subtle shape)
+        drawPath(
+            path = composePath,
+            color = trackColor,
+            style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round)
+        )
+
+        // 2. Compute Segment
+        pathMeasure.setPath(composePath, forceClosed = false)
+        val progressPath = androidx.compose.ui.graphics.Path()
+        val stopDistance = pathMeasure.length * progress
+        
+        if (stopDistance > 0f) {
+            pathMeasure.getSegment(
+                startDistance = 0f,
+                stopDistance = stopDistance,
+                destination = progressPath,
+                startWithMoveTo = true
+            )
+            
+            // 3. Draw active progress curve fitting to the morphed contour
+            drawPath(
+                path = progressPath,
+                color = primaryColor,
+                style = Stroke(width = 8.dp.toPx(), cap = StrokeCap.Round)
+            )
+        }
+    }
 }
