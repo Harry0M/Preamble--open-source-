@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.EmojiEvents
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Lock
@@ -50,6 +51,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -58,6 +60,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdSize
 import com.google.android.gms.ads.AdView
@@ -70,7 +73,6 @@ import com.theblankstate.preamble.ui.components.FeatureType
 import com.theblankstate.preamble.ui.components.FeatureUnlockSheet
 import com.theblankstate.preamble.ui.components.FocusBarChart
 import com.theblankstate.preamble.ui.components.HeatmapCalendar
-import com.theblankstate.preamble.ui.components.MiniStatTile
 import com.theblankstate.preamble.ui.components.StatsSectionCard
 import com.theblankstate.preamble.ui.components.TagStatRow
 import com.theblankstate.preamble.ui.components.TrendArrow
@@ -120,88 +122,106 @@ fun StatsScreen(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        Color(0xFF2CC5BE).copy(alpha = 0.28f)
                     ),
-                    shape = RoundedCornerShape(20.dp)
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color.Transparent
+                    ),
+                    shape = RoundedCornerShape(32.dp)
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        Color(0xFFFFC52F).copy(alpha = 0.28f),
+                                        MaterialTheme.colorScheme.surface,
+                                        Color(0xFF45C9C0).copy(alpha = 0.18f)
+                                    )
+                                )
+                            )
                             .padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
-                            "Productivity Score",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = "Weekly pulse",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Spacer(modifier = Modifier.height(16.dp))
-                        AnimatedCircularGauge(
-                            score = statsState.productivityScore,
-                            primaryColor = primaryColor,
-                            modifier = Modifier.size(160.dp)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        // Karma level badge — Todoist-inspired progression
                         Box(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(primaryColor.copy(alpha = 0.12f))
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                                .size(220.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFFFD365).copy(alpha = 0.18f))
+                                .border(1.dp, Color(0xFFE0A907).copy(alpha = 0.22f), CircleShape),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            Box(
+                                modifier = Modifier
+                                    .size(182.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
+                                    .border(1.dp, Color(0xFFE0A907).copy(alpha = 0.28f), CircleShape),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Text(
-                                    text = statsState.karmaLevel,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = primaryColor
-                                )
-                                Text(
-                                    text = "·",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Text(
-                                    text = "${statsState.karmaPoints} pts",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                AnimatedCircularGauge(
+                                    score = statsState.productivityScore,
+                                    primaryColor = Color(0xFFE0A907),
+                                    modifier = Modifier.size(158.dp)
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color(0xFF1F6C69).copy(alpha = 0.12f))
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "${statsState.karmaLevel} · ${statsState.karmaPoints} pts",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0F6965)
+                            )
+                        }
                         TrendArrow(trend = statsState.productivityScoreTrend)
                     }
                 }
             }
 
             // ═══════════════════════════════════════════
-            // Section 2: Today's Focus Dashboard (2x2)
+            // Section 2: Today's Focus Dashboard (capsule grid)
             // ═══════════════════════════════════════════
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Today",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 2.dp)
+                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        MiniStatTile(
+                        StatsCapsuleTile(
+                            label = "Steps",
                             value = "${statsState.todayCompleted}/${statsState.todayTotal}",
-                            label = "Tasks",
-                            icon = {
-                                Icon(Icons.Filled.CheckCircle, null, tint = primaryColor, modifier = Modifier.size(22.dp))
-                            },
+                            icon = Icons.Filled.CheckCircle,
+                            tint = Color(0xFF45C9C0),
+                            isChecked = true,
                             modifier = Modifier.weight(1f)
                         )
-                        MiniStatTile(
-                            value = "${statsState.todayFocusMinutes}m",
-                            label = "Focus",
-                            icon = {
-                                Icon(Icons.Filled.Timer, null, tint = primaryColor, modifier = Modifier.size(22.dp))
-                            },
+                        StatsCapsuleTile(
+                            label = "BPM",
+                            value = "${statsState.todayPomodoroSessions} - ${statsState.todayFocusMinutes}",
+                            icon = Icons.Filled.Favorite,
+                            tint = Color(0xFFDDE1E8),
+                            isChecked = false,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -209,20 +229,20 @@ fun StatsScreen(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        MiniStatTile(
-                            value = "${statsState.todayPomodoroSessions}",
-                            label = "Pomodoros",
-                            icon = {
-                                Icon(Icons.Filled.AccessTime, null, tint = primaryColor, modifier = Modifier.size(22.dp))
-                            },
+                        StatsCapsuleTile(
+                            label = "AZM",
+                            value = "${statsState.streak}",
+                            icon = Icons.Filled.LocalFireDepartment,
+                            tint = Color(0xFF45C9C0),
+                            isChecked = true,
                             modifier = Modifier.weight(1f)
                         )
-                        MiniStatTile(
-                            value = "${statsState.streak}",
-                            label = "Day Streak",
-                            icon = {
-                                Icon(Icons.Filled.LocalFireDepartment, null, tint = primaryColor, modifier = Modifier.size(22.dp))
-                            },
+                        StatsCapsuleTile(
+                            label = "Focus",
+                            value = "${statsState.todayFocusMinutes}m",
+                            icon = Icons.Filled.Timer,
+                            tint = Color(0xFFDDE1E8),
+                            isChecked = false,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -593,7 +613,7 @@ fun StatsScreen(
             // Ad placement
             item {
                 val bannerAdView = remember { mutableStateOf<AdView?>(null) }
-                val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+                val lifecycleOwner = LocalLifecycleOwner.current
                 androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
                     val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
                         when (event) {
@@ -641,6 +661,67 @@ fun StatsScreen(
 
     if (showStatsUnlockSheet && activity != null) {
         FeatureUnlockSheet(featureType = FeatureType.STATS, activity = activity, onDismiss = { showStatsUnlockSheet = false })
+    }
+}
+
+@Composable
+private fun StatsCapsuleTile(
+    label: String,
+    value: String,
+    icon: ImageVector,
+    tint: Color,
+    isChecked: Boolean,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(50))
+            .background(tint.copy(alpha = 0.95f))
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clip(CircleShape)
+                .background(
+                    if (isChecked) Color(0xFF0D7772)
+                    else Color(0xFFCFD5DE)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = if (isChecked) Color.White else Color(0xFF4B88EA),
+                modifier = Modifier.size(18.dp)
+            )
+            if (isChecked) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier
+                        .size(12.dp)
+                        .align(Alignment.BottomEnd)
+                )
+            }
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+        }
     }
 }
 
