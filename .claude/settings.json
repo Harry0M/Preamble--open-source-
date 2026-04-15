@@ -21,7 +21,8 @@
       "WebFetch(domain:guide.vico.patrykandpatrick.com)",
       "WebFetch(domain:central.sonatype.com)",
       "WebFetch(domain:api.vico.patrykandpatrick.com)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(grep -v \"//\")"
     ]
   }
 }

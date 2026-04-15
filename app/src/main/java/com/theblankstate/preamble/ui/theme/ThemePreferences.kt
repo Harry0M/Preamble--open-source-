@@ -15,6 +15,19 @@ object ThemePreferences {
     private const val KEY_TIMELINE_UI = "timeline_ui"
     private const val KEY_SHOW_RECURRENCE_LABEL = "show_recurrence_label"
 
+    // Personal Mode keys
+    private const val KEY_PERSONAL_MODE       = "pm_enabled"
+    private const val KEY_PM_GREETING         = "pm_greeting"
+    private const val KEY_PM_SMART_PROGRESS   = "pm_smart_progress"
+    private const val KEY_PM_LATE_NIGHT       = "pm_late_night"
+    private const val KEY_PM_SMART_EMPTY      = "pm_smart_empty"
+    private const val KEY_PM_LAST_TASK        = "pm_last_task"
+    private const val KEY_PM_STREAK_WARN      = "pm_streak_warn"
+    private const val KEY_PM_BESTS            = "pm_bests"
+    private const val KEY_PM_MILESTONES       = "pm_milestones"
+    private const val KEY_PM_SPARKLE          = "pm_sparkle"
+    private const val KEY_PM_EASTER_EGG       = "pm_easter_egg"
+
     enum class ThemeMode { SYSTEM, LIGHT, DARK, AMOLED }
 
     private val _themeColor = MutableStateFlow<Color?>(null)
@@ -32,6 +45,40 @@ object ThemePreferences {
     private val _showRecurrenceLabel = MutableStateFlow(false)
     val showRecurrenceLabel: StateFlow<Boolean> = _showRecurrenceLabel.asStateFlow()
 
+    // Personal Mode flows
+    private val _personalMode     = MutableStateFlow(false)
+    val personalMode: StateFlow<Boolean> = _personalMode.asStateFlow()
+
+    private val _pmGreeting       = MutableStateFlow(true)
+    val pmGreeting: StateFlow<Boolean> = _pmGreeting.asStateFlow()
+
+    private val _pmSmartProgress  = MutableStateFlow(true)
+    val pmSmartProgress: StateFlow<Boolean> = _pmSmartProgress.asStateFlow()
+
+    private val _pmLateNight      = MutableStateFlow(true)
+    val pmLateNight: StateFlow<Boolean> = _pmLateNight.asStateFlow()
+
+    private val _pmSmartEmpty     = MutableStateFlow(true)
+    val pmSmartEmpty: StateFlow<Boolean> = _pmSmartEmpty.asStateFlow()
+
+    private val _pmLastTask       = MutableStateFlow(true)
+    val pmLastTask: StateFlow<Boolean> = _pmLastTask.asStateFlow()
+
+    private val _pmStreakWarn     = MutableStateFlow(true)
+    val pmStreakWarn: StateFlow<Boolean> = _pmStreakWarn.asStateFlow()
+
+    private val _pmBests          = MutableStateFlow(true)
+    val pmBests: StateFlow<Boolean> = _pmBests.asStateFlow()
+
+    private val _pmMilestones     = MutableStateFlow(true)
+    val pmMilestones: StateFlow<Boolean> = _pmMilestones.asStateFlow()
+
+    private val _pmSparkle        = MutableStateFlow(true)
+    val pmSparkle: StateFlow<Boolean> = _pmSparkle.asStateFlow()
+
+    private val _pmEasterEgg      = MutableStateFlow(true)
+    val pmEasterEgg: StateFlow<Boolean> = _pmEasterEgg.asStateFlow()
+
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val colorHex = prefs.getString(KEY_COLOR, null)
@@ -46,6 +93,19 @@ object ThemePreferences {
         _colorfulCards.value = prefs.getBoolean(KEY_COLORFUL_CARDS, false)
         _timelineUi.value = prefs.getBoolean(KEY_TIMELINE_UI, true)
         _showRecurrenceLabel.value = prefs.getBoolean(KEY_SHOW_RECURRENCE_LABEL, false)
+
+        // Personal Mode
+        _personalMode.value    = prefs.getBoolean(KEY_PERSONAL_MODE, false)
+        _pmGreeting.value      = prefs.getBoolean(KEY_PM_GREETING, true)
+        _pmSmartProgress.value = prefs.getBoolean(KEY_PM_SMART_PROGRESS, true)
+        _pmLateNight.value     = prefs.getBoolean(KEY_PM_LATE_NIGHT, true)
+        _pmSmartEmpty.value    = prefs.getBoolean(KEY_PM_SMART_EMPTY, true)
+        _pmLastTask.value      = prefs.getBoolean(KEY_PM_LAST_TASK, true)
+        _pmStreakWarn.value    = prefs.getBoolean(KEY_PM_STREAK_WARN, true)
+        _pmBests.value         = prefs.getBoolean(KEY_PM_BESTS, true)
+        _pmMilestones.value    = prefs.getBoolean(KEY_PM_MILESTONES, true)
+        _pmSparkle.value       = prefs.getBoolean(KEY_PM_SPARKLE, true)
+        _pmEasterEgg.value     = prefs.getBoolean(KEY_PM_EASTER_EGG, true)
     }
 
     fun setColor(context: Context, color: Color?) {
@@ -91,5 +151,23 @@ object ThemePreferences {
             .putBoolean(KEY_SHOW_RECURRENCE_LABEL, enabled)
             .apply()
     }
+
+    // Personal Mode setters
+    private fun setBool(context: Context, key: String, flow: MutableStateFlow<Boolean>, value: Boolean) {
+        flow.value = value
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(key, value).apply()
+    }
+
+    fun setPersonalMode(context: Context, v: Boolean)    = setBool(context, KEY_PERSONAL_MODE, _personalMode, v)
+    fun setPmGreeting(context: Context, v: Boolean)      = setBool(context, KEY_PM_GREETING, _pmGreeting, v)
+    fun setPmSmartProgress(context: Context, v: Boolean) = setBool(context, KEY_PM_SMART_PROGRESS, _pmSmartProgress, v)
+    fun setPmLateNight(context: Context, v: Boolean)     = setBool(context, KEY_PM_LATE_NIGHT, _pmLateNight, v)
+    fun setPmSmartEmpty(context: Context, v: Boolean)    = setBool(context, KEY_PM_SMART_EMPTY, _pmSmartEmpty, v)
+    fun setPmLastTask(context: Context, v: Boolean)      = setBool(context, KEY_PM_LAST_TASK, _pmLastTask, v)
+    fun setPmStreakWarn(context: Context, v: Boolean)    = setBool(context, KEY_PM_STREAK_WARN, _pmStreakWarn, v)
+    fun setPmBests(context: Context, v: Boolean)         = setBool(context, KEY_PM_BESTS, _pmBests, v)
+    fun setPmMilestones(context: Context, v: Boolean)    = setBool(context, KEY_PM_MILESTONES, _pmMilestones, v)
+    fun setPmSparkle(context: Context, v: Boolean)       = setBool(context, KEY_PM_SPARKLE, _pmSparkle, v)
+    fun setPmEasterEgg(context: Context, v: Boolean)     = setBool(context, KEY_PM_EASTER_EGG, _pmEasterEgg, v)
 
 }

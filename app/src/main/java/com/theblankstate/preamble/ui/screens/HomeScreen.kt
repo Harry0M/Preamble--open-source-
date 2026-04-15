@@ -50,13 +50,17 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.ViewHeadline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -92,6 +96,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.PredefinedTags
@@ -121,10 +126,8 @@ import android.content.Context
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Search
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.SnackbarDuration
@@ -186,8 +189,8 @@ fun HomeScreen(
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
     var showEisenhowerView by remember { mutableStateOf(false) }
-    var showFilterRow by remember { mutableStateOf(false) }
-    var showViewMenu by remember { mutableStateOf(false) }
+    var showFilterBar by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
     var taskToDelete by remember { mutableStateOf<Task?>(null) }
     var taskToEdit by remember { mutableStateOf<Task?>(null) }
     var taskToShowDetail by remember { mutableStateOf<Task?>(null) }
@@ -214,6 +217,80 @@ fun HomeScreen(
     val colorfulCards by ThemePreferences.colorfulCards.collectAsState()
     val isTimelineEnabled by ThemePreferences.timelineUi.collectAsState()
     val pomodoroState by PomodoroTimerService.state.collectAsState()
+
+    // Personal Mode prefs
+    val personalMode    by ThemePreferences.personalMode.collectAsState()
+    val pmGreeting      by ThemePreferences.pmGreeting.collectAsState()
+    val pmSmartProgress by ThemePreferences.pmSmartProgress.collectAsState()
+    val pmLateNight     by ThemePreferences.pmLateNight.collectAsState()
+    val pmSmartEmpty    by ThemePreferences.pmSmartEmpty.collectAsState()
+    val pmLastTask      by ThemePreferences.pmLastTask.collectAsState()
+    val pmStreakWarn    by ThemePreferences.pmStreakWarn.collectAsState()
+    val pmBests         by ThemePreferences.pmBests.collectAsState()
+    val pmMilestones    by ThemePreferences.pmMilestones.collectAsState()
+    val pmSparkle       by ThemePreferences.pmSparkle.collectAsState()
+    val pmEasterEgg     by ThemePreferences.pmEasterEgg.collectAsState()
+
+    // Time-aware computed values (stable for the session — doesn't drift mid-use)
+    val currentHour = remember { java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) }
+    val isLateNight = remember { currentHour >= 23 || currentHour < 5 }
+    val timeGreeting = remember {
+        when (currentHour) {
+            in 5..8   -> "Good Morning"
+            in 9..11  -> "Let's Crush It"
+            in 12..16 -> "Afternoon Focus"
+            in 17..19 -> "Evening Wind Down"
+            in 20..22 -> "Almost Done"
+            else      -> "Night Owl Mode"
+        }
+    }
+    val userName = remember {
+        com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.displayName
+            ?.split(" ")?.firstOrNull()
+    }
+    val greetingText = remember(userName, timeGreeting) {
+        if (userName != null) "$timeGreeting, $userName" else timeGreeting
+    }
+
+    // Today's aggregate stats (needed at top level for LaunchedEffects)
+    val todayCompleted = remember(tasks) { tasks.count { it.isCompleted } }
+    val todayTotal = tasks.size
+
+    // Easter egg state
+    var easterEggTaps by remember { mutableStateOf(0) }
+    var showEasterEgg by remember { mutableStateOf(false) }
+
+    // Streak milestone detection
+    androidx.compose.runtime.LaunchedEffect(streak) {
+        if (personalMode && pmMilestones && streak in listOf(7, 14, 30, 50, 100)) {
+            val prefs = context.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+            val key = "streak_milestone_shown_$streak"
+            if (!prefs.getBoolean(key, false)) {
+                prefs.edit().putBoolean(key, true).apply()
+                val msg = when (streak) {
+                    7   -> "$streak-day streak! You're building a habit."
+                    14  -> "2 weeks strong! Consistency is your superpower."
+                    30  -> "30 days! You're unstoppable."
+                    50  -> "50-day streak! Most people give up. You didn't."
+                    100 -> "100 days. Legendary."
+                    else -> "$streak-day streak!"
+                }
+                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    // Personal best detection
+    androidx.compose.runtime.LaunchedEffect(todayCompleted) {
+        if (personalMode && pmBests && todayCompleted > 0 && todayCompleted == todayTotal) {
+            val prefs = context.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+            val prevBest = prefs.getInt("personal_best_tasks_day", 0)
+            if (todayTotal > prevBest) {
+                prefs.edit().putInt("personal_best_tasks_day", todayTotal).apply()
+                Toast.makeText(context, "New record! $todayTotal tasks — your best ever!", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
     val hasSyncedBefore = remember {
         context.getSharedPreferences("PreamblePrefs", android.content.Context.MODE_PRIVATE)
             .getLong("last_sync_time", 0L) > 0L
@@ -359,98 +436,199 @@ fun HomeScreen(
                             val todayStr = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()) }
                             val todayHoliday = tasks.firstOrNull { it.isInfoOnly && it.eventType == "holiday" && it.createdDate == todayStr }?.title
 
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Preamble", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                if (todayHoliday != null) {
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(MaterialTheme.colorScheme.tertiaryContainer)
-                                            .padding(horizontal = 8.dp, vertical = 3.dp)
-                                    ) {
+                            val titleClickMod = if (pmEasterEgg) Modifier.clickable {
+                                easterEggTaps++
+                                if (easterEggTaps >= 7) { showEasterEgg = true; easterEggTaps = 0 }
+                            } else Modifier
+
+                            if (personalMode && pmGreeting) {
+                                // Personal mode: greeting as primary title, "Preamble" as subtle subtitle
+                                Row(
+                                    modifier = titleClickMod,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        val titleLargeFontSize = MaterialTheme.typography.titleLarge.fontSize
+                                        var greetingFontSize by remember(greetingText) {
+                                            mutableStateOf(titleLargeFontSize)
+                                        }
                                         Text(
-                                            text = todayHoliday,
+                                            text = greetingText,
+                                            style = MaterialTheme.typography.titleLarge.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = greetingFontSize
+                                            ),
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Clip,
+                                            onTextLayout = { result ->
+                                                if (result.hasVisualOverflow && greetingFontSize > androidx.compose.ui.unit.TextUnit(10f, androidx.compose.ui.unit.TextUnitType.Sp)) {
+                                                    greetingFontSize = greetingFontSize * 0.85f
+                                                }
+                                            }
+                                        )
+                                        Text(
+                                            text = "Preamble",
                                             style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.Medium,
-                                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
                                         )
                                     }
+                                    if (todayHoliday != null) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(MaterialTheme.colorScheme.tertiaryContainer)
+                                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                        ) {
+                                            Text(
+                                                text = todayHoliday,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                                            )
+                                        }
+                                    }
+                                } // closes personal mode Row
+                                RichDateHeader(modifier = Modifier.padding(top = 2.dp), externalFestival = null)
+                            } else {
+                                // Classic mode — original layout preserved
+                                Row(
+                                    modifier = titleClickMod,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        "Preamble",
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    if (todayHoliday != null) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(MaterialTheme.colorScheme.tertiaryContainer)
+                                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                                        ) {
+                                            Text(
+                                                text = todayHoliday,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                                            )
+                                        }
+                                    }
                                 }
+                                RichDateHeader(modifier = Modifier.padding(top = 2.dp), externalFestival = null)
                             }
-
-                            RichDateHeader(
-                                modifier = Modifier.padding(top = 2.dp),
-                                externalFestival = null
-                            )
                         }
                     },
                     actions = {
-                        // Filter list toggle
+                        // Filter button — toggles tag filter bar (with search chip)
                         IconButton(onClick = {
-                            val closing = showFilterRow
-                            showFilterRow = !showFilterRow
-                            // If closing filter row, also close search bar
-                            if (closing && isSearchActive) {
+                            showFilterBar = !showFilterBar
+                            if (!showFilterBar) {
                                 isSearchActive = false
                                 onSearchQueryChanged("")
                             }
                         }) {
                             Icon(
                                 imageVector = Icons.Filled.FilterList,
-                                contentDescription = "Toggle Filters",
-                                tint = if (showFilterRow) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                contentDescription = "Filter",
+                                tint = if (showFilterBar || isSearchActive || selectedTagFilter != null)
+                                    MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface
                             )
                         }
 
-                        // Alarm icon — shows all active alarms
+                        // Alarm icon
                         IconButton(onClick = { showAlarmSheet = true }) {
-                            Icon(
-                                imageVector = Icons.Filled.Alarm,
-                                contentDescription = "Alarms"
-                            )
+                            Icon(Icons.Filled.Alarm, contentDescription = "Alarms")
                         }
 
-                        // View Menu (Matrix / Timeline)
-                        Box {
-                            IconButton(onClick = { showViewMenu = true }) {
-                                Icon(Icons.Filled.MoreVert, contentDescription = "View Options")
-                            }
-                            androidx.compose.material3.DropdownMenu(
-                                expanded = showViewMenu,
-                                onDismissRequest = { showViewMenu = false },
-                                modifier = Modifier.clip(androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                            ) {
-                                androidx.compose.material3.DropdownMenuItem(
-                                    text = { Text("Eisenhower Matrix", style = MaterialTheme.typography.bodyMedium) },
-                                    leadingIcon = { Icon(Icons.Filled.GridView, contentDescription = null, modifier = Modifier.size(20.dp)) },
-                                    onClick = {
-                                        showEisenhowerView = !showEisenhowerView
-                                        showViewMenu = false
-                                    }
-                                )
-                                androidx.compose.material3.DropdownMenuItem(
-                                    text = { Text(if (isTimelineEnabled) "Standard View" else "Timeline View", style = MaterialTheme.typography.bodyMedium) },
-                                    leadingIcon = { Icon(if (isTimelineEnabled) Icons.Filled.ViewHeadline else Icons.Filled.ViewAgenda, contentDescription = null, modifier = Modifier.size(20.dp)) },
-                                    onClick = {
-                                        ThemePreferences.setTimelineUi(context, !isTimelineEnabled)
-                                        showViewMenu = false
-                                    }
-                                )
-                            }
-                        }
-
+                        // Streak badge — Material icon + count
                         if (streak > 0) {
                             Surface(
                                 shape = MaterialTheme.shapes.small,
                                 color = MaterialTheme.colorScheme.primaryContainer,
-                                modifier = Modifier.padding(end = 8.dp)
+                                modifier = Modifier.padding(end = 4.dp)
                             ) {
-                                Text(
-                                    text = "\uD83D\uDD25 $streak",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.LocalFireDepartment,
+                                        contentDescription = "Streak",
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = "$streak",
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    )
+                                }
+                            }
+                        }
+
+                        // Three-dot menu — Eisenhower Matrix + Timeline View
+                        Box {
+                            IconButton(onClick = { showMoreMenu = true }) {
+                                Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+                            }
+                            DropdownMenu(
+                                expanded = showMoreMenu,
+                                onDismissRequest = { showMoreMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Eisenhower Matrix") },
+                                    onClick = {
+                                        showEisenhowerView = !showEisenhowerView
+                                        showMoreMenu = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            Icons.Filled.GridView,
+                                            contentDescription = null,
+                                            tint = if (showEisenhowerView) MaterialTheme.colorScheme.primary
+                                                   else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    },
+                                    trailingIcon = if (showEisenhowerView) ({
+                                        Icon(
+                                            Icons.Filled.Close,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }) else null
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Timeline View") },
+                                    onClick = {
+                                        ThemePreferences.setTimelineUi(context, !isTimelineEnabled)
+                                        showMoreMenu = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            if (isTimelineEnabled) Icons.Filled.ViewHeadline else Icons.Filled.ViewAgenda,
+                                            contentDescription = null,
+                                            tint = if (isTimelineEnabled) MaterialTheme.colorScheme.primary
+                                                   else MaterialTheme.colorScheme.onSurface
+                                        )
+                                    },
+                                    trailingIcon = if (isTimelineEnabled) ({
+                                        Icon(
+                                            Icons.Filled.Close,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp),
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }) else null
                                 )
                             }
                         }
@@ -563,6 +741,22 @@ fun HomeScreen(
                     )
                 }
 
+                // Late-night care banner
+                if (personalMode && pmLateNight && isLateNight) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.75f))
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                    ) {
+                        androidx.compose.material3.Text(
+                            text = "It's late \u2014 don't forget to rest. Your tasks will wait for you.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    }
+                }
+
                 // Search bar
                 AnimatedVisibility(visible = isSearchActive) {
                     OutlinedTextField(
@@ -587,72 +781,72 @@ fun HomeScreen(
                     )
                 }
 
-                // Tag filter chips + Search Button
-                if (onTagFilterChanged != null) {
-                    val usedTags = remember(tasks, pastTasks) {
+                // Filter bar — shown only when filter button is tapped
+                if (showFilterBar && onTagFilterChanged != null) {
+                    val usedTags = remember(tasks) {
                         val tagIndexMap = PredefinedTags.tags.withIndex()
                             .associate { (i, t) -> t.name.lowercase() to i }
-                        val allVisibleTasks = tasks + pastTasks.values.flatten()
-                        allVisibleTasks.flatMap { task -> task.tagList }
+                        tasks.flatMap { task -> task.tagList }
                             .distinct()
                             .sortedBy { tagName -> tagIndexMap[tagName.lowercase()] ?: Int.MAX_VALUE }
                     }
-                    AnimatedVisibility(visible = showFilterRow) {
-                        LazyRow(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            // Search chip — always first
-                            item {
-                                FilterChip(
-                                    selected = isSearchActive,
-                                    onClick = {
-                                        isSearchActive = !isSearchActive
-                                        if (!isSearchActive) onSearchQueryChanged("")
-                                    },
-                                    label = { Text("Search", style = MaterialTheme.typography.labelSmall) },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Filled.Search,
-                                            contentDescription = "Search",
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                )
-                            }
-                            // "All" chip — only when tags exist
-                            if (usedTags.isNotEmpty()) {
-                                item {
-                                    FilterChip(
-                                        selected = selectedTagFilter == null,
-                                        onClick = { onTagFilterChanged(null) },
-                                        label = { Text("All", style = MaterialTheme.typography.labelSmall) }
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // Search chip — first item
+                        item {
+                            FilterChip(
+                                selected = isSearchActive,
+                                onClick = {
+                                    isSearchActive = !isSearchActive
+                                    if (!isSearchActive) onSearchQueryChanged("")
+                                },
+                                label = { Text("Search", style = MaterialTheme.typography.labelSmall) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = if (isSearchActive) Icons.Filled.Close else Icons.Filled.Search,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
                                     )
                                 }
-                                items(usedTags) { tagName: String ->
-                                    FilterChip(
-                                        selected = selectedTagFilter == tagName,
-                                        onClick = {
-                                            onTagFilterChanged(
-                                                if (selectedTagFilter == tagName) null else tagName
+                            )
+                        }
+                        // All chip
+                        item {
+                            FilterChip(
+                                selected = selectedTagFilter == null && !isSearchActive,
+                                onClick = {
+                                    onTagFilterChanged(null)
+                                    isSearchActive = false
+                                    onSearchQueryChanged("")
+                                },
+                                label = { Text("All", style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                        // Tag chips
+                        items(usedTags) { tagName: String ->
+                            FilterChip(
+                                selected = selectedTagFilter == tagName,
+                                onClick = {
+                                    onTagFilterChanged(if (selectedTagFilter == tagName) null else tagName)
+                                    isSearchActive = false
+                                    onSearchQueryChanged("")
+                                },
+                                label = { Text(tagName, style = MaterialTheme.typography.labelSmall) },
+                                leadingIcon = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .background(
+                                                PredefinedTags.colorForTag(tagName),
+                                                shape = CircleShape
                                             )
-                                        },
-                                        label = { Text(tagName, style = MaterialTheme.typography.labelSmall) },
-                                        leadingIcon = {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(8.dp)
-                                                    .background(
-                                                        PredefinedTags.colorForTag(tagName),
-                                                        shape = CircleShape
-                                                    )
-                                            )
-                                        }
                                     )
                                 }
-                            }
+                            )
                         }
                     }
                 }
@@ -736,6 +930,19 @@ fun HomeScreen(
                         val completed = remember(tasks) { tasks.count { it.isCompleted } }
                         val total = tasks.size
                         val progress = remember(tasks) { if (total > 0) completed.toFloat() / total else 0f }
+                        val primaryColor = MaterialTheme.colorScheme.primary
+
+                        // Smart progress label
+                        val progressLabel = if (personalMode && pmSmartProgress && total > 0) {
+                            when {
+                                completed == 0              -> "A fresh start awaits"
+                                progress < 0.25f            -> "You're warming up"
+                                progress < 0.50f            -> "Gaining momentum!"
+                                progress < 0.75f            -> "Past the halfway mark"
+                                progress < 1f               -> "Almost there, keep going!"
+                                else                        -> "All done! You're amazing"
+                            }
+                        } else "Today's Progress"
 
                         Column(
                             modifier = Modifier
@@ -748,25 +955,94 @@ fun HomeScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    "Today's Progress",
+                                    progressLabel,
                                     style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.onSurface
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontWeight = FontWeight.SemiBold
                                 )
                                 Text(
                                     "$completed / $total",
                                     style = MaterialTheme.typography.titleSmall,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = primaryColor
                                 )
                             }
+
+                            // Streak at-risk warning
+                            if (personalMode && pmStreakWarn && streak > 0 && completed == 0 && total > 0) {
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = Icons.Filled.LocalFireDepartment,
+                                        contentDescription = null,
+                                        tint = Color(0xFFEF4444),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(
+                                        text = "$streak-day streak at risk \u2014 complete a task to keep it",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
                             Spacer(modifier = Modifier.height(8.dp))
-                            WaveProgressBar(
-                                progress = progress,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(24.dp),
-                                activeColor = MaterialTheme.colorScheme.primary,
-                                inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+
+                            // Progress bar with sparkle sheen when at 100%
+                            val sparkleVisible = personalMode && pmSparkle && progress >= 1f
+                            val sparkleAlpha by androidx.compose.animation.core.animateFloatAsState(
+                                targetValue = if (sparkleVisible) 1f else 0f,
+                                animationSpec = androidx.compose.animation.core.tween(600),
+                                label = "sparkle"
                             )
+                            // Pulse the sheen when visible
+                            val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "shine")
+                            val shinePulse by infiniteTransition.animateFloat(
+                                initialValue = 0.18f,
+                                targetValue = 0.42f,
+                                animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                                    animation = androidx.compose.animation.core.tween(900),
+                                    repeatMode = androidx.compose.animation.core.RepeatMode.Reverse
+                                ),
+                                label = "shinePulse"
+                            )
+                            Box {
+                                WaveProgressBar(
+                                    progress = progress,
+                                    modifier = Modifier.fillMaxWidth().height(24.dp),
+                                    activeColor = primaryColor,
+                                    inactiveColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)
+                                )
+                                if (sparkleAlpha > 0f) {
+                                    // Full-width vertical sheen (top-bright → bottom-transparent)
+                                    // covers every segment, no border artifact
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(24.dp)
+                                            .background(
+                                                androidx.compose.ui.graphics.Brush.verticalGradient(
+                                                    listOf(
+                                                        androidx.compose.ui.graphics.Color.White.copy(alpha = shinePulse * sparkleAlpha),
+                                                        androidx.compose.ui.graphics.Color.White.copy(alpha = (shinePulse * 0.3f) * sparkleAlpha),
+                                                        androidx.compose.ui.graphics.Color.Transparent
+                                                    )
+                                                )
+                                            )
+                                    )
+                                }
+                            }
+
+                            // Last-task amplification
+                            if (personalMode && pmLastTask && total > 0 && (total - completed) == 1) {
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "One task away from a perfect day",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = primaryColor,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
 
@@ -916,6 +1192,27 @@ fun HomeScreen(
                     }
                 } else if (!isInitialLoad) {
                     item {
+                        val emptyHeadline: String
+                        val emptySub: String
+                        if (personalMode && pmSmartEmpty) {
+                            when {
+                                currentHour in 5..11 -> {
+                                    emptyHeadline = "Your day is a blank canvas"
+                                    emptySub = "What will you create today?"
+                                }
+                                currentHour in 12..16 -> {
+                                    emptyHeadline = "Nothing pending"
+                                    emptySub = "Time to think ahead and plan tomorrow"
+                                }
+                                else -> {
+                                    emptyHeadline = "All clear"
+                                    emptySub = "Enjoy your evening \u2014 you've earned it"
+                                }
+                            }
+                        } else {
+                            emptyHeadline = "No tasks for today"
+                            emptySub = "Tap + to add your first task"
+                        }
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
@@ -923,13 +1220,14 @@ fun HomeScreen(
                                 .padding(vertical = 32.dp)
                         ) {
                             Text(
-                                text = "No tasks for today",
+                                text = emptyHeadline,
                                 style = MaterialTheme.typography.headlineSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = TextAlign.Center
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "Tap + to add your first task",
+                                text = emptySub,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center
@@ -1227,6 +1525,26 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    // Easter egg dialog
+    if (showEasterEgg) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showEasterEgg = false },
+            title = { Text("You found it", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "Built in the quiet hours, for the ones who keep going.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = { showEasterEgg = false }) {
+                    Text("Close")
+                }
+            }
+        )
     }
 
     // Active alarms bottom sheet
