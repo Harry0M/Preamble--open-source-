@@ -435,20 +435,28 @@ fun PreambleApp(
                     modifier = Modifier.padding(innerPadding)
                 )
 
-                // TaskDetailBottomSheet — with edit support (past tasks read-only)
+                // TaskDetailBottomSheet — full detail like HomeScreen; past tasks are view-only
                 calendarDetailTask?.let { task ->
                     val todayDate = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date()) }
                     val isPast = task.createdDate < todayDate
+                    val calSubtasks by viewModel.getSubtasksForTask(task.id)
+                        .collectAsState(initial = emptyList())
                     com.theblankstate.preamble.ui.components.TaskDetailBottomSheet(
                         task = task,
                         onDismiss = { calendarDetailTask = null },
                         onEdit = if (!isPast && !task.isInfoOnly) {{ calendarEditTask = task; calendarDetailTask = null }} else null,
                         onDelete = {
-                            if (!isPast) {
-                                viewModel.deleteTask(task)
-                            }
+                            if (!isPast) viewModel.deleteTask(task)
                             calendarDetailTask = null
-                        }
+                        },
+                        subtasks = calSubtasks,
+                        onAddSubtask = if (!isPast) { { title -> viewModel.addSubtask(task.id, title) } } else null,
+                        onToggleSubtask = if (!isPast) { { subtaskId, isCompleted -> viewModel.toggleSubtaskCompletion(subtaskId, isCompleted) } } else null,
+                        onDeleteSubtask = if (!isPast) { { subtaskId -> viewModel.deleteSubtask(subtaskId) } } else null,
+                        onCompleteAllSubtasks = if (!isPast) { { viewModel.completeAllSubtasks(task.id) } } else null,
+                        onAddReminder = if (!isPast) { { reminder -> viewModel.addReminder(task, reminder) } } else null,
+                        onRemoveReminder = if (!isPast) { { idx -> viewModel.removeReminder(task, idx) } } else null,
+                        isPastTask = isPast
                     )
                 }
 

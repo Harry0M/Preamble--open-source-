@@ -8,7 +8,9 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -771,27 +773,42 @@ private fun CollapsibleDayPage(
 
             // All-day tasks with scroll-driven collapse
             if (!scrollCollapsed || allDayExpanded) {
-                val visibleTasks = if (allDayExpanded) allDayTasks else allDayTasks.take(maxPreview)
-                val visibleHeightDp = if (!allDayExpanded && previewOffsetPx < 0f) {
-                    with(density) { ((previewMaxPx + previewOffsetPx).coerceAtLeast(0f) / density.density).dp }
-                } else null // null = no height constraint
-
-                val columnMod = if (visibleHeightDp != null) {
-                    Modifier.fillMaxWidth().height(visibleHeightDp).clip(RoundedCornerShape(0.dp))
-                } else Modifier.fillMaxWidth()
-
-                Box(columnMod) {
-                    Column(if (!allDayExpanded && previewOffsetPx < 0f) Modifier.graphicsLayer { translationY = previewOffsetPx } else Modifier) {
-                        visibleTasks.forEach { task ->
+                if (allDayExpanded) {
+                    // Expanded: cap height at 240dp + internal scroll so timeline stays reachable
+                    val expandedScrollState = rememberScrollState()
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 240.dp)
+                            .verticalScroll(expandedScrollState)
+                    ) {
+                        allDayTasks.forEach { task ->
                             TaskItem(task = task, onToggle = { if (task.createdDate >= todayStr) onToggle(task) }, onDelete = { onDelete(task) }, onDetail = { onDetail(task) }, isEditable = task.createdDate >= todayStr)
                         }
-                        if (!allDayExpanded && allDayTasks.size > maxPreview) {
-                            Text("+${allDayTasks.size - maxPreview} more",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
-                                color = primary,
-                                modifier = Modifier.fillMaxWidth()
-                                    .clickable { allDayExpanded = true; scrollCollapsed = false; previewOffsetPx = 0f }
-                                    .padding(horizontal = 16.dp, vertical = 6.dp))
+                    }
+                } else {
+                    // Collapsed preview with scroll-driven animation
+                    val visibleHeightDp = if (previewOffsetPx < 0f) {
+                        with(density) { ((previewMaxPx + previewOffsetPx).coerceAtLeast(0f) / density.density).dp }
+                    } else null
+
+                    val columnMod = if (visibleHeightDp != null) {
+                        Modifier.fillMaxWidth().height(visibleHeightDp).clip(RoundedCornerShape(0.dp))
+                    } else Modifier.fillMaxWidth()
+
+                    Box(columnMod) {
+                        Column(if (previewOffsetPx < 0f) Modifier.graphicsLayer { translationY = previewOffsetPx } else Modifier) {
+                            allDayTasks.take(maxPreview).forEach { task ->
+                                TaskItem(task = task, onToggle = { if (task.createdDate >= todayStr) onToggle(task) }, onDelete = { onDelete(task) }, onDetail = { onDetail(task) }, isEditable = task.createdDate >= todayStr)
+                            }
+                            if (allDayTasks.size > maxPreview) {
+                                Text("+${allDayTasks.size - maxPreview} more",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                                    color = primary,
+                                    modifier = Modifier.fillMaxWidth()
+                                        .clickable { allDayExpanded = true; scrollCollapsed = false; previewOffsetPx = 0f }
+                                        .padding(horizontal = 16.dp, vertical = 6.dp))
+                            }
                         }
                     }
                 }

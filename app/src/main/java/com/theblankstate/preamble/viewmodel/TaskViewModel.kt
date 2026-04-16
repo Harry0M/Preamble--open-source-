@@ -77,7 +77,22 @@ data class StatsState(
     val mostActiveTag: String? = null,
     // Karma / Level System (Todoist-inspired)
     val karmaPoints: Int = 0,
-    val karmaLevel: String = "Beginner"
+    val karmaLevel: String = "Beginner",
+    // Historical comparison
+    val yesterdayCompleted: Int = 0,
+    val yesterdayTotal: Int = 0,
+    val thisMonthCompleted: Int = 0,
+    val lastMonthCompleted: Int = 0,
+    // Trend Intelligence (computed client-side with regression/EMA)
+    val movingAvg7Day: Float = 0f,         // 7-day moving average of completions
+    val completionVelocity: Float = 0f,    // linear regression slope: +ve = improving
+    val momentumScore: Int = 0,            // EMA-based momentum 0–100
+    val consistencyScore: Int = 0,         // 0–100: 100 = perfectly consistent output
+    val burnoutRiskScore: Float = 0f,      // 0–1: recent drop vs baseline
+    val peakDayOfWeek: String = "",        // e.g. "Thu"
+    val weekOverWeekGrowth: Float = 0f,    // fractional e.g. 0.25 = +25%
+    val monthOverMonthGrowth: Float = 0f,
+    val dailyStatsWithDates: List<Triple<String, Int, Int>> = emptyList(), // yyyy-MM-dd, done, total
 )
 
 class TaskViewModel(
@@ -557,6 +572,10 @@ class TaskViewModel(
             val weekCompareDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getWeeklyComparison() }
             val heatmapDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getMonthlyHeatmap() }
             val yearlyHeatmapDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getYearlyHeatmap() }
+            // Historical comparison & trend intelligence
+            val yesterdayDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getYesterdayStats() }
+            val monthlyCompDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getMonthlyComparison() }
+            val dailyWithDatesDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getDailyStatsWithFullDates(90) }
             // Pomodoro stats
             val todayFocusDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTodayFocusMinutes() }
             val todayPomCountDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTodayPomodoroCount() }
@@ -566,6 +585,9 @@ class TaskViewModel(
             val topTasksDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTopFocusedTasks() }
             val weeklyFocusDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getWeeklyFocusData() }
 
+            val (yesterdayDone, yesterdayTot) = yesterdayDef.await()
+            val (thisMonthDone, lastMonthDone) = monthlyCompDef.await()
+            val dailyWithDates = dailyWithDatesDef.await()
             val streak = streakDef.await()
             val longestStreak = longestStreakDef.await()
             val weekly = weeklyDef.await()
@@ -615,6 +637,20 @@ class TaskViewModel(
                 else                -> "Beginner"
             }
 
+            // Trend intelligence computations
+            val raw14 = dailyWithDates.takeLast(14).map { it.second }
+            val raw30 = dailyWithDates.takeLast(30).map { it.second }
+            val velocity = linearRegressionSlope(raw14)
+            val emaVal = ema(raw14)
+            val maxEmaBase = raw14.maxOrNull()?.toFloat()?.coerceAtLeast(1f) ?: 1f
+            val momentumScoreVal = ((emaVal / maxEmaBase) * 100).toInt().coerceIn(0, 100)
+            val consistencyScoreVal = consistencyScore(raw30)
+            val burnoutRiskVal = burnoutRisk(dailyWithDates.takeLast(10).map { it.second })
+            val peakDay = peakDayOfWeek(dailyWithDates.takeLast(60))
+            val movingAvg7 = raw14.takeLast(7).average().toFloat()
+            val weekGrowth = if (lastWeek > 0) (thisWeek - lastWeek).toFloat() / lastWeek else 0f
+            val monthGrowth = if (lastMonthDone > 0) (thisMonthDone - lastMonthDone).toFloat() / lastMonthDone else 0f
+
             val bestDayFormatted = bestDay?.let {
                 try {
                     val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
@@ -654,7 +690,20 @@ class TaskViewModel(
                     tagStats = tags,
                     mostActiveTag = tags.firstOrNull()?.tag,
                     karmaPoints = karmaPoints,
-                    karmaLevel = karmaLevel
+                    karmaLevel = karmaLevel,
+                    yesterdayCompleted = yesterdayDone,
+                    yesterdayTotal = yesterdayTot,
+                    thisMonthCompleted = thisMonthDone,
+                    lastMonthCompleted = lastMonthDone,
+                    movingAvg7Day = movingAvg7,
+                    completionVelocity = velocity,
+                    momentumScore = momentumScoreVal,
+                    consistencyScore = consistencyScoreVal,
+                    burnoutRiskScore = burnoutRiskVal,
+                    peakDayOfWeek = peakDay,
+                    weekOverWeekGrowth = weekGrowth,
+                    monthOverMonthGrowth = monthGrowth,
+                    dailyStatsWithDates = dailyWithDates,
                 )
             }
         }
@@ -1405,4 +1454,76 @@ class TaskViewModel(
             return TaskViewModel(repository, appContext) as T
         }
     }
+}
+
+// ── Trend Intelligence Math Helpers ──────────────────────────────────────────
+
+/** Ordinary least-squares slope over [values] indexed 0..n-1. +ve = improving. */
+private fun linearRegressionSlope(values: List<Int>): Float {
+    val n = values.size
+    if (n < 2) return 0f
+    val sx = (n * (n - 1) / 2).toFloat()
+    val sy = values.sum().toFloat()
+    val sxy = values.mapIndexed { i, v -> i.toFloat() * v }.sum()
+    val sx2 = (0 until n).sumOf { it * it }.toFloat()
+    val d = n * sx2 - sx * sx
+    if (d == 0f) return 0f
+    return (n * sxy - sx * sy) / d
+}
+
+/** Exponential moving average — recent values weighted more heavily (alpha = 0.30). */
+private fun ema(values: List<Int>, alpha: Float = 0.30f): Float {
+    if (values.isEmpty()) return 0f
+    var e = values.first().toFloat()
+    for (v in values.drop(1)) e = alpha * v + (1f - alpha) * e
+    return e
+}
+
+/**
+ * Consistency score 0–100.
+ * Uses inverse coefficient of variation on non-zero days:
+ * low CV (stable output) → high score.
+ */
+private fun consistencyScore(values: List<Int>): Int {
+    val nz = values.filter { it > 0 }
+    if (nz.size < 2) return if (nz.isEmpty()) 0 else 80
+    val mean = nz.average()
+    val variance = nz.sumOf { v -> (v - mean) * (v - mean) } / nz.size
+    val cv = Math.sqrt(variance) / mean
+    return ((1.0 - cv.coerceAtMost(2.0) / 2.0) * 100.0).toInt().coerceIn(0, 100)
+}
+
+/**
+ * Burnout risk 0–1.
+ * Compares average of last 3 days vs previous 7 days.
+ * A sharp recent drop relative to baseline = risk.
+ */
+private fun burnoutRisk(values: List<Int>): Float {
+    if (values.size < 7) return 0f
+    val recent3 = values.takeLast(3).average()
+    val prev7 = values.dropLast(3).takeLast(7).average()
+    if (prev7 < 1.0) return 0f
+    return ((prev7 - recent3) / prev7).toFloat().coerceIn(0f, 1f)
+}
+
+/**
+ * Returns 3-letter abbreviation of the day of week with highest average completions
+ * over the provided date-stamped values.
+ */
+private fun peakDayOfWeek(datedValues: List<Triple<String, Int, Int>>): String {
+    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+    val names = arrayOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+    val totals = IntArray(7)
+    val counts = IntArray(7)
+    datedValues.forEach { (date, comp, _) ->
+        try {
+            val cal = java.util.Calendar.getInstance().apply { time = sdf.parse(date)!! }
+            val dow = cal.get(java.util.Calendar.DAY_OF_WEEK) - 1
+            totals[dow] += comp
+            counts[dow]++
+        } catch (_: Exception) {}
+    }
+    val avgs = totals.mapIndexed { i, t -> if (counts[i] > 0) t.toFloat() / counts[i] else 0f }
+    val peak = avgs.indexOf(avgs.maxOrNull() ?: 0f)
+    return if (peak >= 0 && avgs[peak] > 0f) names[peak] else "—"
 }

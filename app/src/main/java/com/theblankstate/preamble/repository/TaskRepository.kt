@@ -93,10 +93,8 @@ class TaskRepository(
             if (task.recurrenceType == "rollover") {
                 if (task.id in processedRolloverIds) continue
                 processedRolloverIds.add(task.id)
-                val displayTask = task.copy(
-                    recurrenceType = null, recurrenceInterval = null,
-                    recurrenceDays = null, recurrenceEndDate = null
-                )
+                // Keep recurrenceType intact so TaskItem renders the correct circle notation
+                val displayTask = task
                 if (!task.isCompleted) {
                     // Pending rollover: show on every day from creation through today (within this month)
                     // Use string comparison to avoid calendar.time carrying wall-clock hours past midnight
@@ -130,9 +128,8 @@ class TaskRepository(
                     if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month) c.get(Calendar.DAY_OF_MONTH) else null
                 } catch (_: Exception) { null }
                 if (templateDay != null) {
-                    tasksByDay.getOrPut(templateDay) { mutableListOf() }.add(task.copy(
-                        recurrenceType = null, recurrenceInterval = null, recurrenceDays = null, recurrenceEndDate = null
-                    ))
+                    // Keep recurrenceType intact for correct circle notation in TaskItem
+                    tasksByDay.getOrPut(templateDay) { mutableListOf() }.add(task)
                 }
                 continue
             }
@@ -212,21 +209,25 @@ class TaskRepository(
 
     suspend fun toggleTask(task: Task) {
         val gson = Gson()
-        val updatedSubtasks = if (!task.isCompleted) { // becoming completed
-            task.subtasks.map { it.copy(isCompleted = true) }
+        // Always fetch from DB to preserve all fields (recurrenceType etc.) that display
+        // copies may have stripped for UI presentation in getTasksForDateWithRecurrence.
+        // Without this, toggling a calendar display-copy writes recurrenceType=null to DB.
+        val dbTask = dao.getTaskById(task.id) ?: task
+        val isBecomingCompleted = !dbTask.isCompleted
+        val updatedSubtasks = if (isBecomingCompleted) {
+            dbTask.subtasks.map { it.copy(isCompleted = true) }
         } else {
-            task.subtasks // leave as is when unchecking
+            dbTask.subtasks
         }
-        val isBecomingCompleted = !task.isCompleted
         val now = System.currentTimeMillis()
-        val updated = task.copy(
+        val updated = dbTask.copy(
             isCompleted = isBecomingCompleted,
             completedTimestamp = if (isBecomingCompleted) now else null,
-            completedDate = if (isBecomingCompleted && task.recurrenceType == "rollover") todayString() else null,
+            completedDate = if (isBecomingCompleted && dbTask.recurrenceType == "rollover") todayString() else null,
             updatedTimestamp = now,
             subtasksJson = gson.toJson(updatedSubtasks),
             // Clear snooze when completing a snoozed task
-            snoozedUntil = if (isBecomingCompleted) null else task.snoozedUntil
+            snoozedUntil = if (isBecomingCompleted) null else dbTask.snoozedUntil
         )
         dao.updateTask(updated)
         syncManager?.pushTask(updated)
@@ -248,7 +249,7 @@ class TaskRepository(
         }
 
         // If this task is a subtask, update parent completion status
-        task.parentTaskId?.let { parentId ->
+        dbTask.parentTaskId?.let { parentId ->
             updateParentTaskCompletion(parentId)
         }
     }
@@ -671,16 +672,14 @@ class TaskRepository(
         }
 
         // 5. Merge: physical tasks first, then virtual instances
+        // Keep recurrenceType intact so TaskItem can render the correct circle notation
+        // (rollover = half-dashed, recurring = fully-dashed, normal = solid ring).
         val displayTasks = physicalTasks.mapNotNull { task ->
             when {
-                task.recurrenceType == "rollover" -> task.copy(
-                    recurrenceType = null, recurrenceInterval = null,
-                    recurrenceDays = null, recurrenceEndDate = null
-                )
-                task.isRecurrenceTemplate && task.createdDate == date -> task.copy(
-                    recurrenceType = null, recurrenceInterval = null,
-                    recurrenceDays = null, recurrenceEndDate = null
-                )
+                // Rollover and template-on-own-date: show as-is to preserve circle notation
+                task.recurrenceType == "rollover" -> task
+                task.isRecurrenceTemplate && task.createdDate == date -> task
+                // Template appearing on OTHER dates is suppressed — virtual instances handle it
                 task.isRecurrenceTemplate -> null
                 else -> task
             }
@@ -1437,5 +1436,46 @@ class TaskRepository(
      */
     suspend fun clearGoogleTasks() {
         dao.deleteAllGoogleTasks()
+    }
+
+    // ── Historical Comparison & Trend Intelligence ──
+
+    /** Returns (completed, total) for yesterday. */
+    suspend fun getYesterdayStats(): Pair<Int, Int> {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val dateStr = sdf.format(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }.time)
+        val s = dao.getStatsForDates(listOf(dateStr)).firstOrNull()
+        return (s?.completed ?: 0) to (s?.total ?: 0)
+    }
+
+    /** Returns (thisMonthCompleted, lastMonthCompleted). */
+    suspend fun getMonthlyComparison(): Pair<Int, Int> {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        fun monthDates(offset: Int): List<String> {
+            val base = Calendar.getInstance().apply { add(Calendar.MONTH, offset) }
+            val days = base.getActualMaximum(Calendar.DAY_OF_MONTH)
+            return (0 until days).map { i ->
+                Calendar.getInstance().apply {
+                    add(Calendar.MONTH, offset)
+                    set(Calendar.DAY_OF_MONTH, 1 + i)
+                }.let { sdf.format(it.time) }
+            }
+        }
+        val thisMonth = dao.getStatsForDates(monthDates(0)).sumOf { it.completed }
+        val lastMonth = dao.getStatsForDates(monthDates(-1)).sumOf { it.completed }
+        return thisMonth to lastMonth
+    }
+
+    /**
+     * Returns last [days] days as Triple(yyyy-MM-dd, completed, total).
+     * Used for client-side trend analysis (regression, EMA, burnout, etc.).
+     */
+    suspend fun getDailyStatsWithFullDates(days: Int): List<Triple<String, Int, Int>> {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val dates = (0 until days).map { i ->
+            sdf.format(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -(days - 1) + i) }.time)
+        }
+        val statsMap = dao.getStatsForDates(dates).associate { it.createdDate to it }
+        return dates.map { d -> Triple(d, statsMap[d]?.completed ?: 0, statsMap[d]?.total ?: 0) }
     }
 }

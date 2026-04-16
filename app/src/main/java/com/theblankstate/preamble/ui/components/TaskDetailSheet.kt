@@ -446,8 +446,6 @@ fun TaskDetailSheet(
             // ═══════════════════════════════════════════════════════════════
             // DATE & TIME
             // ═══════════════════════════════════════════════════════════════
-            // Lock date editing for active rollover tasks (date is their creation anchor)
-            val isDateLocked = task.recurrenceType == "rollover" && !task.isCompleted
             EditSection(title = "Schedule", icon = Icons.Default.Event) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -455,9 +453,9 @@ fun TaskDetailSheet(
                 ) {
                     // Date picker
                     Surface(
-                        onClick = { if (!isDateLocked) showDatePicker = true },
+                        onClick = { showDatePicker = true },
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (isDateLocked) 0.3f else 0.5f),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                         modifier = Modifier.weight(1f)
                     ) {
                         Row(

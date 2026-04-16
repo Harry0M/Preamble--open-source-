@@ -25,6 +25,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.automirrored.filled.TrendingDown
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Warning
@@ -66,12 +68,15 @@ import com.google.android.gms.ads.AdView
 import com.theblankstate.preamble.BuildConfig
 import com.theblankstate.preamble.ads.FeatureGateManager
 import com.theblankstate.preamble.ui.components.AnimatedCircularGauge
+import com.theblankstate.preamble.ui.components.BurnoutRiskChip
+import com.theblankstate.preamble.ui.components.ComparisonRow
+import com.theblankstate.preamble.ui.components.CompletionHistorySheet
 import com.theblankstate.preamble.ui.components.ConsistencyDots
 import com.theblankstate.preamble.ui.components.DonutChart
 import com.theblankstate.preamble.ui.components.FeatureType
 import com.theblankstate.preamble.ui.components.FeatureUnlockSheet
-import com.theblankstate.preamble.ui.components.FocusBarChart
 import com.theblankstate.preamble.ui.components.HeatmapCalendar
+import com.theblankstate.preamble.ui.components.IntelligenceMetricRow
 import com.theblankstate.preamble.ui.components.StatsSectionCard
 import com.theblankstate.preamble.ui.components.TagStatRow
 import com.theblankstate.preamble.ui.components.TrendArrow
@@ -96,6 +101,7 @@ fun StatsScreen(
     val activity = context as? android.app.Activity
     val statsUnlocked by FeatureGateManager.statsUnlocked.collectAsState()
     var showStatsUnlockSheet by remember { mutableStateOf(false) }
+    var showCompletionHistory by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier,
@@ -336,70 +342,76 @@ fun StatsScreen(
             // ═══════════════════════════════════════════
             item {
                 StatsSectionCard(title = "Completion Trends") {
-                    // Weekly comparison
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("This week", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(
-                                "${statsState.thisWeekCompleted} done",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = primaryColor
-                            )
-                        }
-                        Column(horizontalAlignment = Alignment.End) {
-                            Text("Last week", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(
-                                "${statsState.lastWeekCompleted} done",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
+                    // Historical comparison rows
+                    ComparisonRow(
+                        label = "Today vs Yesterday",
+                        current = statsState.todayCompleted,
+                        previous = statsState.yesterdayCompleted,
+                        currentLabel = "today",
+                        previousLabel = "yesterday",
+                        primaryColor = primaryColor
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    ComparisonRow(
+                        label = "This Week vs Last",
+                        current = statsState.thisWeekCompleted,
+                        previous = statsState.lastWeekCompleted,
+                        currentLabel = "this week",
+                        previousLabel = "last week",
+                        primaryColor = primaryColor
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    ComparisonRow(
+                        label = "This Month vs Last",
+                        current = statsState.thisMonthCompleted,
+                        previous = statsState.lastMonthCompleted,
+                        currentLabel = "this month",
+                        previousLabel = "last month",
+                        primaryColor = primaryColor
+                    )
 
                     if (statsState.dailyCompleted.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Text("Last 14 Days", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        WaveChart(
+                        Spacer(modifier = Modifier.height(8.dp))
+                        com.theblankstate.preamble.ui.components.StyledLineChart(
                             data = statsState.dailyCompleted,
-                            color = primaryColor,
-                            modifier = Modifier.fillMaxWidth().height(100.dp)
+                            primaryColor = primaryColor,
+                            modifier = Modifier.fillMaxWidth()
                         )
                     }
 
                     if (statsState.weeklyStats.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Text("Weekly Rate", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Row(
-                            modifier = Modifier.fillMaxWidth().height(80.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                            verticalAlignment = Alignment.Bottom
+                        Spacer(modifier = Modifier.height(8.dp))
+                        com.theblankstate.preamble.ui.components.StyledBarChart(
+                            data = statsState.weeklyStats.map { (day, rate) ->
+                                day to (rate * 100).toInt()
+                            },
+                            primaryColor = primaryColor,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+
+                    // Full history drill-down
+                    if (statsState.dailyStatsWithDates.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(primaryColor.copy(alpha = 0.08f))
+                                .clickable { showCompletionHistory = true }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
                         ) {
-                            statsState.weeklyStats.forEach { (day, rate) ->
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Bottom,
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("${(rate * 100).toInt()}%", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp)
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Box(
-                                        modifier = Modifier
-                                            .width(18.dp)
-                                            .height((rate * 50).dp.coerceAtLeast(3.dp))
-                                            .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
-                                            .background(if (rate >= 1f) primaryColor else primaryColor.copy(alpha = 0.3f + rate * 0.5f))
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(day, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp)
-                                }
-                            }
+                            Text(
+                                "View Full History (90 days) →",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = primaryColor
+                            )
                         }
                     }
                 }
@@ -450,8 +462,12 @@ fun StatsScreen(
                     if (statsState.weeklyFocusData.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Text("Weekly Focus", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        FocusBarChart(data = statsState.weeklyFocusData, primaryColor = primaryColor, modifier = Modifier.fillMaxWidth().height(90.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
+                        com.theblankstate.preamble.ui.components.StyledCapsuleChart(
+                            data = statsState.weeklyFocusData,
+                            primaryColor = primaryColor,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
 
                     if (statsState.topFocusedTasks.isNotEmpty()) {
@@ -598,6 +614,147 @@ fun StatsScreen(
             }
 
             // ═══════════════════════════════════════════
+            // Section 9: Trend Intelligence (PREMIUM)
+            // ═══════════════════════════════════════════
+            item {
+                StatsSectionCard(
+                    title = "Trend Intelligence",
+                    isLocked = !statsUnlocked,
+                    onLockedClick = { showStatsUnlockSheet = true }
+                ) {
+                    // Momentum & Consistency bars
+                    val momentumColor = when {
+                        statsState.momentumScore >= 65 -> Color(0xFF4CAF50)
+                        statsState.momentumScore >= 35 -> Color(0xFFF59E0B)
+                        else -> Color(0xFFF44336)
+                    }
+                    val consistencyColor = when {
+                        statsState.consistencyScore >= 65 -> Color(0xFF4CAF50)
+                        statsState.consistencyScore >= 35 -> Color(0xFFF59E0B)
+                        else -> primaryColor
+                    }
+
+                    IntelligenceMetricRow(
+                        label = "Momentum",
+                        score = statsState.momentumScore,
+                        primaryColor = primaryColor,
+                        barColor = momentumColor
+                    )
+                    IntelligenceMetricRow(
+                        label = "Consistency",
+                        score = statsState.consistencyScore,
+                        primaryColor = primaryColor,
+                        barColor = consistencyColor
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Velocity row
+                    val velocityPositive = statsState.completionVelocity >= 0f
+                    val velocityColor = if (velocityPositive) Color(0xFF4CAF50) else Color(0xFFF44336)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(velocityColor.copy(alpha = 0.08f))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Completion Velocity", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "${if (velocityPositive) "+" else ""}${String.format("%.2f", statsState.completionVelocity)} tasks/day",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = velocityColor
+                            )
+                        }
+                        Icon(
+                            imageVector = if (velocityPositive) Icons.AutoMirrored.Filled.TrendingUp else Icons.AutoMirrored.Filled.TrendingDown,
+                            contentDescription = null,
+                            tint = velocityColor,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // Burnout risk + Peak day row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Burnout Risk", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            BurnoutRiskChip(risk = statsState.burnoutRiskScore)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text("Peak Day", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(primaryColor.copy(alpha = 0.12f))
+                                    .padding(horizontal = 12.dp, vertical = 5.dp)
+                            ) {
+                                Text(
+                                    statsState.peakDayOfWeek.ifBlank { "—" },
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = primaryColor
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    // 7-day moving average
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("7-Day Moving Avg", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                        Text(
+                            String.format("%.1f tasks/day", statsState.movingAvg7Day),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            color = primaryColor
+                        )
+                    }
+
+                    // Full history drill-down (premium)
+                    if (statsUnlocked && statsState.dailyStatsWithDates.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(primaryColor.copy(alpha = 0.08f))
+                                .clickable { showCompletionHistory = true }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "Deep Analysis (90-Day View) →",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = primaryColor
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ═══════════════════════════════════════════
             // Global Rank (existing, gated)
             // ═══════════════════════════════════════════
             item {
@@ -695,6 +852,14 @@ fun StatsScreen(
 
     if (showStatsUnlockSheet && activity != null) {
         FeatureUnlockSheet(featureType = FeatureType.STATS, activity = activity, onDismiss = { showStatsUnlockSheet = false })
+    }
+
+    if (showCompletionHistory && statsState.dailyStatsWithDates.isNotEmpty()) {
+        CompletionHistorySheet(
+            dailyStatsWithDates = statsState.dailyStatsWithDates,
+            primaryColor = primaryColor,
+            onDismiss = { showCompletionHistory = false }
+        )
     }
 }
 
