@@ -30,6 +30,7 @@ import com.patrykandpatrick.vico.compose.cartesian.data.CartesianChartModelProdu
 import com.patrykandpatrick.vico.compose.cartesian.data.columnSeries
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingFlat
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
@@ -45,6 +46,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -374,26 +376,38 @@ fun FocusBarChart(
 
 /**
  * Section card with optional premium lock overlay.
+ * When locked, content is blurred and covered with a frosted glass overlay
+ * so data is completely unreadable but creates an enticing teaser effect.
  */
 @Composable
 fun StatsSectionCard(
     title: String,
     isLocked: Boolean = false,
     onLockedClick: () -> Unit = {},
+    onDetailClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    val primaryColor = MaterialTheme.colorScheme.primary
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .then(if (isLocked) Modifier.clickable { onLockedClick() } else Modifier),
+            .then(
+                if (isLocked) Modifier.clickable { onLockedClick() }
+                else if (onDetailClick != null) Modifier.clickable { onDetailClick() }
+                else Modifier
+            ),
         colors = CardDefaults.cardColors(
             containerColor = Color.Transparent
         ),
         shape = RoundedCornerShape(28.dp)
     ) {
         Box {
-            Column(modifier = Modifier.padding(18.dp)) {
+            Column(
+                modifier = Modifier
+                    .padding(18.dp)
+                    .then(if (isLocked) Modifier.blur(20.dp) else Modifier)
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -402,7 +416,7 @@ fun StatsSectionCard(
                         modifier = Modifier
                             .size(9.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.9f))
+                            .background(primaryColor.copy(alpha = 0.9f))
                     )
                     Text(
                         text = title,
@@ -410,6 +424,15 @@ fun StatsSectionCard(
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                    if (!isLocked && onDetailClick != null) {
+                        Spacer(modifier = Modifier.weight(1f))
+                        Text(
+                            "Details →",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = primaryColor,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
                 Spacer(modifier = Modifier.height(14.dp))
                 Column(modifier = Modifier) {
@@ -417,30 +440,83 @@ fun StatsSectionCard(
                 }
             }
 
-            // Lock overlay
+            // Frosted glass lock overlay — fully opaque, no data leaks
             if (isLocked) {
                 Box(
                     modifier = Modifier
                         .matchParentSize()
                         .background(
-                            MaterialTheme.colorScheme.surface.copy(alpha = 0.96f),
+                            Brush.verticalGradient(
+                                listOf(
+                                    MaterialTheme.colorScheme.surface,
+                                    MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f)
+                                )
+                            ),
                             RoundedCornerShape(28.dp)
                         ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            Icons.Filled.Lock,
-                            contentDescription = "Locked",
-                            modifier = Modifier.size(28.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    Brush.radialGradient(
+                                        listOf(
+                                            primaryColor.copy(alpha = 0.15f),
+                                            primaryColor.copy(alpha = 0.05f)
+                                        )
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Filled.Lock,
+                                contentDescription = "Locked",
+                                modifier = Modifier.size(22.dp),
+                                tint = primaryColor.copy(alpha = 0.7f)
+                            )
+                        }
                         Text(
-                            "Watch ad to unlock",
+                            title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            "Watch ad to unlock deep analysis",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(primaryColor.copy(alpha = 0.12f))
+                                .padding(horizontal = 16.dp, vertical = 6.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Icon(
+                                    Icons.Filled.Star,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(14.dp),
+                                    tint = primaryColor
+                                )
+                                Text(
+                                    "Unlock Premium",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = primaryColor
+                                )
+                            }
+                        }
                     }
                 }
             }

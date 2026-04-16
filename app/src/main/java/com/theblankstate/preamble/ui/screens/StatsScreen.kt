@@ -70,16 +70,23 @@ import com.theblankstate.preamble.ads.FeatureGateManager
 import com.theblankstate.preamble.ui.components.AnimatedCircularGauge
 import com.theblankstate.preamble.ui.components.BurnoutRiskChip
 import com.theblankstate.preamble.ui.components.ComparisonRow
-import com.theblankstate.preamble.ui.components.CompletionHistorySheet
+import com.theblankstate.preamble.ui.components.CompletionTrendsDetailSheet
 import com.theblankstate.preamble.ui.components.ConsistencyDots
 import com.theblankstate.preamble.ui.components.DonutChart
 import com.theblankstate.preamble.ui.components.FeatureType
 import com.theblankstate.preamble.ui.components.FeatureUnlockSheet
 import com.theblankstate.preamble.ui.components.HeatmapCalendar
 import com.theblankstate.preamble.ui.components.IntelligenceMetricRow
+import com.theblankstate.preamble.ui.components.KeepActiveHealthDetailSheet
+import com.theblankstate.preamble.ui.components.PomodoroAnalyticsDetailSheet
+import com.theblankstate.preamble.ui.components.ProductivityScoreDetailSheet
 import com.theblankstate.preamble.ui.components.StatsSectionCard
+import com.theblankstate.preamble.ui.components.StreakConsistencyDetailSheet
+import com.theblankstate.preamble.ui.components.TagAnalyticsDetailSheet
 import com.theblankstate.preamble.ui.components.TagStatRow
+import com.theblankstate.preamble.ui.components.TaskBreakdownDetailSheet
 import com.theblankstate.preamble.ui.components.TrendArrow
+import com.theblankstate.preamble.ui.components.TrendIntelligenceDetailSheet
 import com.theblankstate.preamble.viewmodel.StatsState
 
 private val donutColors = listOf(
@@ -101,7 +108,15 @@ fun StatsScreen(
     val activity = context as? android.app.Activity
     val statsUnlocked by FeatureGateManager.statsUnlocked.collectAsState()
     var showStatsUnlockSheet by remember { mutableStateOf(false) }
-    var showCompletionHistory by remember { mutableStateOf(false) }
+    // Detail screen states
+    var showScoreDetail by remember { mutableStateOf(false) }
+    var showStreakDetail by remember { mutableStateOf(false) }
+    var showTrendsDetail by remember { mutableStateOf(false) }
+    var showPomodoroDetail by remember { mutableStateOf(false) }
+    var showBreakdownDetail by remember { mutableStateOf(false) }
+    var showKeepActiveDetail by remember { mutableStateOf(false) }
+    var showTagDetail by remember { mutableStateOf(false) }
+    var showTrendIntelDetail by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier,
@@ -174,20 +189,111 @@ fun StatsScreen(
                                 )
                             }
                         }
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(primaryColor.copy(alpha = 0.12f))
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                        // Performance Grade Badge
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "${statsState.karmaLevel} · ${statsState.karmaPoints} pts",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = primaryColor
-                            )
+                            val gradeColor = when (statsState.performanceGrade) {
+                                "A" -> Color(0xFF4CAF50)
+                                "B" -> Color(0xFF8BC34A)
+                                "C" -> Color(0xFFFFC107)
+                                "D" -> Color(0xFFFF9800)
+                                else -> Color(0xFFF44336)
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .clip(CircleShape)
+                                    .background(gradeColor.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    statsState.performanceGrade,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Black,
+                                    color = gradeColor
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(20.dp))
+                                    .background(primaryColor.copy(alpha = 0.12f))
+                                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    text = "${statsState.karmaLevel} · ${statsState.karmaPoints} pts",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = primaryColor
+                                )
+                            }
                         }
                         TrendArrow(trend = statsState.productivityScoreTrend)
+                        // Tap for details
+                        if (statsUnlocked) {
+                            Text(
+                                "Tap for details →",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = primaryColor.copy(alpha = 0.6f),
+                                modifier = Modifier.clickable { showScoreDetail = true }
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ═══════════════════════════════════════════
+            // Section 1.5: Smart Insights Feed
+            // ═══════════════════════════════════════════
+            if (statsState.smartInsights.isNotEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(
+                                Brush.linearGradient(
+                                    listOf(
+                                        primaryColor.copy(alpha = 0.08f),
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                    )
+                                )
+                            )
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            "💡 Smart Insights",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        // Show first 3 for free, rest need premium
+                        val visibleInsights = if (statsUnlocked) statsState.smartInsights else statsState.smartInsights.take(2)
+                        visibleInsights.forEach { insight ->
+                            Text(
+                                insight,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
+                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                            )
+                        }
+                        if (!statsUnlocked && statsState.smartInsights.size > 2) {
+                            Text(
+                                "🔒 ${statsState.smartInsights.size - 2} more insights · Unlock Premium",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = primaryColor,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier
+                                    .clickable { showStatsUnlockSheet = true }
+                                    .padding(top = 4.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -254,7 +360,10 @@ fun StatsScreen(
             // Section 3: Streak & Consistency
             // ═══════════════════════════════════════════
             item {
-                StatsSectionCard(title = "Streak & Consistency") {
+                StatsSectionCard(
+                    title = "Streak & Consistency",
+                    onDetailClick = if (statsUnlocked) {{ showStreakDetail = true }} else null
+                ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly,
@@ -341,7 +450,10 @@ fun StatsScreen(
             // Section 4: Completion Trends (Free)
             // ═══════════════════════════════════════════
             item {
-                StatsSectionCard(title = "Completion Trends") {
+                StatsSectionCard(
+                    title = "Completion Trends",
+                    onDetailClick = if (statsUnlocked) {{ showTrendsDetail = true }} else null
+                ) {
                     // Historical comparison rows
                     ComparisonRow(
                         label = "Today vs Yesterday",
@@ -394,26 +506,7 @@ fun StatsScreen(
                         )
                     }
 
-                    // Full history drill-down
-                    if (statsState.dailyStatsWithDates.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(primaryColor.copy(alpha = 0.08f))
-                                .clickable { showCompletionHistory = true }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                "View Full History (90 days) →",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = primaryColor
-                            )
-                        }
-                    }
+
                 }
             }
 
@@ -424,7 +517,8 @@ fun StatsScreen(
                 StatsSectionCard(
                     title = "Pomodoro Analytics",
                     isLocked = !statsUnlocked,
-                    onLockedClick = { showStatsUnlockSheet = true }
+                    onLockedClick = { showStatsUnlockSheet = true },
+                    onDetailClick = if (statsUnlocked) {{ showPomodoroDetail = true }} else null
                 ) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -498,7 +592,8 @@ fun StatsScreen(
                 StatsSectionCard(
                     title = "Task Breakdown",
                     isLocked = !statsUnlocked,
-                    onLockedClick = { showStatsUnlockSheet = true }
+                    onLockedClick = { showStatsUnlockSheet = true },
+                    onDetailClick = if (statsUnlocked) {{ showBreakdownDetail = true }} else null
                 ) {
                     if (statsState.taskTypeBreakdown.isNotEmpty()) {
                         Row(
@@ -537,7 +632,8 @@ fun StatsScreen(
                 StatsSectionCard(
                     title = "Keep Active Health",
                     isLocked = !statsUnlocked,
-                    onLockedClick = { showStatsUnlockSheet = true }
+                    onLockedClick = { showStatsUnlockSheet = true },
+                    onDetailClick = if (statsUnlocked) {{ showKeepActiveDetail = true }} else null
                 ) {
                     if (statsState.activeRolloverCount > 0 || statsState.rolloverCompletionRate > 0f) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -601,7 +697,8 @@ fun StatsScreen(
                 StatsSectionCard(
                     title = "Tag Analytics",
                     isLocked = !statsUnlocked,
-                    onLockedClick = { showStatsUnlockSheet = true }
+                    onLockedClick = { showStatsUnlockSheet = true },
+                    onDetailClick = if (statsUnlocked) {{ showTagDetail = true }} else null
                 ) {
                     if (statsState.tagStats.isNotEmpty()) {
                         statsState.tagStats.take(8).forEachIndexed { index, tag ->
@@ -620,7 +717,8 @@ fun StatsScreen(
                 StatsSectionCard(
                     title = "Trend Intelligence",
                     isLocked = !statsUnlocked,
-                    onLockedClick = { showStatsUnlockSheet = true }
+                    onLockedClick = { showStatsUnlockSheet = true },
+                    onDetailClick = if (statsUnlocked) {{ showTrendIntelDetail = true }} else null
                 ) {
                     // Momentum & Consistency bars
                     val momentumColor = when {
@@ -731,26 +829,7 @@ fun StatsScreen(
                         )
                     }
 
-                    // Full history drill-down (premium)
-                    if (statsUnlocked && statsState.dailyStatsWithDates.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(primaryColor.copy(alpha = 0.08f))
-                                .clickable { showCompletionHistory = true }
-                                .padding(vertical = 10.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                "Deep Analysis (90-Day View) →",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = primaryColor
-                            )
-                        }
-                    }
+
                 }
             }
 
@@ -854,12 +933,31 @@ fun StatsScreen(
         FeatureUnlockSheet(featureType = FeatureType.STATS, activity = activity, onDismiss = { showStatsUnlockSheet = false })
     }
 
-    if (showCompletionHistory && statsState.dailyStatsWithDates.isNotEmpty()) {
-        CompletionHistorySheet(
-            dailyStatsWithDates = statsState.dailyStatsWithDates,
-            primaryColor = primaryColor,
-            onDismiss = { showCompletionHistory = false }
-        )
+
+    // ═══ Detail Sheets ═══
+    if (showScoreDetail) {
+        ProductivityScoreDetailSheet(stats = statsState, onDismiss = { showScoreDetail = false })
+    }
+    if (showStreakDetail) {
+        StreakConsistencyDetailSheet(stats = statsState, onDismiss = { showStreakDetail = false })
+    }
+    if (showTrendsDetail) {
+        CompletionTrendsDetailSheet(stats = statsState, onDismiss = { showTrendsDetail = false })
+    }
+    if (showPomodoroDetail) {
+        PomodoroAnalyticsDetailSheet(stats = statsState, onDismiss = { showPomodoroDetail = false })
+    }
+    if (showBreakdownDetail) {
+        TaskBreakdownDetailSheet(stats = statsState, onDismiss = { showBreakdownDetail = false })
+    }
+    if (showKeepActiveDetail) {
+        KeepActiveHealthDetailSheet(stats = statsState, onDismiss = { showKeepActiveDetail = false })
+    }
+    if (showTagDetail) {
+        TagAnalyticsDetailSheet(stats = statsState, onDismiss = { showTagDetail = false })
+    }
+    if (showTrendIntelDetail) {
+        TrendIntelligenceDetailSheet(stats = statsState, onDismiss = { showTrendIntelDetail = false })
     }
 }
 

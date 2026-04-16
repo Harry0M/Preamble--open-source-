@@ -221,4 +221,32 @@ interface TaskDao {
 
     @Query("DELETE FROM task_tag_overrides WHERE googleId = :googleId")
     suspend fun deleteTagOverride(googleId: String)
+
+    // ── Deep Analytics queries ──
+
+    /** Get completedTimestamp for all completed tasks (for hourly distribution analysis) */
+    @Query("SELECT completedTimestamp FROM tasks WHERE isCompleted = 1 AND completedTimestamp IS NOT NULL AND parentTaskId IS NULL")
+    suspend fun getAllCompletionTimestamps(): List<Long>
+
+    /** Get priority distribution across all non-subtask tasks */
+    @Query("SELECT priority, COUNT(*) as cnt FROM tasks WHERE parentTaskId IS NULL GROUP BY priority ORDER BY priority")
+    suspend fun getPriorityDistribution(): List<PriorityCount>
+
+    /** Get creation-to-completion time deltas for completed tasks */
+    @Query("SELECT createdTimestamp, completedTimestamp FROM tasks WHERE isCompleted = 1 AND completedTimestamp IS NOT NULL AND parentTaskId IS NULL")
+    suspend fun getCompletionTimeDeltas(): List<CompletionTimeDelta>
+
+    /** Get pending tasks and their ages */
+    @Query("SELECT createdDate FROM tasks WHERE isCompleted = 0 AND parentTaskId IS NULL")
+    suspend fun getPendingTaskDates(): List<String>
 }
+
+data class PriorityCount(
+    val priority: Int,
+    val cnt: Int
+)
+
+data class CompletionTimeDelta(
+    val createdTimestamp: Long,
+    val completedTimestamp: Long
+)

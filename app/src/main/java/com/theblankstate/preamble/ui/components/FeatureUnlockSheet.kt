@@ -71,7 +71,7 @@ fun FeatureUnlockSheet(
             Spacer(modifier = Modifier.height(16.dp))
 
             Text(
-                text = if (isTheme) "Unlock Theme Customization" else "Unlock Global Rank",
+                text = if (isTheme) "Unlock Theme Customization" else "Unlock Premium Analytics",
                 style = MaterialTheme.typography.headlineSmall
             )
 
@@ -89,7 +89,12 @@ fun FeatureUnlockSheet(
                     text = if (isTheme)
                         "Watch a short video to unlock theme colors and app theme customization for 12 hours."
                     else
-                        "Watch a short video to see your global productivity rank among all Preamble users for 12 hours.",
+                        "Watch a short video to unlock all premium analytics for 12 hours:\n\n" +
+                            "✦ Deep drill-down screens for every stat\n" +
+                            "✦ Productivity forecasting & trend analysis\n" +
+                            "✦ Pomodoro, tag & breakdown analytics\n" +
+                            "✦ All smart insights & historical comparison\n" +
+                            "✦ Global productivity rank",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center

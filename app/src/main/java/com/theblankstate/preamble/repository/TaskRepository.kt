@@ -1478,4 +1478,82 @@ class TaskRepository(
         val statsMap = dao.getStatsForDates(dates).associate { it.createdDate to it }
         return dates.map { d -> Triple(d, statsMap[d]?.completed ?: 0, statsMap[d]?.total ?: 0) }
     }
+
+    // ── Deep Analytics Methods ──
+
+    /** Returns hourly completion distribution bucketed into 6 four-hour windows. */
+    suspend fun getHourlyCompletionDistribution(): List<Pair<String, Int>> {
+        val timestamps = dao.getAllCompletionTimestamps()
+        val buckets = IntArray(6) // 0-3, 4-7, 8-11, 12-15, 16-19, 20-23
+        val labels = listOf("12-4 AM", "4-8 AM", "8 AM-12", "12-4 PM", "4-8 PM", "8 PM-12")
+        val cal = Calendar.getInstance()
+        for (ts in timestamps) {
+            cal.timeInMillis = ts
+            val hour = cal.get(Calendar.HOUR_OF_DAY)
+            buckets[hour / 4]++
+        }
+        return labels.zip(buckets.toList())
+    }
+
+    /** Returns priority label to percentage pairs. */
+    suspend fun getPriorityDistribution(): List<Pair<String, Float>> {
+        val rows = dao.getPriorityDistribution()
+        val total = rows.sumOf { it.cnt }.coerceAtLeast(1)
+        val labelMap = mapOf(0 to "None", 1 to "Low", 2 to "Medium", 3 to "High")
+        return rows.map { (labelMap[it.priority] ?: "P${it.priority}") to (it.cnt.toFloat() / total) }
+    }
+
+    /** Returns average pending task age in days. */
+    suspend fun getAvgTaskAgeDays(): Float {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val today = sdf.parse(todayString()) ?: return 0f
+        val dates = dao.getPendingTaskDates()
+        if (dates.isEmpty()) return 0f
+        val ages = dates.mapNotNull { dateStr ->
+            try {
+                val d = sdf.parse(dateStr) ?: return@mapNotNull null
+                ((today.time - d.time) / (1000 * 60 * 60 * 24)).toFloat()
+            } catch (_: Exception) { null }
+        }
+        return if (ages.isNotEmpty()) ages.average().toFloat() else 0f
+    }
+
+    /** Returns procrastination index (0-1): ratio of tasks completed after their creation day. */
+    suspend fun getProcrastinationIndex(): Float {
+        val deltas = dao.getCompletionTimeDeltas()
+        if (deltas.isEmpty()) return 0f
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        var late = 0
+        for (delta in deltas) {
+            val createdDay = sdf.format(Date(delta.createdTimestamp))
+            val completedDay = sdf.format(Date(delta.completedTimestamp))
+            if (completedDay > createdDay) late++
+        }
+        return late.toFloat() / deltas.size
+    }
+
+    /** Returns weekday vs weekend average completions. */
+    suspend fun getWeekdayWeekendComparison(): Pair<Float, Float> {
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val dates = (0 until 30).map { i ->
+            sdf.format(Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -29 + i) }.time)
+        }
+        val statsMap = dao.getStatsForDates(dates).associate { it.createdDate to it }
+        var weekdayTotal = 0; var weekdayDays = 0
+        var weekendTotal = 0; var weekendDays = 0
+        for (dateStr in dates) {
+            val cal = Calendar.getInstance().apply { time = sdf.parse(dateStr)!! }
+            val dow = cal.get(Calendar.DAY_OF_WEEK)
+            val comp = statsMap[dateStr]?.completed ?: 0
+            if (dow == Calendar.SATURDAY || dow == Calendar.SUNDAY) {
+                weekendTotal += comp; weekendDays++
+            } else {
+                weekdayTotal += comp; weekdayDays++
+            }
+        }
+        val wdAvg = if (weekdayDays > 0) weekdayTotal.toFloat() / weekdayDays else 0f
+        val weAvg = if (weekendDays > 0) weekendTotal.toFloat() / weekendDays else 0f
+        return wdAvg to weAvg
+    }
 }
+

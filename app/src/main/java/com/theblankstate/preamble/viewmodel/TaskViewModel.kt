@@ -93,6 +93,23 @@ data class StatsState(
     val weekOverWeekGrowth: Float = 0f,    // fractional e.g. 0.25 = +25%
     val monthOverMonthGrowth: Float = 0f,
     val dailyStatsWithDates: List<Triple<String, Int, Int>> = emptyList(), // yyyy-MM-dd, done, total
+    // ═══ NEW: Deep Analytics Fields ═══
+    val performanceGrade: String = "C",                     // A/B/C/D/F letter grade
+    val completionRateToday: Float = 0f,                    // today's completion rate 0-1
+    val completionRate7Day: Float = 0f,                     // 7-day avg completion rate
+    val completionRate30Day: Float = 0f,                    // 30-day avg completion rate
+    val stdDevDaily: Float = 0f,                            // standard deviation of daily completions
+    val forecastNext7: List<Pair<String, Float>> = emptyList(), // predicted completions next 7 days
+    val weekdayAvg: Float = 0f,                             // avg weekday completions
+    val weekendAvg: Float = 0f,                             // avg weekend completions
+    val priorityDistribution: List<Pair<String, Float>> = emptyList(), // priority label to percentage
+    val avgTaskAgeDays: Float = 0f,                         // avg days a task stays pending
+    val procrastinationIndex: Float = 0f,                   // 0-1: ratio of late completions
+    val smartInsights: List<String> = emptyList(),           // generated insight strings
+    val completionRateHistory: List<Pair<String, Float>> = emptyList(), // daily completion rates for chart
+    val productivityScoreHistory: List<Pair<String, Int>> = emptyList(), // daily scores for chart
+    val peakHourLabel: String = "",                          // e.g. "2 PM - 6 PM"
+    val hourlyDistribution: List<Pair<String, Int>> = emptyList(), // hour bucket to count
 )
 
 class TaskViewModel(
@@ -584,6 +601,12 @@ class TaskViewModel(
             val bestDayDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getBestFocusDayData() }
             val topTasksDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTopFocusedTasks() }
             val weeklyFocusDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getWeeklyFocusData() }
+            // NEW: Deep analytics queries
+            val hourlyDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getHourlyCompletionDistribution() }
+            val priorityDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getPriorityDistribution() }
+            val avgAgeDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getAvgTaskAgeDays() }
+            val procrastDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getProcrastinationIndex() }
+            val wdweDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getWeekdayWeekendComparison() }
 
             val (yesterdayDone, yesterdayTot) = yesterdayDef.await()
             val (thisMonthDone, lastMonthDone) = monthlyCompDef.await()
@@ -607,6 +630,12 @@ class TaskViewModel(
             val bestDay = bestDayDef.await()
             val topTasks = topTasksDef.await()
             val weeklyFocus = weeklyFocusDef.await()
+            // NEW: deep analytics results
+            val hourlyDist = hourlyDef.await()
+            val priorityDist = priorityDef.await()
+            val avgTaskAge = avgAgeDef.await()
+            val procrastIdx = procrastDef.await()
+            val (weekdayAvg, weekendAvg) = wdweDef.await()
 
             // Compute productivity score
             val currentState = _statsState.value
@@ -659,6 +688,80 @@ class TaskViewModel(
                 } catch (_: Exception) { it.date }
             }
 
+            // ═══ NEW: Deep Analytics Computations ═══
+
+            // Performance Grade (A-F based on score)
+            val grade = when {
+                score >= 85 -> "A"
+                score >= 70 -> "B"
+                score >= 55 -> "C"
+                score >= 40 -> "D"
+                else -> "F"
+            }
+
+            // Completion rate history
+            val completionRateHist = dailyWithDates.takeLast(30).map { (date, done, total) ->
+                date to (if (total > 0) done.toFloat() / total else 0f)
+            }
+
+            // Completion rates for different periods
+            val todayRate = if (currentState.todayTotal > 0) currentState.todayCompleted.toFloat() / currentState.todayTotal else 0f
+            val last7 = dailyWithDates.takeLast(7)
+            val rate7 = if (last7.isNotEmpty()) {
+                val d = last7.sumOf { it.second }
+                val t = last7.sumOf { it.third }.coerceAtLeast(1)
+                d.toFloat() / t
+            } else 0f
+            val last30 = dailyWithDates.takeLast(30)
+            val rate30 = if (last30.isNotEmpty()) {
+                val d = last30.sumOf { it.second }
+                val t = last30.sumOf { it.third }.coerceAtLeast(1)
+                d.toFloat() / t
+            } else 0f
+
+            // Standard deviation of daily completions
+            val stdDev = standardDeviation(raw30)
+
+            // Forecast next 7 days using double exponential smoothing
+            val sdfForecast = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            val forecastValues = doubleExponentialSmooth(raw30, 7)
+            val forecast7 = (1..7).map { i ->
+                val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, i) }
+                val dateStr = sdfForecast.format(cal.time)
+                dateStr to (forecastValues.getOrNull(i - 1) ?: movingAvg7)
+            }
+
+            // Peak hour from hourly distribution
+            val peakBucket = hourlyDist.maxByOrNull { it.second }
+            val peakHourStr = peakBucket?.first ?: ""
+
+            // Productivity score history (approximate from daily data)
+            val scoreHist = dailyWithDates.takeLast(30).mapIndexed { idx, (date, done, total) ->
+                val r = if (total > 0) done.toFloat() / total else 0f
+                val dayScore = (r * 40 + streakBonus * 20 + focusRatio * 20 + consistencyRate * 20).toInt().coerceIn(0, 100)
+                date to dayScore
+            }
+
+            // Smart insights generation
+            val insights = generateSmartInsights(
+                streak = streak,
+                longestStreak = longestStreak,
+                peakDay = peakDay,
+                weekdayAvg = weekdayAvg,
+                weekendAvg = weekendAvg,
+                velocity = velocity,
+                burnoutRisk = burnoutRiskVal,
+                activeRolloverCount = rollover.activeCount,
+                avgRolloverDays = rollover.averageDaysPending,
+                todayDone = currentState.todayCompleted,
+                todayTotal = currentState.todayTotal,
+                procrastIdx = procrastIdx,
+                consistency = consistencyScoreVal,
+                score = score,
+                avgAge = avgTaskAge,
+                movingAvg = movingAvg7
+            )
+
             _statsState.update {
                 it.copy(
                     streak = streak,
@@ -704,6 +807,23 @@ class TaskViewModel(
                     weekOverWeekGrowth = weekGrowth,
                     monthOverMonthGrowth = monthGrowth,
                     dailyStatsWithDates = dailyWithDates,
+                    // NEW deep analytics fields
+                    performanceGrade = grade,
+                    completionRateToday = todayRate,
+                    completionRate7Day = rate7,
+                    completionRate30Day = rate30,
+                    stdDevDaily = stdDev,
+                    forecastNext7 = forecast7,
+                    weekdayAvg = weekdayAvg,
+                    weekendAvg = weekendAvg,
+                    priorityDistribution = priorityDist,
+                    avgTaskAgeDays = avgTaskAge,
+                    procrastinationIndex = procrastIdx,
+                    smartInsights = insights,
+                    completionRateHistory = completionRateHist,
+                    productivityScoreHistory = scoreHist,
+                    peakHourLabel = peakHourStr,
+                    hourlyDistribution = hourlyDist,
                 )
             }
         }
@@ -1526,4 +1646,109 @@ private fun peakDayOfWeek(datedValues: List<Triple<String, Int, Int>>): String {
     val avgs = totals.mapIndexed { i, t -> if (counts[i] > 0) t.toFloat() / counts[i] else 0f }
     val peak = avgs.indexOf(avgs.maxOrNull() ?: 0f)
     return if (peak >= 0 && avgs[peak] > 0f) names[peak] else "—"
+}
+
+/** Standard deviation of daily completions (population σ). */
+private fun standardDeviation(values: List<Int>): Float {
+    if (values.size < 2) return 0f
+    val mean = values.average()
+    val variance = values.sumOf { v -> (v - mean) * (v - mean) } / values.size
+    return Math.sqrt(variance).toFloat()
+}
+
+/**
+ * Double Exponential Smoothing (Holt's method) for trend-aware forecasting.
+ * Returns [horizon] predicted future values.
+ * alpha controls level smoothing, beta controls trend smoothing.
+ */
+private fun doubleExponentialSmooth(
+    values: List<Int>,
+    horizon: Int,
+    alpha: Float = 0.3f,
+    beta: Float = 0.1f
+): List<Float> {
+    if (values.isEmpty()) return List(horizon) { 0f }
+    if (values.size == 1) return List(horizon) { values[0].toFloat() }
+
+    var level = values[0].toFloat()
+    var trend = (values[1] - values[0]).toFloat()
+
+    for (i in 1 until values.size) {
+        val newLevel = alpha * values[i] + (1f - alpha) * (level + trend)
+        val newTrend = beta * (newLevel - level) + (1f - beta) * trend
+        level = newLevel
+        trend = newTrend
+    }
+
+    return (1..horizon).map { h -> (level + h * trend).coerceAtLeast(0f) }
+}
+
+/**
+ * Generates smart insights based on stats data.
+ * Returns a list of human-readable insight strings with emoji prefixes.
+ */
+private fun generateSmartInsights(
+    streak: Int,
+    longestStreak: Int,
+    peakDay: String,
+    weekdayAvg: Float,
+    weekendAvg: Float,
+    velocity: Float,
+    burnoutRisk: Float,
+    activeRolloverCount: Int,
+    avgRolloverDays: Float,
+    todayDone: Int,
+    todayTotal: Int,
+    procrastIdx: Float,
+    consistency: Int,
+    score: Int,
+    avgAge: Float,
+    movingAvg: Float
+): List<String> {
+    val insights = mutableListOf<String>()
+
+    // Streak insights
+    if (streak >= 7) insights.add("🔥 Amazing ${streak}-day streak! Your longest is $longestStreak days")
+    else if (streak >= 3) insights.add("🔥 ${streak}-day streak going! Keep pushing to beat your record of $longestStreak")
+    else if (streak == 0) insights.add("💪 Start a streak today by completing all your tasks!")
+
+    // Peak day insight
+    if (peakDay.isNotBlank() && peakDay != "—") {
+        if (weekdayAvg > 0 && weekendAvg > 0) {
+            val ratio = weekdayAvg / weekendAvg
+            if (ratio > 1.5f) insights.add("📊 You're ${String.format("%.0f", (ratio - 1) * 100)}% more productive on weekdays")
+            else if (ratio < 0.7f) insights.add("📊 You're ${String.format("%.0f", (1 / ratio - 1) * 100)}% more productive on weekends")
+        }
+        insights.add("📆 Your peak day is $peakDay — schedule important tasks then")
+    }
+
+    // Velocity insight
+    if (velocity > 0.1f) insights.add("📈 Your velocity is +${String.format("%.1f", velocity)} tasks/day — you're improving!")
+    else if (velocity < -0.2f) insights.add("📉 Productivity dipping — try breaking tasks into smaller steps")
+
+    // Burnout risk
+    if (burnoutRisk >= 0.65f) insights.add("⚠️ High burnout risk detected — consider taking a lighter day")
+    else if (burnoutRisk >= 0.35f) insights.add("🟡 Moderate burnout risk — balance is key")
+
+    // Rollover health
+    if (activeRolloverCount > 5) insights.add("⏳ You have $activeRolloverCount pending rollover tasks (avg ${String.format("%.0f", avgRolloverDays)} days)")
+    else if (activeRolloverCount > 0) insights.add("📌 $activeRolloverCount rollover tasks — tackle the oldest first")
+
+    // Today's progress
+    if (todayTotal > 0) {
+        if (todayDone == todayTotal) insights.add("✅ All done for today! You're crushing it!")
+        else if (todayDone.toFloat() / todayTotal >= 0.75f) insights.add("🎯 Almost there — ${todayTotal - todayDone} tasks left today")
+    }
+
+    // Procrastination
+    if (procrastIdx > 0.5f) insights.add("⏰ ${(procrastIdx * 100).toInt()}% of tasks are completed after their due date")
+
+    // Consistency
+    if (consistency >= 80) insights.add("🏆 Exceptional consistency score: $consistency/100")
+    else if (consistency < 30) insights.add("🎯 Consistency is $consistency/100 — try to do at least 1 task every day")
+
+    // Moving average
+    if (movingAvg > 0) insights.add("📊 7-day average: ${String.format("%.1f", movingAvg)} tasks/day")
+
+    return insights.take(6) // Cap at 6 most relevant insights
 }
