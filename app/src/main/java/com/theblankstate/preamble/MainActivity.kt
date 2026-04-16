@@ -412,6 +412,7 @@ fun PreambleApp(
             )
             1 -> StatsScreen(
                 statsState = stats,
+                onRefreshStats = { viewModel.refreshStats() },
                 modifier = Modifier.padding(innerPadding)
             )
             2 -> {

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Leaderboard
 import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Lock
@@ -34,11 +35,13 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -101,6 +104,7 @@ private val donutColors = listOf(
 @Composable
 fun StatsScreen(
     statsState: StatsState,
+    onRefreshStats: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val primaryColor = MaterialTheme.colorScheme.primary
@@ -118,12 +122,38 @@ fun StatsScreen(
     var showTagDetail by remember { mutableStateOf(false) }
     var showTrendIntelDetail by remember { mutableStateOf(false) }
 
+    // Auto-refresh stats on screen composition
+    LaunchedEffect(Unit) { onRefreshStats?.invoke() }
+
+    // Derive previous period data for chart overlays from 90-day dailyStatsWithDates
+    val prev14DayCompleted = remember(statsState.dailyStatsWithDates) {
+        val all = statsState.dailyStatsWithDates
+        if (all.size >= 28) all.takeLast(28).take(14).map { it.second }
+        else if (all.size > 14) all.take(all.size - 14).map { it.second }
+        else null
+    }
+    val prev7DayRate = remember(statsState.dailyStatsWithDates) {
+        val all = statsState.dailyStatsWithDates
+        if (all.size >= 14) {
+            all.takeLast(14).take(7).map { (_, done, total) ->
+                if (total > 0) (done.toFloat() / total * 100).toInt() else 0
+            }
+        } else null
+    }
+
     Scaffold(
         modifier = modifier,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             TopAppBar(
-                title = { Text("Statistics", style = MaterialTheme.typography.titleLarge) }
+                title = { Text("Statistics", style = MaterialTheme.typography.titleLarge) },
+                actions = {
+                    if (onRefreshStats != null) {
+                        IconButton(onClick = onRefreshStats) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Refresh stats")
+                        }
+                    }
+                }
             )
         }
     ) { padding ->
@@ -137,166 +167,155 @@ fun StatsScreen(
             item { Spacer(modifier = Modifier.height(4.dp)) }
 
             // ═══════════════════════════════════════════
-            // Section 1: Productivity Score (Hero)
+            // Section 1: Productivity Score (Hero — M3 Expressive)
             // ═══════════════════════════════════════════
             item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(
-                        containerColor = Color.Transparent
-                    ),
-                    shape = RoundedCornerShape(32.dp)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        primaryColor.copy(alpha = 0.15f),
-                                        MaterialTheme.colorScheme.surface,
-                                        primaryColor.copy(alpha = 0.08f)
-                                    )
-                                )
-                            )
-                            .padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    Text(
+                        text = "Productivity Score",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    // Expressive animated gauge — clean, no background
+                    AnimatedCircularGauge(
+                        score = statsState.productivityScore,
+                        primaryColor = primaryColor,
+                        modifier = Modifier.size(180.dp)
+                    )
+                    // Grade + Karma capsules
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Productivity Score",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        val gradeColor = when (statsState.performanceGrade) {
+                            "A" -> Color(0xFF4CAF50)
+                            "B" -> Color(0xFF8BC34A)
+                            "C" -> Color(0xFFFFC107)
+                            "D" -> Color(0xFFFF9800)
+                            else -> Color(0xFFF44336)
+                        }
                         Box(
                             modifier = Modifier
-                                .size(220.dp)
-                                .clip(CircleShape)
-                                .background(primaryColor.copy(alpha = 0.12f)),
+                                .clip(RoundedCornerShape(50))
+                                .background(gradeColor.copy(alpha = 0.12f))
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(182.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                AnimatedCircularGauge(
-                                    score = statsState.productivityScore,
-                                    primaryColor = primaryColor,
-                                    modifier = Modifier.size(158.dp)
-                                )
-                            }
-                        }
-                        // Performance Grade Badge
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val gradeColor = when (statsState.performanceGrade) {
-                                "A" -> Color(0xFF4CAF50)
-                                "B" -> Color(0xFF8BC34A)
-                                "C" -> Color(0xFFFFC107)
-                                "D" -> Color(0xFFFF9800)
-                                else -> Color(0xFFF44336)
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(gradeColor.copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    statsState.performanceGrade,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Black,
-                                    color = gradeColor
-                                )
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(primaryColor.copy(alpha = 0.12f))
-                                    .padding(horizontal = 14.dp, vertical = 6.dp)
-                            ) {
-                                Text(
-                                    text = "${statsState.karmaLevel} · ${statsState.karmaPoints} pts",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = primaryColor
-                                )
-                            }
-                        }
-                        TrendArrow(trend = statsState.productivityScoreTrend)
-                        // Tap for details
-                        if (statsUnlocked) {
                             Text(
-                                "Tap for details →",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = primaryColor.copy(alpha = 0.6f),
-                                modifier = Modifier.clickable { showScoreDetail = true }
+                                "Grade ${statsState.performanceGrade}",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = gradeColor
                             )
                         }
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(primaryColor.copy(alpha = 0.1f))
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "${statsState.karmaLevel} · ${statsState.karmaPoints} pts",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = primaryColor
+                            )
+                        }
+                    }
+                    TrendArrow(trend = statsState.productivityScoreTrend)
+                    // Tap for details
+                    if (statsUnlocked) {
+                        Text(
+                            "Tap for details →",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = primaryColor.copy(alpha = 0.6f),
+                            modifier = Modifier.clickable { showScoreDetail = true }
+                        )
                     }
                 }
             }
 
             // ═══════════════════════════════════════════
-            // Section 1.5: Smart Insights Feed
+            // Section 1.5: Smart Insights Feed (M3 Expressive — no bg)
             // ═══════════════════════════════════════════
             if (statsState.smartInsights.isNotEmpty()) {
                 item {
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(
-                                Brush.linearGradient(
-                                    listOf(
-                                        primaryColor.copy(alpha = 0.08f),
-                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                                    )
-                                )
-                            )
-                            .padding(16.dp),
+                        modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text(
-                            "💡 Smart Insights",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        // Show first 3 for free, rest need premium
-                        val visibleInsights = if (statsUnlocked) statsState.smartInsights else statsState.smartInsights.take(2)
-                        visibleInsights.forEach { insight ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.EmojiEvents,
+                                contentDescription = null,
+                                tint = primaryColor,
+                                modifier = Modifier.size(20.dp)
+                            )
                             Text(
-                                insight,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f))
-                                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                                "Smart Insights",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                         }
+                        val visibleInsights = if (statsUnlocked) statsState.smartInsights else statsState.smartInsights.take(2)
+                        visibleInsights.forEach { insight ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp),
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    when {
+                                        insight.contains("streak", ignoreCase = true) -> Icons.Filled.LocalFireDepartment
+                                        insight.contains("peak", ignoreCase = true) || insight.contains("best", ignoreCase = true) -> Icons.Filled.EmojiEvents
+                                        insight.contains("slow", ignoreCase = true) || insight.contains("drop", ignoreCase = true) -> Icons.Filled.Warning
+                                        insight.contains("focus", ignoreCase = true) || insight.contains("pomodoro", ignoreCase = true) -> Icons.Filled.Timer
+                                        else -> Icons.AutoMirrored.Filled.TrendingUp
+                                    },
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp).padding(top = 2.dp)
+                                )
+                                Text(
+                                    insight,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
                         if (!statsUnlocked && statsState.smartInsights.size > 2) {
-                            Text(
-                                "🔒 ${statsState.smartInsights.size - 2} more insights · Unlock Premium",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = primaryColor,
-                                fontWeight = FontWeight.Medium,
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
                                 modifier = Modifier
                                     .clickable { showStatsUnlockSheet = true }
                                     .padding(top = 4.dp)
-                            )
+                            ) {
+                                Icon(Icons.Filled.Lock, null, modifier = Modifier.size(14.dp), tint = primaryColor)
+                                Text(
+                                    "${statsState.smartInsights.size - 2} more insights · Unlock Premium",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = primaryColor,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
                     }
                 }
             }
+
 
             // ═══════════════════════════════════════════
             // Section 2: Today's Focus Dashboard (capsule grid)
@@ -489,7 +508,9 @@ fun StatsScreen(
                         com.theblankstate.preamble.ui.components.StyledLineChart(
                             data = statsState.dailyCompleted,
                             primaryColor = primaryColor,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            previousData = prev14DayCompleted,
+                            previousLabel = "Prev 14d"
                         )
                     }
 
@@ -502,7 +523,9 @@ fun StatsScreen(
                                 day to (rate * 100).toInt()
                             },
                             primaryColor = primaryColor,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
+                            previousData = prev7DayRate,
+                            previousLabel = "Prev week"
                         )
                     }
 

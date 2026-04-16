@@ -700,12 +700,34 @@ fun StyledBarChart(
     primaryColor: Color,
     modifier: Modifier = Modifier,
     todayIndex: Int = if (data.isEmpty()) -1 else data.lastIndex,
+    previousData: List<Int>? = null,
+    previousLabel: String = "prev",
 ) {
     if (data.isEmpty()) return
-    val maxVal = data.maxOf { it.second }.coerceAtLeast(1)
+    val compColor = Color(0xFFFF9800)
+    val currentMax = data.maxOf { it.second }
+    val prevMax = previousData?.maxOrNull() ?: 0
+    val maxVal = maxOf(currentMax, prevMax).coerceAtLeast(1)
     val barMaxHeight = 110
 
     Column(modifier = modifier) {
+        // Legend when previous data present
+        if (previousData != null && previousData.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(modifier = Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(primaryColor))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Current", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.width(10.dp))
+                Box(modifier = Modifier.size(8.dp).clip(RoundedCornerShape(2.dp)).background(compColor.copy(alpha = 0.35f)))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(previousLabel, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -716,25 +738,46 @@ fun StyledBarChart(
             data.forEachIndexed { index, (_, value) ->
                 val isToday = index == todayIndex
                 val barHeight = ((value.toFloat() / maxVal) * barMaxHeight).dp.coerceAtLeast(4.dp)
+                val prevVal = previousData?.getOrNull(index)
+                val prevBarHeight = if (prevVal != null) ((prevVal.toFloat() / maxVal) * barMaxHeight).dp.coerceAtLeast(4.dp) else 0.dp
+
                 Column(
                     modifier = Modifier.weight(1f),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Bottom,
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth(0.58f)
-                            .height(barHeight)
-                            .clip(
-                                RoundedCornerShape(
-                                    topStart = 10.dp, topEnd = 10.dp,
-                                    bottomStart = 3.dp, bottomEnd = 3.dp
+                    Box(contentAlignment = Alignment.BottomCenter) {
+                        // Previous period ghost bar (behind)
+                        if (prevVal != null && prevVal > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.58f)
+                                    .height(prevBarHeight)
+                                    .clip(
+                                        RoundedCornerShape(
+                                            topStart = 10.dp, topEnd = 10.dp,
+                                            bottomStart = 3.dp, bottomEnd = 3.dp
+                                        )
+                                    )
+                                    .background(compColor.copy(alpha = 0.18f))
+                            )
+                        }
+                        // Current period bar (foreground, narrower to show ghost behind)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(if (previousData != null) 0.42f else 0.58f)
+                                .height(barHeight)
+                                .clip(
+                                    RoundedCornerShape(
+                                        topStart = 10.dp, topEnd = 10.dp,
+                                        bottomStart = 3.dp, bottomEnd = 3.dp
+                                    )
                                 )
-                            )
-                            .background(
-                                if (isToday) primaryColor else primaryColor.copy(alpha = 0.38f)
-                            )
-                    )
+                                .background(
+                                    if (isToday) primaryColor else primaryColor.copy(alpha = 0.38f)
+                                )
+                        )
+                    }
                 }
             }
         }
@@ -863,12 +906,35 @@ fun StyledLineChart(
     primaryColor: Color,
     modifier: Modifier = Modifier,
     todayIndex: Int = if (data.isEmpty()) -1 else data.lastIndex,
+    previousData: List<Int>? = null,
+    previousLabel: String = "prev",
 ) {
     if (data.size < 2) return
-    val maxVal = data.maxOf { it.second }.coerceAtLeast(1)
+    val compColor = Color(0xFFFF9800)
+    // Use max across both current + previous for consistent Y scale
+    val currentMax = data.maxOf { it.second }
+    val prevMax = previousData?.maxOrNull() ?: 0
+    val maxVal = maxOf(currentMax, prevMax).coerceAtLeast(1)
     val avg = data.sumOf { it.second } / data.size
 
     Column(modifier = modifier) {
+        // Legend when previous data present
+        if (previousData != null && previousData.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(primaryColor))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Current", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(modifier = Modifier.width(10.dp))
+                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(compColor.copy(alpha = 0.5f)))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(previousLabel, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+
         Canvas(
             modifier = Modifier
                 .fillMaxWidth()
@@ -881,7 +947,7 @@ fun StyledLineChart(
             val chartH = h - padV * 2
             val chartW = w - padH * 2
 
-            fun xFor(i: Int) = padH + (i.toFloat() / (data.size - 1)) * chartW
+            fun xFor(i: Int, count: Int) = padH + (i.toFloat() / (count - 1).coerceAtLeast(1)) * chartW
             fun yFor(v: Int) = padV + chartH * (1f - v.toFloat() / maxVal)
 
             val avgY = padV + chartH * (1f - avg.toFloat() / maxVal)
@@ -901,24 +967,58 @@ fun StyledLineChart(
                 dx += dash + gap
             }
 
-            // Lines between points
+            // Previous period ghost line (dashed)
+            if (previousData != null && previousData.size >= 2) {
+                val prevCount = previousData.size
+                for (i in 0 until prevCount - 1) {
+                    val x1 = xFor(i, prevCount)
+                    val y1 = yFor(previousData[i])
+                    val x2 = xFor(i + 1, prevCount)
+                    val y2 = yFor(previousData[i + 1])
+                    // Draw dashed line segment
+                    val segLen = kotlin.math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1))
+                    val dashPx = 6.dp.toPx()
+                    val gapPx = 4.dp.toPx()
+                    if (segLen > 0f) {
+                        val dirX = (x2 - x1) / segLen
+                        val dirY = (y2 - y1) / segLen
+                        var traveled = 0f
+                        while (traveled < segLen) {
+                            val end = (traveled + dashPx).coerceAtMost(segLen)
+                            drawLine(
+                                color = compColor.copy(alpha = 0.45f),
+                                start = Offset(x1 + dirX * traveled, y1 + dirY * traveled),
+                                end = Offset(x1 + dirX * end, y1 + dirY * end),
+                                strokeWidth = 2f,
+                                cap = StrokeCap.Round,
+                            )
+                            traveled = end + gapPx
+                        }
+                    }
+                }
+                // Ghost dots
+                previousData.forEachIndexed { i, v ->
+                    drawCircle(compColor.copy(alpha = 0.30f), radius = 3.dp.toPx(), center = Offset(xFor(i, prevCount), yFor(v)))
+                }
+            }
+
+            // Current period lines
             for (i in 0 until data.size - 1) {
                 drawLine(
                     color = primaryColor,
-                    start = Offset(xFor(i), yFor(data[i].second)),
-                    end = Offset(xFor(i + 1), yFor(data[i + 1].second)),
+                    start = Offset(xFor(i, data.size), yFor(data[i].second)),
+                    end = Offset(xFor(i + 1, data.size), yFor(data[i + 1].second)),
                     strokeWidth = 2.5f,
                     cap = StrokeCap.Round,
                 )
             }
 
-            // Dots
+            // Current dots
             data.forEachIndexed { i, (_, v) ->
-                val cx = xFor(i)
+                val cx = xFor(i, data.size)
                 val cy = yFor(v)
                 val isToday = i == todayIndex
                 if (isToday) {
-                    // Outer ring + filled center
                     drawCircle(primaryColor.copy(alpha = 0.20f), radius = 11.dp.toPx(), center = Offset(cx, cy))
                     drawCircle(primaryColor, radius = 5.dp.toPx(), center = Offset(cx, cy))
                 } else {
