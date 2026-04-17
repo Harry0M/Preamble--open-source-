@@ -442,12 +442,19 @@ class TaskViewModel(
         }
 
         viewModelScope.launch {
+            var isFirstEmission = true
             todayTasks.collect { tasks ->
                 // Mark initial load as done on first emission
                 if (_isInitialLoad.value) _isInitialLoad.value = false
                 val completed = tasks.count { it.isCompleted }
                 val total = tasks.size
                 _statsState.update { it.copy(todayCompleted = completed, todayTotal = total) }
+                // Auto-refresh full stats when tasks change (skip first emission — handled by init refreshStats)
+                if (isFirstEmission) {
+                    isFirstEmission = false
+                } else {
+                    refreshStats()
+                }
             }
         }
 
@@ -592,7 +599,7 @@ class TaskViewModel(
             // Historical comparison & trend intelligence
             val yesterdayDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getYesterdayStats() }
             val monthlyCompDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getMonthlyComparison() }
-            val dailyWithDatesDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getDailyStatsWithFullDates(90) }
+            val dailyWithDatesDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getDailyStatsWithFullDates(365) }
             // Pomodoro stats
             val todayFocusDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTodayFocusMinutes() }
             val todayPomCountDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTodayPomodoroCount() }

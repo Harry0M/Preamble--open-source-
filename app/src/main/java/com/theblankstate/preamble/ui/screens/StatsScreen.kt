@@ -41,12 +41,27 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.theblankstate.preamble.ui.components.CustomDateRangeDialog
+import com.theblankstate.preamble.ui.components.DAY_MS
+import com.theblankstate.preamble.ui.components.RangeComparisonCapsules
+import com.theblankstate.preamble.ui.components.RangeStats
+import com.theblankstate.preamble.ui.components.computePeriodComparison
+import com.theblankstate.preamble.ui.components.formatRangeLabel
+import com.theblankstate.preamble.ui.components.rememberRangeStats
+import com.theblankstate.preamble.ui.components.sliceByMs
+import com.theblankstate.preamble.ui.components.sliceByRange
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -122,23 +137,41 @@ fun StatsScreen(
     var showTagDetail by remember { mutableStateOf(false) }
     var showTrendIntelDetail by remember { mutableStateOf(false) }
 
+    // ── Range selection state ──
+    var selectedRange by remember { mutableIntStateOf(14) }
+    var periodOffset by remember { mutableIntStateOf(0) }
+    var customRange by remember { mutableStateOf<Pair<Long, Long>?>(null) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    val isRangeActive = customRange != null || periodOffset > 0
+
+    // Range-sliced stats (current + previous period)
+    val (rangeStats, prevRangeStats) = rememberRangeStats(
+        statsState.dailyStatsWithDates, selectedRange, periodOffset, customRange
+    )
+
     // Auto-refresh stats on screen composition
     LaunchedEffect(Unit) { onRefreshStats?.invoke() }
 
-    // Derive previous period data for chart overlays from 90-day dailyStatsWithDates
-    val prev14DayCompleted = remember(statsState.dailyStatsWithDates) {
-        val all = statsState.dailyStatsWithDates
-        if (all.size >= 28) all.takeLast(28).take(14).map { it.second }
-        else if (all.size > 14) all.take(all.size - 14).map { it.second }
-        else null
+    // Derive previous period data for chart overlays from range-sliced data
+    val prev14DayCompleted = remember(rangeStats.dailyDone, prevRangeStats.dailyDone) {
+        if (prevRangeStats.dailyDone.isNotEmpty()) prevRangeStats.dailyDone
+        else {
+            val all = statsState.dailyStatsWithDates
+            if (all.size >= 28) all.takeLast(28).take(14).map { it.second }
+            else if (all.size > 14) all.take(all.size - 14).map { it.second }
+            else null
+        }
     }
-    val prev7DayRate = remember(statsState.dailyStatsWithDates) {
-        val all = statsState.dailyStatsWithDates
-        if (all.size >= 14) {
-            all.takeLast(14).take(7).map { (_, done, total) ->
-                if (total > 0) (done.toFloat() / total * 100).toInt() else 0
-            }
-        } else null
+    val prev7DayRate = remember(rangeStats.dailyRates, prevRangeStats.dailyRates) {
+        if (prevRangeStats.dailyRates.isNotEmpty()) prevRangeStats.dailyRates.map { (it * 100).toInt() }
+        else {
+            val all = statsState.dailyStatsWithDates
+            if (all.size >= 14) {
+                all.takeLast(14).take(7).map { (_, done, total) ->
+                    if (total > 0) (done.toFloat() / total * 100).toInt() else 0
+                }
+            } else null
+        }
     }
 
     Scaffold(
@@ -148,6 +181,9 @@ fun StatsScreen(
             TopAppBar(
                 title = { Text("Statistics", style = MaterialTheme.typography.titleLarge) },
                 actions = {
+                    IconButton(onClick = { showDatePicker = true }) {
+                        Icon(Icons.Filled.CalendarMonth, contentDescription = "Date range")
+                    }
                     if (onRefreshStats != null) {
                         IconButton(onClick = onRefreshStats) {
                             Icon(Icons.Filled.Refresh, contentDescription = "Refresh stats")
@@ -165,6 +201,68 @@ fun StatsScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item { Spacer(modifier = Modifier.height(4.dp)) }
+
+            // ═══════════════════════════════════════════
+            // Range Selector (always visible)
+            // ═══════════════════════════════════════════
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Period label + nav arrows
+                    val periodLabel = customRange?.let { formatRangeLabel(it.first, it.second) }
+                        ?: when (periodOffset) {
+                            0 -> "Last $selectedRange days"
+                            else -> "${selectedRange * periodOffset + 1}–${selectedRange * (periodOffset + 1)}d ago"
+                        }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            periodLabel,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (isRangeActive) primaryColor else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(onClick = { periodOffset++ }, modifier = Modifier.size(32.dp)) {
+                                Icon(Icons.AutoMirrored.Filled.TrendingDown, "Previous", modifier = Modifier.size(18.dp))
+                            }
+                            IconButton(
+                                onClick = { if (customRange != null) customRange = null else if (periodOffset > 0) periodOffset-- },
+                                enabled = periodOffset > 0 || customRange != null,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.AutoMirrored.Filled.TrendingUp, "Next", modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                    // Range chips
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        listOf(7, 14, 30, 60, 90).forEach { range ->
+                            FilterChip(
+                                selected = selectedRange == range && customRange == null,
+                                onClick = { selectedRange = range; periodOffset = 0; customRange = null },
+                                label = { Text("${range}D") },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Range comparison capsules (when range is active)
+            if (rangeStats.days > 0) {
+                item {
+                    RangeComparisonCapsules(rangeStats, prevRangeStats)
+                }
+            }
 
             // ═══════════════════════════════════════════
             // Section 1: Productivity Score (Hero — M3 Expressive)
@@ -473,63 +571,110 @@ fun StatsScreen(
                     title = "Completion Trends",
                     onDetailClick = if (statsUnlocked) {{ showTrendsDetail = true }} else null
                 ) {
-                    // Historical comparison rows
-                    ComparisonRow(
-                        label = "Today vs Yesterday",
-                        current = statsState.todayCompleted,
-                        previous = statsState.yesterdayCompleted,
-                        currentLabel = "today",
-                        previousLabel = "yesterday",
-                        primaryColor = primaryColor
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    ComparisonRow(
-                        label = "This Week vs Last",
-                        current = statsState.thisWeekCompleted,
-                        previous = statsState.lastWeekCompleted,
-                        currentLabel = "this week",
-                        previousLabel = "last week",
-                        primaryColor = primaryColor
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    ComparisonRow(
-                        label = "This Month vs Last",
-                        current = statsState.thisMonthCompleted,
-                        previous = statsState.lastMonthCompleted,
-                        currentLabel = "this month",
-                        previousLabel = "last month",
-                        primaryColor = primaryColor
-                    )
+                    // Range-aware comparison rows
+                    if (isRangeActive && rangeStats.days > 0) {
+                        // Show range vs previous period comparison
+                        ComparisonRow(
+                            label = "Selected vs Previous",
+                            current = rangeStats.totalDone,
+                            previous = prevRangeStats.totalDone,
+                            currentLabel = "${rangeStats.days}d",
+                            previousLabel = "prev ${prevRangeStats.days}d",
+                            primaryColor = primaryColor
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        ComparisonRow(
+                            label = "Avg / Day",
+                            current = rangeStats.avgPerDay.toInt(),
+                            previous = prevRangeStats.avgPerDay.toInt(),
+                            currentLabel = "selected",
+                            previousLabel = "previous",
+                            primaryColor = primaryColor
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        ComparisonRow(
+                            label = "Completion Rate",
+                            current = (rangeStats.completionRate * 100).toInt(),
+                            previous = (prevRangeStats.completionRate * 100).toInt(),
+                            currentLabel = "selected %",
+                            previousLabel = "previous %",
+                            primaryColor = primaryColor
+                        )
+                    } else {
+                        // Default: fixed period comparisons
+                        ComparisonRow(
+                            label = "Today vs Yesterday",
+                            current = statsState.todayCompleted,
+                            previous = statsState.yesterdayCompleted,
+                            currentLabel = "today",
+                            previousLabel = "yesterday",
+                            primaryColor = primaryColor
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        ComparisonRow(
+                            label = "This Week vs Last",
+                            current = statsState.thisWeekCompleted,
+                            previous = statsState.lastWeekCompleted,
+                            currentLabel = "this week",
+                            previousLabel = "last week",
+                            primaryColor = primaryColor
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        ComparisonRow(
+                            label = "This Month vs Last",
+                            current = statsState.thisMonthCompleted,
+                            previous = statsState.lastMonthCompleted,
+                            currentLabel = "this month",
+                            previousLabel = "last month",
+                            primaryColor = primaryColor
+                        )
+                    }
 
-                    if (statsState.dailyCompleted.isNotEmpty()) {
+                    // Range-aware line chart
+                    val chartData = if (isRangeActive && rangeStats.dailyDone.isNotEmpty()) {
+                        rangeStats.dailyLabels.zip(rangeStats.dailyDone)
+                    } else {
+                        statsState.dailyCompleted
+                    }
+                    if (chartData.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("Last 14 Days", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            if (isRangeActive) "Completions" else "Last 14 Days",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
                         com.theblankstate.preamble.ui.components.StyledLineChart(
-                            data = statsState.dailyCompleted,
+                            data = chartData,
                             primaryColor = primaryColor,
                             modifier = Modifier.fillMaxWidth(),
-                            previousData = prev14DayCompleted,
-                            previousLabel = "Prev 14d"
+                            previousData = if (isRangeActive) prevRangeStats.dailyDone.takeIf { it.isNotEmpty() } else prev14DayCompleted,
+                            previousLabel = if (isRangeActive) "Prev period" else "Prev 14d"
                         )
                     }
 
-                    if (statsState.weeklyStats.isNotEmpty()) {
+                    // Range-aware bar chart
+                    val barData = if (isRangeActive && rangeStats.dailyRates.isNotEmpty()) {
+                        rangeStats.dailyLabels.zip(rangeStats.dailyRates.map { (it * 100).toInt() })
+                    } else {
+                        statsState.weeklyStats.map { (day, rate) -> day to (rate * 100).toInt() }
+                    }
+                    if (barData.isNotEmpty()) {
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("Weekly Rate", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            if (isRangeActive) "Completion Rate" else "Weekly Rate",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                         Spacer(modifier = Modifier.height(8.dp))
                         com.theblankstate.preamble.ui.components.StyledBarChart(
-                            data = statsState.weeklyStats.map { (day, rate) ->
-                                day to (rate * 100).toInt()
-                            },
+                            data = barData,
                             primaryColor = primaryColor,
                             modifier = Modifier.fillMaxWidth(),
-                            previousData = prev7DayRate,
-                            previousLabel = "Prev week"
+                            previousData = if (isRangeActive) prevRangeStats.dailyRates.map { (it * 100).toInt() }.takeIf { it.isNotEmpty() } else prev7DayRate,
+                            previousLabel = if (isRangeActive) "Prev period" else "Prev week"
                         )
                     }
-
-
                 }
             }
 
@@ -743,27 +888,35 @@ fun StatsScreen(
                     onLockedClick = { showStatsUnlockSheet = true },
                     onDetailClick = if (statsUnlocked) {{ showTrendIntelDetail = true }} else null
                 ) {
+                    // Use range-sliced metrics when active, otherwise global stats
+                    val displayMomentum = if (isRangeActive) rangeStats.momentum else statsState.momentumScore
+                    val displayConsistency = if (isRangeActive) rangeStats.consistencyScore else statsState.consistencyScore
+                    val displayVelocity = if (isRangeActive) rangeStats.velocity else statsState.completionVelocity
+                    val displayBurnout = if (isRangeActive) rangeStats.burnoutRisk else statsState.burnoutRiskScore
+                    val displayPeakDay = if (isRangeActive) rangeStats.peakDay else statsState.peakDayOfWeek
+                    val displayMovingAvg = if (isRangeActive) rangeStats.avgPerDay else statsState.movingAvg7Day
+
                     // Momentum & Consistency bars
                     val momentumColor = when {
-                        statsState.momentumScore >= 65 -> Color(0xFF4CAF50)
-                        statsState.momentumScore >= 35 -> Color(0xFFF59E0B)
+                        displayMomentum >= 65 -> Color(0xFF4CAF50)
+                        displayMomentum >= 35 -> Color(0xFFF59E0B)
                         else -> Color(0xFFF44336)
                     }
                     val consistencyColor = when {
-                        statsState.consistencyScore >= 65 -> Color(0xFF4CAF50)
-                        statsState.consistencyScore >= 35 -> Color(0xFFF59E0B)
+                        displayConsistency >= 65 -> Color(0xFF4CAF50)
+                        displayConsistency >= 35 -> Color(0xFFF59E0B)
                         else -> primaryColor
                     }
 
                     IntelligenceMetricRow(
                         label = "Momentum",
-                        score = statsState.momentumScore,
+                        score = displayMomentum,
                         primaryColor = primaryColor,
                         barColor = momentumColor
                     )
                     IntelligenceMetricRow(
                         label = "Consistency",
-                        score = statsState.consistencyScore,
+                        score = displayConsistency,
                         primaryColor = primaryColor,
                         barColor = consistencyColor
                     )
@@ -771,7 +924,7 @@ fun StatsScreen(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     // Velocity row
-                    val velocityPositive = statsState.completionVelocity >= 0f
+                    val velocityPositive = displayVelocity >= 0f
                     val velocityColor = if (velocityPositive) Color(0xFF4CAF50) else Color(0xFFF44336)
                     Row(
                         modifier = Modifier
@@ -785,7 +938,7 @@ fun StatsScreen(
                         Column {
                             Text("Completion Velocity", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text(
-                                "${if (velocityPositive) "+" else ""}${String.format("%.2f", statsState.completionVelocity)} tasks/day",
+                                "${if (velocityPositive) "+" else ""}${String.format("%.2f", displayVelocity)} tasks/day",
                                 style = MaterialTheme.typography.bodyMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = velocityColor
@@ -810,7 +963,7 @@ fun StatsScreen(
                         Column {
                             Text("Burnout Risk", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Spacer(modifier = Modifier.height(4.dp))
-                            BurnoutRiskChip(risk = statsState.burnoutRiskScore)
+                            BurnoutRiskChip(risk = displayBurnout)
                         }
                         Column(horizontalAlignment = Alignment.End) {
                             Text("Peak Day", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -822,7 +975,7 @@ fun StatsScreen(
                                     .padding(horizontal = 12.dp, vertical = 5.dp)
                             ) {
                                 Text(
-                                    statsState.peakDayOfWeek.ifBlank { "—" },
+                                    displayPeakDay.ifBlank { "—" },
                                     style = MaterialTheme.typography.labelSmall,
                                     fontWeight = FontWeight.Bold,
                                     color = primaryColor
@@ -843,9 +996,9 @@ fun StatsScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("7-Day Moving Avg", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
+                        Text(if (isRangeActive) "Avg / Day" else "7-Day Moving Avg", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                         Text(
-                            String.format("%.1f tasks/day", statsState.movingAvg7Day),
+                            String.format("%.1f tasks/day", displayMovingAvg),
                             style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.Bold,
                             color = primaryColor
@@ -981,6 +1134,16 @@ fun StatsScreen(
     }
     if (showTrendIntelDetail) {
         TrendIntelligenceDetailSheet(stats = statsState, onDismiss = { showTrendIntelDetail = false })
+    }
+
+    // ═══ Date Range Picker Dialog ═══
+    if (showDatePicker) {
+        CustomDateRangeDialog(
+            onDismiss = { showDatePicker = false },
+            initialStartMs = customRange?.first,
+            initialEndMs = customRange?.second,
+            onConfirm = { startMs, endMs -> customRange = startMs to endMs }
+        )
     }
 }
 

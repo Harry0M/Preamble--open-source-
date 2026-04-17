@@ -229,14 +229,14 @@ fun CustomDateRangeDialog(
     )
 }
 
-private data class PeriodComparisonData(
+data class PeriodComparisonData(
     val currentDone: Int,
     val previousDone: Int,
     val currentTotal: Int,
     val previousTotal: Int,
 )
 
-private fun computePeriodComparison(stats: StatsState, startMs: Long, endMs: Long): PeriodComparisonData {
+fun computePeriodComparison(stats: StatsState, startMs: Long, endMs: Long): PeriodComparisonData {
     val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
     val byEpoch = stats.dailyStatsWithDates.mapNotNull { (date, done, total) ->
         runCatching {
@@ -262,12 +262,12 @@ private fun computePeriodComparison(stats: StatsState, startMs: Long, endMs: Lon
     )
 }
 
-private fun formatRangeLabel(startMs: Long, endMs: Long): String {
+fun formatRangeLabel(startMs: Long, endMs: Long): String {
     val sdf = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
     return "${sdf.format(Date(startMs))} - ${sdf.format(Date(endMs))}"
 }
 
-private const val DAY_MS = 24L * 60L * 60L * 1000L
+const val DAY_MS = 24L * 60L * 60L * 1000L
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // Shared Range-Aware Stats — every detail sheet derives from this
@@ -294,7 +294,7 @@ data class RangeStats(
     val score: Int = 0,
 )
 
-private fun sliceByRange(
+fun sliceByRange(
     all: List<Triple<String, Int, Int>>,
     range: Int,
     offset: Int
@@ -305,7 +305,7 @@ private fun sliceByRange(
     return all.subList(startIdx, endIdx)
 }
 
-private fun sliceByMs(
+fun sliceByMs(
     all: List<Triple<String, Int, Int>>,
     startMs: Long,
     endMs: Long
@@ -317,7 +317,7 @@ private fun sliceByMs(
     }
 }
 
-private fun computeRangeStats(data: List<Triple<String, Int, Int>>): RangeStats {
+fun computeRangeStats(data: List<Triple<String, Int, Int>>): RangeStats {
     if (data.isEmpty()) return RangeStats()
     val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
     val cal = Calendar.getInstance()
@@ -402,7 +402,7 @@ private fun computeRangeStats(data: List<Triple<String, Int, Int>>): RangeStats 
 
 /** Resolve current + previous RangeStats from selection state. */
 @Composable
-private fun rememberRangeStats(
+fun rememberRangeStats(
     allData: List<Triple<String, Int, Int>>,
     selectedRange: Int,
     periodOffset: Int,
@@ -426,7 +426,7 @@ private fun rememberRangeStats(
 
 /** Standard range chip row + period nav shared by all detail sheets. */
 @Composable
-private fun RangeSelector(
+fun RangeSelector(
     selectedRange: Int,
     periodOffset: Int,
     customRange: Pair<Long, Long>?,
@@ -460,7 +460,7 @@ private fun RangeSelector(
 
 /** Comparison capsule row: current range vs previous. */
 @Composable
-private fun RangeComparisonCapsules(current: RangeStats, prev: RangeStats) {
+fun RangeComparisonCapsules(current: RangeStats, prev: RangeStats) {
     val growth = if (prev.totalDone > 0) (current.totalDone - prev.totalDone).toFloat() / prev.totalDone else 0f
     val growthColor = if (growth >= 0) Color(0xFF4CAF50) else Color(0xFFF44336)
     Row(
@@ -868,89 +868,114 @@ fun CompletionTrendsDetailSheet(stats: StatsState, onDismiss: () -> Unit) {
     var showDatePicker by remember { mutableStateOf(false) }
     var customRange by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     var visibleBreakdownCount by remember { mutableIntStateOf(15) }
-
-    val periodLabel = customRange?.let { formatRangeLabel(it.first, it.second) }
-        ?: when {
-            periodOffset == 0 -> "Last $selectedRange days"
-            else -> "${selectedRange * periodOffset + 1}–${selectedRange * (periodOffset + 1)}d ago"
-        }
-    val selectedRangeComparison = customRange?.let { (startMs, endMs) ->
-        remember(stats.dailyStatsWithDates, startMs, endMs) {
-            computePeriodComparison(stats, startMs, endMs)
-        }
-    }
+    val (rs, prev) = rememberRangeStats(stats.dailyStatsWithDates, selectedRange, periodOffset, customRange)
 
     StatsDetailSheet("Completion Trends", onDismiss) {
         LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            item { PeriodNavigator(periodLabel, onPrev = { periodOffset++ }, onNext = { if (periodOffset > 0) periodOffset-- }, canGoNext = periodOffset > 0, onCalendarClick = { showDatePicker = true }) }
-
-            // Range chips
             item {
-                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(7, 14, 30, 60, 90).forEach { range ->
-                        FilterChip(
-                            selected = selectedRange == range,
-                            onClick = {
-                                selectedRange = range
-                                periodOffset = 0
-                                visibleBreakdownCount = 15
-                                customRange = null
-                            },
-                            label = { Text("${range}D") },
-                            colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primaryContainer, selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer)
+                RangeSelector(selectedRange, periodOffset, customRange,
+                    onRangeChange = { selectedRange = it; periodOffset = 0; customRange = null; visibleBreakdownCount = 15 },
+                    onOffsetPrev = { periodOffset++ },
+                    onOffsetNext = { if (customRange != null) customRange = null else if (periodOffset > 0) periodOffset-- },
+                    onCalendarClick = { showDatePicker = true })
+            }
+
+            // Range comparison capsules
+            item { RangeComparisonCapsules(rs, prev) }
+
+            // Period Comparison — all metrics side by side
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    SectionHeader(Icons.AutoMirrored.Filled.TrendingUp, "Period Comparison")
+                    Spacer(modifier = Modifier.height(10.dp))
+                    PeriodComparisonRow("Tasks done", rs.totalDone, prev.totalDone)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    PeriodComparisonRow("Avg / day", rs.avgPerDay.toInt(), prev.avgPerDay.toInt())
+                    Spacer(modifier = Modifier.height(4.dp))
+                    PeriodComparisonRow("Completion rate", (rs.completionRate * 100).toInt(), (prev.completionRate * 100).toInt())
+                    Spacer(modifier = Modifier.height(4.dp))
+                    PeriodComparisonRow("Consistency", rs.consistencyScore, prev.consistencyScore)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    PeriodComparisonRow("Momentum", rs.momentum, prev.momentum)
+                }
+            }
+
+            // Completions chart with previous overlay
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    SectionHeader(Icons.AutoMirrored.Filled.TrendingUp, "Daily Completions")
+                    Spacer(modifier = Modifier.height(12.dp))
+                    if (rs.dailyDone.isNotEmpty()) {
+                        MiniLineChart(
+                            values = rs.dailyDone.map { it.toFloat() },
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.fillMaxWidth().height(140.dp),
+                            previousValues = if (prev.dailyDone.isNotEmpty()) prev.dailyDone.map { it.toFloat() } else null
+                        )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(rs.dailyLabels.firstOrNull() ?: "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(rs.dailyLabels.lastOrNull() ?: "", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else { Text("Not enough data", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                }
+            }
+
+            // Completion Rate chart with previous overlay
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp)) {
+                    SectionHeader(Icons.AutoMirrored.Filled.TrendingUp, "Completion Rate")
+                    Spacer(modifier = Modifier.height(12.dp))
+                    if (rs.dailyRates.isNotEmpty()) {
+                        MiniLineChart(
+                            values = rs.dailyRates,
+                            color = Color(0xFF4CAF50),
+                            modifier = Modifier.fillMaxWidth().height(140.dp),
+                            previousValues = if (prev.dailyRates.isNotEmpty()) prev.dailyRates else null
                         )
                     }
                 }
             }
 
-            // Summary capsules
-            item {
-                val rangeData = selectedRangeComparison?.let { comparison ->
-                    val days = (((customRange!!.second - customRange!!.first) / DAY_MS).toInt() + 1).coerceAtLeast(1)
-                    stats.dailyStatsWithDates.takeLast(days)
-                } ?: stats.dailyStatsWithDates.takeLast(selectedRange)
-                val totalDone = rangeData.sumOf { it.second }
-                val totalAll = rangeData.sumOf { it.third }.coerceAtLeast(1)
-                val avgPerDay = if (rangeData.isNotEmpty()) totalDone.toFloat() / rangeData.size else 0f
-
-                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    InfoCapsule("done", "$totalDone", MaterialTheme.colorScheme.primary, Modifier.weight(1f))
-                    InfoCapsule("avg/d", String.format("%.1f", avgPerDay), Color(0xFF2196F3), Modifier.weight(1f))
-                    InfoCapsule("rate", "${(totalDone.toFloat() / totalAll * 100).toInt()}%", Color(0xFF4CAF50), Modifier.weight(1f))
-                }
-            }
-
-            // Period Comparison
+            // Weekday vs Weekend from range
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    SectionHeader(Icons.AutoMirrored.Filled.TrendingUp, "Period Comparison")
+                    SectionHeader(Icons.Filled.Schedule, "Weekday vs Weekend")
                     Spacer(modifier = Modifier.height(10.dp))
-                    selectedRangeComparison?.let { comparison ->
-                        val selected = customRange!!
-                        Text(formatRangeLabel(selected.first, selected.second), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(modifier = Modifier.height(6.dp))
-                        PeriodComparisonRow("Selected vs Previous", comparison.currentDone, comparison.previousDone)
-                    } ?: run {
-                        PeriodComparisonRow("Today vs Yesterday", stats.todayCompleted, stats.yesterdayCompleted)
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        InfoCapsule("weekday", String.format("%.1f/d", rs.weekdayAvg), Color(0xFF2196F3), Modifier.weight(1f))
+                        InfoCapsule("weekend", String.format("%.1f/d", rs.weekendAvg), Color(0xFF9C27B0), Modifier.weight(1f))
+                    }
+                    if (prev.days > 0) {
                         Spacer(modifier = Modifier.height(4.dp))
-                        PeriodComparisonRow("This week vs Last", stats.thisWeekCompleted, stats.lastWeekCompleted)
-                        Spacer(modifier = Modifier.height(4.dp))
-                        PeriodComparisonRow("This month vs Last", stats.thisMonthCompleted, stats.lastMonthCompleted)
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            InfoCapsule("prev wd", String.format("%.1f", prev.weekdayAvg), Color(0xFF9E9E9E), Modifier.weight(1f))
+                            InfoCapsule("prev we", String.format("%.1f", prev.weekendAvg), Color(0xFF9E9E9E), Modifier.weight(1f))
+                        }
                     }
                 }
             }
 
-            // Completion Rate chart
+            // Velocity & Burnout from range
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp)) {
-                    SectionHeader(Icons.AutoMirrored.Filled.TrendingUp, "Completion Rate")
-                    Spacer(modifier = Modifier.height(12.dp))
-                    val data = (selectedRangeComparison?.let {
-                        val days = (((customRange!!.second - customRange!!.first) / DAY_MS).toInt() + 1).coerceAtLeast(1)
-                        stats.dailyStatsWithDates.takeLast(days)
-                    } ?: stats.dailyStatsWithDates.takeLast(selectedRange))
-                        .map { (_, done, total) -> if (total > 0) done.toFloat() / total else 0f }
-                    if (data.isNotEmpty()) { MiniLineChart(values = data, color = Color(0xFF4CAF50), modifier = Modifier.fillMaxWidth().height(140.dp)) }
+                    SectionHeader(Icons.Filled.Speed, "Trend Metrics")
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        InfoCapsule("velocity", "${if (rs.velocity >= 0) "+" else ""}${String.format("%.2f", rs.velocity)}/d",
+                            if (rs.velocity >= 0) Color(0xFF4CAF50) else Color(0xFFF44336), Modifier.weight(1f))
+                        InfoCapsule("peak day", rs.peakDay.ifBlank { "—" }, MaterialTheme.colorScheme.primary, Modifier.weight(1f))
+                        InfoCapsule("burnout", "${(rs.burnoutRisk * 100).toInt()}%",
+                            when { rs.burnoutRisk >= 0.65f -> Color(0xFFF44336); rs.burnoutRisk >= 0.35f -> Color(0xFFFFC107); else -> Color(0xFF4CAF50) }, Modifier.weight(1f))
+                    }
+                    if (prev.days > 0) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            val vd = rs.velocity - prev.velocity
+                            InfoCapsule("vs prev vel", "${if (vd >= 0) "+" else ""}${String.format("%.2f", vd)}", if (vd >= 0) Color(0xFF4CAF50) else Color(0xFFF44336), Modifier.weight(1f))
+                            val bd = rs.burnoutRisk - prev.burnoutRisk
+                            InfoCapsule("vs prev burn", "${if (bd >= 0) "+" else ""}${(bd * 100).toInt()}%", if (bd <= 0) Color(0xFF4CAF50) else Color(0xFFF44336), Modifier.weight(1f))
+                        }
+                    }
                 }
             }
 
@@ -967,15 +992,14 @@ fun CompletionTrendsDetailSheet(stats: StatsState, onDismiss: () -> Unit) {
                 }
             }
 
-            // Daily Breakdown with Show More (15 at a time)
+            // Daily Breakdown with Show More
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp).animateContentSize()) {
                     SectionHeader(Icons.Filled.CalendarMonth, "Daily Breakdown")
                     Spacer(modifier = Modifier.height(10.dp))
-                    val allDays = (selectedRangeComparison?.let {
-                        val days = (((customRange!!.second - customRange!!.first) / DAY_MS).toInt() + 1).coerceAtLeast(1)
-                        stats.dailyStatsWithDates.takeLast(days)
-                    } ?: stats.dailyStatsWithDates.takeLast(selectedRange)).reversed()
+                    val currentSlice = if (customRange != null) sliceByMs(stats.dailyStatsWithDates, customRange!!.first, customRange!!.second)
+                        else sliceByRange(stats.dailyStatsWithDates, selectedRange, periodOffset)
+                    val allDays = currentSlice.reversed()
                     val visibleDays = allDays.take(visibleBreakdownCount)
 
                     visibleDays.forEach { (date, done, total) ->
