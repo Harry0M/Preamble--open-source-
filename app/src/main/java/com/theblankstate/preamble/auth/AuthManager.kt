@@ -9,6 +9,7 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
+import com.theblankstate.preamble.analytics.AnalyticsManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.tasks.await
@@ -45,6 +46,15 @@ object AuthManager {
             val authResult = auth.signInWithCredential(firebaseCredential).await()
 
             _currentUser.value = authResult.user
+
+            // Sign-in ke baad PostHog mein user identify karo — Firebase UID link hoga
+            authResult.user?.let { user ->
+                AnalyticsManager.identifyUser(
+                    firebaseUid = user.uid,
+                    email = user.email,
+                    displayName = user.displayName
+                )
+            }
             Result.success(authResult.user!!)
         } catch (e: GetCredentialException) {
             Result.failure(e)
@@ -54,6 +64,8 @@ object AuthManager {
     }
 
     fun signOut() {
+        // Sign-out se pehle PostHog session reset karo — naya anonymous ID milega
+        AnalyticsManager.resetUser()
         auth.signOut()
         _currentUser.value = null
     }

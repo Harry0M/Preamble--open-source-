@@ -15,6 +15,7 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.theblankstate.preamble.MainActivity
 import com.theblankstate.preamble.R
+import com.theblankstate.preamble.analytics.AnalyticsManager
 
 /**
  * Handles incoming FCM push notifications sent by the admin panel.
@@ -78,8 +79,17 @@ class PreambleFcmService : FirebaseMessagingService() {
         val deepLink = data["deepLink"]
         val externalUrl = data["url"]
         val channelType = data["channelType"] ?: "broadcast"
+        val campaignId = data["campaign_id"] ?: "unknown"
+        val campaignVariant = data["campaign_variant"] ?: "default"
 
-        showNotification(title, body, deepLink, externalUrl, channelType)
+        // PostHog: Notification receive track karo — A/B testing ke liye
+        AnalyticsManager.trackNotificationReceived(
+            campaignId = campaignId,
+            variant = campaignVariant,
+            channelType = channelType
+        )
+
+        showNotification(title, body, deepLink, externalUrl, channelType, campaignId, campaignVariant)
     }
 
     private fun showNotification(
@@ -87,7 +97,9 @@ class PreambleFcmService : FirebaseMessagingService() {
         body: String,
         deepLink: String?,
         externalUrl: String?,
-        channelType: String
+        channelType: String,
+        campaignId: String = "unknown",
+        campaignVariant: String = "default"
     ) {
         val channelId = if (channelType == "promo") CHANNEL_PROMO else CHANNEL_BROADCAST
 
@@ -116,6 +128,10 @@ class PreambleFcmService : FirebaseMessagingService() {
                 }
             }
         }
+
+        // Campaign ID intent mein daalo — click tracking ke liye
+        intent.putExtra("campaign_id", campaignId)
+        intent.putExtra("campaign_variant", campaignVariant)
 
         val pendingIntent = PendingIntent.getActivity(
             this, System.currentTimeMillis().toInt(), intent,

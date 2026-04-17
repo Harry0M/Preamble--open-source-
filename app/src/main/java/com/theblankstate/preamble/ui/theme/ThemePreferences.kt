@@ -100,6 +100,8 @@ object ThemePreferences {
 
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+        // Theme color & mode — yeh user-specific hain, flag nahi chahiye
         val colorHex = prefs.getString(KEY_COLOR, null)
         if (colorHex != null) {
             try {
@@ -109,26 +111,99 @@ object ThemePreferences {
             }
         }
         _themeMode.value = ThemeMode.valueOf(prefs.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.name) ?: ThemeMode.SYSTEM.name)
-        _colorfulCards.value = prefs.getBoolean(KEY_COLORFUL_CARDS, false)
-        _timelineUi.value = prefs.getBoolean(KEY_TIMELINE_UI, true)
-        _showRecurrenceLabel.value = prefs.getBoolean(KEY_SHOW_RECURRENCE_LABEL, false)
 
-        // Personal Mode
-        _personalMode.value    = prefs.getBoolean(KEY_PERSONAL_MODE, false)
-        _pmGreeting.value      = prefs.getBoolean(KEY_PM_GREETING, true)
-        _pmSmartProgress.value = prefs.getBoolean(KEY_PM_SMART_PROGRESS, true)
-        _pmLateNight.value     = prefs.getBoolean(KEY_PM_LATE_NIGHT, true)
-        _pmSmartEmpty.value    = prefs.getBoolean(KEY_PM_SMART_EMPTY, true)
-        _pmLastTask.value      = prefs.getBoolean(KEY_PM_LAST_TASK, true)
-        _pmStreakWarn.value    = prefs.getBoolean(KEY_PM_STREAK_WARN, true)
-        _pmBests.value         = prefs.getBoolean(KEY_PM_BESTS, true)
-        _pmMilestones.value    = prefs.getBoolean(KEY_PM_MILESTONES, true)
-        _pmSparkle.value       = prefs.getBoolean(KEY_PM_SPARKLE, true)
-        _pmEasterEgg.value     = prefs.getBoolean(KEY_PM_EASTER_EGG, true)
-        _pmEndowedProgress.value= prefs.getBoolean(KEY_PM_ENDOWED, true)
-        _pmVariableRewards.value= prefs.getBoolean(KEY_PM_VARIABLE, true)
-        _pmYearHeatmap.value   = prefs.getBoolean(KEY_PM_HEATMAP, true)
-        _expressiveNav.value   = prefs.getBoolean(KEY_EXPRESSIVE_NAV, false)
+        // ═══════════════════════════════════════════════════════════
+        //  FIRST LAUNCH — All features ON by default
+        //  Only Time-aware Greeting uses PostHog A/B test (50% rollout)
+        //  Analytics tracking (feature_toggled events) stays for all
+        // ═══════════════════════════════════════════════════════════
+        val isFirstInit = !prefs.contains(KEY_PERSONAL_MODE)
+
+        if (isFirstInit) {
+            // All features ON by default — no PostHog flags needed
+            // Only greeting uses A/B test for 50% rollout
+            val greeting = featureOr("pm_greeting_default", true)
+
+            _personalMode.value      = true   // Always ON for new users
+            _pmGreeting.value        = greeting // PostHog A/B test (50%)
+            _pmSmartProgress.value   = true
+            _pmLateNight.value       = true
+            _pmSmartEmpty.value      = true
+            _pmLastTask.value        = true
+            _pmStreakWarn.value       = true
+            _pmBests.value           = true
+            _pmMilestones.value      = true
+            _pmSparkle.value         = true
+            _pmEasterEgg.value       = true
+            _pmEndowedProgress.value = true
+            _pmVariableRewards.value = true
+            _pmYearHeatmap.value     = true
+
+            // UI features — normal defaults
+            _expressiveNav.value       = false
+            _colorfulCards.value       = false
+            _timelineUi.value          = true
+            _showRecurrenceLabel.value = false
+
+            prefs.edit()
+                .putBoolean(KEY_PERSONAL_MODE, true)
+                .putBoolean(KEY_PM_GREETING, greeting)
+                .putBoolean(KEY_PM_SMART_PROGRESS, true)
+                .putBoolean(KEY_PM_LATE_NIGHT, true)
+                .putBoolean(KEY_PM_SMART_EMPTY, true)
+                .putBoolean(KEY_PM_LAST_TASK, true)
+                .putBoolean(KEY_PM_STREAK_WARN, true)
+                .putBoolean(KEY_PM_BESTS, true)
+                .putBoolean(KEY_PM_MILESTONES, true)
+                .putBoolean(KEY_PM_SPARKLE, true)
+                .putBoolean(KEY_PM_EASTER_EGG, true)
+                .putBoolean(KEY_PM_ENDOWED, true)
+                .putBoolean(KEY_PM_VARIABLE, true)
+                .putBoolean(KEY_PM_HEATMAP, true)
+                .putBoolean(KEY_EXPRESSIVE_NAV, false)
+                .putBoolean(KEY_COLORFUL_CARDS, false)
+                .putBoolean(KEY_TIMELINE_UI, true)
+                .putBoolean(KEY_SHOW_RECURRENCE_LABEL, false)
+                .apply()
+
+            android.util.Log.d("ThemePreferences", "First init — all features ON, greeting A/B=${greeting}")
+        } else {
+            // Returning user — apni saved settings use karo
+            _colorfulCards.value = prefs.getBoolean(KEY_COLORFUL_CARDS, false)
+            _timelineUi.value = prefs.getBoolean(KEY_TIMELINE_UI, true)
+            _showRecurrenceLabel.value = prefs.getBoolean(KEY_SHOW_RECURRENCE_LABEL, false)
+            _personalMode.value    = prefs.getBoolean(KEY_PERSONAL_MODE, false)
+            _pmGreeting.value      = prefs.getBoolean(KEY_PM_GREETING, true)
+            _pmSmartProgress.value = prefs.getBoolean(KEY_PM_SMART_PROGRESS, true)
+            _pmLateNight.value     = prefs.getBoolean(KEY_PM_LATE_NIGHT, true)
+            _pmSmartEmpty.value    = prefs.getBoolean(KEY_PM_SMART_EMPTY, true)
+            _pmLastTask.value      = prefs.getBoolean(KEY_PM_LAST_TASK, true)
+            _pmStreakWarn.value    = prefs.getBoolean(KEY_PM_STREAK_WARN, true)
+            _pmBests.value         = prefs.getBoolean(KEY_PM_BESTS, true)
+            _pmMilestones.value    = prefs.getBoolean(KEY_PM_MILESTONES, true)
+            _pmSparkle.value       = prefs.getBoolean(KEY_PM_SPARKLE, true)
+            _pmEasterEgg.value     = prefs.getBoolean(KEY_PM_EASTER_EGG, true)
+            _pmEndowedProgress.value= prefs.getBoolean(KEY_PM_ENDOWED, true)
+            _pmVariableRewards.value= prefs.getBoolean(KEY_PM_VARIABLE, true)
+            _pmYearHeatmap.value   = prefs.getBoolean(KEY_PM_HEATMAP, true)
+            _expressiveNav.value   = prefs.getBoolean(KEY_EXPRESSIVE_NAV, false)
+        }
+    }
+
+    /**
+     * PostHog feature flag check with fallback.
+     * Agar flag nahi mila (network issue, flag nahi banaaya) toh fallback value use hoga.
+     */
+    private fun featureOr(flagKey: String, fallback: Boolean): Boolean {
+        return try {
+            val result = com.posthog.PostHog.isFeatureEnabled(flagKey)
+            if (result != fallback) {
+                android.util.Log.d("ThemePreferences", "PostHog flag '$flagKey' = $result (overriding default $fallback)")
+            }
+            result
+        } catch (_: Exception) {
+            fallback
+        }
     }
 
     fun setColor(context: Context, color: Color?) {
@@ -157,6 +232,7 @@ object ThemePreferences {
             .edit()
             .putBoolean(KEY_COLORFUL_CARDS, enabled)
             .apply()
+        trackFeatureToggle("colorful_cards", enabled)
     }
 
     fun setTimelineUi(context: Context, enabled: Boolean) {
@@ -165,6 +241,7 @@ object ThemePreferences {
             .edit()
             .putBoolean(KEY_TIMELINE_UI, enabled)
             .apply()
+        trackFeatureToggle("timeline_ui", enabled)
     }
 
     fun setShowRecurrenceLabel(context: Context, enabled: Boolean) {
@@ -173,12 +250,15 @@ object ThemePreferences {
             .edit()
             .putBoolean(KEY_SHOW_RECURRENCE_LABEL, enabled)
             .apply()
+        trackFeatureToggle("recurrence_label", enabled)
     }
 
-    // Personal Mode setters
+    // Personal Mode setters — har toggle PostHog mein track hoga
     private fun setBool(context: Context, key: String, flow: MutableStateFlow<Boolean>, value: Boolean) {
         flow.value = value
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(key, value).apply()
+        // Feature name key se derive karo for analytics
+        trackFeatureToggle(key, value)
     }
 
     fun setPersonalMode(context: Context, v: Boolean)    = setBool(context, KEY_PERSONAL_MODE, _personalMode, v)
@@ -195,6 +275,24 @@ object ThemePreferences {
     fun setPmEndowedProgress(context: Context, v: Boolean) = setBool(context, KEY_PM_ENDOWED, _pmEndowedProgress, v)
     fun setPmVariableRewards(context: Context, v: Boolean) = setBool(context, KEY_PM_VARIABLE, _pmVariableRewards, v)
     fun setPmYearHeatmap(context: Context, v: Boolean)   = setBool(context, KEY_PM_HEATMAP, _pmYearHeatmap, v)
-    fun setExpressiveNav(context: Context, v: Boolean)   = setBool(context, KEY_EXPRESSIVE_NAV, _expressiveNav, v)
+    fun setExpressiveNav(context: Context, v: Boolean) {
+        setBool(context, KEY_EXPRESSIVE_NAV, _expressiveNav, v)
+    }
 
+    /**
+     * Har feature toggle change PostHog mein track hota hai.
+     * Dashboard pe dikhega: kaun sa feature users zyada ON karte hain, kaun sa OFF.
+     */
+    private fun trackFeatureToggle(featureName: String, enabled: Boolean) {
+        try {
+            com.theblankstate.preamble.analytics.AnalyticsManager.captureEvent(
+                event = "feature_toggled",
+                properties = mapOf(
+                    "feature" to featureName,
+                    "enabled" to enabled,
+                    "action" to if (enabled) "turned_on" else "turned_off"
+                )
+            )
+        } catch (_: Exception) { /* ignore */ }
+    }
 }

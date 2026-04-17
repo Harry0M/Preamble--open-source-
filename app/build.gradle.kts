@@ -44,6 +44,10 @@ android {
         buildConfigField("String", "AD_BANNER_UNIT_ID", "\"${localProperties.getProperty("AD_BANNER_UNIT_ID", "ca-app-pub-3940256099942544/6300978111")}\"")
         buildConfigField("String", "AD_DETAIL_UNIT_ID", "\"${localProperties.getProperty("AD_DETAIL_UNIT_ID", "ca-app-pub-1118281305976257/4842895657")}\"")
         buildConfigField("String", "AD_APP_OPEN_UNIT_ID", "\"${localProperties.getProperty("AD_APP_OPEN_UNIT_ID", "ca-app-pub-3940256099942544/9257395921")}\"")
+
+        // PostHog analytics
+        buildConfigField("String", "POSTHOG_API_KEY", "\"${localProperties.getProperty("POSTHOG_API_KEY", "")}\"")
+        buildConfigField("String", "POSTHOG_HOST", "\"${localProperties.getProperty("POSTHOG_HOST", "https://us.i.posthog.com")}\"")
     }
 
     buildTypes {
@@ -133,6 +137,9 @@ dependencies {
 
     // Vico Charts (Jetpack Compose + Material3)
     implementation("com.patrykandpatrick.vico:compose-m3:3.1.0")
+
+    // PostHog analytics
+    implementation("com.posthog:posthog-android:3.7.4")
 
     constraints {
         implementation("io.grpc:grpc-api:1.62.2") {

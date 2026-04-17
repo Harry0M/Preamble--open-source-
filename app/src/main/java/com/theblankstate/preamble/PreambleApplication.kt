@@ -17,9 +17,12 @@ import com.google.android.gms.ads.MobileAds
 import com.theblankstate.preamble.ads.FeatureGateManager
 import com.theblankstate.preamble.ads.RewardedAdManager
 import com.theblankstate.preamble.ads.AppOpenAdManager
+import com.theblankstate.preamble.analytics.AnalyticsManager
 import com.theblankstate.preamble.recurrence.RecurrenceWorker
 import com.theblankstate.preamble.sync.GoogleSyncWorker
 import com.theblankstate.preamble.widget.WidgetUpdater
+import com.posthog.android.PostHogAndroid
+import com.posthog.android.PostHogAndroidConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -37,6 +40,42 @@ class PreambleApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+
+        // ── PostHog SDK initialization — full config ──
+        // Yeh block PostHog ko configure karta hai with session replay,
+        // lifecycle events, screen views, aur feature flag preloading.
+        val posthogConfig = PostHogAndroidConfig(
+            apiKey = BuildConfig.POSTHOG_API_KEY,
+            host = BuildConfig.POSTHOG_HOST
+        ).apply {
+            // App lifecycle events automatically capture karo (app_opened, app_backgrounded etc.)
+            captureApplicationLifecycleEvents = true
+            // Screen views auto-capture (Activity-based; Compose screens manually track hoti hain)
+            captureScreenViews = true
+            // Session replay enable karo — user sessions record hongi PostHog mein
+            sessionReplay = true
+            // Session replay config — sensitive content mask karo by default
+            sessionReplayConfig.maskAllTextInputs = true   // Saare text inputs mask honge
+            sessionReplayConfig.maskAllImages = false       // Images dikhao (non-sensitive)
+            // Feature flags preload karo app start pe — A/B test flags turant available hongi
+            preloadFeatureFlags = true
+            // Debug mode sirf debug builds mein (verbose logging)
+            debug = BuildConfig.DEBUG
+        }
+        PostHogAndroid.setup(this, posthogConfig)
+
+        // Super properties register karo — har event ke saath attach hongi
+        AnalyticsManager.registerSuperProperties(
+            appVersion = BuildConfig.VERSION_NAME,
+            buildType = if (BuildConfig.DEBUG) "debug" else "release"
+        )
+
+        // Crash tracking setup — app crash hone pe PostHog ko report hoga
+        AnalyticsManager.setupCrashTracking()
+
+        // Agar user already signed in hai, toh identify karo PostHog mein
+        identifyCurrentUser()
+
         FirebaseTaskSyncManager.enableOfflinePersistence()
         syncManager.start()
         TaskNotificationManager.createChannel(this)
@@ -49,6 +88,13 @@ class PreambleApplication : Application() {
             AppOpenAdManager.preload()
         }
         FeatureGateManager.init(this)
+
+        // PM Messages: Firestore se override messages fetch karo (background mein)
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            if (com.theblankstate.preamble.repository.PmMessageRepository.isStale(this@PreambleApplication)) {
+                com.theblankstate.preamble.repository.PmMessageRepository.fetchAndCache(this@PreambleApplication)
+            }
+        }
         RewardedAdManager.init(this)
         AppOpenAdManager.init(this)
         // Start the persistent notification service only if user hasn't disabled it
@@ -68,6 +114,25 @@ class PreambleApplication : Application() {
         scheduleGoogleSyncWorker()
         // Observe task changes to refresh home screen widget
         observeTaskChangesForWidget()
+    }
+
+    /**
+     * Firebase se currently signed-in user ko PostHog mein identify karta hai.
+     * Isse PostHog events Firebase UID se link ho jaate hain — cross-referencing possible hoti hai.
+     */
+    private fun identifyCurrentUser() {
+        try {
+            val firebaseUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+            if (firebaseUser != null) {
+                AnalyticsManager.identifyUser(
+                    firebaseUid = firebaseUser.uid,
+                    email = firebaseUser.email,
+                    displayName = firebaseUser.displayName
+                )
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("PreambleApp", "PostHog identify failed", e)
+        }
     }
 
     private fun scheduleNotificationKeepAlive() {

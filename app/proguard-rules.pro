@@ -49,3 +49,7 @@
 
 # ── Compose: keep @Composable functions referenced by reflection ──
 -keep class kotlin.Metadata { *; }
+
+# ── PostHog Analytics SDK ──
+-keep class com.posthog.** { *; }
+-dontwarn com.posthog.**

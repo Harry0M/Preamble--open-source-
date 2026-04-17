@@ -564,6 +564,83 @@ fun StatsScreen(
             }
 
             // ═══════════════════════════════════════════
+            // Section 3.5: Yearly Heatmap (365-day view)
+            // ═══════════════════════════════════════════
+            item {
+                val pmYearHeatmap by com.theblankstate.preamble.ui.theme.ThemePreferences.pmYearHeatmap.collectAsState()
+                StatsSectionCard(
+                    title = "365-Day Heatmap"
+                ) {
+                    if (pmYearHeatmap && statsState.yearlyHeatmap.isNotEmpty()) {
+                        Text(
+                            "Your investment over the last year",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        com.theblankstate.preamble.ui.components.YearHeatmapCalendar(
+                            heatmap = statsState.yearlyHeatmap,
+                            primaryColor = primaryColor,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            Text(
+                                "Hide heatmap",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.clickable {
+                                    com.theblankstate.preamble.ui.theme.ThemePreferences.setPmYearHeatmap(context, false)
+                                }
+                            )
+                        }
+                    } else {
+                        // Show enable option
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(primaryColor.copy(alpha = 0.06f))
+                                .clickable {
+                                    com.theblankstate.preamble.ui.theme.ThemePreferences.setPmYearHeatmap(context, true)
+                                }
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                Icons.Filled.CalendarMonth,
+                                contentDescription = null,
+                                tint = primaryColor,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Enable 365-day heatmap",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    "See your task completion pattern over the entire year",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Icon(
+                                Icons.AutoMirrored.Filled.TrendingUp,
+                                contentDescription = "Enable",
+                                tint = primaryColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // ═══════════════════════════════════════════
             // Section 4: Completion Trends (Free)
             // ═══════════════════════════════════════════
             item {

@@ -13,6 +13,7 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -51,8 +52,15 @@ import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.SmartToy
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 
@@ -209,14 +217,526 @@ fun SettingsScreen(
         }
     }
 
+    var subScreen by remember { mutableStateOf<String?>(null) }
+    BackHandler(enabled = subScreen != null) { subScreen = null }
+    val subScreenTitle = when (subScreen) {
+        "features" -> "Features & Improvements"
+        "appearance" -> "Appearance"
+        "ai" -> "AI Features"
+        "notifications" -> "Notifications"
+        "alarms" -> "Alarms"
+        else -> "Settings"
+    }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Settings", style = MaterialTheme.typography.titleLarge) }
+                title = { Text(subScreenTitle, style = MaterialTheme.typography.titleLarge) },
+                navigationIcon = {
+                    if (subScreen != null) {
+                        IconButton(onClick = { subScreen = null }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                }
             )
         }
     ) { padding ->
+
+      // ════════════════════════════════════════════════════
+      // SUB-SCREENS
+      // ════════════════════════════════════════════════════
+      when (subScreen) {
+
+        // ── Features & Improvements Sub-Screen ──
+        "features" -> {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                SettingsCard {
+                    Column {
+                        PersonalToggle(
+                            label = "Time-aware greeting",
+                            sub = "\"Good Morning, ${com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.displayName?.split(" ")?.firstOrNull() ?: "you"}\" — changes throughout the day",
+                            checked = pmGreeting,
+                            onToggle = { ThemePreferences.setPmGreeting(context, it) }
+                        )
+                        HorizontalDivider()
+                        PersonalToggle(
+                            label = "Smart progress messages",
+                            sub = "\"Gaining momentum!\" — adapts to your completion rate",
+                            checked = pmSmartProgress,
+                            onToggle = { ThemePreferences.setPmSmartProgress(context, it) }
+                        )
+                        HorizontalDivider()
+                        PersonalToggle(
+                            label = "Late-night care banner",
+                            sub = "Gentle reminder to rest when you use the app after 11 PM",
+                            checked = pmLateNight,
+                            onToggle = { ThemePreferences.setPmLateNight(context, it) }
+                        )
+                        HorizontalDivider()
+                        PersonalToggle(
+                            label = "Variable rewards",
+                            sub = "Unpredictable haptics and cheering messages when you complete tasks",
+                            checked = pmVariableRewards,
+                            onToggle = { ThemePreferences.setPmVariableRewards(context, it) }
+                        )
+                        HorizontalDivider()
+                        PersonalToggle(
+                            label = "Contextual empty state",
+                            sub = "\"Your day is a blank canvas\" — time-aware empty messages",
+                            checked = pmSmartEmpty,
+                            onToggle = { ThemePreferences.setPmSmartEmpty(context, it) }
+                        )
+                        HorizontalDivider()
+                        PersonalToggle(
+                            label = "Last-task amplification",
+                            sub = "\"One task away from a perfect day\" — extra motivation at the finish",
+                            checked = pmLastTask,
+                            onToggle = { ThemePreferences.setPmLastTask(context, it) }
+                        )
+                        HorizontalDivider()
+                        PersonalToggle(
+                            label = "Streak at-risk warning",
+                            sub = "Notifies you when your streak is about to break",
+                            checked = pmStreakWarn,
+                            onToggle = { ThemePreferences.setPmStreakWarn(context, it) }
+                        )
+                        HorizontalDivider()
+                        PersonalToggle(
+                            label = "Personal bests",
+                            sub = "\"New record!\" toast when you beat your all-time daily task count",
+                            checked = pmBests,
+                            onToggle = { ThemePreferences.setPmBests(context, it) }
+                        )
+                        HorizontalDivider()
+                        PersonalToggle(
+                            label = "Streak milestone celebrations",
+                            sub = "Special message at 7, 14, 30, 50, and 100-day streaks",
+                            checked = pmMilestones,
+                            onToggle = { ThemePreferences.setPmMilestones(context, it) }
+                        )
+                        HorizontalDivider()
+                        PersonalToggle(
+                            label = "Completion sparkle",
+                            sub = "Subtle glow animation when you finish every task for the day",
+                            checked = pmSparkle,
+                            onToggle = { ThemePreferences.setPmSparkle(context, it) }
+                        )
+                        HorizontalDivider()
+                        PersonalToggle(
+                            label = "Hidden easter egg",
+                            sub = "Tap the app title 7 times to discover a secret message",
+                            checked = pmEasterEgg,
+                            onToggle = { ThemePreferences.setPmEasterEgg(context, it) }
+                        )
+                    }
+                }
+            }
+        }
+
+        // ── Appearance Sub-Screen ──
+        "appearance" -> {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Expressive Navigation (moved from Expressiveness)
+                SettingsCard {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Expressive Navigation", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                if (expressiveNav) "Dynamic nav bar — tap icon to reveal label" else "Classic nav bar with icons and labels",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(checked = expressiveNav, onCheckedChange = { ThemePreferences.setExpressiveNav(context, it) })
+                    }
+                }
+                // Theme Color
+                SettingsCard {
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text("Theme Color", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    if (themeUnlocked) "Customize the app's primary color" else "Watch ad to unlock customization",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                            if (themeUnlocked) { ColorPickerComponent() }
+                            else {
+                                Icon(
+                                    imageVector = Icons.Outlined.Lock, contentDescription = "Locked",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                    modifier = Modifier.size(24.dp).clickable { showThemeUnlockSheet = true }
+                                )
+                            }
+                        }
+                        HorizontalDivider()
+                        if (themeUnlocked) {
+                            ThemeSelectorRow(context)
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().clickable { showThemeUnlockSheet = true }.padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text("App Theme", style = MaterialTheme.typography.bodyLarge)
+                                    Text("Locked — Watch ad to unlock", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                                }
+                                Icon(Icons.Outlined.Lock, contentDescription = "Locked", tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f), modifier = Modifier.size(24.dp))
+                            }
+                        }
+                    }
+                }
+                // Colorful Cards
+                val colorfulCards by ThemePreferences.colorfulCards.collectAsState()
+                SettingsCard {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Colorful Task Cards", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                            Text("Give each task card a unique color tint", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Switch(checked = colorfulCards, onCheckedChange = { ThemePreferences.setColorfulCards(context, it) })
+                    }
+                }
+            }
+        }
+
+        // ── Notifications Sub-Screen ──
+        "notifications" -> {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                SettingsCard {
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Permanent Notification", style = MaterialTheme.typography.bodyLarge)
+                                Text("Quick Add & Voice Task from notification bar", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                            }
+                            Switch(
+                                checked = notificationPrefEnabled && hasSystemNotificationPermission,
+                                onCheckedChange = { enable ->
+                                    if (enable) {
+                                        if (!hasSystemNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                        } else {
+                                            notificationPrefEnabled = true
+                                            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).edit().putBoolean("notification_enabled", true).apply()
+                                            com.theblankstate.preamble.notification.TaskNotificationService.start(context)
+                                        }
+                                    } else {
+                                        notificationPrefEnabled = false
+                                        context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).edit().putBoolean("notification_enabled", false).apply()
+                                        com.theblankstate.preamble.notification.TaskNotificationService.stop(context)
+                                    }
+                                }
+                            )
+                        }
+                        if (!hasSystemNotificationPermission) {
+                            TextButton(
+                                onClick = {
+                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    } else {
+                                        context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                            putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                        })
+                                    }
+                                },
+                                modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
+                                shape = CircleShape
+                            ) { Text("Grant Permission") }
+                        }
+                        if (notificationPrefEnabled) {
+                            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text("Update Frequency", style = MaterialTheme.typography.bodyLarge)
+                                    Text(
+                                        when (notificationUpdateMode) {
+                                            com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE -> "Changes visible within 10 seconds (more battery usage)"
+                                            com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED -> "Changes visible within 30 seconds (recommended)"
+                                            com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER -> "Updates every 2 min when no tasks (lowest battery use)"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                com.theblankstate.preamble.notification.NotificationUpdatePreference.values().forEach { mode ->
+                                    FilterChip(
+                                        selected = notificationUpdateMode == mode,
+                                        onClick = {
+                                            notificationUpdateMode = mode
+                                            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).edit().putString("notification_update_mode", mode.name).apply()
+                                        },
+                                        label = { Text(mode.displayName) },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+                // Morning Briefing
+                val eveningEnabled = remember { mutableStateOf(com.theblankstate.preamble.notification.EveningReminderScheduler.isEnabled(context)) }
+                SettingsCard {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Morning Briefing", style = MaterialTheme.typography.bodyLarge)
+                            Text("Daily 6 AM summary of today's tasks", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                        }
+                        Switch(
+                            checked = eveningEnabled.value,
+                            onCheckedChange = {
+                                eveningEnabled.value = it
+                                com.theblankstate.preamble.notification.EveningReminderScheduler.setEnabled(context, it)
+                            }
+                        )
+                    }
+                }
+                // Battery Optimization
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    SettingsCard {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Battery Optimization", style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    if (isBatteryOptimized) "Status: Optimized - may stop the notification on some devices" else "Status: Unrestricted",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                            if (isBatteryOptimized) {
+                                TextButton(onClick = { requestIgnoreBatteryOptimizations(context) }, shape = CircleShape) { Text("Set to Unrestricted") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Alarms Sub-Screen ──
+        "alarms" -> {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                SettingsCard(
+                    modifier = Modifier.clickable {
+                        ringtonePickerLauncher.launch(
+                            Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                                putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                                putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Select Alarm Tone")
+                                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                                putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                                val saved = context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).getString("alarm_tone_uri", null)
+                                if (saved != null) putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(saved))
+                            }
+                        )
+                    }
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Alarm Tone", style = MaterialTheme.typography.bodyLarge)
+                            Text(alarmToneName, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                        }
+                        Text("Change", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    }
+                }
+            }
+        }
+
+        // ── AI Features Sub-Screen ──
+        "ai" -> {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                SettingsCard {
+                    Column {
+                        var smartBreakdownEnabled by remember {
+                            mutableStateOf(
+                                context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                    .getBoolean("ai_smart_breakdown", false)
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Smart Task Breakdown", style = MaterialTheme.typography.bodyLarge)
+                                Text("AI auto-generates subtasks for complex tasks", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                            }
+                            Switch(
+                                checked = smartBreakdownEnabled,
+                                onCheckedChange = { enabled ->
+                                    smartBreakdownEnabled = enabled
+                                    context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).edit().putBoolean("ai_smart_breakdown", enabled).apply()
+                                }
+                            )
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
+                        var notifEditEnabled by remember {
+                            mutableStateOf(
+                                context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                    .getBoolean("ai_notif_edit", false)
+                            )
+                        }
+                        var showExperimentalSheet by remember { mutableStateOf(false) }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text("AI Edit from Notification", style = MaterialTheme.typography.bodyLarge)
+                                    Surface(shape = RoundedCornerShape(4.dp), color = Color(0xFFFFF3E0)) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(3.dp)
+                                        ) {
+                                            Icon(Icons.Filled.Science, contentDescription = null, modifier = Modifier.size(11.dp), tint = Color(0xFFE65100))
+                                            Text("Experimental", style = MaterialTheme.typography.labelSmall, color = Color(0xFFE65100), fontWeight = FontWeight.SemiBold)
+                                        }
+                                    }
+                                }
+                                Text("Type edit/delete commands in notification. AI may occasionally misidentify tasks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                            }
+                            Switch(
+                                checked = notifEditEnabled,
+                                onCheckedChange = { enabled ->
+                                    if (enabled) { showExperimentalSheet = true }
+                                    else {
+                                        notifEditEnabled = false
+                                        context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).edit().putBoolean("ai_notif_edit", false).apply()
+                                    }
+                                }
+                            )
+                        }
+                        if (showExperimentalSheet) {
+                            ModalBottomSheet(
+                                onDismissRequest = { showExperimentalSheet = false },
+                                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                            ) {
+                                Column(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
+                                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        Surface(shape = RoundedCornerShape(10.dp), color = Color(0xFFFFF3E0)) {
+                                            Icon(Icons.Filled.Science, contentDescription = null, modifier = Modifier.padding(10.dp).size(28.dp), tint = Color(0xFFE65100))
+                                        }
+                                        Column {
+                                            Text("Experimental Feature", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                            Text("AI Edit from Notification", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                    Text("What this feature does:", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        listOf(
+                                            "\"gym cancel karo\" → deletes your Gym task",
+                                            "\"meeting ko kal shift karo\" → moves Meeting to tomorrow",
+                                            "\"hospital urgent kar do\" → sets Hospital task to High priority",
+                                            "\"camping ka alarm 7:30 baje set karo\" → adds reminder to Camping task"
+                                        ).forEach { example ->
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Text("•", color = MaterialTheme.colorScheme.primary)
+                                                Text(example, style = MaterialTheme.typography.bodySmall)
+                                            }
+                                        }
+                                    }
+                                    Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFFFFF8E1)) {
+                                        Row(
+                                            modifier = Modifier.padding(12.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            verticalAlignment = Alignment.Top
+                                        ) {
+                                            Icon(Icons.Filled.Warning, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFFF57F17))
+                                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                Text("Use with caution", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Color(0xFFF57F17))
+                                                Text("AI uses fuzzy matching to find tasks. It may occasionally modify or delete the wrong task if multiple tasks have similar names.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF795548))
+                                            }
+                                        }
+                                    }
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                    ) {
+                                        OutlinedButton(onClick = { showExperimentalSheet = false }, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                                        Button(
+                                            onClick = {
+                                                notifEditEnabled = true
+                                                context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).edit().putBoolean("ai_notif_edit", true).apply()
+                                                showExperimentalSheet = false
+                                            },
+                                            modifier = Modifier.weight(1f)
+                                        ) { Text("I Understand, Enable") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── Main Settings Screen ──
+        else -> {
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -542,300 +1062,45 @@ fun SettingsScreen(
                 }
             }
 
-            // ── Feature Unlock Status ──
-            SectionTitle("Feature Unlock")
+
+            // ── Quick Navigation ──
+            SectionTitle("Customize")
             SettingsCard {
                 Column {
-                    // Theme Status
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { showThemeUnlockSheet = true }
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Theme Customization", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                if (themeUnlocked) "Unlocked — ${FeatureGateManager.formatRemaining(FeatureGateManager.themeRemainingMs())} remaining"
-                                else "Locked — Watch ad to unlock",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (themeUnlocked) MaterialTheme.colorScheme.primary
-                                       else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                        Icon(
-                            imageVector = if (themeUnlocked) Icons.Filled.CheckCircle else Icons.Outlined.Lock,
-                            contentDescription = if (themeUnlocked) "Unlocked" else "Locked",
-                            tint = if (themeUnlocked) MaterialTheme.colorScheme.primary
-                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-
+                    SettingsNavItem(
+                        icon = Icons.Filled.Science,
+                        title = "Features & Improvements",
+                        subtitle = "Smart messages, rewards, streak alerts & more",
+                        onClick = { subScreen = "features" }
+                    )
                     HorizontalDivider()
-
-                    // Stats Rank Status
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { showStatsUnlockSheet = true }
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Global Rank", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                if (statsUnlocked) "Unlocked — ${FeatureGateManager.formatRemaining(FeatureGateManager.statsRemainingMs())} remaining"
-                                else "Locked — Watch ad to unlock",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (statsUnlocked) MaterialTheme.colorScheme.primary
-                                       else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                        Icon(
-                            imageVector = if (statsUnlocked) Icons.Filled.CheckCircle else Icons.Outlined.Lock,
-                            contentDescription = if (statsUnlocked) "Unlocked" else "Locked",
-                            tint = if (statsUnlocked) MaterialTheme.colorScheme.primary
-                                   else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                            modifier = Modifier.size(24.dp)
-                        )
-                    }
-                }
-            }
-
-            // ── Personalization (Personal Mode) ──
-            SectionTitle("Personalization")
-            SettingsCard {
-                Column {
-                    // Master toggle
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Personal Mode", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                            Text(
-                                if (personalMode) "App feels made just for you" else "Classic mode — clean and minimal",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(checked = personalMode, onCheckedChange = { ThemePreferences.setPersonalMode(context, it) })
-                    }
-
-                    if (personalMode) {
-                        HorizontalDivider()
-                        
-                        // Sunk Cost Heatmap
-                        if (pmYearHeatmap && yearlyHeatmap.isNotEmpty()) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text("Your Investment", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text("A visual snapshot of your task completion over the last 365 days.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Spacer(modifier = Modifier.height(12.dp))
-                                com.theblankstate.preamble.ui.components.YearHeatmapCalendar(
-                                    heatmap = yearlyHeatmap,
-                                    primaryColor = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                            HorizontalDivider()
-                        }
-                        
-                        // Sub-toggles
-                        PersonalToggle(
-                            label = "Yearly Heatmap",
-                            sub = "Show your 365-day progress visualization above",
-                            checked = pmYearHeatmap,
-                            onToggle = { ThemePreferences.setPmYearHeatmap(context, it) }
-                        )
-                        HorizontalDivider()
-                        PersonalToggle(
-                            label = "The Momentum Engine",
-                            sub = "Visually pre-fills 1/1 tasks in the progress bar each day to lower friction",
-                            checked = pmEndowedProgress,
-                            onToggle = { ThemePreferences.setPmEndowedProgress(context, it) }
-                        )
-                        HorizontalDivider()
-                        PersonalToggle(
-                            label = "Variable Rewards",
-                            sub = "Unpredictable haptics and cheering messages when you complete tasks",
-                            checked = pmVariableRewards,
-                            onToggle = { ThemePreferences.setPmVariableRewards(context, it) }
-                        )
-                        HorizontalDivider()
-                        PersonalToggle(
-                            label = "Time-aware greeting",
-                            sub = "\"Good Morning, ${com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.displayName?.split(" ")?.firstOrNull() ?: "you"}\" — changes throughout the day",
-                            checked = pmGreeting,
-                            onToggle = { ThemePreferences.setPmGreeting(context, it) }
-                        )
-                        HorizontalDivider()
-                        PersonalToggle(
-                            label = "Smart progress messages",
-                            sub = "\"Gaining momentum!\" — adapts to your completion rate",
-                            checked = pmSmartProgress,
-                            onToggle = { ThemePreferences.setPmSmartProgress(context, it) }
-                        )
-                        HorizontalDivider()
-                        PersonalToggle(
-                            label = "Late-night care banner",
-                            sub = "Gentle reminder to rest when you use the app after 11 PM",
-                            checked = pmLateNight,
-                            onToggle = { ThemePreferences.setPmLateNight(context, it) }
-                        )
-                        HorizontalDivider()
-                        PersonalToggle(
-                            label = "Contextual empty state",
-                            sub = "\"Your day is a blank canvas\" — time-aware empty messages",
-                            checked = pmSmartEmpty,
-                            onToggle = { ThemePreferences.setPmSmartEmpty(context, it) }
-                        )
-                        HorizontalDivider()
-                        PersonalToggle(
-                            label = "Last-task amplification",
-                            sub = "\"One task away from a perfect day\" — extra motivation at the finish",
-                            checked = pmLastTask,
-                            onToggle = { ThemePreferences.setPmLastTask(context, it) }
-                        )
-                        HorizontalDivider()
-                        PersonalToggle(
-                            label = "Streak at-risk warning",
-                            sub = "Notifies you when your streak is about to break",
-                            checked = pmStreakWarn,
-                            onToggle = { ThemePreferences.setPmStreakWarn(context, it) }
-                        )
-                        HorizontalDivider()
-                        PersonalToggle(
-                            label = "Personal bests",
-                            sub = "\"New record!\" toast when you beat your all-time daily task count",
-                            checked = pmBests,
-                            onToggle = { ThemePreferences.setPmBests(context, it) }
-                        )
-                        HorizontalDivider()
-                        PersonalToggle(
-                            label = "Streak milestone celebrations",
-                            sub = "Special message at 7, 14, 30, 50, and 100-day streaks",
-                            checked = pmMilestones,
-                            onToggle = { ThemePreferences.setPmMilestones(context, it) }
-                        )
-                        HorizontalDivider()
-                        PersonalToggle(
-                            label = "Completion sparkle",
-                            sub = "Subtle glow animation when you finish every task for the day",
-                            checked = pmSparkle,
-                            onToggle = { ThemePreferences.setPmSparkle(context, it) }
-                        )
-                        HorizontalDivider()
-                        PersonalToggle(
-                            label = "Hidden easter egg",
-                            sub = "Tap the app title 7 times to discover a secret message",
-                            checked = pmEasterEgg,
-                            onToggle = { ThemePreferences.setPmEasterEgg(context, it) }
-                        )
-                    }
-                }
-            }
-
-            // ── Expressiveness ──
-            SectionTitle("Expressiveness")
-            SettingsCard {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Expressive Navigation",
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                if (expressiveNav)
-                                    "Dynamic nav bar — tap icon to reveal label"
-                                else
-                                    "Classic nav bar with icons and labels",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Switch(
-                            checked = expressiveNav,
-                            onCheckedChange = { ThemePreferences.setExpressiveNav(context, it) }
-                        )
-                    }
-                }
-            }
-
-            // ── Appearance ──
-            SectionTitle("Appearance")
-            SettingsCard {
-                Column {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Theme Color", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                if (themeUnlocked) "Customize the app's primary color"
-                                else "Watch ad to unlock customization",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                        if (themeUnlocked) {
-                            ColorPickerComponent()
-                        } else {
-                            Icon(
-                                imageVector = Icons.Outlined.Lock,
-                                contentDescription = "Locked",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                modifier = Modifier
-                                    .size(24.dp)
-                                    .clickable { showThemeUnlockSheet = true }
-                            )
-                        }
-                    }
-
+                    SettingsNavItem(
+                        icon = Icons.Filled.Palette,
+                        title = "Appearance",
+                        subtitle = "Theme, colors, navigation style",
+                        onClick = { subScreen = "appearance" }
+                    )
                     HorizontalDivider()
-
-                    if (themeUnlocked) {
-                        ThemeSelectorRow(context)
-                    } else {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { showThemeUnlockSheet = true }
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text("App Theme", style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    "Locked — Watch ad to unlock",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
-                            }
-                            Icon(
-                                imageVector = Icons.Outlined.Lock,
-                                contentDescription = "Locked",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                    }
+                    SettingsNavItem(
+                        icon = Icons.Filled.SmartToy,
+                        title = "AI Features",
+                        subtitle = "Provider, model, smart breakdown",
+                        onClick = { subScreen = "ai" }
+                    )
+                    HorizontalDivider()
+                    SettingsNavItem(
+                        icon = Icons.Filled.Notifications,
+                        title = "Notifications",
+                        subtitle = "Persistent notification, update frequency",
+                        onClick = { subScreen = "notifications" }
+                    )
+                    HorizontalDivider()
+                    SettingsNavItem(
+                        icon = Icons.Filled.Alarm,
+                        title = "Alarms",
+                        subtitle = alarmToneName,
+                        onClick = { subScreen = "alarms" }
+                    )
                 }
             }
 
@@ -874,404 +1139,6 @@ fun SettingsScreen(
                 }
             }
 
-            // ── AI Features ──
-            SectionTitle("AI Features")
-            SettingsCard {
-                Column {
-                    var smartBreakdownEnabled by remember {
-                        mutableStateOf(
-                            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                .getBoolean("ai_smart_breakdown", false)
-                        )
-                    }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Smart Task Breakdown", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "AI auto-generates subtasks for complex tasks like party planning, trip packing, exam prep etc.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                        Switch(
-                            checked = smartBreakdownEnabled,
-                            onCheckedChange = { enabled ->
-                                smartBreakdownEnabled = enabled
-                                context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                    .edit().putBoolean("ai_smart_breakdown", enabled).apply()
-                            }
-                        )
-                    }
-
-                    HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-
-                    var notifEditEnabled by remember {
-                        mutableStateOf(
-                            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                .getBoolean("ai_notif_edit", false)
-                        )
-                    }
-                    var showExperimentalSheet by remember { mutableStateOf(false) }
-
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text("AI Edit from Notification", style = MaterialTheme.typography.bodyLarge)
-                                // Experimental badge
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = Color(0xFFFFF3E0)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(3.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Filled.Science,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(11.dp),
-                                            tint = Color(0xFFE65100)
-                                        )
-                                        Text(
-                                            "Experimental",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = Color(0xFFE65100),
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                    }
-                                }
-                            }
-                            Text(
-                                "Type edit/delete commands in notification. AI may occasionally misidentify tasks.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                        Switch(
-                            checked = notifEditEnabled,
-                            onCheckedChange = { enabled ->
-                                if (enabled) {
-                                    // Show confirmation sheet before enabling
-                                    showExperimentalSheet = true
-                                } else {
-                                    notifEditEnabled = false
-                                    context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                        .edit().putBoolean("ai_notif_edit", false).apply()
-                                }
-                            }
-                        )
-                    }
-
-                    // Experimental feature confirmation bottom sheet
-                    if (showExperimentalSheet) {
-                        ModalBottomSheet(
-                            onDismissRequest = { showExperimentalSheet = false },
-                            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 24.dp)
-                                    .padding(bottom = 32.dp),
-                                verticalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                // Header
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Surface(
-                                        shape = RoundedCornerShape(10.dp),
-                                        color = Color(0xFFFFF3E0)
-                                    ) {
-                                        Icon(
-                                            Icons.Filled.Science,
-                                            contentDescription = null,
-                                            modifier = Modifier.padding(10.dp).size(28.dp),
-                                            tint = Color(0xFFE65100)
-                                        )
-                                    }
-                                    Column {
-                                        Text(
-                                            "Experimental Feature",
-                                            style = MaterialTheme.typography.titleLarge,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            "AI Edit from Notification",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-
-                                // What it does
-                                Text(
-                                    "What this feature does:",
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    listOf(
-                                        "\"gym cancel karo\" → deletes your Gym task",
-                                        "\"meeting ko kal shift karo\" → moves Meeting to tomorrow",
-                                        "\"hospital urgent kar do\" → sets Hospital task to High priority",
-                                        "\"camping ka alarm 7:30 baje set karo\" → adds reminder to Camping task"
-                                    ).forEach { example ->
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Text("•", color = MaterialTheme.colorScheme.primary)
-                                            Text(example, style = MaterialTheme.typography.bodySmall)
-                                        }
-                                    }
-                                }
-
-                                // Warning
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = Color(0xFFFFF8E1)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(12.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                        verticalAlignment = Alignment.Top
-                                    ) {
-                                        Icon(
-                                            Icons.Filled.Warning,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp),
-                                            tint = Color(0xFFF57F17)
-                                        )
-                                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text(
-                                                "Use with caution",
-                                                style = MaterialTheme.typography.labelMedium,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = Color(0xFFF57F17)
-                                            )
-                                            Text(
-                                                "AI uses fuzzy matching to find tasks. It may occasionally modify or delete the wrong task if multiple tasks have similar names. Always verify important tasks after using edit commands.",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = Color(0xFF795548)
-                                            )
-                                        }
-                                    }
-                                }
-
-                                // Buttons
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    OutlinedButton(
-                                        onClick = { showExperimentalSheet = false },
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text("Cancel")
-                                    }
-                                    Button(
-                                        onClick = {
-                                            notifEditEnabled = true
-                                            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                                .edit().putBoolean("ai_notif_edit", true).apply()
-                                            showExperimentalSheet = false
-                                        },
-                                        modifier = Modifier.weight(1f)
-                                    ) {
-                                        Text("I Understand, Enable")
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // ── Notifications ──
-            SectionTitle("Notifications")
-            SettingsCard {
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Permanent Notification", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "Quick Add & Voice Task from notification bar",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                        Switch(
-                            checked = notificationPrefEnabled && hasSystemNotificationPermission,
-                            onCheckedChange = { enable ->
-                                if (enable) {
-                                    if (!hasSystemNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                        notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                    } else {
-                                        notificationPrefEnabled = true
-                                        context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                            .edit().putBoolean("notification_enabled", true).apply()
-                                        com.theblankstate.preamble.notification.TaskNotificationService.start(context)
-                                    }
-                                } else {
-                                    notificationPrefEnabled = false
-                                    context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                        .edit().putBoolean("notification_enabled", false).apply()
-                                    com.theblankstate.preamble.notification.TaskNotificationService.stop(context)
-                                }
-                            }
-                        )
-                    }
-                    if (!hasSystemNotificationPermission) {
-                        TextButton(
-                            onClick = {
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                } else {
-                                    context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                                    })
-                                }
-                            },
-                            modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
-                            shape = CircleShape
-                        ) { Text("Grant Permission") }
-                    }
-                    if (notificationPrefEnabled) {
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Update Frequency", style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    when (notificationUpdateMode) {
-                                        com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE ->
-                                            "Changes visible within 10 seconds (more battery usage)"
-                                        com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED ->
-                                            "Changes visible within 30 seconds (recommended)"
-                                        com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER ->
-                                            "Updates every 2 min when no tasks (lowest battery use)"
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
-                            }
-                        }
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            com.theblankstate.preamble.notification.NotificationUpdatePreference.values().forEach { mode ->
-                                FilterChip(
-                                    selected = notificationUpdateMode == mode,
-                                    onClick = {
-                                        notificationUpdateMode = mode
-                                        context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                            .edit()
-                                            .putString("notification_update_mode", mode.name)
-                                            .apply()
-                                    },
-                                    label = { Text(mode.displayName) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                        }
-                    }
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    }
-                }
-            }
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                SettingsCard {
-                    Column {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text("Battery Optimization", style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    if (isBatteryOptimized) {
-                                        "Status: Optimized - may stop the notification on some devices"
-                                    } else {
-                                        "Status: Unrestricted"
-                                    },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
-                            }
-                            if (isBatteryOptimized) {
-                                TextButton(
-                                    onClick = { requestIgnoreBatteryOptimizations(context) },
-                                    shape = CircleShape
-                                ) { Text("Set to Unrestricted") }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ── Alarms ──
-            SectionTitle("Alarms")
-            SettingsCard(
-                modifier = Modifier.clickable {
-                    ringtonePickerLauncher.launch(
-                        Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
-                            putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
-                            putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Select Alarm Tone")
-                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
-                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
-                            val saved = context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                .getString("alarm_tone_uri", null)
-                            if (saved != null) putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(saved))
-                        }
-                    )
-                }
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("Alarm Tone", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            alarmToneName,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
-                    Text("Change", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                }
-            }
 
             // ── Support ──
             SectionTitle("Support")
@@ -1354,7 +1221,6 @@ fun SettingsScreen(
 
             Spacer(modifier = Modifier.height(32.dp))
         }
-    }
 
     // Review popup
     if (showReviewSheet) {
@@ -1411,9 +1277,12 @@ fun SettingsScreen(
                         shape = CircleShape
                     ) { Text("Rate Now") }
                 }
-            }
-        }
-    }
+            } // end Column (review popup)
+        } // end ModalBottomSheet
+    } // end if(showReviewSheet)
+        } // end else -> (main settings)
+      } // end when(subScreen)
+    } // end Scaffold
 
     // Feature unlock sheets
     if (showThemeUnlockSheet && activity != null) {
@@ -1630,3 +1499,37 @@ private fun ThemeSelectorRow(context: Context) {
     }
 }
 
+
+@Composable
+private fun SettingsNavItem(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(24.dp)
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = "Open",
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}

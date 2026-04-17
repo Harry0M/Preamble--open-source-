@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.theblankstate.preamble.MainActivity
 import com.theblankstate.preamble.R
+import com.theblankstate.preamble.analytics.AnalyticsManager
 import com.theblankstate.preamble.data.PomodoroSession
 import com.theblankstate.preamble.data.PomodoroSessionDao
 import com.theblankstate.preamble.data.PreambleDatabase
@@ -68,6 +69,12 @@ class PomodoroTimerService : Service() {
         )
         promoteToForeground()
         startCountdown()
+
+        // PostHog: Focus mode shuru hua — track karo
+        AnalyticsManager.trackFocusMode(
+            action = "started",
+            taskId = taskId
+        )
     }
 
     private fun startCountdown() {
@@ -107,6 +114,13 @@ class PomodoroTimerService : Service() {
                     try { pomodoroSessionDao?.insertSession(session) } catch (_: Exception) {}
                 }
 
+                // PostHog: Work phase poori hui — duration track karo
+                AnalyticsManager.trackFocusMode(
+                    action = "finished",
+                    durationSeconds = PomodoroDefaults.WORK_MINUTES * 60,
+                    taskId = current.taskId
+                )
+
                 val newSessions = current.sessionsCompleted + 1
                 val nextPhase = if (newSessions % PomodoroDefaults.SESSIONS_BEFORE_LONG_BREAK == 0) {
                     PomodoroPhase.LONG_BREAK
@@ -143,14 +157,34 @@ class PomodoroTimerService : Service() {
     private fun pauseTimer() {
         _state.value = _state.value.copy(isPaused = true)
         updateNotification()
+
+        // PostHog: Focus pause hua
+        AnalyticsManager.trackFocusMode(
+            action = "paused",
+            taskId = _state.value.taskId
+        )
     }
 
     private fun resumeTimer() {
         _state.value = _state.value.copy(isPaused = false)
         updateNotification()
+
+        // PostHog: Focus resume hua
+        AnalyticsManager.trackFocusMode(
+            action = "resumed",
+            taskId = _state.value.taskId
+        )
     }
 
     private fun stopTimer() {
+        // PostHog: Focus cancelled/stopped — total time track karo
+        val elapsed = _state.value.totalSeconds - _state.value.remainingSeconds
+        AnalyticsManager.trackFocusMode(
+            action = "cancelled",
+            durationSeconds = elapsed,
+            taskId = _state.value.taskId
+        )
+
         timerJob?.cancel()
         _state.value = PomodoroState()
         stopForeground(STOP_FOREGROUND_REMOVE)

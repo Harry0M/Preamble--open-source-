@@ -52,6 +52,7 @@ import com.theblankstate.preamble.ui.components.ExpressiveNavItem
 import com.theblankstate.preamble.ui.components.ExpressiveNavigationBar
 import com.theblankstate.preamble.ui.components.ProfileSetupDialog
 import com.theblankstate.preamble.viewmodel.TaskViewModel
+import com.theblankstate.preamble.analytics.AnalyticsManager
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 
@@ -67,6 +68,9 @@ class MainActivity : ComponentActivity() {
 
         // Parse deep link from launch intent
         _deepLinkTarget.value = parseDeepLink(intent)
+
+        // PostHog: Agar FCM notification se app khula hai, click track karo
+        trackCampaignClickIfPresent(intent)
 
         val prefs = getSharedPreferences("preamble_prefs", MODE_PRIVATE)
         val onboardingDone = prefs.getBoolean("onboarding_done", false)
@@ -92,6 +96,9 @@ class MainActivity : ComponentActivity() {
                             showOnboarding = false
                             requestExactAlarmPermission()
                             postNotification()
+
+                            // PostHog: Onboarding complete event track karo
+                            AnalyticsManager.trackOnboardingComplete()
                         }
                     )
                 } else {
@@ -137,6 +144,22 @@ class MainActivity : ComponentActivity() {
         parseDeepLink(intent)?.let { target ->
             _deepLinkTarget.value = target
         }
+        // PostHog: Agar FCM notification se naya intent aaya, click track karo
+        trackCampaignClickIfPresent(intent)
+    }
+
+    /**
+     * FCM notification click track karta hai PostHog mein.
+     * Admin panel se campaign_id aur variant intent extras mein aate hain.
+     */
+    private fun trackCampaignClickIfPresent(intent: Intent?) {
+        val campaignId = intent?.getStringExtra("campaign_id") ?: return
+        if (campaignId == "unknown") return
+        val variant = intent.getStringExtra("campaign_variant") ?: "default"
+        AnalyticsManager.trackNotificationClicked(
+            campaignId = campaignId,
+            notificationType = variant
+        )
     }
 
     /**
@@ -255,6 +278,14 @@ fun PreambleApp(
     onDeepLinkConsumed: () -> Unit = {}
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
+
+    // PostHog: Har tab change pe screen view track karo
+    // Compose mein traditional Activity nahi hota, toh manually track karna padta hai
+    val screenNames = remember { listOf("HomeScreen", "StatsScreen", "CalendarScreen", "SettingsScreen") }
+    androidx.compose.runtime.LaunchedEffect(selectedTab) {
+        AnalyticsManager.trackScreenView(screenNames[selectedTab])
+    }
+
     val tasks by viewModel.todayTasks.collectAsState()
     val pastTasks by viewModel.pastTasks.collectAsState()
     val stats by viewModel.statsState.collectAsState()

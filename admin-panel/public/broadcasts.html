@@ -35,6 +35,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
           Notifications
         </a>
+        <a href="/pm-messages" class="nav-item">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          PM Messages
+        </a>
       </nav>
       <div class="sidebar-footer">
         <div class="user-info">
@@ -126,7 +130,10 @@
       <div class="modal-body">
         <div class="form-group">
           <label>Title *</label>
-          <input type="text" class="form-control" id="fTitle" placeholder="e.g. Follow us on Instagram">
+          <div style="display:flex;gap:8px;">
+            <input type="text" class="form-control" id="fTitle" placeholder="e.g. Follow us on Instagram" style="flex:1;">
+            <button type="button" class="btn btn-secondary" onclick="aiGenerate('broadcast')" title="Generate with AI">✨ AI</button>
+          </div>
         </div>
 
         <div class="form-group">
@@ -252,8 +259,8 @@
         <div class="form-row">
           <div class="form-group">
             <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;">
-              <input type="checkbox" id="fAutoNotify" checked style="width:auto;">
-              Send push notification on create
+              <input type="checkbox" id="fAutoNotify" style="width:auto;">
+              Also send push notification
             </label>
           </div>
         </div>
@@ -624,6 +631,32 @@
         }
       } catch (err) {
         showToast('Failed to delete', 'error');
+      }
+    }
+
+    async function aiGenerate(type) {
+      const context = prompt('Describe what you want (e.g., "evening reminder to complete tasks", "new calendar sync feature", "rate the app")');
+      if (!context) return;
+
+      showToast('✨ Generating with AI...', 'info');
+      try {
+        const res = await fetch('/api/ai/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type, context })
+        });
+        const data = await res.json();
+        if (data.success && data.generated) {
+          const g = data.generated;
+          if (g.title) document.getElementById('fTitle').value = g.title;
+          if (g.description) document.getElementById('fDescription').value = g.description;
+          if (g.actionLabel) document.getElementById('fActionLabel').value = g.actionLabel;
+          showToast('✨ AI content generated!');
+        } else {
+          showToast(data.error || 'AI generation failed', 'error');
+        }
+      } catch (err) {
+        showToast('AI request failed: ' + err.message, 'error');
       }
     }
   </script>

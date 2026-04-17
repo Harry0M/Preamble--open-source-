@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.google.firebase.firestore.FirebaseFirestore
 import com.theblankstate.preamble.data.AdminTask
+import com.theblankstate.preamble.analytics.AnalyticsManager
 import com.theblankstate.preamble.notification.TaskNotificationService
 import com.theblankstate.preamble.sync.GoogleCalendarManager
 import kotlinx.coroutines.Dispatchers
@@ -54,11 +55,24 @@ class AdminTaskRepository(private val appContext: Context) {
         val current = getDismissedIds().toMutableSet()
         current.add(taskId)
         prefs.edit().putStringSet(KEY_DISMISSED, current).apply()
+
+        // PostHog: Announcement dismiss track karo
+        val task = _adminTasks.value.find { it.id == taskId }
+        if (task != null) {
+            AnalyticsManager.trackAnnouncementDismissed(taskId, task.type)
+        }
+
         // Remove from live list
         _adminTasks.value = _adminTasks.value.filter { it.id != taskId }
     }
 
     fun markInteracted(taskId: String) {
+        // PostHog: Announcement action click track karo
+        val task = _adminTasks.value.find { it.id == taskId }
+        if (task != null) {
+            AnalyticsManager.trackAnnouncementClicked(taskId, task.type, task.actionLabel)
+        }
+
         val current = getInteractedIds().toMutableSet()
         current.add(taskId)
         prefs.edit().putStringSet(KEY_INTERACTED, current).apply()

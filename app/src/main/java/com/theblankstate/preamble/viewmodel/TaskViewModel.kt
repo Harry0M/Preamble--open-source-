@@ -1,6 +1,7 @@
 package com.theblankstate.preamble.viewmodel
 
 import android.content.Context
+import com.theblankstate.preamble.analytics.AnalyticsManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -925,6 +926,14 @@ class TaskViewModel(
             scheduleOrCancelAlarm(taskWithReminder)
             refreshStats()
             invalidateCalendarForDate(taskDate)
+
+            // PostHog: Task create event track karo
+            AnalyticsManager.trackTaskCreated(
+                category = tags ?: "uncategorized",
+                isPriority = priority > 0,
+                hasDeadline = deadlineTime != null,
+                isRecurring = false
+            )
         }
     }
 
@@ -945,6 +954,17 @@ class TaskViewModel(
             refreshCalendarDate()
 
             val newCompleted = !task.isCompleted
+
+            // PostHog: Task complete/uncomplete track karo
+            if (newCompleted) {
+                val daysOld = try {
+                    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                    val created = sdf.parse(task.createdDate)
+                    if (created != null) ((System.currentTimeMillis() - created.time) / 86400000).toInt() else 0
+                } catch (_: Exception) { 0 }
+                AnalyticsManager.trackTaskCompleted(taskId = task.id, daysOld = daysOld)
+            }
+
             // Cancel or reschedule alarms based on new completion state
             if (newCompleted) {
                 com.theblankstate.preamble.notification.TaskAlarmManager.cancelAllReminders(appContext, task.id)
@@ -1009,6 +1029,9 @@ class TaskViewModel(
             repository.deleteTask(task)
             refreshStats()
             invalidateCalendarForDate(task.createdDate)
+
+            // PostHog: Task delete event track karo
+            AnalyticsManager.trackTaskDeleted(taskId = task.id)
 
             // Store for undo
             pendingDeleteTask = task

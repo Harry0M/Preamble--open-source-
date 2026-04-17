@@ -240,7 +240,14 @@ fun HomeScreen(
     val currentHour = remember { java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) }
     val isLateNight = remember { currentHour >= 23 || currentHour < 5 }
     val timeGreeting = remember {
-        when (currentHour) {
+        val condition = when (currentHour) {
+            in 5..11  -> "morning"
+            in 12..16 -> "afternoon"
+            else      -> "evening"
+        }
+        // Check Firestore override first, fallback to hardcoded
+        val override = com.theblankstate.preamble.repository.PmMessageRepository.getMessage(context, "greeting", condition)
+        override?.headline ?: when (currentHour) {
             in 5..8   -> "Good Morning"
             in 9..11  -> "Let's Crush It"
             in 12..16 -> "Afternoon Focus"
@@ -759,7 +766,11 @@ fun HomeScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             androidx.compose.material3.Text(
-                                text = "It's late \u2014 don't forget to rest. Your tasks will wait for you.",
+                                text = run {
+                                    val lateOverride = com.theblankstate.preamble.repository.PmMessageRepository.getMessage(context, "late_night", "default")
+                                    lateOverride?.headline?.let { h -> if (lateOverride.subtitle != null) "$h ${lateOverride.subtitle}" else h }
+                                        ?: "It's late \u2014 don't forget to rest. Your tasks will wait for you."
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer,
                                 modifier = Modifier.weight(1f)
@@ -952,16 +963,24 @@ fun HomeScreen(
                         val baseCompleted = remember(tasks) { tasks.count { it.isCompleted } }
                         val baseTotal = tasks.size
                         
-                        val endowedMode = personalMode && pmEndowedProgress
-                        val completed = if (endowedMode && baseTotal > 0) minOf(baseCompleted + 1, baseTotal + 1) else baseCompleted
-                        val total = if (endowedMode && baseTotal > 0) baseTotal + 1 else baseTotal
+                        val completed = baseCompleted
+                        val total = baseTotal
                         
                         val progress = if (total > 0) completed.toFloat() / total else 0f
                         val primaryColor = MaterialTheme.colorScheme.primary
 
                         // Smart progress label
                         val progressLabel = if (personalMode && pmSmartProgress && total > 0) {
-                            when {
+                            val progressCondition = when {
+                                completed == 0   -> "progress_0"
+                                progress < 0.25f -> "progress_25"
+                                progress < 0.50f -> "progress_50"
+                                progress < 0.75f -> "progress_75"
+                                progress < 1f    -> "progress_100"
+                                else             -> "progress_done"
+                            }
+                            val pmOverride = com.theblankstate.preamble.repository.PmMessageRepository.getMessage(context, "smart_progress", progressCondition)
+                            pmOverride?.headline ?: when {
                                 completed == 0              -> "A fresh start awaits"
                                 progress < 0.25f            -> "You're warming up"
                                 progress < 0.50f            -> "Gaining momentum!"
@@ -1006,7 +1025,11 @@ fun HomeScreen(
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
                                     Text(
-                                        text = "$streak-day streak at risk \u2014 complete a task to keep it",
+                                        text = run {
+                                            val streakOverride = com.theblankstate.preamble.repository.PmMessageRepository.getMessage(context, "streak_warn", "default")
+                                            streakOverride?.headline?.replace("{streak}", streak.toString())
+                                                ?: "$streak-day streak at risk \u2014 complete a task to keep it"
+                                        },
                                         style = MaterialTheme.typography.labelSmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -1069,9 +1092,10 @@ fun HomeScreen(
 
                             // Last-task amplification
                             if (personalMode && pmLastTask && total > 0 && (total - completed) == 1) {
+                                val lastTaskOverride = com.theblankstate.preamble.repository.PmMessageRepository.getMessage(context, "last_task", "default")
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "One task away from a perfect day",
+                                    text = lastTaskOverride?.headline ?: "One task away from a perfect day",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = primaryColor,
                                     fontWeight = FontWeight.SemiBold
@@ -1229,18 +1253,29 @@ fun HomeScreen(
                         val emptyHeadline: String
                         val emptySub: String
                         if (personalMode && pmSmartEmpty) {
-                            when {
-                                currentHour in 5..11 -> {
-                                    emptyHeadline = "Your day is a blank canvas"
-                                    emptySub = "What will you create today?"
-                                }
-                                currentHour in 12..16 -> {
-                                    emptyHeadline = "Nothing pending"
-                                    emptySub = "Time to think ahead and plan tomorrow"
-                                }
-                                else -> {
-                                    emptyHeadline = "All clear"
-                                    emptySub = "Enjoy your evening \u2014 you've earned it"
+                            val emptyCondition = when {
+                                currentHour in 5..11  -> "morning"
+                                currentHour in 12..16 -> "afternoon"
+                                else                  -> "evening"
+                            }
+                            val emptyOverride = com.theblankstate.preamble.repository.PmMessageRepository.getMessage(context, "empty_state", emptyCondition)
+                            if (emptyOverride != null) {
+                                emptyHeadline = emptyOverride.headline
+                                emptySub = emptyOverride.subtitle ?: ""
+                            } else {
+                                when {
+                                    currentHour in 5..11 -> {
+                                        emptyHeadline = "Your day is a blank canvas"
+                                        emptySub = "What will you create today?"
+                                    }
+                                    currentHour in 12..16 -> {
+                                        emptyHeadline = "Nothing pending"
+                                        emptySub = "Time to think ahead and plan tomorrow"
+                                    }
+                                    else -> {
+                                        emptyHeadline = "All clear"
+                                        emptySub = "Enjoy your evening \u2014 you've earned it"
+                                    }
                                 }
                             }
                         } else {

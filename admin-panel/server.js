@@ -362,14 +362,20 @@ app.post('/api/broadcasts', requireAuth, async (req, res) => {
 
     await firestoreDb.collection('broadcasts').doc(id).set(broadcast);
 
-    // Auto-send push notification if broadcast is active and notify is enabled
+    // Auto-send push notification ONLY if explicitly enabled (default = OFF to avoid double notification)
     let notifySent = 0;
-    if (broadcast.active && req.body.autoNotify !== false) {
+    if (broadcast.active && req.body.autoNotify === true) {
+      // Generate campaign_id for PostHog A/B tracking
+      const campaignId = req.body.campaign_id || broadcast.title.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40) + '_' + Date.now().toString(36);
+      const campaignVariant = req.body.campaign_variant || 'default';
+
       const dataPayload = {
         title: broadcast.title,
         body: broadcast.description || broadcast.title,
         channelType: 'broadcast',
-        deepLink: broadcast.deepLink || 'preamble://home'  // default to home so app navigates
+        deepLink: broadcast.deepLink || 'preamble://home',
+        campaign_id: campaignId,
+        campaign_variant: campaignVariant
       };
 
       try {
@@ -622,10 +628,16 @@ app.post('/api/notifications/send', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Title and body are required' });
     }
 
+    // Generate campaign_id for PostHog A/B tracking
+    const campaignId = req.body.campaign_id || title.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40) + '_' + Date.now().toString(36);
+    const campaignVariant = req.body.campaign_variant || 'default';
+
     const dataPayload = {
       title,
       body,
-      channelType: channelType || 'broadcast'
+      channelType: channelType || 'broadcast',
+      campaign_id: campaignId,
+      campaign_variant: campaignVariant
     };
     if (deepLink) dataPayload.deepLink = deepLink;
     if (url) dataPayload.url = url;
@@ -703,6 +715,137 @@ app.get('/api/notifications/history', requireAuth, async (req, res) => {
   }
 });
 
+// ─── Personal Mode Messages (Override System) ───
+// These messages override hardcoded app messages for features like
+// greeting, smart progress, empty state, last task, streak warning, easter egg
+
+// List all PM messages
+app.get('/api/pm-messages', requireAuth, async (req, res) => {
+  try {
+    const snap = await firestoreDb.collection('pm_messages').orderBy('createdAt', 'desc').get();
+    const messages = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json({ messages });
+  } catch (err) {
+    console.error('Error fetching PM messages:', err);
+    res.status(500).json({ error: 'Failed to fetch messages' });
+  }
+});
+
+// Create PM message
+app.post('/api/pm-messages', requireAuth, async (req, res) => {
+  try {
+    const id = generateId();
+    const msg = {
+      type: req.body.type || 'greeting',           // greeting, smart_progress, empty_state, last_task, streak_warn, easter_egg, late_night
+      condition: req.body.condition || 'default',   // time/progress condition (e.g., "morning", "progress_25", "evening")
+      headline: req.body.headline || '',
+      subtitle: req.body.subtitle || null,
+      active: req.body.active !== false,
+      targetType: req.body.targetType || 'all',     // all, user
+      targetUids: req.body.targetUids || null,       // specific user UIDs (override for specific users)
+      priority: parseInt(req.body.priority) || 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now()
+    };
+    await firestoreDb.collection('pm_messages').doc(id).set(msg);
+    res.json({ success: true, id, message: msg });
+  } catch (err) {
+    console.error('Error creating PM message:', err);
+    res.status(500).json({ error: 'Failed to create message' });
+  }
+});
+
+// Update PM message
+app.put('/api/pm-messages/:id', requireAuth, async (req, res) => {
+  try {
+    const updates = { ...req.body, updatedAt: Date.now() };
+    delete updates.id;
+    if (updates.priority) updates.priority = parseInt(updates.priority);
+    await firestoreDb.collection('pm_messages').doc(req.params.id).update(updates);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error updating PM message:', err);
+    res.status(500).json({ error: 'Failed to update message' });
+  }
+});
+
+// Delete PM message
+app.delete('/api/pm-messages/:id', requireAuth, async (req, res) => {
+  try {
+    await firestoreDb.collection('pm_messages').doc(req.params.id).delete();
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Error deleting PM message:', err);
+    res.status(500).json({ error: 'Failed to delete message' });
+  }
+});
+
+// ─── AI Text Generation (Mistral) ───
+
+const MISTRAL_API_KEY = 'kGPnSqNxoGLBMDY4acTyhVbprn0MZRJ0';
+
+app.post('/api/ai/generate', requireAuth, async (req, res) => {
+  try {
+    const { type, context } = req.body;
+    // type: 'notification', 'broadcast', 'pm_message'
+
+    const systemPrompt = `You are a creative copywriter for "Preamble", a modern task management app. Write short, engaging, and friendly content. Be concise — max 2 sentences. Use emoji sparingly. Match the tone: motivational for task-related content, warm for greetings, informative for announcements.`;
+
+    let userPrompt = '';
+    switch (type) {
+      case 'notification':
+        userPrompt = `Generate a push notification for a task management app. Context: ${context || 'general engagement reminder'}. Return JSON: {"title": "...", "body": "..."}`;
+        break;
+      case 'broadcast':
+        userPrompt = `Generate an in-app announcement card for a task management app. Context: ${context || 'new feature announcement'}. Return JSON: {"title": "...", "description": "...", "actionLabel": "..."}`;
+        break;
+      case 'pm_message':
+        userPrompt = `Generate a personal mode message for a task management app. Context: ${context || 'morning greeting'}. Return JSON: {"headline": "...", "subtitle": "..."}`;
+        break;
+      default:
+        userPrompt = `Generate short motivational text. Context: ${context || 'productivity'}. Return JSON: {"text": "..."}`;
+    }
+
+    const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${MISTRAL_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: 'mistral-small-latest',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: 0.8,
+        max_tokens: 200,
+        response_format: { type: 'json_object' }
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Mistral API error: ${response.status} — ${errText}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (e) {
+      parsed = { text: content };
+    }
+
+    res.json({ success: true, generated: parsed });
+  } catch (err) {
+    console.error('AI generation error:', err);
+    res.status(500).json({ error: 'AI generation failed: ' + err.message });
+  }
+});
+
 // ─── Serve Frontend ───
 
 app.get('/dashboard', requireAuth, (req, res) => {
@@ -727,6 +870,10 @@ app.get('/notifications', requireAuth, (req, res) => {
 
 app.get('/groups', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'groups.html'));
+});
+
+app.get('/pm-messages', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'pm-messages.html'));
 });
 
 app.get('/', (req, res) => {
