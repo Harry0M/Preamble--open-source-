@@ -1885,6 +1885,15 @@ fun HomeScreen(
             onRemoveReminder = if (!isPast && onRemoveReminder != null) {{ index ->
                 onRemoveReminder(task, index)
             }} else null,
+            onToggleRollover = if (!isPast && !task.isCompleted && onEditTask != null
+                && task.source == "local" && !task.isRecurrenceTemplate
+                && task.recurrenceParentId == null
+                && (task.recurrenceType == null || task.recurrenceType == "rollover")) {
+                {
+                    val newType = if (task.recurrenceType == "rollover") null else "rollover"
+                    onEditTask(task, task.title, task.createdDate, task.deadlineTime, task.priority, task.description, task.tags, newType, task.recurrenceInterval ?: 1, task.recurrenceDays, task.recurrenceEndDate)
+                }
+            } else null,
             isPastTask = isPast
         )
     }

@@ -488,6 +488,12 @@ fun PreambleApp(
                         onCompleteAllSubtasks = if (!isPast) { { viewModel.completeAllSubtasks(task.id) } } else null,
                         onAddReminder = if (!isPast) { { reminder -> viewModel.addReminder(task, reminder) } } else null,
                         onRemoveReminder = if (!isPast) { { idx -> viewModel.removeReminder(task, idx) } } else null,
+                        onToggleRollover = if (!isPast && !task.isCompleted && task.source == "local" && !task.isRecurrenceTemplate && task.recurrenceParentId == null) {
+                            {
+                                val newType = if (task.recurrenceType == "rollover") null else "rollover"
+                                viewModel.updateTask(task, task.title, task.createdDate, task.deadlineTime, task.priority, task.description, task.tags, newType, task.recurrenceInterval ?: 1, task.recurrenceDays, task.recurrenceEndDate)
+                            }
+                        } else null,
                         isPastTask = isPast
                     )
                 }

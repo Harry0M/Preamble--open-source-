@@ -166,6 +166,7 @@ fun TaskDetailBottomSheet(
     onCopyToToday: (() -> Unit)? = null,
     onAddReminder: ((com.theblankstate.preamble.data.Reminder) -> Unit)? = null,
     onRemoveReminder: ((Int) -> Unit)? = null,
+    onToggleRollover: (() -> Unit)? = null,
     isPastTask: Boolean = false
 ) {
     val context = LocalContext.current
@@ -846,10 +847,37 @@ fun TaskDetailBottomSheet(
             }
 
             // ═══════════════════════════════════════════════════════════════
+            // ROLLOVER TOGGLE — flip rollover on/off after create
+            // ═══════════════════════════════════════════════════════════════
+            run {
+                val canToggle = onToggleRollover != null &&
+                        !task.isCompleted &&
+                        !isPastTask &&
+                        !task.isRecurrenceTemplate &&
+                        task.recurrenceParentId == null &&
+                        (task.recurrenceType == null || task.recurrenceType == "rollover") &&
+                        task.source == "local"
+                if (canToggle) {
+                    val isRollover = task.recurrenceType == "rollover"
+                    Spacer(modifier = Modifier.height(12.dp))
+                    SuggestionChip(
+                        onClick = { onToggleRollover?.invoke() },
+                        label = {
+                            Text(
+                                if (isRollover) "Rolling over — tap to make one-time"
+                                else "One-time — tap to roll over daily",
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        }
+                    )
+                }
+            }
+
+            // ═══════════════════════════════════════════════════════════════
             // RECURRENCE & PROGRESS
             // ═══════════════════════════════════════════════════════════════
-            if ((task.googleRecurrenceInfo != null && !task.isRecurrenceTemplate) || 
-                task.isRecurrenceTemplate || task.recurrenceParentId != null || 
+            if ((task.googleRecurrenceInfo != null && !task.isRecurrenceTemplate) ||
+                task.isRecurrenceTemplate || task.recurrenceParentId != null ||
                 task.recurrenceType == "rollover") {
                 
                 Spacer(modifier = Modifier.height(16.dp))
