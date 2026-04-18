@@ -204,6 +204,10 @@ fun AddTaskSheet(
                 selectedTags = raw.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
             }
             if (taskDescription.isBlank()) result["description"]?.takeIf { it.isNotBlank() }?.let { taskDescription = it }
+            if (newSubtasks.isEmpty()) {
+                val aiSubtasks = com.theblankstate.preamble.ai.TaskTools.parseSubtasks(result["subtasks"])
+                if (aiSubtasks.isNotEmpty()) newSubtasks = aiSubtasks
+            }
             val aiRecurrence = result["recurrence"]?.takeIf { it.isNotBlank() }
             if (aiRecurrence != null) {
                 recurrenceType = aiRecurrence
@@ -406,6 +410,31 @@ fun AddTaskSheet(
                             )
                         }
                     }
+                }
+            }
+
+            // "Thinking…" label while AI parses (above input)
+            AnimatedVisibility(
+                visible = isAiParsing,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 6.dp, start = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    NotationIcon(
+                        type = "half_dotted",
+                        size = 12.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                        spinning = true
+                    )
+                    Text(
+                        "thinking…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
 

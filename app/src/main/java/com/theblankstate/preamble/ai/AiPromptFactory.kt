@@ -29,15 +29,15 @@ object AiPromptFactory {
         sb.appendLine("Extract a SHORT but SELF-EXPLANATORY task title. A user reading ONLY the title in a notification should instantly understand what the task is about.")
         sb.appendLine("REMOVE: temporal words (aaj, kal, shaam, subah, tomorrow, tonight), urgency words (urgent, ASAP), filler words (mujhe, hai, karna hai, I need to).")
         sb.appendLine("KEEP: the CORE ACTION (laana, karna, jaana, buy, pack, call) and KEY CONTEXT (what/who/where).")
-        sb.appendLine("LIST TASKS: If user mentions 3+ items, show first 2-3 items + 'etc' in title.")
+        sb.appendLine("LIST TASKS: If user mentions 2+ items/steps, title = SHORT generic category ('Trip packing', 'Groceries shopping', 'Meeting prep'). Items go in SUBTASKS (RULE 7), NOT in title.")
         sb.appendLine("Examples:")
         sb.appendLine("  'aaj shaam ko hospital jaana hai urgent' → title='Hospital jaana'")
         sb.appendLine("  'kal subah 7 baje gym karna hai' → title='Gym karna'")
-        sb.appendLine("  'mujhe bazaar se blue, yellow, pink color laane hai' → title='Blue, yellow, pink color laana'")
-        sb.appendLine("  'trip pe jaana with lamp, stove, tent, powerbank, torch, bag' → title='Trip packing - lamp, stove, tent etc'")
-        sb.appendLine("  'meeting ke liye slides banana, data collect, review lena' → title='Meeting prep - slides, data, review'")
-        sb.appendLine("BAD titles (too vague): 'Buy colors', 'Trip items', 'Prepare', 'Do stuff'")
-        sb.appendLine("GOOD titles (self-explanatory): 'Bazaar se colors laana', 'Trip packing - lamp, stove etc', 'Meeting slides banana'")
+        sb.appendLine("  'mujhe bazaar se blue, yellow, pink color laane hai' → title='Bazaar se colors laana' (items → subtasks)")
+        sb.appendLine("  'trip pe jaana with lamp, stove, tent, powerbank, torch, bag' → title='Trip packing' (items → subtasks)")
+        sb.appendLine("  'meeting ke liye slides banana, data collect, review lena' → title='Meeting prep' (steps → subtasks)")
+        sb.appendLine("BAD titles (too vague or stuffed with list): 'Buy colors', 'Trip items', 'Blue, yellow, pink color laana', 'Trip packing - lamp, stove etc'.")
+        sb.appendLine("GOOD titles: 'Bazaar se colors laana', 'Trip packing', 'Meeting prep'.")
         sb.appendLine()
 
         // Language
@@ -46,6 +46,7 @@ object AiPromptFactory {
         sb.appendLine("HINGLISH TEMPORAL: aaj=$today, kal/cal=tomorrow, parso/parson=day after tomorrow.")
         sb.appendLine("TIME WORDS: subah=07:00-09:00, dopahar=12:00-14:00, shaam=17:00-19:00, raat=21:00-22:00.")
         sb.appendLine("Convert times to 24h HH:mm: '5pm'→'17:00', '3:30 baje'→'15:30'.")
+        sb.appendLine("VOICE-TO-TEXT NOISE: input often has misspellings, missing punctuation, wrong word breaks, broken grammar. Interpret by MEANING, not literal spelling. Phonetic variants = same word (jaana/jana, gym/jim, shaam/sham/saam, kharidna/karidna). Fix silently; don't echo errors into title.")
         sb.appendLine()
 
         // Tags — MANDATORY
@@ -130,10 +131,9 @@ object AiPromptFactory {
         sb.appendLine()
 
         // Subtask extraction (always on — extracts items user explicitly mentioned)
-        sb.appendLine("RULE 7 — SUBTASK EXTRACTION (from explicit lists):")
-        sb.appendLine("If user EXPLICITLY mentions 3 or more ITEMS or THINGS in their input, extract them as subtasks.")
-        sb.appendLine("Pass them as comma-separated string in the 'subtasks' parameter.")
-        sb.appendLine("This is ONLY for items the user explicitly listed — do NOT invent subtasks here.")
+        sb.appendLine("RULE 7 — SUBTASK EXTRACTION (MANDATORY when user lists items):")
+        sb.appendLine("If user mentions 2 or more items/things/steps, you MUST extract them into the 'subtasks' parameter as a comma-separated string. This fires automatically — user does NOT need to say 'create subtasks'. List cues (any one): commas, 'aur'/'and'/'y'/'et' joining items, colons, or multiple action verbs in one sentence.")
+        sb.appendLine("This rule is for items the user actually said — do NOT invent new items here.")
         sb.appendLine("Examples:")
         sb.appendLine("  'bazaar se blue, yellow, pink color laane hai' → subtasks='Blue color,Yellow color,Pink color'")
         sb.appendLine("  'trip ke liye lamp, stove, tent, powerbank, torch pack karna' → subtasks='Lamp,Stove,Tent,Powerbank,Torch'")
@@ -144,8 +144,8 @@ object AiPromptFactory {
 
         // Smart AI task breakdown (optional — user enables in settings)
         if (smartBreakdown) {
-            sb.appendLine("RULE 10 — SMART TASK BREAKDOWN (AI-generated subtasks):")
-            sb.appendLine("For COMPLEX or PLANNING tasks where the user does NOT list specific items but the task clearly has multiple steps, YOU should generate helpful subtasks.")
+            sb.appendLine("RULE 10 — SMART TASK BREAKDOWN (auto-decompose complex tasks):")
+            sb.appendLine("This mode is ACTIVE. When user gives a COMPLEX / MULTI-STEP task and did NOT list items (RULE 7 didn't fire), you MUST auto-generate subtasks WITHOUT being asked.")
             sb.appendLine("This applies to: events, trips, projects, preparations, planning tasks.")
             sb.appendLine("Generate 3-7 practical, actionable subtasks that break down the task into steps.")
             sb.appendLine("Examples:")
