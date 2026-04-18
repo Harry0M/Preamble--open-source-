@@ -19,6 +19,8 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -96,7 +98,9 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -144,7 +148,7 @@ fun AddTaskSheet(
     var selectedTags by remember { mutableStateOf<Set<String>>(emptySet()) }
     var syncToGoogle by remember { mutableStateOf(false) }
     var syncToCalendar by remember { mutableStateOf(false) }
-    var recurrenceType by remember { mutableStateOf<String?>(null) }
+    var recurrenceType by remember { mutableStateOf<String?>("rollover") }
     var recurrenceInterval by remember { mutableStateOf(1) }
     var recurrenceDays by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var recurrenceEndDate by remember { mutableStateOf<String?>(null) }
@@ -157,6 +161,16 @@ fun AddTaskSheet(
     var showDescription by remember { mutableStateOf(false) }
     var showTagsDialog by remember { mutableStateOf(false) }
     var showPriorityDialog by remember { mutableStateOf(false) }
+    var showTaskTypeInfo by remember { mutableStateOf(false) }
+    val todayStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
+    val isToday = selectedDate == null || selectedDate == todayStr
+
+    // Auto-clear rollover when user picks a non-today date
+    LaunchedEffect(isToday) {
+        if (!isToday && recurrenceType == "rollover") {
+            recurrenceType = null
+        }
+    }
     val focusRequester = remember { FocusRequester() }
 
     // Lazily create SpeechRecognizer only when user taps mic (saves ~3-5MB)
@@ -352,6 +366,19 @@ fun AddTaskSheet(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Notation icon showing current task type
+                val currentNotationType = when {
+                    recurrenceType == "rollover" -> "half_dotted"
+                    recurrenceType != null && recurrenceType != "rollover" -> "fully_dotted"
+                    else -> "solid"
+                }
+                NotationIcon(
+                    type = currentNotationType,
+                    size = 22.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(start = 4.dp, end = 4.dp)
+                )
+
                 TextField(
                     value = taskTitle,
                     onValueChange = {
@@ -465,7 +492,124 @@ fun AddTaskSheet(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Icon row: Clock (schedule), Repeat, Details, Tags info chips
+            // Task type notation selector row
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                // Normal (one-day) task notation
+                val isNormal = recurrenceType == null
+                val isRollover = recurrenceType == "rollover"
+                val isRecurring = recurrenceType != null && recurrenceType != "rollover"
+                val primaryCol = MaterialTheme.colorScheme.primary
+                val mutedCol = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                val surfVariant = MaterialTheme.colorScheme.surfaceVariant
+
+                // One-Day Task button
+                Box(
+                    modifier = Modifier
+                        .height(36.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            recurrenceType = null
+                        }
+                        .then(
+                            if (isNormal) Modifier.background(surfVariant, CircleShape).padding(horizontal = 12.dp)
+                            else Modifier.padding(horizontal = 12.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        NotationIcon(type = "solid", size = 14.dp, color = if (isNormal) primaryCol else mutedCol)
+                        Text(
+                            "One-Day",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = if (isNormal) primaryCol else mutedCol
+                        )
+                    }
+                }
+
+                // Rollover (Active) button — only for today
+                if (isToday) {
+                    Box(
+                        modifier = Modifier
+                            .height(36.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                recurrenceType = "rollover"
+                            }
+                            .then(
+                                if (isRollover) Modifier.background(surfVariant, CircleShape).padding(horizontal = 12.dp)
+                                else Modifier.padding(horizontal = 12.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            NotationIcon(type = "half_dotted", size = 14.dp, color = if (isRollover) primaryCol else mutedCol)
+                            Text(
+                                "Active",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (isRollover) primaryCol else mutedCol
+                            )
+                        }
+                    }
+                }
+
+                // Recurring button
+                if (onAddRecurringTask != null) {
+                    Box(
+                        modifier = Modifier
+                            .height(36.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                if (isRecurring) {
+                                    // Toggle off recurrence
+                                    recurrenceType = if (isToday) "rollover" else null
+                                    recurrenceInterval = 1
+                                    recurrenceDays = emptySet()
+                                    recurrenceEndDate = null
+                                } else {
+                                    showRepeatSheet = true
+                                }
+                            }
+                            .then(
+                                if (isRecurring) Modifier.background(surfVariant, CircleShape).padding(horizontal = 12.dp)
+                                else Modifier.padding(horizontal = 12.dp)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            NotationIcon(type = "fully_dotted", size = 14.dp, color = if (isRecurring) primaryCol else mutedCol)
+                            Text(
+                                "Repeat",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (isRecurring) primaryCol else mutedCol
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                // Info button
+                IconButton(onClick = { showTaskTypeInfo = true }, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Default.Info,
+                        contentDescription = "Task type info",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            // Icon row: Clock (schedule), Details, Tags, Priority
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -479,19 +623,6 @@ fun AddTaskSheet(
                             MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
-
-                // Repeat icon - opens repeat sheet
-                if (onAddRecurringTask != null && recurrenceType != "rollover") {
-                    IconButton(onClick = { showRepeatSheet = true }) {
-                        Icon(
-                            Icons.Default.Repeat,
-                            contentDescription = "Repeat",
-                            tint = if (recurrenceType != null && recurrenceType != "rollover")
-                                MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
                 }
 
                 // Details icon - toggles description field
@@ -719,28 +850,7 @@ fun AddTaskSheet(
                     }
                 }
             }
-            
-            // Rollover toggle
-            if (recurrenceType == null || recurrenceType == "rollover") {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        "Keep active until completed",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    androidx.compose.material3.Switch(
-                        checked = recurrenceType == "rollover",
-                        onCheckedChange = {
-                            recurrenceType = if (it) "rollover" else null
-                        }
-                    )
-                }
-            }
+
 
             // Sync to Google Calendar toggle (only visible when linked)
             if (calendarLinked) {
@@ -925,6 +1035,11 @@ fun AddTaskSheet(
         }
     }
 
+    // Task type info dialog
+    if (showTaskTypeInfo) {
+        TaskTypeInfoDialog(onDismiss = { showTaskTypeInfo = false })
+    }
+
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
@@ -1025,4 +1140,92 @@ fun PriorityAnimatedSlider(
             modifier = Modifier.fillMaxWidth()
         )
     }
+}
+
+@Composable
+fun NotationIcon(
+    type: String,
+    size: androidx.compose.ui.unit.Dp,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier.size(size)) {
+        val strokeW = 2.dp.toPx()
+        val r = (this.size.width - strokeW) / 2f
+        when (type) {
+            "solid" -> {
+                drawCircle(color = color, radius = r)
+            }
+            "half_dotted" -> {
+                drawArc(
+                    color = color,
+                    startAngle = -90f,
+                    sweepAngle = 180f,
+                    useCenter = false,
+                    style = Stroke(width = strokeW)
+                )
+                drawArc(
+                    color = color,
+                    startAngle = 90f,
+                    sweepAngle = 180f,
+                    useCenter = false,
+                    style = Stroke(
+                        width = strokeW,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
+                    )
+                )
+            }
+            "fully_dotted" -> {
+                drawCircle(
+                    color = color,
+                    radius = r,
+                    style = Stroke(
+                        width = strokeW,
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
+                    )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun TaskTypeInfoDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Got it") }
+        },
+        title = { Text("Task Types", style = MaterialTheme.typography.titleLarge) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                Text(
+                    "Choose how your task behaves:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    NotationIcon(type = "solid", size = 22.dp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(top = 2.dp))
+                    Column {
+                        Text("One-Day Task", style = MaterialTheme.typography.titleSmall)
+                        Text("Lives only for its scheduled day. If not completed, it disappears from your active view.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    NotationIcon(type = "half_dotted", size = 22.dp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(top = 2.dp))
+                    Column {
+                        Text("Active Until Complete", style = MaterialTheme.typography.titleSmall)
+                        Text("Rolls over to the next day automatically until you mark it done. Great for tasks you don\u2019t want to forget.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    NotationIcon(type = "fully_dotted", size = 22.dp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(top = 2.dp))
+                    Column {
+                        Text("Recurring Task", style = MaterialTheme.typography.titleSmall)
+                        Text("Repeats on a schedule \u2014 daily, weekly, or custom. Each occurrence is independent.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    )
 }

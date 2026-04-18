@@ -136,7 +136,9 @@ dependencies {
     implementation("io.coil-kt:coil-svg:2.5.0")
 
     // Vico Charts (Jetpack Compose + Material3)
-    implementation("com.patrykandpatrick.vico:compose-m3:3.1.0")
+    implementation("com.patrykandpatrick.vico:compose-m3:3.1.0") {
+        exclude(group = "androidx.compose.material3", module = "material3")
+    }
 
     // PostHog analytics
     implementation("com.posthog:posthog-android:3.7.4")
