@@ -131,6 +131,33 @@ class AiChatViewModel(
         }
     }
 
+    /**
+     * Dry-run parse: send text to AI and return the first add_task tool-call arguments
+     * WITHOUT saving anything. Used by AddTaskSheet live preview.
+     * Returns null if AI not configured, request fails, or no add_task tool-call produced.
+     */
+    suspend fun parseTaskPreview(text: String): Map<String, String>? {
+        if (!isConfigured()) return null
+        val provider = getProvider() ?: return null
+        return try {
+            _isLoading.value = true
+            val contextTasks = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
+            val smartBreakdown = application.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+                .getBoolean("ai_smart_breakdown", false)
+            val systemMsg = ChatMessage("system",
+                AiPromptFactory.buildSystemPrompt(contextTasks, smartBreakdown = smartBreakdown)
+            )
+            val userMsg = ChatMessage("user", text)
+            val response = provider.chat(listOf(systemMsg, userMsg), TaskTools.tools)
+            response.toolCalls?.firstOrNull { it.name == "add_task" }?.arguments
+        } catch (e: Exception) {
+            Log.e("AiChatViewModel", "parseTaskPreview failed", e)
+            null
+        } finally {
+            _isLoading.value = false
+        }
+    }
+
     class Factory(
         private val application: Application,
         private val taskViewModel: TaskViewModel

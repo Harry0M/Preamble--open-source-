@@ -99,6 +99,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
@@ -169,6 +170,52 @@ fun AddTaskSheet(
     LaunchedEffect(isToday) {
         if (!isToday && recurrenceType == "rollover") {
             recurrenceType = null
+        }
+    }
+
+    // ── AI live-format (controls sheet fields as user types) ──
+    val aiControlEnabled = remember {
+        context.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+            .getBoolean("ai_control_task_sheet", true)
+    }
+    var isAiParsing by remember { mutableStateOf(false) }
+    var aiLastParsed by remember { mutableStateOf("") }
+
+    LaunchedEffect(taskTitle) {
+        if (!aiControlEnabled) return@LaunchedEffect
+        if (aiChatViewModel == null || !aiChatViewModel.isConfigured()) return@LaunchedEffect
+        if (isListening || wantsToListen) return@LaunchedEffect
+        val input = taskTitle.trim()
+        if (input.length < 8) return@LaunchedEffect
+        if (input == aiLastParsed) return@LaunchedEffect
+        kotlinx.coroutines.delay(700)
+        if (taskTitle.trim() != input) return@LaunchedEffect  // user kept typing
+        isAiParsing = true
+        val result = aiChatViewModel.parseTaskPreview(input)
+        isAiParsing = false
+        if (result != null) {
+            val newTitle = result["title"]?.takeIf { it.isNotBlank() } ?: input
+            aiLastParsed = newTitle
+            if (newTitle != taskTitle) taskTitle = newTitle
+            if (selectedTime == null) result["deadline_time"]?.takeIf { it.isNotBlank() }?.let { selectedTime = it }
+            if (selectedDate == null) result["date"]?.takeIf { it.isNotBlank() }?.let { selectedDate = it }
+            if (selectedPriority == 0) result["priority"]?.toIntOrNull()?.let { selectedPriority = it }
+            if (selectedTags.isEmpty()) result["tags"]?.takeIf { it.isNotBlank() }?.let { raw ->
+                selectedTags = raw.split(",").map { it.trim() }.filter { it.isNotBlank() }.toSet()
+            }
+            if (taskDescription.isBlank()) result["description"]?.takeIf { it.isNotBlank() }?.let { taskDescription = it }
+            val aiRecurrence = result["recurrence"]?.takeIf { it.isNotBlank() }
+            if (aiRecurrence != null) {
+                recurrenceType = aiRecurrence
+            } else if (recurrenceType == null || recurrenceType == "rollover") {
+                when (result["rollover"]?.lowercase()) {
+                    "true", "yes", "1" -> recurrenceType = "rollover"
+                    "false", "no", "0" -> recurrenceType = null
+                    else -> {}
+                }
+            }
+        } else {
+            aiLastParsed = input
         }
     }
     val focusRequester = remember { FocusRequester() }
@@ -376,7 +423,8 @@ fun AddTaskSheet(
                     type = currentNotationType,
                     size = 22.dp,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(start = 4.dp, end = 4.dp)
+                    modifier = Modifier.padding(start = 4.dp, end = 4.dp),
+                    spinning = isAiParsing
                 )
 
                 TextField(
@@ -1147,9 +1195,22 @@ fun NotationIcon(
     type: String,
     size: androidx.compose.ui.unit.Dp,
     color: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    spinning: Boolean = false
 ) {
-    Canvas(modifier = modifier.size(size)) {
+    val rotation = if (spinning) {
+        val t = rememberInfiniteTransition(label = "notationSpin")
+        t.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 900),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "notationSpinAngle"
+        ).value
+    } else 0f
+    Canvas(modifier = modifier.size(size).graphicsLayer { rotationZ = rotation }) {
         val strokeW = 2.dp.toPx()
         val r = (this.size.width - strokeW) / 2f
         when (type) {

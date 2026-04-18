@@ -58,6 +58,30 @@ object TaskTools {
     }
 
     /**
+     * Unified rollover decision used by both in-app (TaskTools.execute) and
+     * notification (VoiceTaskService) paths. Keep the two paths consistent.
+     *
+     * Hard disqualifiers override everything: future date, explicit recurrence, or deadline_time.
+     * Then: explicit AI rollover arg wins. Else heuristic on cleaned title.
+     */
+    fun decideRollover(
+        rolloverArg: String?,
+        title: String,
+        date: String?,
+        deadlineTime: String?,
+        recurrence: String?,
+        today: String
+    ): Boolean {
+        val isToday = date == null || date == today
+        val hardDisqualified = !isToday || recurrence != null || deadlineTime != null
+        if (hardDisqualified) return false
+        val parsed = rolloverArg?.lowercase()?.let {
+            when (it) { "true", "yes", "1" -> true; "false", "no", "0" -> false; else -> null }
+        }
+        return parsed ?: heuristicRollover(title)
+    }
+
+    /**
      * Parse a comma-separated subtasks string into a clean list.
      * Handles whitespace, empty entries, and deduplication.
      */
@@ -150,17 +174,14 @@ object TaskTools {
                 if (deadlineTime != null && !isValidTime(deadlineTime)) return "Error: invalid time format '$deadlineTime', expected HH:mm"
 
                 val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
-                val isToday = date == null || date == today
-                val rolloverArg = call.arguments["rollover"]?.lowercase()?.let {
-                    when (it) { "true", "yes", "1" -> true; "false", "no", "0" -> false; else -> null }
-                }
-                // Hard overrides: future date / recurrence / deadline disqualify rollover
-                val hardDisqualified = !isToday || recurrence != null || deadlineTime != null
-                val rollover = when {
-                    hardDisqualified -> false
-                    rolloverArg != null -> rolloverArg
-                    else -> heuristicRollover(title)
-                }
+                val rollover = decideRollover(
+                    rolloverArg = call.arguments["rollover"],
+                    title = title,
+                    date = date,
+                    deadlineTime = deadlineTime,
+                    recurrence = recurrence,
+                    today = today
+                )
 
                 if (recurrence != null) {
                     viewModel.addRecurringTask(

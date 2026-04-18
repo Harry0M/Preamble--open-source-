@@ -79,6 +79,15 @@ class AiParsingWorker(
                             val description = call.arguments["description"]
                             val subtasksList = TaskTools.parseSubtasks(call.arguments["subtasks"])
                             val validRecurrence = recurrence?.takeIf { it in listOf("daily", "weekly", "monthly", "yearly") }
+                            val rolloverDecision = call.name == "add_task" && TaskTools.decideRollover(
+                                rolloverArg = call.arguments["rollover"],
+                                title = refinedTitle,
+                                date = date,
+                                deadlineTime = time,
+                                recurrence = validRecurrence,
+                                today = today
+                            )
+                            val effectiveRecurrence = validRecurrence ?: if (rolloverDecision) "rollover" else task.recurrenceType
 
                             var updated = task.copy(
                                 title = refinedTitle,
@@ -87,7 +96,7 @@ class AiParsingWorker(
                                 tags = tags,
                                 priority = priority,
                                 description = description ?: task.description,
-                                recurrenceType = validRecurrence ?: task.recurrenceType,
+                                recurrenceType = effectiveRecurrence,
                                 isSyncing = false,
                                 updatedTimestamp = System.currentTimeMillis()
                             )

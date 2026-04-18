@@ -602,6 +602,30 @@ fun SettingsScreen(
             ) {
                 SettingsCard {
                     Column {
+                        var aiControlSheetEnabled by remember {
+                            mutableStateOf(
+                                context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                    .getBoolean("ai_control_task_sheet", true)
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(16.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Let AI Control Task Sheet", style = MaterialTheme.typography.bodyLarge)
+                                Text("As you type, AI auto-fills time, date, priority, tags, and task type. Turn off for fully manual entry.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                            }
+                            Switch(
+                                checked = aiControlSheetEnabled,
+                                onCheckedChange = { enabled ->
+                                    aiControlSheetEnabled = enabled
+                                    context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).edit().putBoolean("ai_control_task_sheet", enabled).apply()
+                                }
+                            )
+                        }
+                        HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
                         var smartBreakdownEnabled by remember {
                             mutableStateOf(
                                 context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)

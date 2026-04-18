@@ -222,7 +222,21 @@ class VoiceTaskService : Service() {
                                     val description = call.arguments["description"]
                                     val subtasksList = com.theblankstate.preamble.ai.TaskTools.parseSubtasks(call.arguments["subtasks"])
 
-                                    Log.d("PreambleAI", "  Parsed: title='$taskTitle', date=$date, time=$time, tags=$tags, pri=$priority, desc=${description?.take(50)}, subtasks=${subtasksList.size}")
+                                    // Unified rollover decision (same as in-app path)
+                                    val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date())
+                                    val validRecurrenceCheck = recurrence?.takeIf { it in listOf("daily", "weekly", "monthly", "yearly") }
+                                    val rolloverDecision = call.name == "add_task" && com.theblankstate.preamble.ai.TaskTools.decideRollover(
+                                        rolloverArg = call.arguments["rollover"],
+                                        title = taskTitle,
+                                        date = date,
+                                        deadlineTime = time,
+                                        recurrence = validRecurrenceCheck,
+                                        today = todayStr
+                                    )
+                                    // Effective recurrenceType sent to DB: real recurrence wins, else "rollover" sentinel, else null
+                                    val effectiveRecurrence = validRecurrenceCheck ?: if (rolloverDecision) "rollover" else null
+
+                                    Log.d("PreambleAI", "  Parsed: title='$taskTitle', date=$date, time=$time, tags=$tags, pri=$priority, desc=${description?.take(50)}, subtasks=${subtasksList.size}, rollover=$rolloverDecision, effRec=$effectiveRecurrence")
 
                                     // set_reminder from notification (only when feature is ON):
                                     // if an existing task matches the title, add the alarm to THAT task.
@@ -254,12 +268,12 @@ class VoiceTaskService : Service() {
 
                                     if (!handledAsReminderOnExisting) {
                                         if (existingTaskId != null) {
-                                            updateExistingTask(app, existingTaskId, taskTitle, date, time, tags, priority, recurrence, description)
+                                            updateExistingTask(app, existingTaskId, taskTitle, date, time, tags, priority, effectiveRecurrence, description)
                                             if (subtasksList.isNotEmpty()) {
                                                 app.repository.addSubtasks(existingTaskId, subtasksList)
                                             }
                                         } else {
-                                            val savedTaskId = saveInterpretedTask(app, taskTitle, date, time, tags, priority, recurrence, description)
+                                            val savedTaskId = saveInterpretedTask(app, taskTitle, date, time, tags, priority, effectiveRecurrence, description)
                                             if (savedTaskId != null && subtasksList.isNotEmpty()) {
                                                 app.repository.addSubtasks(savedTaskId, subtasksList)
                                             }
@@ -424,7 +438,7 @@ class VoiceTaskService : Service() {
     ) {
         val existing = app.repository.getTaskById(taskId) ?: return
         val today = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date())
-        val validRecurrence = recurrence?.takeIf { it in listOf("daily", "weekly", "monthly", "yearly") }
+        val validRecurrence = recurrence?.takeIf { it in listOf("daily", "weekly", "monthly", "yearly", "rollover") }
         val updated = existing.copy(
             title = refinedTitle,
             createdDate = date ?: today,
@@ -546,7 +560,7 @@ class VoiceTaskService : Service() {
     ): String? {
         var localTaskCreated = false
         var createdTaskId: String? = null
-        val validRecurrence = recurrence?.takeIf { it in listOf("daily", "weekly", "monthly", "yearly") }
+        val validRecurrence = recurrence?.takeIf { it in listOf("daily", "weekly", "monthly", "yearly", "rollover") }
 
         if (com.theblankstate.preamble.sync.GoogleTasksManager.syncVoiceTasks.value
             && com.theblankstate.preamble.sync.GoogleTasksManager.isLinked.value) {
