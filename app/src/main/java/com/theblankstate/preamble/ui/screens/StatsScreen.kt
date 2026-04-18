@@ -367,6 +367,7 @@ fun StatsScreen(
                         }
                         val visibleInsights = if (statsUnlocked) statsState.smartInsights else statsState.smartInsights.take(2)
                         visibleInsights.forEach { insight ->
+                            val cleanInsight = insight.dropWhile { !it.isLetterOrDigit() }.trim()
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -376,10 +377,14 @@ fun StatsScreen(
                             ) {
                                 Icon(
                                     when {
-                                        insight.contains("streak", ignoreCase = true) -> Icons.Filled.LocalFireDepartment
-                                        insight.contains("peak", ignoreCase = true) || insight.contains("best", ignoreCase = true) -> Icons.Filled.EmojiEvents
-                                        insight.contains("slow", ignoreCase = true) || insight.contains("drop", ignoreCase = true) -> Icons.Filled.Warning
-                                        insight.contains("focus", ignoreCase = true) || insight.contains("pomodoro", ignoreCase = true) -> Icons.Filled.Timer
+                                        cleanInsight.contains("streak", ignoreCase = true) -> Icons.Filled.LocalFireDepartment
+                                        cleanInsight.contains("peak", ignoreCase = true) || cleanInsight.contains("consistency", ignoreCase = true) || cleanInsight.contains("best", ignoreCase = true) -> Icons.Filled.EmojiEvents
+                                        cleanInsight.contains("burnout", ignoreCase = true) -> Icons.Filled.Warning
+                                        cleanInsight.contains("rollover", ignoreCase = true) || cleanInsight.contains("procrastination", ignoreCase = true) || cleanInsight.contains("due date", ignoreCase = true) -> Icons.Filled.AccessTime
+                                        cleanInsight.contains("done", ignoreCase = true) || cleanInsight.contains("crushing", ignoreCase = true) || cleanInsight.contains("almost there", ignoreCase = true) -> Icons.Filled.CheckCircle
+                                        cleanInsight.contains("average", ignoreCase = true) || cleanInsight.contains("productive", ignoreCase = true) -> Icons.Filled.Leaderboard
+                                        cleanInsight.contains("dipping", ignoreCase = true) || cleanInsight.contains("drop", ignoreCase = true) || cleanInsight.contains("slow", ignoreCase = true) -> Icons.AutoMirrored.Filled.TrendingDown
+                                        cleanInsight.contains("focus", ignoreCase = true) || cleanInsight.contains("pomodoro", ignoreCase = true) -> Icons.Filled.Timer
                                         else -> Icons.AutoMirrored.Filled.TrendingUp
                                     },
                                     contentDescription = null,
@@ -387,7 +392,7 @@ fun StatsScreen(
                                     modifier = Modifier.size(16.dp).padding(top = 2.dp)
                                 )
                                 Text(
-                                    insight,
+                                    cleanInsight,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurface
                                 )

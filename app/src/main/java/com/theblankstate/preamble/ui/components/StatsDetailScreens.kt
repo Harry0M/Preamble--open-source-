@@ -77,6 +77,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import com.theblankstate.preamble.viewmodel.StatsState
 import java.text.SimpleDateFormat
@@ -516,12 +517,31 @@ fun InfoCapsule(label: String, value: String, color: Color, modifier: Modifier =
         modifier = modifier
             .clip(RoundedCornerShape(50))
             .background(color.copy(alpha = 0.1f))
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+            .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.Center
     ) {
-        Text(value, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Black, color = color)
-        Text(label, style = MaterialTheme.typography.labelSmall, color = color.copy(alpha = 0.8f))
+        androidx.compose.material3.Text(
+            text = value,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Black,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            softWrap = false
+        )
+        if (label.isNotEmpty()) {
+            Spacer(modifier = Modifier.width(4.dp))
+            androidx.compose.material3.Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = color.copy(alpha = 0.8f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                softWrap = false,
+                modifier = Modifier.weight(1f, fill = false)
+            )
+        }
     }
 }
 
