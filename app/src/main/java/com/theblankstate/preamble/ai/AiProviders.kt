@@ -13,6 +13,14 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
 /**
+ * Retryable AI error — transient server/rate-limit failure (429, 500, 502, 503, 504).
+ * Extends IOException so AiParsingWorker's existing IOException catch triggers Result.retry().
+ */
+class RetryableAiException(message: String) : java.io.IOException(message)
+
+private val RETRYABLE_HTTP_CODES = setOf(429, 500, 502, 503, 504)
+
+/**
  * Shared OkHttpClient for all AI providers.
  * Avoids creating 4 separate connection pools + thread pools (~2-3MB each).
  */
@@ -85,6 +93,9 @@ class MistralProvider(private val apiKey: String) : AiProvider {
             if (!response.isSuccessful) {
                 Log.e(TAG, "└─── Mistral API ERROR ───")
                 Log.e(TAG, "  HTTP ${response.code}: ${responseBody.take(500)}")
+                if (response.code in RETRYABLE_HTTP_CODES) {
+                    throw RetryableAiException("Mistral API transient error ${response.code}: ${responseBody.take(300)}")
+                }
                 throw RuntimeException("Mistral API error ${response.code}: ${responseBody.take(300)}")
             }
             
@@ -140,7 +151,14 @@ class OpenAiProvider(private val apiKey: String) : AiProvider {
                 .build()
 
             val response = client.newCall(request).execute()
-            val json = JsonParser.parseString(response.body?.string()).asJsonObject
+            val responseBody = response.body?.string() ?: ""
+            if (!response.isSuccessful) {
+                if (response.code in RETRYABLE_HTTP_CODES) {
+                    throw RetryableAiException("OpenAI API transient error ${response.code}: ${responseBody.take(300)}")
+                }
+                throw RuntimeException("OpenAI API error ${response.code}: ${responseBody.take(300)}")
+            }
+            val json = JsonParser.parseString(responseBody).asJsonObject
             parseOpenAiStyleResponse(json)
         }
 }
@@ -201,7 +219,14 @@ class GeminiProvider(private val apiKey: String) : AiProvider {
                 .build()
 
             val response = client.newCall(request).execute()
-            val json = JsonParser.parseString(response.body?.string()).asJsonObject
+            val responseBody = response.body?.string() ?: ""
+            if (!response.isSuccessful) {
+                if (response.code in RETRYABLE_HTTP_CODES) {
+                    throw RetryableAiException("Gemini API transient error ${response.code}: ${responseBody.take(300)}")
+                }
+                throw RuntimeException("Gemini API error ${response.code}: ${responseBody.take(300)}")
+            }
+            val json = JsonParser.parseString(responseBody).asJsonObject
 
             val candidates = json.getAsJsonArray("candidates")
             if (candidates == null || candidates.size() == 0) {
@@ -281,7 +306,14 @@ class ClaudeProvider(private val apiKey: String) : AiProvider {
                 .build()
 
             val response = client.newCall(request).execute()
-            val json = JsonParser.parseString(response.body?.string()).asJsonObject
+            val responseBody = response.body?.string() ?: ""
+            if (!response.isSuccessful) {
+                if (response.code in RETRYABLE_HTTP_CODES) {
+                    throw RetryableAiException("Claude API transient error ${response.code}: ${responseBody.take(300)}")
+                }
+                throw RuntimeException("Claude API error ${response.code}: ${responseBody.take(300)}")
+            }
+            val json = JsonParser.parseString(responseBody).asJsonObject
 
             val content = json.getAsJsonArray("content") ?: return@withContext AiResponse("Error processing response", null)
 

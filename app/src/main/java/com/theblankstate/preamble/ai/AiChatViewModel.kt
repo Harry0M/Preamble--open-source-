@@ -53,10 +53,10 @@ class AiChatViewModel(
             _isLoading.value = true
             val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
             val contextTasks = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
-            val smartBreakdown = application.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
-                .getBoolean("ai_smart_breakdown", false)
+            val subtaskIntensity = application.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+                .getInt("ai_subtask_intensity", 0)
             val systemMsg = ChatMessage("system",
-                AiPromptFactory.buildSystemPrompt(contextTasks, smartBreakdown = smartBreakdown)
+                AiPromptFactory.buildSystemPrompt(contextTasks, subtaskIntensity = subtaskIntensity)
             )
             val userMsg = ChatMessage("user", text)
 
@@ -104,10 +104,10 @@ class AiChatViewModel(
             _isLoading.value = true
             val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
             val contextTasks = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
-            val smartBreakdown = application.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
-                .getBoolean("ai_smart_breakdown", false)
+            val subtaskIntensity = application.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+                .getInt("ai_subtask_intensity", 0)
             val systemMsg = ChatMessage("system",
-                AiPromptFactory.buildSystemPrompt(contextTasks, smartBreakdown = smartBreakdown)
+                AiPromptFactory.buildSystemPrompt(contextTasks, subtaskIntensity = subtaskIntensity)
             )
             val userMsg = ChatMessage("user", text)
 
@@ -142,10 +142,10 @@ class AiChatViewModel(
         return try {
             _isLoading.value = true
             val contextTasks = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
-            val smartBreakdown = application.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
-                .getBoolean("ai_smart_breakdown", false)
+            val subtaskIntensity = application.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+                .getInt("ai_subtask_intensity", 0)
             val systemMsg = ChatMessage("system",
-                AiPromptFactory.buildSystemPrompt(contextTasks, smartBreakdown = smartBreakdown)
+                AiPromptFactory.buildSystemPrompt(contextTasks, subtaskIntensity = subtaskIntensity)
             )
             val userMsg = ChatMessage("user", text)
             val response = provider.chat(listOf(systemMsg, userMsg), TaskTools.tools)

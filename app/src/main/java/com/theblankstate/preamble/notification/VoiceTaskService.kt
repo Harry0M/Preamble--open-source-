@@ -178,9 +178,9 @@ class VoiceTaskService : Service() {
                 try {
                     // Fetch existing tasks for AI context (modify/delete operations)
                     val allTasks = app.repository.tasksFlow.firstOrNull() ?: emptyList()
-                    val smartBreakdown = applicationContext.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
-                        .getBoolean("ai_smart_breakdown", false)
-                    Log.d("PreambleAI", "  SmartBreakdown: $smartBreakdown")
+                    val subtaskIntensity = applicationContext.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+                        .getInt("ai_subtask_intensity", 0)
+                    Log.d("PreambleAI", "  SubtaskIntensity: $subtaskIntensity")
                     Log.d("PreambleAI", "  Context tasks: ${allTasks.size}")
                     
                     // Restrict to add-only tools when notification edit is disabled
@@ -196,7 +196,7 @@ class VoiceTaskService : Service() {
                     val systemMsg = com.theblankstate.preamble.ai.ChatMessage("system",
                         com.theblankstate.preamble.ai.AiPromptFactory.buildSystemPrompt(
                             allTasks,
-                            smartBreakdown = smartBreakdown,
+                            subtaskIntensity = subtaskIntensity,
                             isNotificationEdit = isNotification && aiNotifEditEnabled
                         )
                     )

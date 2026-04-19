@@ -16,7 +16,11 @@ object AiPromptFactory {
      * Build the universal system prompt.
      * @param existingTasks Optional list of tasks for modify/delete context
      */
-    fun buildSystemPrompt(existingTasks: List<Task>? = null, smartBreakdown: Boolean = false, isNotificationEdit: Boolean = false): String {
+    /**
+     * @param subtaskIntensity 0=Off (no auto-subtasks), 1=Light, 2=Balanced, 3=Aggressive.
+     *   Default 0 preserves legacy "smart breakdown off" behavior.
+     */
+    fun buildSystemPrompt(existingTasks: List<Task>? = null, subtaskIntensity: Int = 0, isNotificationEdit: Boolean = false): String {
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         val currentTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
@@ -142,20 +146,28 @@ object AiPromptFactory {
         sb.appendLine("Each subtask should be a clean, actionable item (capitalize first letter).")
         sb.appendLine()
 
-        // Smart AI task breakdown (optional — user enables in settings)
-        if (smartBreakdown) {
+        // Smart AI task breakdown (user-controlled intensity slider)
+        if (subtaskIntensity >= 1) {
             sb.appendLine("RULE 10 — SMART TASK BREAKDOWN (auto-decompose complex tasks):")
-            sb.appendLine("This mode is ACTIVE. When user gives a COMPLEX / MULTI-STEP task and did NOT list items (RULE 7 didn't fire), you MUST auto-generate subtasks WITHOUT being asked.")
-            sb.appendLine("This applies to: events, trips, projects, preparations, planning tasks.")
-            sb.appendLine("Generate 3-7 practical, actionable subtasks that break down the task into steps.")
+            sb.appendLine("When user gives a multi-step task and did NOT list items (RULE 7 didn't fire), auto-generate subtasks WITHOUT being asked.")
+            when (subtaskIntensity) {
+                1 -> {
+                    sb.appendLine("INTENSITY = LIGHT. Only decompose CLEARLY multi-step planning work: events, trips, major projects, exam/interview prep. Generate 3-4 high-level subtasks. When in doubt, DO NOT generate.")
+                }
+                2 -> {
+                    sb.appendLine("INTENSITY = BALANCED. Decompose events, trips, projects, preparations, multi-step errands, anything framed as 'plan/prepare/arrange/organize/set up'. Generate 3-5 actionable subtasks.")
+                }
+                3 -> {
+                    sb.appendLine("INTENSITY = AGGRESSIVE. Decompose almost ANY task with 2+ conceivable natural steps, including mildly-complex errands. Generate 4-7 detailed subtasks. When in doubt, DO generate — user opted into aggressive decomposition.")
+                }
+            }
             sb.appendLine("Examples:")
             sb.appendLine("  'birthday party plan karna' → subtasks='Cake order karna,Decorations kharidna,Guest list banana,Food arrange karna,Music playlist ready karna'")
             sb.appendLine("  'presentation ready karna' → subtasks='Content outline banana,Slides design karna,Data/charts collect karna,Practice karna,Review lena'")
             sb.appendLine("  'trip packing' → subtasks='Clothes pack karna,Toiletries,Documents (ID/tickets),Electronics (charger/powerbank),Snacks aur paani'")
             sb.appendLine("  'exam preparation' → subtasks='Syllabus review karna,Notes banana,Practice papers solve karna,Revision schedule banana'")
             sb.appendLine("  'house cleaning' → subtasks='Kitchen saaf karna,Bathroom cleaning,Room dusting,Floor mopping,Garbage nikalna'")
-            sb.appendLine("DO NOT generate subtasks for simple tasks like 'gym jaana', 'doctor appointment', 'call karna'.")
-            sb.appendLine("Only generate when the task genuinely benefits from breaking down into steps.")
+            sb.appendLine("Always skip atomic one-shot actions ('call X', 'mark done', 'send message').")
             sb.appendLine("Keep subtasks in the SAME LANGUAGE as user input.")
             sb.appendLine()
         }
