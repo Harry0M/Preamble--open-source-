@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(graphify update *)",
-      "Bash(./gradlew.bat assembleDebug -q)"
+      "Bash(./gradlew.bat assembleDebug -q)",
+      "WebFetch(domain:api.anthropic.com)",
+      "Bash(mkdir -p /tmp/design)",
+      "Bash(cp \"C:\\\\Users\\\\palha\\\\.claude\\\\projects\\\\c--Users-palha-preamble\\\\594899ce-1461-436b-ac5e-bdf06238c87a\\\\tool-results\\\\webfetch-1776609338095-gtl8o7.bin\" /tmp/design/payload.gz)",
+      "Read(//tmp/**)",
+      "Bash(gunzip -k payload.gz)",
+      "Bash(tar -xf payload)",
+      "Bash(./gradlew :app:compileDebugKotlin -q)",
+      "Bash(./gradlew :app:compileDebugKotlin --rerun-tasks)"
     ]
   }
 }

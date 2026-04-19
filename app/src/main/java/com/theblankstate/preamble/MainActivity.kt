@@ -43,7 +43,7 @@ import com.theblankstate.preamble.ui.screens.CalendarScreen
 import com.theblankstate.preamble.ui.screens.HomeScreen
 import com.theblankstate.preamble.ui.screens.OnboardingScreen
 import com.theblankstate.preamble.ui.screens.SettingsScreen
-import com.theblankstate.preamble.ui.screens.StatsScreen
+import com.theblankstate.preamble.ui.screens.StatsScreenHost
 import com.theblankstate.preamble.sync.GoogleSyncCoordinator
 import com.theblankstate.preamble.ui.theme.PreambleTheme
 import com.theblankstate.preamble.ui.theme.ThemePreferences
@@ -441,7 +441,7 @@ fun PreambleApp(
                 onAdminTaskAction = { viewModel.adminTaskActioned(it) },
                 modifier = Modifier.padding(innerPadding)
             )
-            1 -> StatsScreen(
+            1 -> StatsScreenHost(
                 statsState = stats,
                 onRefreshStats = { viewModel.refreshStats() },
                 modifier = Modifier.padding(innerPadding)
