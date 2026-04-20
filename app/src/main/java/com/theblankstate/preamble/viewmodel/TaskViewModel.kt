@@ -1738,47 +1738,47 @@ private fun generateSmartInsights(
     val insights = mutableListOf<String>()
 
     // Streak insights
-    if (streak >= 7) insights.add("🔥 Amazing ${streak}-day streak! Your longest is $longestStreak days")
-    else if (streak >= 3) insights.add("🔥 ${streak}-day streak going! Keep pushing to beat your record of $longestStreak")
-    else if (streak == 0) insights.add("💪 Start a streak today by completing all your tasks!")
+    if (streak >= 7) insights.add("Amazing ${streak}-day streak — your longest is $longestStreak days")
+    else if (streak >= 3) insights.add("${streak}-day streak going — push past your record of $longestStreak")
+    else if (streak == 0) insights.add("Start a streak today by completing all your tasks")
 
     // Peak day insight
     if (peakDay.isNotBlank() && peakDay != "—") {
         if (weekdayAvg > 0 && weekendAvg > 0) {
             val ratio = weekdayAvg / weekendAvg
-            if (ratio > 1.5f) insights.add("📊 You're ${String.format("%.0f", (ratio - 1) * 100)}% more productive on weekdays")
-            else if (ratio < 0.7f) insights.add("📊 You're ${String.format("%.0f", (1 / ratio - 1) * 100)}% more productive on weekends")
+            if (ratio > 1.5f) insights.add("You're ${String.format("%.0f", (ratio - 1) * 100)}% more productive on weekdays")
+            else if (ratio < 0.7f) insights.add("You're ${String.format("%.0f", (1 / ratio - 1) * 100)}% more productive on weekends")
         }
-        insights.add("📆 Your peak day is $peakDay — schedule important tasks then")
+        insights.add("Peak day is $peakDay — schedule important tasks then")
     }
 
     // Velocity insight
-    if (velocity > 0.1f) insights.add("📈 Your velocity is +${String.format("%.1f", velocity)} tasks/day — you're improving!")
-    else if (velocity < -0.2f) insights.add("📉 Productivity dipping — try breaking tasks into smaller steps")
+    if (velocity > 0.1f) insights.add("Velocity +${String.format("%.1f", velocity)} tasks/day — trending up")
+    else if (velocity < -0.2f) insights.add("Velocity dipping — try smaller, tighter tasks")
 
     // Burnout risk
-    if (burnoutRisk >= 0.65f) insights.add("⚠️ High burnout risk detected — consider taking a lighter day")
-    else if (burnoutRisk >= 0.35f) insights.add("🟡 Moderate burnout risk — balance is key")
+    if (burnoutRisk >= 0.65f) insights.add("High burnout risk — consider a lighter day")
+    else if (burnoutRisk >= 0.35f) insights.add("Moderate burnout risk — watch your pace")
 
     // Rollover health
-    if (activeRolloverCount > 5) insights.add("⏳ You have $activeRolloverCount pending rollover tasks (avg ${String.format("%.0f", avgRolloverDays)} days)")
-    else if (activeRolloverCount > 0) insights.add("📌 $activeRolloverCount rollover tasks — tackle the oldest first")
+    if (activeRolloverCount > 5) insights.add("$activeRolloverCount pending rollover tasks (avg ${String.format("%.0f", avgRolloverDays)} days)")
+    else if (activeRolloverCount > 0) insights.add("$activeRolloverCount rollover tasks — tackle the oldest first")
 
     // Today's progress
     if (todayTotal > 0) {
-        if (todayDone == todayTotal) insights.add("✅ All done for today! You're crushing it!")
-        else if (todayDone.toFloat() / todayTotal >= 0.75f) insights.add("🎯 Almost there — ${todayTotal - todayDone} tasks left today")
+        if (todayDone == todayTotal) insights.add("All done for today — clean slate")
+        else if (todayDone.toFloat() / todayTotal >= 0.75f) insights.add("Almost there — ${todayTotal - todayDone} tasks left today")
     }
 
     // Procrastination
-    if (procrastIdx > 0.5f) insights.add("⏰ ${(procrastIdx * 100).toInt()}% of tasks are completed after their due date")
+    if (procrastIdx > 0.5f) insights.add("${(procrastIdx * 100).toInt()}% of tasks completed after their due date")
 
     // Consistency
-    if (consistency >= 80) insights.add("🏆 Exceptional consistency score: $consistency/100")
-    else if (consistency < 30) insights.add("🎯 Consistency is $consistency/100 — try to do at least 1 task every day")
+    if (consistency >= 80) insights.add("Exceptional consistency: $consistency/100")
+    else if (consistency < 30) insights.add("Consistency $consistency/100 — try 1 task every day")
 
     // Moving average
-    if (movingAvg > 0) insights.add("📊 7-day average: ${String.format("%.1f", movingAvg)} tasks/day")
+    if (movingAvg > 0) insights.add("7-day average: ${String.format("%.1f", movingAvg)} tasks/day")
 
     return insights.take(6) // Cap at 6 most relevant insights
 }

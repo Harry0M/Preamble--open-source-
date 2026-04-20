@@ -77,6 +77,8 @@ fun StatsCapsuleScreen(
         StatsDensity.AIRY -> 14.dp
     }
 
+    val openCat = LocalStatsDeepDive.current
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -136,12 +138,14 @@ fun StatsCapsuleScreen(
                     accent = accent,
                     hair = hair,
                     history = statsState.productivityScoreHistory,
+                    onClick = openCat?.let { { it(StatsCategory.SCORE) } }
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                     StreakAccentTile(
                         streak = statsState.streak,
                         accent = accent,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        onClick = openCat?.let { { it(StatsCategory.STREAK) } }
                     )
                     CompletedFgTile(
                         completed = statsState.totalCompleted,
@@ -149,7 +153,8 @@ fun StatsCapsuleScreen(
                         fg = fg,
                         dark = dark,
                         surface = surface,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        onClick = openCat?.let { { it(StatsCategory.SCORE) } }
                     )
                 }
                 WeekBarsTile(
@@ -158,7 +163,8 @@ fun StatsCapsuleScreen(
                     fg = fg,
                     fgMuted = fgMuted,
                     tile = tile,
-                    dark = dark
+                    dark = dark,
+                    onClick = openCat?.let { { it(StatsCategory.WEEKLY) } }
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(gap)) {
                     FocusDonutTile(
@@ -169,7 +175,8 @@ fun StatsCapsuleScreen(
                         fgMuted = fgMuted,
                         tile = tile,
                         hair = hair,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        onClick = openCat?.let { { it(StatsCategory.FOCUS) } }
                     )
                     LongestFocusTile(
                         longest = longestSessionValue(statsState),
@@ -177,7 +184,8 @@ fun StatsCapsuleScreen(
                         fg = fg,
                         fgMuted = fgMuted,
                         tile = tile,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.weight(1f),
+                        onClick = openCat?.let { { it(StatsCategory.FOCUS) } }
                     )
                 }
                 HeatmapTile(
@@ -188,6 +196,7 @@ fun StatsCapsuleScreen(
                     fg = fg,
                     fgMuted = fgMuted,
                     tile = tile,
+                    onClick = openCat?.let { { it(StatsCategory.CONSISTENCY) } }
                 )
                 PeakHoursTile(
                     bars = hourlyBars(statsState),
@@ -195,14 +204,16 @@ fun StatsCapsuleScreen(
                     fgMuted = fgMuted,
                     tile = tile,
                     dark = dark,
-                    insight = peakInsight(statsState, hourlyBars(statsState))
+                    insight = peakInsight(statsState, hourlyBars(statsState)),
+                    onClick = openCat?.let { { it(StatsCategory.PEAK_HOURS) } }
                 )
                 TopTagsTile(
                     stats = statsState,
                     fg = fg,
                     dark = dark,
                     tile = tile,
-                    surface = surface
+                    surface = surface,
+                    onClick = openCat?.let { { it(StatsCategory.TAGS) } }
                 )
                 MilestonesTile(
                     stats = statsState,
@@ -210,13 +221,15 @@ fun StatsCapsuleScreen(
                     dark = dark,
                     tile = tile,
                     accent = accent,
-                    fgMuted = fgMuted
+                    fgMuted = fgMuted,
+                    onClick = openCat?.let { { it(StatsCategory.BESTS) } }
                 )
                 WeekReviewTile(
                     stats = statsState,
                     fg = fg,
                     fgMuted = fgMuted,
-                    hair = hair
+                    hair = hair,
+                    onClick = openCat?.let { { it(StatsCategory.WEEKLY) } }
                 )
             }
         }
@@ -283,6 +296,7 @@ private fun CapsuleTile(
     bg: Color,
     border: Color? = null,
     padding: Dp = 16.dp,
+    onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
     Column(
@@ -291,6 +305,7 @@ private fun CapsuleTile(
             .clip(RoundedCornerShape(22.dp))
             .background(bg)
             .then(if (border != null) Modifier.border(1.dp, border, RoundedCornerShape(22.dp)) else Modifier)
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
             .padding(padding)
     ) { content() }
 }
@@ -317,8 +332,9 @@ private fun HeroScoreTile(
     accent: Color,
     hair: Color,
     history: List<Pair<String, Int>>,
+    onClick: (() -> Unit)? = null,
 ) {
-    CapsuleTile(bg = tile, padding = 20.dp) {
+    CapsuleTile(bg = tile, padding = 20.dp, onClick = onClick) {
         Kicker("Productivity index", fgMuted)
         Spacer(Modifier.height(6.dp))
         Row(
@@ -372,8 +388,13 @@ private fun HeroScoreTile(
 }
 
 @Composable
-private fun StreakAccentTile(streak: Int, accent: Color, modifier: Modifier = Modifier) {
-    CapsuleTile(bg = accent, modifier = modifier) {
+private fun StreakAccentTile(
+    streak: Int,
+    accent: Color,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+) {
+    CapsuleTile(bg = accent, modifier = modifier, onClick = onClick) {
         Kicker("Streak", Color.Black.copy(alpha = 0.55f))
         Spacer(Modifier.height(24.dp))
         Row(verticalAlignment = Alignment.Bottom) {
@@ -409,12 +430,13 @@ private fun CompletedFgTile(
     fg: Color,
     dark: Boolean,
     surface: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
 ) {
     val kicker = if (dark) Color.Black.copy(alpha = 0.55f) else Color.White.copy(alpha = 0.55f)
     val sub = if (dark) Color.Black.copy(alpha = 0.6f) else Color.White.copy(alpha = 0.6f)
     val pct = if (total > 0) ((completed.toFloat() / total) * 100).roundToInt() else 0
-    CapsuleTile(bg = fg, modifier = modifier) {
+    CapsuleTile(bg = fg, modifier = modifier, onClick = onClick) {
         Kicker("Completed", kicker)
         Spacer(Modifier.height(24.dp))
         Text(
@@ -441,12 +463,13 @@ private fun WeekBarsTile(
     fg: Color,
     fgMuted: Color,
     tile: Color,
-    dark: Boolean
+    dark: Boolean,
+    onClick: (() -> Unit)? = null,
 ) {
     val labels = listOf("M", "T", "W", "T", "F", "S", "S")
     val bars = weekBarValues(weeklyStats)
     val todayIdx = todayWeekdayIndex()
-    CapsuleTile(bg = tile) {
+    CapsuleTile(bg = tile, onClick = onClick) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -508,9 +531,10 @@ private fun FocusDonutTile(
     fgMuted: Color,
     tile: Color,
     hair: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
 ) {
-    CapsuleTile(bg = tile, modifier = modifier) {
+    CapsuleTile(bg = tile, modifier = modifier, onClick = onClick) {
         Kicker("Focus", fgMuted)
         Spacer(Modifier.height(6.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -549,9 +573,10 @@ private fun LongestFocusTile(
     fg: Color,
     fgMuted: Color,
     tile: Color,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
 ) {
-    CapsuleTile(bg = tile, modifier = modifier) {
+    CapsuleTile(bg = tile, modifier = modifier, onClick = onClick) {
         Kicker("Longest focus", fgMuted)
         Spacer(Modifier.height(20.dp))
         Text(
@@ -575,8 +600,9 @@ private fun HeatmapTile(
     fg: Color,
     fgMuted: Color,
     tile: Color,
+    onClick: (() -> Unit)? = null,
 ) {
-    CapsuleTile(bg = tile) {
+    CapsuleTile(bg = tile, onClick = onClick) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -614,9 +640,10 @@ private fun PeakHoursTile(
     fgMuted: Color,
     tile: Color,
     dark: Boolean,
-    insight: String
+    insight: String,
+    onClick: (() -> Unit)? = null,
 ) {
-    CapsuleTile(bg = tile) {
+    CapsuleTile(bg = tile, onClick = onClick) {
         Kicker("Peak hours", fgMuted)
         Spacer(Modifier.height(10.dp))
         Row(
@@ -665,13 +692,14 @@ private fun TopTagsTile(
     fg: Color,
     dark: Boolean,
     tile: Color,
-    surface: Color
+    surface: Color,
+    onClick: (() -> Unit)? = null,
 ) {
     val items = stats.tagStats
         .sortedByDescending { it.completedCount }
         .take(7)
         .map { it.tag to it.completedCount }
-    CapsuleTile(bg = tile) {
+    CapsuleTile(bg = tile, onClick = onClick) {
         Kicker("Top tags", if (dark) Color.White.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.52f))
         Spacer(Modifier.height(10.dp))
         if (items.isEmpty()) {
@@ -752,10 +780,11 @@ private fun MilestonesTile(
     dark: Boolean,
     tile: Color,
     accent: Color,
-    fgMuted: Color
+    fgMuted: Color,
+    onClick: (() -> Unit)? = null,
 ) {
     val items = milestoneTiles(stats)
-    CapsuleTile(bg = tile) {
+    CapsuleTile(bg = tile, onClick = onClick) {
         Kicker("Personal bests · unlocked", fgMuted)
         Spacer(Modifier.height(10.dp))
         Row(
@@ -789,9 +818,10 @@ private fun WeekReviewTile(
     stats: StatsState,
     fg: Color,
     fgMuted: Color,
-    hair: Color
+    hair: Color,
+    onClick: (() -> Unit)? = null,
 ) {
-    CapsuleTile(bg = Color.Transparent, border = hair) {
+    CapsuleTile(bg = Color.Transparent, border = hair, onClick = onClick) {
         Kicker("Week in review", fgMuted)
         Spacer(Modifier.height(8.dp))
         Text(
@@ -875,12 +905,14 @@ private fun Sparkline(
         val minV = values.min()
         val maxV = values.max()
         val range = (maxV - minV).coerceAtLeast(0.0001f)
-        val w = size.width
-        val h = size.height
+        val dotR = 4.dp.toPx()
+        val inset = dotR + 1.dp.toPx()
+        val w = size.width - inset * 2
+        val h = size.height - inset * 2
         val path = Path()
         values.forEachIndexed { i, v ->
-            val x = (i.toFloat() / (values.size - 1)) * w
-            val y = h - ((v - minV) / range) * h
+            val x = inset + (i.toFloat() / (values.size - 1)) * w
+            val y = inset + h - ((v - minV) / range) * h
             if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
         }
         drawPath(
@@ -888,10 +920,9 @@ private fun Sparkline(
             color = color,
             style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
         )
-        // endpoint dot
-        val lastX = w
-        val lastY = h - ((values.last() - minV) / range) * h
-        drawCircle(color = color, radius = 4.dp.toPx(), center = Offset(lastX, lastY))
+        val lastX = inset + w
+        val lastY = inset + h - ((values.last() - minV) / range) * h
+        drawCircle(color = color, radius = dotR, center = Offset(lastX, lastY))
     }
 }
 

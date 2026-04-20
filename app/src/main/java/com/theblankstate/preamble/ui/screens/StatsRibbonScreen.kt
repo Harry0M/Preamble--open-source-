@@ -77,6 +77,8 @@ fun StatsRibbonScreen(
         StatsDensity.AIRY -> 40.dp
     }
 
+    val openCat = LocalStatsDeepDive.current
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -184,7 +186,12 @@ fun StatsRibbonScreen(
 
         item {
             SpineColumn(hair = hair, pad = pad, gap = gapChapter) {
-                Chapter(num = 1, title = chapter1Title(statsState), fg = fg, fgMuted = fgMuted, surface = surface) {
+                Chapter(
+                    num = 1,
+                    title = chapter1Title(statsState),
+                    fg = fg, fgMuted = fgMuted, surface = surface,
+                    onClick = openCat?.let { { it(StatsCategory.SCORE) } }
+                ) {
                     ChapterScoreTile(
                         score = statsState.productivityScore,
                         delta = (statsState.monthOverMonthGrowth * 100f).roundToInt(),
@@ -196,7 +203,12 @@ fun StatsRibbonScreen(
                         surface = surface,
                     )
                 }
-                Chapter(num = 2, title = "${statsState.streak}-day streak, unbroken", fg = fg, fgMuted = fgMuted, surface = surface) {
+                Chapter(
+                    num = 2,
+                    title = "${statsState.streak}-day streak, unbroken",
+                    fg = fg, fgMuted = fgMuted, surface = surface,
+                    onClick = openCat?.let { { it(StatsCategory.STREAK) } }
+                ) {
                     ChapterStreakTile(
                         streak = statsState.streak,
                         fg = fg,
@@ -205,7 +217,12 @@ fun StatsRibbonScreen(
                         accent = accent,
                     )
                 }
-                Chapter(num = 3, title = "Consistency", fg = fg, fgMuted = fgMuted, surface = surface) {
+                Chapter(
+                    num = 3,
+                    title = "Consistency",
+                    fg = fg, fgMuted = fgMuted, surface = surface,
+                    onClick = openCat?.let { { it(StatsCategory.CONSISTENCY) } }
+                ) {
                     ChapterHeatmap(
                         data = statsState.yearlyHeatmap,
                         dark = dark,
@@ -214,7 +231,12 @@ fun StatsRibbonScreen(
                         fgMuted = fgMuted,
                     )
                 }
-                Chapter(num = 4, title = "Your shape of a day", fg = fg, fgMuted = fgMuted, surface = surface) {
+                Chapter(
+                    num = 4,
+                    title = "Your shape of a day",
+                    fg = fg, fgMuted = fgMuted, surface = surface,
+                    onClick = openCat?.let { { it(StatsCategory.PEAK_HOURS) } }
+                ) {
                     ChapterDayShape(
                         bars = hourlyBars(statsState),
                         fg = fg,
@@ -224,20 +246,40 @@ fun StatsRibbonScreen(
                         peakLabel = statsState.peakHourLabel.ifBlank { peakFromBars(hourlyBars(statsState)) }
                     )
                 }
-                Chapter(num = 5, title = "Where the hours went", fg = fg, fgMuted = fgMuted, surface = surface) {
+                Chapter(
+                    num = 5,
+                    title = "Where the hours went",
+                    fg = fg, fgMuted = fgMuted, surface = surface,
+                    onClick = openCat?.let { { it(StatsCategory.TAGS) } }
+                ) {
                     ChapterTagList(stats = statsState, fg = fg, fgMuted = fgMuted, hair = hair, surface = surface, dark = dark)
                 }
-                Chapter(num = 6, title = "Focus · ${focusHoursLabel(statsState.totalFocusHours)}", fg = fg, fgMuted = fgMuted, surface = surface) {
+                Chapter(
+                    num = 6,
+                    title = "Focus · ${focusHoursLabel(statsState.totalFocusHours)}",
+                    fg = fg, fgMuted = fgMuted, surface = surface,
+                    onClick = openCat?.let { { it(StatsCategory.FOCUS) } }
+                ) {
                     ChapterFocus(
                         pomodoros = pomodoroCount(statsState),
                         longest = longestSessionValue(statsState),
                         fg = fg, fgMuted = fgMuted, tile = tile
                     )
                 }
-                Chapter(num = 7, title = "Personal bests", fg = fg, fgMuted = fgMuted, surface = surface) {
+                Chapter(
+                    num = 7,
+                    title = "Personal bests",
+                    fg = fg, fgMuted = fgMuted, surface = surface,
+                    onClick = openCat?.let { { it(StatsCategory.BESTS) } }
+                ) {
                     ChapterBests(stats = statsState, fg = fg, fgMuted = fgMuted, hair = hair)
                 }
-                Chapter(num = 8, title = "The week in one line", fg = fg, fgMuted = fgMuted, surface = surface) {
+                Chapter(
+                    num = 8,
+                    title = "The week in one line",
+                    fg = fg, fgMuted = fgMuted, surface = surface,
+                    onClick = openCat?.let { { it(StatsCategory.WEEKLY) } }
+                ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -301,9 +343,14 @@ private fun Chapter(
     fg: Color,
     fgMuted: Color,
     surface: Color,
+    onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    Row(modifier = Modifier.fillMaxWidth()) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+    ) {
         Box(modifier = Modifier.width(36.dp), contentAlignment = Alignment.TopStart) {
             Box(
                 modifier = Modifier
@@ -332,13 +379,29 @@ private fun Chapter(
                 letterSpacing = 1.2.sp,
             )
             Spacer(Modifier.height(4.dp))
-            Text(
-                title,
-                color = fg,
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = (-0.5).sp,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    title,
+                    color = fg,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = (-0.5).sp,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (onClick != null) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "→",
+                        color = fgMuted,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
             Spacer(Modifier.height(14.dp))
             content()
         }
@@ -421,23 +484,29 @@ private fun AreaChart(
 ) {
     Canvas(modifier = modifier) {
         if (values.size < 2) return@Canvas
-        val w = size.width
-        val h = size.height
-        val minV = 40f
-        val maxV = 95f
+        val dotR = 5.dp.toPx()
+        val inset = dotR + 2.dp.toPx()
+        val w = size.width - inset * 2
+        val h = size.height - inset * 2
+        val dataMin = values.min()
+        val dataMax = values.max()
+        val pad = ((dataMax - dataMin) * 0.15f).coerceAtLeast(4f)
+        val minV = (dataMin - pad).coerceAtLeast(0f)
+        val maxV = dataMax + pad
         val range = (maxV - minV).coerceAtLeast(0.0001f)
         val path = Path()
         val area = Path()
         values.forEachIndexed { i, v ->
-            val x = (i.toFloat() / (values.size - 1)) * w
-            val y = h - ((v - minV) / range) * h
+            val x = inset + (i.toFloat() / (values.size - 1)) * w
+            val y = inset + h - ((v - minV) / range) * h
             if (i == 0) {
                 path.moveTo(x, y); area.moveTo(x, y)
             } else {
                 path.lineTo(x, y); area.lineTo(x, y)
             }
         }
-        area.lineTo(w, h); area.lineTo(0f, h); area.close()
+        val bottom = inset + h
+        area.lineTo(inset + w, bottom); area.lineTo(inset, bottom); area.close()
         drawPath(
             path = area,
             brush = Brush.verticalGradient(
@@ -446,10 +515,10 @@ private fun AreaChart(
             )
         )
         drawPath(path = path, color = line, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
-        val lastX = w
-        val lastY = h - ((values.last() - minV) / range) * h
-        drawCircle(color = surface, radius = 5.dp.toPx(), center = Offset(lastX, lastY))
-        drawCircle(color = line, radius = 5.dp.toPx(), center = Offset(lastX, lastY), style = Stroke(width = 2.dp.toPx()))
+        val lastX = inset + w
+        val lastY = inset + h - ((values.last() - minV) / range) * h
+        drawCircle(color = surface, radius = dotR, center = Offset(lastX, lastY))
+        drawCircle(color = line, radius = dotR, center = Offset(lastX, lastY), style = Stroke(width = 2.dp.toPx()))
     }
 }
 
@@ -579,33 +648,36 @@ private fun ChapterDayShape(
             val totalW = constraints.maxWidth.toFloat()
             Canvas(modifier = Modifier.fillMaxSize()) {
                 if (bars.size < 2) return@Canvas
-                val w = size.width
-                val h = size.height
+                val dotR = 5.dp.toPx()
+                val inset = dotR + 2.dp.toPx()
+                val w = size.width - inset * 2
+                val h = size.height - inset * 2
                 val line = Path()
                 val area = Path()
                 bars.forEachIndexed { i, v ->
-                    val x = (i.toFloat() / (bars.size - 1)) * w
-                    val y = h - v.coerceIn(0.04f, 1f) * h
+                    val x = inset + (i.toFloat() / (bars.size - 1)) * w
+                    val y = inset + h - v.coerceIn(0.04f, 1f) * h
                     if (i == 0) {
                         line.moveTo(x, y); area.moveTo(x, y)
                     } else {
                         line.lineTo(x, y); area.lineTo(x, y)
                     }
                 }
-                area.lineTo(w, h); area.lineTo(0f, h); area.close()
+                val bottom = inset + h
+                area.lineTo(inset + w, bottom); area.lineTo(inset, bottom); area.close()
                 drawPath(
                     path = area,
                     brush = Brush.verticalGradient(0f to accent.copy(alpha = 1f), 1f to accent.copy(alpha = 0.2f))
                 )
                 drawPath(path = line, color = fg, style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round))
-                val px = (peakIdx.toFloat() / (bars.size - 1)) * w
-                val py = h - bars[peakIdx].coerceIn(0.04f, 1f) * h
-                drawCircle(color = fg, radius = 5.dp.toPx(), center = Offset(px, py))
+                val px = inset + (peakIdx.toFloat() / (bars.size - 1)) * w
+                val py = inset + h - bars[peakIdx].coerceIn(0.04f, 1f) * h
+                drawCircle(color = fg, radius = dotR, center = Offset(px, py))
                 val dash = PathEffect.dashPathEffect(floatArrayOf(2.dp.toPx(), 3.dp.toPx()), 0f)
                 drawLine(
                     color = fg,
-                    start = Offset(px, 0f),
-                    end = Offset(px, py - 5.dp.toPx()),
+                    start = Offset(px, inset),
+                    end = Offset(px, py - dotR),
                     strokeWidth = 1.dp.toPx(),
                     pathEffect = dash
                 )

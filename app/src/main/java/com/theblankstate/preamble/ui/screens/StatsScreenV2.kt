@@ -144,7 +144,7 @@ fun StatsEditorialScreen(
         }
 
         item {
-            SectionBlock(kicker = heroKicker(range), pad = pad, gap = gap, fgMuted = fgMuted) {
+            SectionBlock(kicker = heroKicker(range), pad = pad, gap = gap, fgMuted = fgMuted, category = StatsCategory.SCORE) {
                 val animatedScore by animateIntAsState(
                     targetValue = statsState.productivityScore.coerceIn(0, 100),
                     animationSpec = tween(durationMillis = 900),
@@ -186,7 +186,7 @@ fun StatsEditorialScreen(
         item { Hairline(hair) }
 
         item {
-            SectionBlock(kicker = "Streak", pad = pad, gap = gap, fgMuted = fgMuted) {
+            SectionBlock(kicker = "Streak", pad = pad, gap = gap, fgMuted = fgMuted, category = StatsCategory.STREAK) {
                 Row(verticalAlignment = Alignment.Bottom) {
                     Text(
                         statsState.streak.toString(),
@@ -224,7 +224,8 @@ fun StatsEditorialScreen(
         item {
             SectionBlock(
                 kicker = "Consistency · last 18 weeks",
-                pad = pad, gap = gap, fgMuted = fgMuted
+                pad = pad, gap = gap, fgMuted = fgMuted,
+                category = StatsCategory.CONSISTENCY
             ) {
                 HeatmapGrid(
                     data = statsState.yearlyHeatmap,
@@ -259,7 +260,8 @@ fun StatsEditorialScreen(
         item {
             SectionBlock(
                 kicker = "When you get things done",
-                pad = pad, gap = gap, fgMuted = fgMuted
+                pad = pad, gap = gap, fgMuted = fgMuted,
+                category = StatsCategory.PEAK_HOURS
             ) {
                 val bars = hourlyBars(statsState)
                 TimeOfDayChart(bars = bars, fg = fg, chipBg = chipBg)
@@ -285,7 +287,7 @@ fun StatsEditorialScreen(
         item { Hairline(hair) }
 
         item {
-            SectionBlock(kicker = "Where the time went", pad = pad, gap = gap, fgMuted = fgMuted) {
+            SectionBlock(kicker = "Where the time went", pad = pad, gap = gap, fgMuted = fgMuted, category = StatsCategory.TAGS) {
                 val tops = tagLeaderboard(statsState)
                 Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                     tops.forEachIndexed { i, t ->
@@ -315,7 +317,7 @@ fun StatsEditorialScreen(
         item { Hairline(hair) }
 
         item {
-            SectionBlock(kicker = "Focus time", pad = pad, gap = gap, fgMuted = fgMuted) {
+            SectionBlock(kicker = "Focus time", pad = pad, gap = gap, fgMuted = fgMuted, category = StatsCategory.FOCUS) {
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     FocusCard(
                         kicker = "Pomodoros",
@@ -346,7 +348,7 @@ fun StatsEditorialScreen(
         item { Hairline(hair) }
 
         item {
-            SectionBlock(kicker = "Personal bests", pad = pad, gap = gap, fgMuted = fgMuted) {
+            SectionBlock(kicker = "Personal bests", pad = pad, gap = gap, fgMuted = fgMuted, category = StatsCategory.BESTS) {
                 val bests = personalBests(statsState)
                 Column {
                     bests.forEachIndexed { i, b ->
@@ -378,8 +380,82 @@ fun StatsEditorialScreen(
             }
         }
 
+        item { Hairline(hair) }
+
         item {
-            SectionBlock(kicker = "This week in one line", pad = pad, gap = gap, fgMuted = fgMuted) {
+            SectionBlock(kicker = "Momentum", pad = pad, gap = gap, fgMuted = fgMuted, category = StatsCategory.MOMENTUM) {
+                MomentumSummary(
+                    momentum = statsState.momentumScore,
+                    consistency = statsState.consistencyScore,
+                    burnout = statsState.burnoutRiskScore,
+                    velocity = statsState.completionVelocity,
+                    fg = fg, fgMuted = fgMuted, hair = hair, accent = accent
+                )
+            }
+        }
+
+        if (statsState.activeRolloverCount > 0) {
+            item { Hairline(hair) }
+            item {
+                SectionBlock(kicker = "Rollover health", pad = pad, gap = gap, fgMuted = fgMuted, category = StatsCategory.ROLLOVER) {
+                    RolloverSummary(
+                        count = statsState.activeRolloverCount,
+                        oldest = statsState.oldestRolloverTaskTitle,
+                        oldestDays = statsState.oldestRolloverDays,
+                        rate = statsState.rolloverCompletionRate,
+                        fg = fg, fgMuted = fgMuted, hair = hair
+                    )
+                }
+            }
+        }
+
+        if (statsState.smartInsights.isNotEmpty()) {
+            item { Hairline(hair) }
+            item {
+                SectionBlock(kicker = "Smart insights", pad = pad, gap = gap, fgMuted = fgMuted, category = StatsCategory.INSIGHTS) {
+                    InsightsSummary(insights = statsState.smartInsights, accent = accent, fg = fg, hair = hair)
+                }
+            }
+        }
+
+        item { Hairline(hair) }
+
+        item {
+            SectionBlock(kicker = "Weekday vs weekend", pad = pad, gap = gap, fgMuted = fgMuted, category = StatsCategory.WEEKDAY_WEEKEND) {
+                WeekdayWeekendSummary(
+                    weekdayAvg = statsState.weekdayAvg,
+                    weekendAvg = statsState.weekendAvg,
+                    peakDay = statsState.peakDayOfWeek,
+                    fg = fg, fgMuted = fgMuted, hair = hair, accent = accent
+                )
+            }
+        }
+
+        if (statsState.forecastNext7.isNotEmpty()) {
+            item { Hairline(hair) }
+            item {
+                SectionBlock(kicker = "Forecast · next 7 days", pad = pad, gap = gap, fgMuted = fgMuted, category = StatsCategory.FORECAST) {
+                    ForecastSummary(forecast = statsState.forecastNext7, fg = fg, accent = accent)
+                }
+            }
+        }
+
+        if (statsState.karmaPoints > 0) {
+            item { Hairline(hair) }
+            item {
+                SectionBlock(kicker = "Karma · ${statsState.karmaLevel}", pad = pad, gap = gap, fgMuted = fgMuted, category = StatsCategory.KARMA) {
+                    KarmaSummary(
+                        points = statsState.karmaPoints,
+                        level = statsState.karmaLevel,
+                        grade = statsState.performanceGrade,
+                        accent = accent, fg = fg, fgMuted = fgMuted
+                    )
+                }
+            }
+        }
+
+        item {
+            SectionBlock(kicker = "This week in one line", pad = pad, gap = gap, fgMuted = fgMuted, category = StatsCategory.WEEKLY) {
                 WeeklyNarrative(
                     tasks = statsState.thisWeekCompleted,
                     streak = statsState.streak,
@@ -393,6 +469,228 @@ fun StatsEditorialScreen(
     }
 }
 
+@Composable
+private fun MomentumSummary(
+    momentum: Int,
+    consistency: Int,
+    burnout: Float,
+    velocity: Float,
+    fg: Color, fgMuted: Color, hair: Color, accent: Color,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(18.dp))
+                .background(accent)
+                .padding(16.dp)
+        ) {
+            Column {
+                Text("MOMENTUM", color = Color.Black.copy(alpha = 0.55f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                Spacer(Modifier.height(6.dp))
+                Text("$momentum", color = Color.Black, fontSize = 38.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp)
+                Text("EMA 0–100", color = Color.Black.copy(alpha = 0.65f), fontSize = 11.sp)
+            }
+        }
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(18.dp))
+                .border(1.dp, hair, RoundedCornerShape(18.dp))
+                .padding(16.dp)
+        ) {
+            Column {
+                Text("CONSISTENCY", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                Spacer(Modifier.height(6.dp))
+                Text("$consistency", color = fg, fontSize = 38.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1).sp)
+                Text("output stability", color = fgMuted, fontSize = 11.sp)
+            }
+        }
+    }
+    Spacer(Modifier.height(10.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(
+            modifier = Modifier.weight(1f).clip(RoundedCornerShape(18.dp))
+                .border(1.dp, hair, RoundedCornerShape(18.dp)).padding(14.dp)
+        ) {
+            Column {
+                Text("VELOCITY", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                Spacer(Modifier.height(4.dp))
+                Text("%+.2f".format(velocity), color = fg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp)
+                Text("tasks / day", color = fgMuted, fontSize = 11.sp)
+            }
+        }
+        Box(
+            modifier = Modifier.weight(1f).clip(RoundedCornerShape(18.dp))
+                .border(1.dp, hair, RoundedCornerShape(18.dp)).padding(14.dp)
+        ) {
+            Column {
+                Text("BURNOUT RISK", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                Spacer(Modifier.height(4.dp))
+                Text("${(burnout * 100).roundToInt()}%", color = fg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.5).sp)
+                Text("recent vs baseline", color = fgMuted, fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun RolloverSummary(
+    count: Int,
+    oldest: String?,
+    oldestDays: Int,
+    rate: Float,
+    fg: Color, fgMuted: Color, hair: Color,
+) {
+    Row(verticalAlignment = Alignment.Bottom) {
+        Text("$count", color = fg, fontSize = 48.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-1.4).sp, lineHeight = 48.sp)
+        Spacer(Modifier.width(8.dp))
+        Text("rolled over", color = fgMuted, fontSize = 14.sp, modifier = Modifier.padding(bottom = 6.dp))
+    }
+    oldest?.let {
+        Spacer(Modifier.height(10.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .border(1.dp, hair, RoundedCornerShape(16.dp))
+                .padding(14.dp)
+        ) {
+            Column {
+                Text("OLDEST · ${oldestDays}D", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                Spacer(Modifier.height(4.dp))
+                Text(it, color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Text("Eventually completed rate: ${(rate * 100).roundToInt()}%", color = fgMuted, fontSize = 12.sp)
+}
+
+@Composable
+private fun InsightsSummary(
+    insights: List<String>,
+    accent: Color,
+    fg: Color,
+    hair: Color,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        insights.take(3).forEachIndexed { i, s ->
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .then(
+                        if (i == 0) Modifier.background(accent)
+                        else Modifier.border(1.dp, hair, RoundedCornerShape(16.dp))
+                    )
+                    .padding(14.dp)
+            ) {
+                Text(
+                    s,
+                    color = if (i == 0) Color.Black else fg,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeekdayWeekendSummary(
+    weekdayAvg: Float,
+    weekendAvg: Float,
+    peakDay: String,
+    fg: Color, fgMuted: Color, hair: Color, accent: Color,
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Box(
+            modifier = Modifier.weight(1f).clip(RoundedCornerShape(18.dp))
+                .border(1.dp, hair, RoundedCornerShape(18.dp)).padding(16.dp)
+        ) {
+            Column {
+                Text("WEEKDAY", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                Spacer(Modifier.height(4.dp))
+                Text("%.1f".format(weekdayAvg), color = fg, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.8).sp)
+                Text("tasks / day", color = fgMuted, fontSize = 11.sp)
+            }
+        }
+        Box(
+            modifier = Modifier.weight(1f).clip(RoundedCornerShape(18.dp))
+                .background(accent).padding(16.dp)
+        ) {
+            Column {
+                Text("WEEKEND", color = Color.Black.copy(alpha = 0.6f), fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+                Spacer(Modifier.height(4.dp))
+                Text("%.1f".format(weekendAvg), color = Color.Black, fontSize = 32.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.8).sp)
+                Text("tasks / day", color = Color.Black.copy(alpha = 0.65f), fontSize = 11.sp)
+            }
+        }
+    }
+    if (peakDay.isNotBlank()) {
+        Spacer(Modifier.height(10.dp))
+        Text("Peak day: $peakDay", color = fgMuted, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun ForecastSummary(
+    forecast: List<Pair<String, Float>>,
+    fg: Color, accent: Color,
+) {
+    val maxV = (forecast.maxOfOrNull { it.second } ?: 1f).coerceAtLeast(0.0001f)
+    Row(
+        modifier = Modifier.fillMaxWidth().height(80.dp),
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        forecast.forEach { (_, v) ->
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(max(6f, 80f * (v / maxV)).dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(accent)
+            )
+        }
+    }
+    Spacer(Modifier.height(8.dp))
+    Text(
+        "Projected ${forecast.sumOf { it.second.toDouble() }.roundToInt()} tasks next week",
+        color = fg,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Medium,
+    )
+}
+
+@Composable
+private fun KarmaSummary(
+    points: Int,
+    level: String,
+    grade: String,
+    accent: Color, fg: Color, fgMuted: Color,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(72.dp)
+                .clip(RoundedCornerShape(999.dp))
+                .background(accent),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(grade, color = Color.Black, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+        }
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(level, color = fg, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = (-0.4).sp)
+            Spacer(Modifier.height(2.dp))
+            Text("$points karma points", color = fgMuted, fontSize = 12.sp)
+        }
+    }
+}
+
 /* ───────── sub-components ───────── */
 
 @Composable
@@ -401,21 +699,37 @@ private fun SectionBlock(
     pad: Dp,
     gap: Dp,
     fgMuted: Color,
+    category: StatsCategory? = null,
     content: @Composable () -> Unit
 ) {
+    val open = LocalStatsDeepDive.current
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .then(
+                if (category != null && open != null)
+                    Modifier.clickable { open(category) }
+                else Modifier
+            )
             .padding(horizontal = pad, vertical = gap)
     ) {
         if (kicker != null) {
-            Text(
-                kicker.uppercase(),
-                color = fgMuted,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 1.6.sp,
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    kicker.uppercase(),
+                    color = fgMuted,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.6.sp,
+                )
+                if (category != null && open != null) {
+                    Text("→", color = fgMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                }
+            }
             Spacer(Modifier.height(14.dp))
         }
         content()

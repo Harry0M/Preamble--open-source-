@@ -1,0 +1,210 @@
+/* ============================================================
+   Preamble Design System — Colors & Typography
+   ============================================================
+   Brand by The Blank State.
+   Product: Preamble — a minimal to-do & task management app.
+   Aesthetic: Monochrome Material 3. Clean, quiet, no borders.
+   ============================================================ */
+
+/* ---------- Typography ---------- */
+/* The Android app uses FontFamily.Default (Roboto on device).
+   For web, we use Roboto Flex — the modern variable successor — with
+   Roboto as fallback. This matches the Google Material 3 feel.
+   If a brand font is later adopted, swap --font-sans.            */
+@import url('https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,400;8..144,500;8..144,700;8..144,900&family=Roboto:wght@400;500;700;900&family=Roboto+Mono:wght@400;500&display=swap');
+
+:root {
+  /* ===== Base font stacks ===== */
+  --font-sans: 'Roboto Flex', 'Roboto', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Roboto Flex', 'Roboto', system-ui, sans-serif;
+  --font-mono: 'Roboto Mono', ui-monospace, Menlo, Consolas, monospace;
+
+  /* ===== Material 3 monochrome palette — LIGHT ===== */
+  /* Mirrors MonochromeLightColorScheme in ui/theme/Theme.kt */
+  --m3-primary:              #000000;
+  --m3-on-primary:            #FFFFFF;
+  --m3-primary-container:     #E0E0E0;
+  --m3-on-primary-container:  #000000;
+
+  --m3-secondary:             #444444;  /* Color.DarkGray */
+  --m3-on-secondary:          #FFFFFF;
+  --m3-secondary-container:   #CCCCCC;
+  --m3-on-secondary-container:#000000;
+
+  --m3-tertiary:              #000000;
+  --m3-on-tertiary:           #FFFFFF;
+  --m3-tertiary-container:    #DDDDDD;
+  --m3-on-tertiary-container: #000000;
+
+  --m3-background:            #FFFFFF;
+  --m3-on-background:         #000000;
+  --m3-surface:               #FFFFFF;
+  --m3-on-surface:            #000000;
+  --m3-surface-variant:       #EDEDED;
+  --m3-on-surface-variant:    #444444;
+  --m3-outline:               #CCCCCC; /* Color.LightGray */
+
+  --m3-error:                 #BA1A1A;
+  --m3-on-error:              #FFFFFF;
+  --m3-error-container:       #FFDAD6;
+  --m3-on-error-container:    #410002;
+
+  /* ===== Semantic foreground / background (light) ===== */
+  --fg-1: var(--m3-on-surface);           /* primary text */
+  --fg-2: var(--m3-on-surface-variant);   /* secondary / muted */
+  --fg-3: #808080;                         /* tertiary / hints */
+  --fg-muted: rgba(0,0,0,0.45);            /* "Preamble" subtitle tone */
+  --bg-1: var(--m3-surface);
+  --bg-2: var(--m3-surface-variant);
+  --bg-3: #F5F5F5;                         /* cards like PermissionRow */
+
+  /* ===== Priority dots (from TaskItem.kt) ===== */
+  --prio-high:   #EF4444;  /* red */
+  --prio-medium: #F97316;  /* orange */
+  --prio-low:    #3B82F6;  /* blue */
+
+  /* ===== Status / chart colors (from StatsScreen / TaskItem) ===== */
+  --status-local:    #6366F1;  /* indigo */
+  --status-recur:    #22C55E;  /* green */
+  --status-keep:     #F59E0B;  /* amber */
+  --status-calendar: #3B82F6;  /* blue  */
+  --status-tasks:    #EF4444;  /* red   */
+
+  /* ===== Rollover urgency ===== */
+  --urgency-warm-bg: #FFF3E0;
+  --urgency-warm-fg: #E65100;
+
+  /* ===== Event accents (info-only task icons) ===== */
+  --event-holiday:  #E91E63;
+  --event-birthday: #FF9800;
+  --event-focus:    #9C27B0;
+  --event-meet:     #1A73E8;
+  --event-google:   #4285F4;
+
+  /* ===== Shape / radius (Material 3) ===== */
+  --r-xs: 4px;
+  --r-sm: 8px;
+  --r-md: 12px;
+  --r-lg: 16px;
+  --r-xl: 28px;
+  --r-full: 9999px;
+
+  /* ===== Spacing (4dp grid) ===== */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+
+  /* ===== Motion ===== */
+  --dur-fast: 150ms;
+  --dur-med: 300ms;
+  --dur-slow: 500ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);        /* M3 standard */
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --ease-spring-bouncy: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* ===== Shadow (M3 elevation — subtle) ===== */
+  --elev-0: none;
+  --elev-1: 0 1px 2px rgba(0,0,0,0.06), 0 1px 1px rgba(0,0,0,0.04);
+  --elev-2: 0 2px 6px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+  --elev-3: 0 6px 16px rgba(0,0,0,0.10), 0 2px 4px rgba(0,0,0,0.06);
+}
+
+/* ===== Dark theme (MonochromeDarkColorScheme) =====
+   Activate via <html data-theme="dark"> or prefers-color-scheme. */
+[data-theme="dark"],
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"], :root:not([data-theme]) {
+    --m3-primary:              #FFFFFF;
+    --m3-on-primary:            #000000;
+    --m3-primary-container:     #333333;
+    --m3-on-primary-container:  #FFFFFF;
+
+    --m3-secondary:             #D3D3D3; /* LightGray */
+    --m3-secondary-container:   #444444;
+    --m3-on-secondary-container:#FFFFFF;
+
+    --m3-tertiary:              #FFFFFF;
+    --m3-tertiary-container:    #555555;
+
+    --m3-background:            #121212;
+    --m3-on-background:         #FFFFFF;
+    --m3-surface:               #121212;
+    --m3-on-surface:            #FFFFFF;
+    --m3-surface-variant:       #2C2C2C;
+    --m3-on-surface-variant:    #D3D3D3;
+    --m3-outline:               #444444;
+
+    --fg-1: #FFFFFF;
+    --fg-2: #D3D3D3;
+    --fg-3: #8A8A8A;
+    --fg-muted: rgba(255,255,255,0.55);
+    --bg-1: #121212;
+    --bg-2: #2C2C2C;
+    --bg-3: #1A1A1A;
+  }
+}
+
+/* AMOLED theme (pure black) */
+[data-theme="amoled"] {
+  --m3-primary: #FFFFFF;
+  --m3-on-primary: #000000;
+  --m3-primary-container: #1A1A1A;
+  --m3-background: #000000;
+  --m3-surface: #000000;
+  --m3-surface-variant: #0D0D0D;
+  --m3-outline: #333333;
+  --fg-1: #FFFFFF;
+  --fg-2: #D3D3D3;
+  --bg-1: #000000;
+  --bg-2: #0D0D0D;
+  --bg-3: #1A1A1A;
+}
+
+/* ============================================================
+   Semantic type scale — maps to Material 3 typography roles.
+   Sizes taken from M3 defaults since Type.kt only sets bodyLarge.
+   ============================================================ */
+
+.display-large  { font-family: var(--font-display); font-weight: 900; font-size: 57px; line-height: 64px; letter-spacing: -1px; }
+.display-medium { font-family: var(--font-display); font-weight: 900; font-size: 45px; line-height: 52px; letter-spacing: -0.5px; }
+.display-small  { font-family: var(--font-display); font-weight: 900; font-size: 36px; line-height: 44px; letter-spacing: -1px; }
+
+/* Onboarding headlines use displaySmall + Black + -1sp tracking */
+.onboarding-headline {
+  font-family: var(--font-display);
+  font-weight: 900;
+  font-size: 36px;
+  line-height: 40px;
+  letter-spacing: -1px;
+  color: var(--fg-1);
+}
+
+.headline-large  { font-family: var(--font-sans); font-weight: 500; font-size: 32px; line-height: 40px; }
+.headline-medium { font-family: var(--font-sans); font-weight: 500; font-size: 28px; line-height: 36px; }
+.headline-small  { font-family: var(--font-sans); font-weight: 500; font-size: 24px; line-height: 32px; }
+
+.title-large  { font-family: var(--font-sans); font-weight: 700; font-size: 22px; line-height: 28px; } /* "Preamble" app bar */
+.title-medium { font-family: var(--font-sans); font-weight: 600; font-size: 16px; line-height: 24px; letter-spacing: 0.15px; }
+.title-small  { font-family: var(--font-sans); font-weight: 600; font-size: 14px; line-height: 20px; letter-spacing: 0.1px; }
+
+.body-large  { font-family: var(--font-sans); font-weight: 400; font-size: 16px; line-height: 24px; letter-spacing: 0.5px; } /* default body */
+.body-medium { font-family: var(--font-sans); font-weight: 400; font-size: 14px; line-height: 20px; letter-spacing: 0.25px; }
+.body-small  { font-family: var(--font-sans); font-weight: 400; font-size: 12px; line-height: 16px; letter-spacing: 0.4px; }
+
+.label-large  { font-family: var(--font-sans); font-weight: 600; font-size: 14px; line-height: 20px; letter-spacing: 0.1px; }
+.label-medium { font-family: var(--font-sans); font-weight: 600; font-size: 12px; line-height: 16px; letter-spacing: 0.5px; }
+.label-small  { font-family: var(--font-sans); font-weight: 600; font-size: 11px; line-height: 16px; letter-spacing: 0.5px; }
+
+/* Raw element defaults */
+body {
+  font-family: var(--font-sans);
+  color: var(--fg-1);
+  background: var(--bg-1);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1 { @extend .headline-large; }

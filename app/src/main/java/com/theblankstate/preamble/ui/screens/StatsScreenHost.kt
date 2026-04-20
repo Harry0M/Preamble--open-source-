@@ -1,5 +1,12 @@
 package com.theblankstate.preamble.ui.screens
 
+import android.content.Context
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -13,15 +20,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -29,41 +39,70 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.theblankstate.preamble.viewmodel.StatsState
 
-private val StatsTweaksSaver: Saver<StatsTweaks, Any> = Saver(
-    save = { t ->
-        listOf(
-            (t.accent.value shr 32).toLong(),
-            t.theme.name,
-            t.density.name
-        )
-    },
+/* ---------- persistence ---------- */
+
+private const val PREFS = "preamble_stats_tweaks"
+private const val K_ACCENT = "accent"
+private const val K_THEME = "theme"
+private const val K_DENSITY = "density"
+private const val K_VARIANT = "variant"
+
+private fun loadTweaks(ctx: Context): StatsTweaks {
+    val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    val accentLong = p.getLong(K_ACCENT, Long.MIN_VALUE)
+    val accent = if (accentLong == Long.MIN_VALUE) AccentPalette[0].color
+        else Color((accentLong.toULong()) shl 32)
+    val theme = runCatching { StatsTheme.valueOf(p.getString(K_THEME, null) ?: "LIGHT") }
+        .getOrElse { StatsTheme.LIGHT }
+    val density = runCatching { StatsDensity.valueOf(p.getString(K_DENSITY, null) ?: "COMPACT") }
+        .getOrElse { StatsDensity.COMPACT }
+    val variant = runCatching { StatsVariant.valueOf(p.getString(K_VARIANT, null) ?: "EDITORIAL") }
+        .getOrElse { StatsVariant.EDITORIAL }
+    return StatsTweaks(variant = variant, accent = accent, theme = theme, density = density)
+}
+
+private fun saveTweaks(ctx: Context, t: StatsTweaks) {
+    ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+        .putLong(K_ACCENT, (t.accent.value shr 32).toLong())
+        .putString(K_THEME, t.theme.name)
+        .putString(K_DENSITY, t.density.name)
+        .putString(K_VARIANT, t.variant.name)
+        .apply()
+}
+
+/* ---------- deep-dive nav context (so variants can request drill-in) ---------- */
+
+val LocalStatsDeepDive = compositionLocalOf<((StatsCategory) -> Unit)?> { null }
+
+private val DeepDiveSaver: Saver<StatsCategory?, Any> = Saver(
+    save = { it?.name ?: "" },
     restore = { raw ->
-        val list = raw as List<*>
-        StatsTweaks(
-            accent = Color((list[0] as Long).toULong() shl 32),
-            theme = StatsTheme.valueOf(list[1] as String),
-            density = StatsDensity.valueOf(list[2] as String),
-        )
+        val s = raw as String
+        if (s.isBlank()) null else runCatching { StatsCategory.valueOf(s) }.getOrNull()
     }
 )
+
+/* ---------- host ---------- */
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatsScreenHost(
-    statsState: StatsState,
+    statsState: com.theblankstate.preamble.viewmodel.StatsState,
     onRefreshStats: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
-    var tweaks by rememberSaveable(stateSaver = StatsTweaksSaver) {
-        mutableStateOf(StatsTweaks())
-    }
+    val ctx = LocalContext.current
+    var tweaks by remember { mutableStateOf(loadTweaks(ctx)) }
     var range by rememberSaveable { mutableStateOf(StatsRange.MONTH) }
     var showTweaks by rememberSaveable { mutableStateOf(false) }
+    var deepDive by rememberSaveable(stateSaver = DeepDiveSaver) { mutableStateOf<StatsCategory?>(null) }
+
+    LaunchedEffect(tweaks) { saveTweaks(ctx, tweaks) }
 
     val surface = if (tweaks.theme == StatsTheme.DARK) Color(0xFF0E0E0E) else Color.White
 
@@ -72,17 +111,66 @@ fun StatsScreenHost(
             .fillMaxSize()
             .background(surface)
     ) {
-        StatsEditorialScreen(
-            statsState = statsState,
-            tweaks = tweaks,
-            onOpenTweaks = {
-                showTweaks = true
-                onRefreshStats?.invoke()
-            },
-            range = range,
-            onRangeChange = { range = it },
-            modifier = Modifier.fillMaxSize()
-        )
+        CompositionLocalProvider(LocalStatsDeepDive provides { c -> deepDive = c }) {
+            when (tweaks.variant) {
+                StatsVariant.EDITORIAL -> StatsEditorialScreen(
+                    statsState = statsState,
+                    tweaks = tweaks,
+                    onOpenTweaks = {
+                        showTweaks = true
+                        onRefreshStats?.invoke()
+                    },
+                    range = range,
+                    onRangeChange = { range = it },
+                    modifier = Modifier.fillMaxSize()
+                )
+                StatsVariant.CAPSULE -> StatsCapsuleScreen(
+                    statsState = statsState,
+                    tweaks = tweaks,
+                    onOpenTweaks = {
+                        showTweaks = true
+                        onRefreshStats?.invoke()
+                    },
+                    range = range,
+                    onRangeChange = { range = it },
+                    modifier = Modifier.fillMaxSize()
+                )
+                StatsVariant.RIBBON -> StatsRibbonScreen(
+                    statsState = statsState,
+                    tweaks = tweaks,
+                    onOpenTweaks = {
+                        showTweaks = true
+                        onRefreshStats?.invoke()
+                    },
+                    range = range,
+                    onRangeChange = { range = it },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        BackHandler(enabled = deepDive != null || showTweaks) {
+            when {
+                showTweaks -> showTweaks = false
+                deepDive != null -> deepDive = null
+            }
+        }
+
+        AnimatedVisibility(
+            visible = deepDive != null,
+            enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
+            exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(),
+        ) {
+            deepDive?.let {
+                StatsDeepDiveScreen(
+                    category = it,
+                    statsState = statsState,
+                    tweaks = tweaks,
+                    onBack = { deepDive = null },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
 
         if (showTweaks) {
             val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -123,6 +211,23 @@ private fun TweaksPanel(
             letterSpacing = 1.4.sp,
         )
         Spacer(Modifier.height(16.dp))
+
+        TweakGroup(label = "Variant", fg = fg, fgMuted = fgMuted) {
+            TweakSegments(
+                options = listOf(
+                    "Editorial" to StatsVariant.EDITORIAL,
+                    "Capsule" to StatsVariant.CAPSULE,
+                    "Ribbon" to StatsVariant.RIBBON,
+                ),
+                selected = tweaks.variant,
+                onSelect = { onChange(tweaks.copy(variant = it)) },
+                chipBg = chipBg,
+                dark = dark,
+                fgMuted = fgMuted
+            )
+        }
+
+        Spacer(Modifier.height(18.dp))
 
         TweakGroup(label = "Accent color", fg = fg, fgMuted = fgMuted) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {

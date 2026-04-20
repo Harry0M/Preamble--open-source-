@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Preamble — Stats Screen</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="preamble-tokens.css"/>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'SF Pro Display','SF Pro Text',-apple-system,BlinkMacSystemFont,Inter,sans-serif;
+    background: #F2F0EC;
+    color: #000;
+    min-height: 100vh;
+    transition: background 300ms ease, color 300ms ease;
+  }
+  body[data-canvas-theme="dark"] { background: #0A0A0A; color: #FFF; }
+
+  .page {
+    padding: 48px 32px 80px;
+    min-height: 100vh;
+  }
+
+  .page-header {
+    max-width: 1300px;
+    margin: 0 auto 48px;
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 24px;
+  }
+  .page-header .title-block { max-width: 640px; }
+  .page-header .eyebrow {
+    font-size: 11px; font-weight: 700; letter-spacing: 1.8px;
+    text-transform: uppercase; opacity: 0.55;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  .page-header h1 {
+    font-size: 40px; line-height: 44px; letter-spacing: -1.2px;
+    font-weight: 800; margin: 12px 0 10px;
+  }
+  .page-header p {
+    font-size: 15px; line-height: 22px; opacity: 0.6; margin: 0;
+    max-width: 540px;
+  }
+
+  .variants {
+    display: flex; gap: 40px; justify-content: center;
+    flex-wrap: wrap;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  /* Tweaks panel */
+  .tweaks {
+    position: fixed; right: 20px; bottom: 20px;
+    background: rgba(255,255,255,0.98);
+    backdrop-filter: blur(12px);
+    border-radius: 20px;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06);
+    padding: 16px;
+    width: 260px;
+    z-index: 100;
+    display: none;
+    font-family: 'SF Pro Display',-apple-system,Inter,sans-serif;
+  }
+  body[data-canvas-theme="dark"] .tweaks {
+    background: rgba(22,22,22,0.98); color: #fff;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08);
+  }
+  .tweaks.open { display: block; }
+  .tweaks h3 {
+    margin: 0 0 12px;
+    font-size: 11px; font-weight: 700; letter-spacing: 1.4px;
+    text-transform: uppercase; opacity: 0.55;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .tw-group { margin-bottom: 14px; }
+  .tw-label {
+    font-size: 12px; font-weight: 600; margin-bottom: 6px;
+    display: block; opacity: 0.75;
+  }
+  .tw-swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+  .tw-swatch {
+    width: 28px; height: 28px; border-radius: 999px;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: transform 150ms;
+  }
+  .tw-swatch.active { border-color: #000; transform: scale(1.08); }
+  body[data-canvas-theme="dark"] .tw-swatch.active { border-color: #fff; }
+  .tw-segments {
+    display: flex; padding: 3px; background: rgba(0,0,0,0.06);
+    border-radius: 999px;
+  }
+  body[data-canvas-theme="dark"] .tw-segments { background: rgba(255,255,255,0.08); }
+  .tw-seg {
+    flex: 1; padding: 6px 0; text-align: center;
+    font-size: 11px; font-weight: 600; border-radius: 999px;
+    cursor: pointer; opacity: 0.6;
+    transition: all 150ms;
+  }
+  .tw-seg.active {
+    background: #000; color: #fff; opacity: 1;
+  }
+  body[data-canvas-theme="dark"] .tw-seg.active { background: #fff; color: #000; }
+
+  @media (max-width: 1200px) {
+    .variants { gap: 28px; }
+  }
+</style>
+</head>
+<body>
+  <div class="page">
+    <div class="page-header">
+      <div class="title-block">
+        <div class="eyebrow">Preamble · Redesign</div>
+        <h1>Stats Screen</h1>
+        <p>Three takes — same modules, different voice. Clean black &amp; white with pale accents, fully rounded geometry, hairlines only where they earn it.</p>
+      </div>
+      <div style="font-family:'JetBrains Mono',monospace;font-size:11px;opacity:0.55;letter-spacing:1.2px;text-align:right">
+        v1.0 · APR 19 2026<br/>
+        3 VARIANTS · 1 DEVICE
+      </div>
+    </div>
+
+    <div id="root" class="variants"></div>
+  </div>
+
+  <!-- Tweaks panel -->
+  <div class="tweaks" id="tweaks">
+    <h3>Tweaks</h3>
+    <div class="tw-group">
+      <label class="tw-label">Accent color</label>
+      <div class="tw-swatches" id="tw-accent"></div>
+    </div>
+    <div class="tw-group">
+      <label class="tw-label">Canvas theme</label>
+      <div class="tw-segments" id="tw-theme">
+        <div class="tw-seg" data-v="light">Light</div>
+        <div class="tw-seg" data-v="dark">Dark</div>
+      </div>
+    </div>
+    <div class="tw-group">
+      <label class="tw-label">Density</label>
+      <div class="tw-segments" id="tw-density">
+        <div class="tw-seg" data-v="compact">Compact</div>
+        <div class="tw-seg" data-v="comfortable">Cozy</div>
+        <div class="tw-seg" data-v="spacious">Airy</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="frame.jsx"></script>
+  <script type="text/babel" src="v1-editorial.jsx"></script>
+  <script type="text/babel" src="v2-capsule.jsx"></script>
+  <script type="text/babel" src="v3-ribbon.jsx"></script>
+
+  <script type="text/babel">
+    const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+      "accentV1": "#F5EBE0",
+      "accentV2": "#E8EDDF",
+      "accentV3": "#F5EBE0",
+      "theme": "light",
+      "density": "compact"
+    }/*EDITMODE-END*/;
+
+    const ACCENT_PALETTE = [
+      { id: 'sand',  v: '#F5EBE0', label: 'Warm sand' },
+      { id: 'sage',  v: '#E8EDDF', label: 'Pale sage' },
+      { id: 'rose',  v: '#FCE4E4', label: 'Pale rose' },
+      { id: 'lilac', v: '#E4E6F1', label: 'Pale lilac' },
+      { id: 'butter',v: '#FFF3C4', label: 'Pale butter' },
+      { id: 'sky',   v: '#D6EAF8', label: 'Pale sky' },
+    ];
+
+    const STORE_KEY = 'preamble_stats_tweaks_v1';
+    const loadState = () => {
+      try {
+        const s = JSON.parse(localStorage.getItem(STORE_KEY));
+        return { ...TWEAK_DEFAULTS, ...(s || {}) };
+      } catch { return TWEAK_DEFAULTS; }
+    };
+    const saveState = (s) => localStorage.setItem(STORE_KEY, JSON.stringify(s));
+
+    function App() {
+      const [state, setState] = React.useState(loadState);
+      const patch = (p) => setState(prev => {
+        const next = { ...prev, ...p };
+        saveState(next);
+        window.parent.postMessage({ type: '__edit_mode_set_keys', edits: p }, '*');
+        return next;
+      });
+
+      React.useEffect(() => {
+        document.body.setAttribute('data-canvas-theme', state.theme);
+      }, [state.theme]);
+
+      React.useEffect(() => {
+        // Tweaks wiring
+        const accentRoot = document.getElementById('tw-accent');
+        const render = () => {
+          accentRoot.innerHTML = '';
+          // per-variant sub-rows
+          ['V1 Editorial','V2 Capsule','V3 Ribbon'].forEach((label, idx) => {
+            const key = ['accentV1','accentV2','accentV3'][idx];
+            const row = document.createElement('div');
+            row.style.cssText = 'margin-bottom:8px';
+            const cap = document.createElement('div');
+            cap.textContent = label;
+            cap.style.cssText = 'font-size:10px;opacity:0.55;margin-bottom:4px;font-weight:600;letter-spacing:0.4px';
+            row.appendChild(cap);
+            const sw = document.createElement('div');
+            sw.style.cssText = 'display:flex;gap:5px;flex-wrap:wrap';
+            ACCENT_PALETTE.forEach(a => {
+              const d = document.createElement('div');
+              d.className = 'tw-swatch' + (state[key] === a.v ? ' active' : '');
+              d.style.background = a.v;
+              d.title = a.label;
+              d.onclick = () => patch({ [key]: a.v });
+              sw.appendChild(d);
+            });
+            row.appendChild(sw);
+            accentRoot.appendChild(row);
+          });
+
+          document.querySelectorAll('#tw-theme .tw-seg').forEach(el => {
+            el.classList.toggle('active', el.dataset.v === state.theme);
+            el.onclick = () => patch({ theme: el.dataset.v });
+          });
+          document.querySelectorAll('#tw-density .tw-seg').forEach(el => {
+            el.classList.toggle('active', el.dataset.v === state.density);
+            el.onclick = () => patch({ density: el.dataset.v });
+          });
+        };
+        render();
+      }, [state]);
+
+      return (
+        <>
+          <PhoneFrame label="01 · Editorial" theme={state.theme} accent={state.accentV1}>
+            <V1Editorial accent={state.accentV1} theme={state.theme} density={state.density}/>
+          </PhoneFrame>
+          <PhoneFrame label="02 · Capsule grid" theme={state.theme} accent={state.accentV2}>
+            <V2Capsule accent={state.accentV2} theme={state.theme} density={state.density}/>
+          </PhoneFrame>
+          <PhoneFrame label="03 · Ribbon story" theme={state.theme} accent={state.accentV3}>
+            <V3Ribbon accent={state.accentV3} theme={state.theme} density={state.density}/>
+          </PhoneFrame>
+        </>
+      );
+    }
+
+    // Tweaks protocol — register listener FIRST
+    window.addEventListener('message', (e) => {
+      if (!e.data) return;
+      if (e.data.type === '__activate_edit_mode') {
+        document.getElementById('tweaks').classList.add('open');
+      } else if (e.data.type === '__deactivate_edit_mode') {
+        document.getElementById('tweaks').classList.remove('open');
+      }
+    });
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+
+    // Announce availability
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+  </script>
+</body>
+</html>

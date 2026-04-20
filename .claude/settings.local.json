@@ -10,7 +10,12 @@
       "Bash(gunzip -k payload.gz)",
       "Bash(tar -xf payload)",
       "Bash(./gradlew :app:compileDebugKotlin -q)",
-      "Bash(./gradlew :app:compileDebugKotlin --rerun-tasks)"
+      "Bash(./gradlew :app:compileDebugKotlin --rerun-tasks)",
+      "Bash(cp \"C:\\\\Users\\\\palha\\\\.claude\\\\projects\\\\c--Users-palha-preamble\\\\594899ce-1461-436b-ac5e-bdf06238c87a\\\\tool-results\\\\webfetch-1776684500573-xtiwjm.bin\" design.tar.gz)",
+      "Bash(tar -xzf design.tar.gz)",
+      "Bash(where graphify *)",
+      "Bash(python -m graphify update .)",
+      "Bash(\"C:\\\\Users\\\\palha\\\\AppData\\\\Roaming\\\\Python\\\\Python314\\\\Scripts\\\\graphify.exe\" update *)"
     ]
   }
 }
