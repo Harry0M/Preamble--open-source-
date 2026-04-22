@@ -25,11 +25,6 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Preamble">
 
-        <!-- AdMob App ID -->
-        <meta-data
-            android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="${AD_APP_ID}" />
-
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -48,6 +43,10 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="preamble" />
             </intent-filter>
+
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
 
         <receiver
@@ -87,6 +86,14 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="com.theblankstate.preamble.EVENING_REMINDER" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".notification.WeeklyWrappedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.theblankstate.preamble.ACTION_WEEKLY_WRAPPED" />
             </intent-filter>
         </receiver>
 

@@ -67,8 +67,10 @@ class EveningReminderReceiver : BroadcastReceiver() {
         run {
             val cal = Calendar.getInstance()
             val dow = cal.get(Calendar.DAY_OF_WEEK)
+            val userName = com.theblankstate.preamble.data.UserProfileStore.load(context)
+                .name?.trim()?.takeIf { it.isNotBlank() }
 
-            val (title, body) = getDayStyle(dow, count)
+            val (title, body) = getDayStyle(dow, count, userName)
 
             // Build BigTextStyle with task list
             val listLines = taskTitles.take(5).joinToString("\n") { "  •  $it" }
@@ -101,13 +103,14 @@ class EveningReminderReceiver : BroadcastReceiver() {
      * 7 unique styles — one per day of week.
      * Returns Pair(title, bodyText).
      */
-    private fun getDayStyle(dayOfWeek: Int, count: Int): Pair<String, String> {
+    private fun getDayStyle(dayOfWeek: Int, count: Int, userName: String? = null): Pair<String, String> {
         val n = count
         val tasks = if (n == 1) "task" else "tasks"
+        val greet = userName?.let { "Good morning, $it" } ?: "Good morning"
         return when (dayOfWeek) {
             Calendar.MONDAY -> Pair(
                 "Monday, let's go! 🚀",
-                "Good morning — $n $tasks ahead of you today. New week, fresh start."
+                "$greet — $n $tasks ahead of you today. New week, fresh start."
             )
             Calendar.TUESDAY -> Pair(
                 "Tuesday Briefing ☀️",
@@ -134,8 +137,8 @@ class EveningReminderReceiver : BroadcastReceiver() {
                 "A calm morning, $n $tasks on the list. Set the tone for your week."
             )
             else -> Pair(
-                "Morning Briefing �",
-                "Good morning — $n $tasks are waiting for you today."
+                "Morning Briefing 🌞",
+                "$greet — $n $tasks are waiting for you today."
             )
         }
     }

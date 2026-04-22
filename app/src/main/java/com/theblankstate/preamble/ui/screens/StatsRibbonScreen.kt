@@ -54,6 +54,7 @@ fun StatsRibbonScreen(
     statsState: StatsState,
     tweaks: StatsTweaks,
     onOpenTweaks: () -> Unit,
+    onOpenWrapped: (() -> Unit)? = null,
     range: StatsRange,
     onRangeChange: (StatsRange) -> Unit,
     modifier: Modifier = Modifier,
@@ -102,6 +103,24 @@ fun StatsRibbonScreen(
                         letterSpacing = 0.6.sp,
                     )
                     Spacer(Modifier.width(10.dp))
+                    if (onOpenWrapped != null) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(tile)
+                                .clickable { onOpenWrapped() }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                "Wrapped",
+                                color = fg,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.2.sp,
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
                     Box(
                         modifier = Modifier
                             .size(34.dp)

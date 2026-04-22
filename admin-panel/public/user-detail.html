@@ -72,6 +72,7 @@
         <button class="tab active" onclick="switchTab('tasks')">Tasks</button>
         <button class="tab" onclick="switchTab('info')">Info</button>
         <button class="tab" onclick="switchTab('tags')">Tag Overrides</button>
+        <button class="tab" onclick="switchTab('entitlement')">Entitlement</button>
       </div>
 
       <!-- Tasks Tab -->
@@ -152,6 +153,55 @@
           <div class="card-header"><h3>Tag Overrides</h3></div>
           <div class="card-body" id="tagsList">
             <div class="loading"><div class="spinner"></div> Loading...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Entitlement Tab -->
+      <div id="entitlementTab" style="display: none;">
+        <div class="card">
+          <div class="card-header"><h3>Entitlement · Server-side Source of Truth</h3></div>
+          <div class="card-body">
+            <div id="entitlementCurrent" style="margin-bottom:1.25rem;"></div>
+            <div class="form-row">
+              <div class="form-group" style="flex:1;">
+                <label>Tier</label>
+                <select class="form-control" id="entTier">
+                  <option value="PROMOTIONAL">PROMOTIONAL — launch cohort, full unlock</option>
+                  <option value="PREMIUM">PREMIUM — paid</option>
+                  <option value="PREMIUM_STUDENT">PREMIUM_STUDENT — student discount</option>
+                  <option value="PREMIUM_YOUNGSTER">PREMIUM_YOUNGSTER — under-25 discount</option>
+                  <option value="FREE_TIER">FREE_TIER — limited features</option>
+                  <option value="UNPREMIUM">UNPREMIUM — lapsed paid</option>
+                </select>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group" style="flex:1;">
+                <label>Tier expiry (ISO or blank = lifetime)</label>
+                <input type="datetime-local" class="form-control" id="entExpires">
+              </div>
+              <div class="form-group" style="flex:1;">
+                <label>Student validity expiry</label>
+                <input type="datetime-local" class="form-control" id="entStudent">
+              </div>
+              <div class="form-group" style="flex:1;">
+                <label>Under-25 validity expiry</label>
+                <input type="datetime-local" class="form-control" id="entYoungster">
+              </div>
+            </div>
+            <p style="color:var(--gray-500);font-size:0.8125rem;line-height:1.5;">
+              Blank expiry = no expiry (lifetime). When tier expiry passes, app downgrades to
+              UNPREMIUM automatically. Student/Under-25 validity when passed, app downgrades to
+              plain PREMIUM. Entries edited here are the single source of truth — local SharedPrefs
+              on device are just a read-through cache.
+            </p>
+            <div style="margin-top:1rem;display:flex;gap:0.5rem;">
+              <button class="btn btn-primary" onclick="saveEntitlement()">Save Entitlement</button>
+              <button class="btn btn-ghost" onclick="fillEntitlement('PROMOTIONAL', null, null, null)">Preset · Promo (lifetime)</button>
+              <button class="btn btn-ghost" onclick="fillEntitlement('PREMIUM', plus(365), null, null)">Preset · Premium +1yr</button>
+              <button class="btn btn-ghost" onclick="fillEntitlement('PREMIUM_STUDENT', plus(365), plus(365), null)">Preset · Student +1yr</button>
+            </div>
           </div>
         </div>
       </div>
@@ -272,6 +322,9 @@
       document.getElementById('infoTab').style.display = 'none';
       document.getElementById('tagsTab').style.display = 'none';
 
+      const entTab = document.getElementById('entitlementTab');
+      if (entTab) entTab.style.display = 'none';
+
       if (tab === 'tasks') {
         document.getElementById('tasksTab').style.display = '';
         document.querySelectorAll('.tab')[0].classList.add('active');
@@ -281,6 +334,10 @@
       } else if (tab === 'tags') {
         document.getElementById('tagsTab').style.display = '';
         document.querySelectorAll('.tab')[2].classList.add('active');
+      } else if (tab === 'entitlement') {
+        entTab.style.display = '';
+        document.querySelectorAll('.tab')[3].classList.add('active');
+        renderEntitlement();
       }
     }
 
@@ -472,6 +529,76 @@
           </div>
         </div>
       `;
+    }
+
+    // ─── Entitlement ───
+    function msToLocalInput(ms) {
+      if (!ms || !Number.isFinite(+ms) || +ms <= 0) return '';
+      const d = new Date(+ms);
+      const pad = n => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+    function localInputToMs(v) {
+      if (!v) return 0;
+      const t = new Date(v).getTime();
+      return Number.isFinite(t) ? t : 0;
+    }
+    function plus(days) { return Date.now() + days * 86400000; }
+
+    function renderEntitlement() {
+      const u = currentUser || {};
+      const tier = u.entitlement_tier || 'PROMOTIONAL';
+      document.getElementById('entTier').value = tier;
+      document.getElementById('entExpires').value = msToLocalInput(u.entitlement_expires_at);
+      document.getElementById('entStudent').value = msToLocalInput(u.entitlement_student_expires_at);
+      document.getElementById('entYoungster').value = msToLocalInput(u.entitlement_youngster_expires_at);
+
+      const activated = u.entitlement_activated_at ? formatDate(u.entitlement_activated_at) : '—';
+      const expires = u.entitlement_expires_at ? formatDate(u.entitlement_expires_at) : 'Lifetime';
+      document.getElementById('entitlementCurrent').innerHTML = `
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:0.75rem;">
+          <div class="form-group"><label>Current tier</label><div style="font-weight:700;letter-spacing:0.5px;">${escapeHtml(tier)}</div></div>
+          <div class="form-group"><label>Activated</label><div style="color:var(--gray-300);">${activated}</div></div>
+          <div class="form-group"><label>Expires</label><div style="color:var(--gray-300);">${expires}</div></div>
+          <div class="form-group"><label>Discount eligible</label><div style="color:var(--gray-300);">${u.discountEligible ? 'Yes' : 'No'}</div></div>
+        </div>
+      `;
+    }
+
+    function fillEntitlement(tier, expiresMs, studentMs, youngsterMs) {
+      document.getElementById('entTier').value = tier;
+      document.getElementById('entExpires').value = expiresMs ? msToLocalInput(expiresMs) : '';
+      document.getElementById('entStudent').value = studentMs ? msToLocalInput(studentMs) : '';
+      document.getElementById('entYoungster').value = youngsterMs ? msToLocalInput(youngsterMs) : '';
+    }
+
+    async function saveEntitlement() {
+      const payload = {
+        tier: document.getElementById('entTier').value,
+        expiresAtMs: localInputToMs(document.getElementById('entExpires').value),
+        studentValidityExpiresAtMs: localInputToMs(document.getElementById('entStudent').value),
+        youngsterValidityExpiresAtMs: localInputToMs(document.getElementById('entYoungster').value),
+      };
+      try {
+        const res = await fetch(`/api/users/${uid}/entitlement`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.error || 'Save failed');
+        Object.assign(currentUser, {
+          entitlement_tier: payload.tier,
+          entitlement_expires_at: payload.expiresAtMs,
+          entitlement_student_expires_at: payload.studentValidityExpiresAtMs,
+          entitlement_youngster_expires_at: payload.youngsterValidityExpiresAtMs,
+          entitlement_activated_at: data.entitlement.entitlement_activated_at || currentUser.entitlement_activated_at,
+        });
+        renderEntitlement();
+        showToast('Entitlement updated', 'success');
+      } catch (err) {
+        showToast(`Failed: ${err.message}`, 'error');
+      }
     }
 
     function renderTagOverrides() {

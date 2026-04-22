@@ -28,6 +28,7 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -94,13 +95,31 @@ private val DeepDiveSaver: Saver<StatsCategory?, Any> = Saver(
 fun StatsScreenHost(
     statsState: com.theblankstate.preamble.viewmodel.StatsState,
     onRefreshStats: (() -> Unit)? = null,
+    onOpenWrapped: (() -> Unit)? = null,
+    onFeatureLocked: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val ctx = LocalContext.current
-    var tweaks by remember { mutableStateOf(loadTweaks(ctx)) }
+    val appIsDark = androidx.compose.foundation.isSystemInDarkTheme().let { sysDark ->
+        val mode = com.theblankstate.preamble.ui.theme.ThemePreferences.themeMode.collectAsState().value
+        when (mode) {
+            com.theblankstate.preamble.ui.theme.ThemePreferences.ThemeMode.DARK,
+            com.theblankstate.preamble.ui.theme.ThemePreferences.ThemeMode.AMOLED -> true
+            com.theblankstate.preamble.ui.theme.ThemePreferences.ThemeMode.LIGHT -> false
+            com.theblankstate.preamble.ui.theme.ThemePreferences.ThemeMode.SYSTEM -> sysDark
+        }
+    }
+    val loaded = remember { loadTweaks(ctx) }
+    // Force stats theme to track app theme (user preference: no independent override)
+    var tweaks by remember(appIsDark) {
+        mutableStateOf(loaded.copy(theme = if (appIsDark) StatsTheme.DARK else StatsTheme.LIGHT))
+    }
     var range by rememberSaveable { mutableStateOf(StatsRange.MONTH) }
     var showTweaks by rememberSaveable { mutableStateOf(false) }
     var deepDive by rememberSaveable(stateSaver = DeepDiveSaver) { mutableStateOf<StatsCategory?>(null) }
+
+    val gatedRangeChange: (StatsRange) -> Unit = { r -> range = r }
+    val gatedDeepDive: (StatsCategory) -> Unit = { c -> deepDive = c }
 
     LaunchedEffect(tweaks) { saveTweaks(ctx, tweaks) }
 
@@ -111,7 +130,7 @@ fun StatsScreenHost(
             .fillMaxSize()
             .background(surface)
     ) {
-        CompositionLocalProvider(LocalStatsDeepDive provides { c -> deepDive = c }) {
+        CompositionLocalProvider(LocalStatsDeepDive provides gatedDeepDive) {
             when (tweaks.variant) {
                 StatsVariant.EDITORIAL -> StatsEditorialScreen(
                     statsState = statsState,
@@ -120,8 +139,9 @@ fun StatsScreenHost(
                         showTweaks = true
                         onRefreshStats?.invoke()
                     },
+                    onOpenWrapped = onOpenWrapped,
                     range = range,
-                    onRangeChange = { range = it },
+                    onRangeChange = gatedRangeChange,
                     modifier = Modifier.fillMaxSize()
                 )
                 StatsVariant.CAPSULE -> StatsCapsuleScreen(
@@ -131,8 +151,9 @@ fun StatsScreenHost(
                         showTweaks = true
                         onRefreshStats?.invoke()
                     },
+                    onOpenWrapped = onOpenWrapped,
                     range = range,
-                    onRangeChange = { range = it },
+                    onRangeChange = gatedRangeChange,
                     modifier = Modifier.fillMaxSize()
                 )
                 StatsVariant.RIBBON -> StatsRibbonScreen(
@@ -142,8 +163,9 @@ fun StatsScreenHost(
                         showTweaks = true
                         onRefreshStats?.invoke()
                     },
+                    onOpenWrapped = onOpenWrapped,
                     range = range,
-                    onRangeChange = { range = it },
+                    onRangeChange = gatedRangeChange,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -247,22 +269,6 @@ private fun TweaksPanel(
                     )
                 }
             }
-        }
-
-        Spacer(Modifier.height(18.dp))
-
-        TweakGroup(label = "Canvas theme", fg = fg, fgMuted = fgMuted) {
-            TweakSegments(
-                options = listOf(
-                    "Light" to StatsTheme.LIGHT,
-                    "Dark" to StatsTheme.DARK,
-                ),
-                selected = tweaks.theme,
-                onSelect = { onChange(tweaks.copy(theme = it)) },
-                chipBg = chipBg,
-                dark = dark,
-                fgMuted = fgMuted
-            )
         }
 
         Spacer(Modifier.height(18.dp))

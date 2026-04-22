@@ -54,6 +54,7 @@ fun StatsCapsuleScreen(
     statsState: StatsState,
     tweaks: StatsTweaks,
     onOpenTweaks: () -> Unit,
+    onOpenWrapped: (() -> Unit)? = null,
     range: StatsRange,
     onRangeChange: (StatsRange) -> Unit,
     modifier: Modifier = Modifier,
@@ -108,16 +109,36 @@ fun StatsCapsuleScreen(
                         letterSpacing = (-0.8).sp,
                     )
                 }
-                MiniRangePill(
-                    range = range,
-                    onChange = onRangeChange,
-                    tile = tile,
-                    fg = fg,
-                    fgMuted = fgMuted,
-                    surface = surface,
-                    onOpenTweaks = onOpenTweaks,
-                    hair = hair,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onOpenWrapped != null) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(tile)
+                                .clickable { onOpenWrapped() }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                "Wrapped",
+                                color = fg,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.2.sp,
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    MiniRangePill(
+                        range = range,
+                        onChange = onRangeChange,
+                        tile = tile,
+                        fg = fg,
+                        fgMuted = fgMuted,
+                        surface = surface,
+                        onOpenTweaks = onOpenTweaks,
+                        hair = hair,
+                    )
+                }
             }
         }
 

@@ -71,6 +71,7 @@ fun StatsEditorialScreen(
     statsState: StatsState,
     tweaks: StatsTweaks,
     onOpenTweaks: () -> Unit,
+    onOpenWrapped: (() -> Unit)? = null,
     range: StatsRange,
     onRangeChange: (StatsRange) -> Unit,
     modifier: Modifier = Modifier,
@@ -114,20 +115,40 @@ fun StatsEditorialScreen(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = (-0.2).sp,
                 )
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .border(1.dp, hair, RoundedCornerShape(999.dp))
-                        .clickable { onOpenTweaks() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        Icons.Filled.Settings,
-                        contentDescription = "Tweaks",
-                        tint = fg,
-                        modifier = Modifier.size(16.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onOpenWrapped != null) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(chipBg)
+                                .clickable { onOpenWrapped() }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                "Wrapped",
+                                color = fg,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.2.sp,
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .border(1.dp, hair, RoundedCornerShape(999.dp))
+                            .clickable { onOpenTweaks() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            Icons.Filled.Settings,
+                            contentDescription = "Tweaks",
+                            tint = fg,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
                 }
             }
         }

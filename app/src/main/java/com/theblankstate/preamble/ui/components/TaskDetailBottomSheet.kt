@@ -24,11 +24,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.viewinterop.AndroidView
-import com.google.android.gms.ads.AdRequest
-import com.google.android.gms.ads.AdSize
-import com.google.android.gms.ads.AdView
-import com.theblankstate.preamble.BuildConfig
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
@@ -1224,42 +1219,9 @@ fun TaskDetailBottomSheet(
             }
 
             // ═══════════════════════════════════════════════════════════════
-            // BANNER ADS
-            // ═══════════════════════════════════════════════════════════════
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Ad lifecycle management
-            val bannerAdView1 = remember { mutableStateOf<AdView?>(null) }
-            val bannerAdView2 = remember { mutableStateOf<AdView?>(null) }
-            val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
-
-            androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
-                val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-                    when (event) {
-                        androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> {
-                            bannerAdView1.value?.pause()
-                            bannerAdView2.value?.pause()
-                        }
-                        androidx.lifecycle.Lifecycle.Event.ON_RESUME -> {
-                            bannerAdView1.value?.resume()
-                            bannerAdView2.value?.resume()
-                        }
-                        else -> {}
-                    }
-                }
-                lifecycleOwner.lifecycle.addObserver(observer)
-                onDispose {
-                    lifecycleOwner.lifecycle.removeObserver(observer)
-                    bannerAdView1.value?.destroy()
-                    bannerAdView1.value = null
-                    bannerAdView2.value?.destroy()
-                    bannerAdView2.value = null
-                }
-            }
-
-            // ═══════════════════════════════════════════════════════════════
             // ACTIONS (Edit / Delete)
             // ═══════════════════════════════════════════════════════════════
+            Spacer(modifier = Modifier.height(24.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(SpaceMD)
@@ -1279,7 +1241,7 @@ fun TaskDetailBottomSheet(
                         Text("Edit", fontWeight = FontWeight.SemiBold)
                     }
                 }
-                
+
                 androidx.compose.material3.Button(
                     onClick = { onDelete() },
                     modifier = Modifier.weight(1f).defaultMinSize(minHeight = MinTouchTarget),
@@ -1294,86 +1256,8 @@ fun TaskDetailBottomSheet(
                     Text("Delete", fontWeight = FontWeight.SemiBold)
                 }
             }
-            
+
             Spacer(modifier = Modifier.height(SpaceLG))
-
-            val adShape = RoundedCornerShape(12.dp)
-            val primaryColor = MaterialTheme.colorScheme.primary
-            val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
-            val surface = MaterialTheme.colorScheme.surface
-            val borderColor = primaryColor.copy(alpha = 0.15f)
-
-            // Banner Ad 1
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(adShape)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                primaryColor.copy(alpha = 0.05f),
-                                surfaceVariant.copy(alpha = 0.3f)
-                            )
-                        )
-                    )
-                    .border(1.dp, borderColor, adShape)
-                    .padding(8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                AndroidView(
-                    factory = { ctx ->
-                        AdView(ctx).apply {
-                            setAdSize(AdSize.MEDIUM_RECTANGLE)
-                            adUnitId = BuildConfig.AD_DETAIL_UNIT_ID
-                            loadAd(AdRequest.Builder().build())
-                            bannerAdView1.value = this
-                        }
-                    },
-                    onRelease = { adView -> adView.destroy() },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(250.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Banner Ad 2
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(adShape)
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                primaryColor.copy(alpha = 0.05f),
-                                surfaceVariant.copy(alpha = 0.3f)
-                            )
-                        )
-                    )
-                    .border(1.dp, borderColor, adShape)
-                    .padding(8.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                AndroidView(
-                    factory = { ctx ->
-                        AdView(ctx).apply {
-                            setAdSize(AdSize.MEDIUM_RECTANGLE)
-                            adUnitId = BuildConfig.AD_DETAIL_UNIT_ID
-                            loadAd(AdRequest.Builder().build())
-                            bannerAdView2.value = this
-                        }
-                    },
-                    onRelease = { adView -> adView.destroy() },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(250.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }

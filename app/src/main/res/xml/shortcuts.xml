@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:shortcutId="quick_add"
+        android:enabled="true"
+        android:icon="@drawable/ic_notification"
+        android:shortcutShortLabel="@string/shortcut_add_short"
+        android:shortcutLongLabel="@string/shortcut_add_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="preamble://home/add"
+            android:targetPackage="com.theblankstate.preamble"
+            android:targetClass="com.theblankstate.preamble.MainActivity" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="view_stats"
+        android:enabled="true"
+        android:icon="@drawable/ic_notification"
+        android:shortcutShortLabel="@string/shortcut_stats_short"
+        android:shortcutLongLabel="@string/shortcut_stats_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="preamble://stats"
+            android:targetPackage="com.theblankstate.preamble"
+            android:targetClass="com.theblankstate.preamble.MainActivity" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="view_wrapped"
+        android:enabled="true"
+        android:icon="@drawable/ic_notification"
+        android:shortcutShortLabel="@string/shortcut_wrapped_short"
+        android:shortcutLongLabel="@string/shortcut_wrapped_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="preamble://wrapped"
+            android:targetPackage="com.theblankstate.preamble"
+            android:targetClass="com.theblankstate.preamble.MainActivity" />
+    </shortcut>
+
+</shortcuts>

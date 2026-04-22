@@ -941,10 +941,49 @@ class TaskViewModel(
     private val _snackbarEvent = MutableSharedFlow<SnackbarEvent>(extraBufferCapacity = 1)
     val snackbarEvent = _snackbarEvent.asSharedFlow()
 
+    sealed class CelebrationEvent {
+        object Standard : CelebrationEvent()
+        data class Milestone(val count: Int) : CelebrationEvent()
+        data class StreakDay(val days: Int) : CelebrationEvent()
+        data class PerfectDay(val tasks: Int) : CelebrationEvent()
+    }
+
+    private val _celebrationEvent = MutableSharedFlow<CelebrationEvent>(extraBufferCapacity = 2)
+    val celebrationEvent = _celebrationEvent.asSharedFlow()
+
     private var pendingDeleteJob: Job? = null
     private var pendingDeleteTask: Task? = null
 
     data class SnackbarEvent(val message: String, val actionLabel: String? = null, val onAction: (() -> Unit)? = null)
+
+    private fun emitCelebrationEvent() {
+        try {
+            val prefs = appContext.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+            val next = prefs.getInt("celebration_total_count", 0) + 1
+            prefs.edit().putInt("celebration_total_count", next).apply()
+
+            val stats = _statsState.value
+            val currentStreak = stats.streak
+            val streakShownKey = "celebration_streak_day_shown_$currentStreak"
+            val streakAlreadyShown = prefs.getBoolean(streakShownKey, false)
+            // +1 because this completion hasn't been reflected in stats yet (stats recompute async)
+            val effectiveDone = stats.todayCompleted + 1
+            val total = stats.todayTotal
+
+            val event = when {
+                currentStreak in listOf(3, 7, 14, 21, 30, 60, 100, 200, 365) && !streakAlreadyShown -> {
+                    prefs.edit().putBoolean(streakShownKey, true).apply()
+                    CelebrationEvent.StreakDay(currentStreak)
+                }
+                total > 0 && effectiveDone >= total -> CelebrationEvent.PerfectDay(total)
+                next % 10 == 0 -> CelebrationEvent.Milestone(next)
+                else -> CelebrationEvent.Standard
+            }
+            _celebrationEvent.tryEmit(event)
+        } catch (_: Exception) {
+            _celebrationEvent.tryEmit(CelebrationEvent.Standard)
+        }
+    }
 
     fun toggleTask(task: Task) {
         viewModelScope.launch {
@@ -963,6 +1002,8 @@ class TaskViewModel(
                     if (created != null) ((System.currentTimeMillis() - created.time) / 86400000).toInt() else 0
                 } catch (_: Exception) { 0 }
                 AnalyticsManager.trackTaskCompleted(taskId = task.id, daysOld = daysOld)
+
+                emitCelebrationEvent()
             }
 
             // Cancel or reschedule alarms based on new completion state

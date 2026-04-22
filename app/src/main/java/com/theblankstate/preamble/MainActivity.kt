@@ -25,6 +25,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -50,7 +51,6 @@ import com.theblankstate.preamble.ui.theme.ThemePreferences
 import com.theblankstate.preamble.auth.AuthManager
 import com.theblankstate.preamble.ui.components.ExpressiveNavItem
 import com.theblankstate.preamble.ui.components.ExpressiveNavigationBar
-import com.theblankstate.preamble.ui.components.ProfileSetupDialog
 import com.theblankstate.preamble.viewmodel.TaskViewModel
 import com.theblankstate.preamble.analytics.AnalyticsManager
 import androidx.lifecycle.lifecycleScope
@@ -61,6 +61,9 @@ class MainActivity : ComponentActivity() {
     /** Deep link target parsed from the incoming intent (preamble://…). */
     private val _deepLinkTarget = mutableStateOf<String?>(null)
 
+    /** Set true when the launch (or new) intent asks us to open Weekly Wrapped. */
+    private val _openWrapped = mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ThemePreferences.init(this)
@@ -68,6 +71,11 @@ class MainActivity : ComponentActivity() {
 
         // Parse deep link from launch intent
         _deepLinkTarget.value = parseDeepLink(intent)
+
+        // Weekly Wrapped deep-link from notification
+        if (intent.getBooleanExtra(com.theblankstate.preamble.notification.WeeklyWrappedReceiver.EXTRA_OPEN_WRAPPED, false)) {
+            _openWrapped.value = true
+        }
 
         // PostHog: Agar FCM notification se app khula hai, click track karo
         trackCampaignClickIfPresent(intent)
@@ -82,6 +90,13 @@ class MainActivity : ComponentActivity() {
             }
         } catch (e: Exception) {
             android.util.Log.e("MainActivity", "Failed to start notification service", e)
+        }
+
+        // Schedule Sunday 7pm Weekly Wrapped notification (reschedules itself after firing)
+        try {
+            com.theblankstate.preamble.notification.WeeklyWrappedScheduler.schedule(this)
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Failed to schedule weekly wrapped", e)
         }
 
         setContent {
@@ -107,33 +122,39 @@ class MainActivity : ComponentActivity() {
                         factory = TaskViewModel.Factory(app.repository, app)
                     )
 
-                    // Show profile setup dialog once if signed in but profile not collected
-                    val profileDone = prefs.getBoolean("profile_setup_done", false)
-                    var showProfileDialog by remember {
-                        mutableStateOf(
-                            !profileDone && AuthManager.isSignedIn()
-                        )
-                    }
-
-                    if (showProfileDialog) {
-                        ProfileSetupDialog(
-                            onSubmit = { gender, age ->
-                                prefs.edit().putBoolean("profile_setup_done", true).apply()
-                                showProfileDialog = false
-                                saveProfileToFirestore(gender, age)
-                            },
-                            onSkip = {
-                                prefs.edit().putBoolean("profile_setup_done", true).apply()
-                                showProfileDialog = false
+                    // Profile collected during onboarding now. Back-fill Firestore if user
+                    // had already onboarded pre-v2 but is missing the new fields.
+                    LaunchedEffect(Unit) {
+                        if (AuthManager.isSignedIn()) {
+                            val stored = com.theblankstate.preamble.data.UserProfileStore.load(this@MainActivity)
+                            if (stored.baselineScore > 0) {
+                                com.theblankstate.preamble.data.UserProfileStore.syncToFirestore(stored)
                             }
-                        )
+                            // Entitlement: seed promo if first time, then pull latest from Firestore.
+                            com.theblankstate.preamble.data.EntitlementStore.seedPromotionalIfFirstTime(this@MainActivity)
+                            com.theblankstate.preamble.data.EntitlementStore.syncFromFirestore(this@MainActivity)
+                        }
                     }
 
-                    PreambleApp(
-                        viewModel = viewModel,
-                        deepLinkTarget = deepLinkTarget,
-                        onDeepLinkConsumed = { _deepLinkTarget.value = null }
-                    )
+                    val openWrapped by _openWrapped
+                    androidx.compose.foundation.layout.Box(
+                        modifier = androidx.compose.ui.Modifier.fillMaxSize()
+                    ) {
+                        PreambleApp(
+                            viewModel = viewModel,
+                            deepLinkTarget = deepLinkTarget,
+                            onDeepLinkConsumed = { _deepLinkTarget.value = null },
+                            onOpenWrapped = { _openWrapped.value = true },
+                        )
+                        if (openWrapped) {
+                            val statsState = viewModel.statsState.collectAsState().value
+                            com.theblankstate.preamble.ui.screens.WrappedScreen(
+                                statsState = statsState,
+                                onDismiss = { _openWrapped.value = false },
+                                modifier = androidx.compose.ui.Modifier.fillMaxSize()
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -143,6 +164,9 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         parseDeepLink(intent)?.let { target ->
             _deepLinkTarget.value = target
+        }
+        if (intent.getBooleanExtra(com.theblankstate.preamble.notification.WeeklyWrappedReceiver.EXTRA_OPEN_WRAPPED, false)) {
+            _openWrapped.value = true
         }
         // PostHog: Agar FCM notification se naya intent aaya, click track karo
         trackCampaignClickIfPresent(intent)
@@ -187,7 +211,6 @@ class MainActivity : ComponentActivity() {
         if (prefs.getBoolean("onboarding_done", false)) {
             postNotification()
             autoSyncGoogleData()
-            com.theblankstate.preamble.ads.AppOpenAdManager.showIfNotShownToday(this)
         }
     }
 
@@ -247,37 +270,17 @@ class MainActivity : ComponentActivity() {
     private fun postNotification() {
         // Notification is automatically managed by TaskNotificationService
     }
-
-    private fun saveProfileToFirestore(gender: String?, age: Int?) {
-        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: return
-        val updates = mutableMapOf<String, Any>()
-        if (gender != null) updates["gender"] = gender
-        if (age != null) updates["age"] = age
-
-        if (updates.isEmpty()) return
-
-        lifecycleScope.launch {
-            try {
-                com.google.firebase.firestore.FirebaseFirestore.getInstance("preamble")
-                    .collection("users").document(uid)
-                    .update(updates)
-                    .addOnFailureListener { e ->
-                        android.util.Log.w("MainActivity", "Failed to save profile", e)
-                    }
-            } catch (e: Exception) {
-                android.util.Log.e("MainActivity", "Error saving profile", e)
-            }
-        }
-    }
 }
 
 @Composable
 fun PreambleApp(
     viewModel: TaskViewModel,
     deepLinkTarget: String? = null,
-    onDeepLinkConsumed: () -> Unit = {}
+    onDeepLinkConsumed: () -> Unit = {},
+    onOpenWrapped: () -> Unit = {},
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    var quickAddTrigger by remember { mutableIntStateOf(0) }
 
     // PostHog: Har tab change pe screen view track karo
     // Compose mein traditional Activity nahi hota, toh manually track karna padta hai
@@ -306,6 +309,11 @@ fun PreambleApp(
             // Refresh admin tasks whenever a deep link brings us back
             viewModel.refreshAdminTasks()
             when {
+                deepLinkTarget == "home/add" -> {
+                    selectedTab = 0
+                    quickAddTrigger += 1
+                }
+                deepLinkTarget == "wrapped" -> onOpenWrapped()
                 deepLinkTarget.startsWith("home") -> selectedTab = 0
                 deepLinkTarget.startsWith("stats") -> {
                     selectedTab = 1
@@ -436,6 +444,8 @@ fun PreambleApp(
                 onAddReminder = { task, reminder -> viewModel.addReminder(task, reminder) },
                 onRemoveReminder = { task, index -> viewModel.removeReminder(task, index) },
                 snackbarEvent = viewModel.snackbarEvent,
+                celebrationEvent = viewModel.celebrationEvent,
+                openAddTrigger = quickAddTrigger,
                 adminTasks = viewModel.adminTasks.collectAsState().value,
                 onDismissAdminTask = { viewModel.dismissAdminTask(it) },
                 onAdminTaskAction = { viewModel.adminTaskActioned(it) },
@@ -444,6 +454,7 @@ fun PreambleApp(
             1 -> StatsScreenHost(
                 statsState = stats,
                 onRefreshStats = { viewModel.refreshStats() },
+                onOpenWrapped = onOpenWrapped,
                 modifier = Modifier.padding(innerPadding)
             )
             2 -> {

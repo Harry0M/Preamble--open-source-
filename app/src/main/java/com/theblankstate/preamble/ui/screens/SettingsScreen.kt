@@ -22,7 +22,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,14 +40,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.theblankstate.preamble.PreambleApplication
-import com.theblankstate.preamble.ads.FeatureGateManager
 import com.theblankstate.preamble.auth.AuthManager
 import com.theblankstate.preamble.sync.GoogleCalendarManager
 import com.theblankstate.preamble.sync.GoogleSyncCoordinator
 import com.theblankstate.preamble.sync.GoogleTasksManager
 import com.theblankstate.preamble.ui.components.ColorPickerComponent
-import com.theblankstate.preamble.ui.components.FeatureType
-import com.theblankstate.preamble.ui.components.FeatureUnlockSheet
 import com.theblankstate.preamble.ui.theme.ThemePreferences
 import kotlinx.coroutines.launch
 
@@ -56,6 +52,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SettingsScreen(
     yearlyHeatmap: Map<String, Float> = emptyMap(),
+    onOpenUpgrade: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -99,8 +96,6 @@ fun SettingsScreen(
     val googleSyncing = calendarSyncing || tasksSyncing
     val lastSyncTime = maxOf(lastCalSyncTime, lastTasksSyncTime)
     var googleLinkLoading by remember { mutableStateOf(false) }
-    var showThemeUnlockSheet by remember { mutableStateOf(false) }
-    val themeUnlocked by FeatureGateManager.themeUnlocked.collectAsState()
     val activity = context as? Activity
 
     val pmGreeting       by ThemePreferences.pmGreeting.collectAsState()
@@ -116,7 +111,6 @@ fun SettingsScreen(
     val pmVariableRewards by ThemePreferences.pmVariableRewards.collectAsState()
     val expressiveNav    by ThemePreferences.expressiveNav.collectAsState()
     val colorfulCards    by ThemePreferences.colorfulCards.collectAsState()
-
     val googleSignInLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -401,9 +395,10 @@ fun SettingsScreen(
                 Column {
                     SettingsToggleRow(
                         title = "Expressive Navigation",
-                        subtitle = if (expressiveNav) "Dynamic nav bar — tap icon to reveal label" else "Classic nav bar with icons and labels",
+                        subtitle = if (expressiveNav) "Dynamic nav bar — tap icon to reveal label"
+                            else "Classic nav bar with icons and labels",
                         checked = expressiveNav,
-                        onToggle = { ThemePreferences.setExpressiveNav(context, it) }
+                        onToggle = { v -> ThemePreferences.setExpressiveNav(context, v) }
                     )
                     HorizontalDivider()
                     Row(
@@ -414,42 +409,21 @@ fun SettingsScreen(
                         Column {
                             Text("Theme Color", style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                if (themeUnlocked) "Customize the app's primary color" else "Watch ad to unlock customization",
+                                "Customize the app's primary color",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
                         }
-                        if (themeUnlocked) { ColorPickerComponent() }
-                        else {
-                            Icon(
-                                imageVector = Icons.Outlined.Lock, contentDescription = "Locked",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                                modifier = Modifier.size(24.dp).clickable { showThemeUnlockSheet = true }
-                            )
-                        }
+                        ColorPickerComponent()
                     }
                     HorizontalDivider()
-                    if (themeUnlocked) {
-                        ThemeSelectorRow(context)
-                    } else {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().clickable { showThemeUnlockSheet = true }.padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text("App Theme", style = MaterialTheme.typography.bodyLarge)
-                                Text("Locked — Watch ad to unlock", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
-                            }
-                            Icon(Icons.Outlined.Lock, contentDescription = "Locked", tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f), modifier = Modifier.size(24.dp))
-                        }
-                    }
+                    ThemeSelectorRow(context)
                     HorizontalDivider()
                     SettingsToggleRow(
                         title = "Colorful Task Cards",
                         subtitle = "Give each task card a unique color tint",
                         checked = colorfulCards,
-                        onToggle = { ThemePreferences.setColorfulCards(context, it) }
+                        onToggle = { v -> ThemePreferences.setColorfulCards(context, v) }
                     )
                 }
             }
@@ -903,7 +877,7 @@ fun SettingsScreen(
                             .padding(vertical = 4.dp)
                     )
                     Text(
-                        "Preamble is fully open-source and respects your privacy. Tasks are always saved locally first; if you sign in, your tasks are securely synced to your own Firebase account for backup and realtime sync. We show ads (Google AdMob) to support development. No third-party analytics.",
+                        "Preamble is fully open-source and respects your privacy. Tasks are always saved locally first; if you sign in, your tasks are securely synced to your own Firebase account for backup and realtime sync. No third-party analytics.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
@@ -1000,14 +974,6 @@ fun SettingsScreen(
                 }
             }
         }
-    }
-
-    if (showThemeUnlockSheet && activity != null) {
-        FeatureUnlockSheet(
-            featureType = FeatureType.THEME,
-            activity = activity,
-            onDismiss = { showThemeUnlockSheet = false }
-        )
     }
 }
 

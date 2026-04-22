@@ -30,7 +30,6 @@ import com.patrykandpatrick.vico.compose.cartesian.data.CartesianChartModelProdu
 import com.patrykandpatrick.vico.compose.cartesian.data.columnSeries
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.automirrored.filled.TrendingDown
 import androidx.compose.material.icons.automirrored.filled.TrendingFlat
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
@@ -489,34 +488,10 @@ fun StatsSectionCard(
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            "Watch ad to unlock deep analysis",
+                            "Coming soon",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(primaryColor.copy(alpha = 0.12f))
-                                .padding(horizontal = 16.dp, vertical = 6.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    Icons.Filled.Star,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(14.dp),
-                                    tint = primaryColor
-                                )
-                                Text(
-                                    "Unlock Premium",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = primaryColor
-                                )
-                            }
-                        }
                     }
                 }
             }

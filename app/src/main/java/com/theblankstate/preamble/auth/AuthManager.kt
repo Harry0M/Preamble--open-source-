@@ -15,6 +15,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.tasks.await
 
 object AuthManager {
+    /** Wraps Firebase sign-in result with whether this is a brand-new account. */
+    data class SignInResult(val user: FirebaseUser, val isNewUser: Boolean)
+
     private const val WEB_CLIENT_ID = "195921517707-5r9flmh8kh2gjoff9l35akn33dm665vk.apps.googleusercontent.com"
 
     private val auth = FirebaseAuth.getInstance()
@@ -23,7 +26,7 @@ object AuthManager {
 
     fun isSignedIn(): Boolean = auth.currentUser != null
 
-    suspend fun signInWithGoogle(context: Context): Result<FirebaseUser> {
+    suspend fun signInWithGoogle(context: Context): Result<SignInResult> {
         return try {
             val credentialManager = CredentialManager.create(context)
 
@@ -47,6 +50,8 @@ object AuthManager {
 
             _currentUser.value = authResult.user
 
+            val isNew = authResult.additionalUserInfo?.isNewUser ?: true
+
             // Sign-in ke baad PostHog mein user identify karo — Firebase UID link hoga
             authResult.user?.let { user ->
                 AnalyticsManager.identifyUser(
@@ -55,7 +60,7 @@ object AuthManager {
                     displayName = user.displayName
                 )
             }
-            Result.success(authResult.user!!)
+            Result.success(SignInResult(authResult.user!!, isNew))
         } catch (e: GetCredentialException) {
             Result.failure(e)
         } catch (e: Exception) {

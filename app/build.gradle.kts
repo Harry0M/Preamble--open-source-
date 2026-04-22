@@ -30,20 +30,10 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        // AdMob App ID manifest placeholder
-        manifestPlaceholders["AD_APP_ID"] = localProperties.getProperty("AD_APP_ID", "ca-app-pub-3940256099942544~3347511713")
 
         // AI config from local.properties (gitignored, safe)
         buildConfigField("String", "AI_PROVIDER", "\"${localProperties.getProperty("AI_PROVIDER", "MISTRAL")}\"")
         buildConfigField("String", "AI_API_KEY", "\"${localProperties.getProperty("AI_API_KEY", "")}\"")
-
-        // AdMob config from local.properties (test IDs as defaults for debug safety)
-        buildConfigField("String", "AD_APP_ID", "\"${localProperties.getProperty("AD_APP_ID", "ca-app-pub-3940256099942544~3347511713")}\"")
-        buildConfigField("String", "AD_THEME_UNIT_ID", "\"${localProperties.getProperty("AD_THEME_UNIT_ID", "ca-app-pub-3940256099942544/5224354917")}\"")
-        buildConfigField("String", "AD_STATS_UNIT_ID", "\"${localProperties.getProperty("AD_STATS_UNIT_ID", "ca-app-pub-3940256099942544/5224354917")}\"")
-        buildConfigField("String", "AD_BANNER_UNIT_ID", "\"${localProperties.getProperty("AD_BANNER_UNIT_ID", "ca-app-pub-3940256099942544/6300978111")}\"")
-        buildConfigField("String", "AD_DETAIL_UNIT_ID", "\"${localProperties.getProperty("AD_DETAIL_UNIT_ID", "ca-app-pub-1118281305976257/4842895657")}\"")
-        buildConfigField("String", "AD_APP_OPEN_UNIT_ID", "\"${localProperties.getProperty("AD_APP_OPEN_UNIT_ID", "ca-app-pub-3940256099942544/9257395921")}\"")
 
         // PostHog analytics
         buildConfigField("String", "POSTHOG_API_KEY", "\"${localProperties.getProperty("POSTHOG_API_KEY", "")}\"")
@@ -115,8 +105,6 @@ dependencies {
     implementation(libs.google.api.services.tasks)
     implementation("com.google.http-client:google-http-client-gson:2.1.0")
 
-    // AdMob
-    implementation(libs.play.services.ads)
 
     // Glance (Home Screen Widget)
     implementation(libs.androidx.glance.appwidget)
@@ -142,6 +130,9 @@ dependencies {
 
     // PostHog analytics
     implementation("com.posthog:posthog-android:3.7.4")
+
+    // Konfetti — confetti celebration animations
+    implementation("nl.dionsegijn:konfetti-compose:2.0.5")
 
     constraints {
         implementation("io.grpc:grpc-api:1.62.2") {

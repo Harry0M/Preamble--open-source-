@@ -253,7 +253,7 @@ class AdminTaskRepository(private val appContext: Context) {
     // ── Feature state checks ──
 
     private fun isThemeUnlocked(): Boolean {
-        return com.theblankstate.preamble.ads.FeatureGateManager.isThemeUnlocked()
+        return true // Theme customisation is always unlocked — no ads/premium
     }
 
     private fun isCalendarLinked(): Boolean {

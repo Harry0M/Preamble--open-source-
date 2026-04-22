@@ -183,12 +183,17 @@ fun HomeScreen(
     onAddReminder: ((Task, com.theblankstate.preamble.data.Reminder) -> Unit)? = null,
     onRemoveReminder: ((Task, Int) -> Unit)? = null,
     snackbarEvent: SharedFlow<TaskViewModel.SnackbarEvent>? = null,
+    celebrationEvent: SharedFlow<TaskViewModel.CelebrationEvent>? = null,
+    openAddTrigger: Int = 0,
     adminTasks: List<AdminTask> = emptyList(),
     onDismissAdminTask: ((String) -> Unit)? = null,
     onAdminTaskAction: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(openAddTrigger) {
+        if (openAddTrigger > 0) showAddSheet = true
+    }
     var showEisenhowerView by remember { mutableStateOf(false) }
     var showFilterBar by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
@@ -447,6 +452,16 @@ fun HomeScreen(
                 if (result == SnackbarResult.ActionPerformed) {
                     event.onAction?.invoke()
                 }
+            }
+        }
+    }
+
+    // Collect celebration events from ViewModel
+    var activeCelebration by remember { mutableStateOf<TaskViewModel.CelebrationEvent?>(null) }
+    if (celebrationEvent != null) {
+        androidx.compose.runtime.LaunchedEffect(celebrationEvent) {
+            celebrationEvent.collectLatest { event ->
+                activeCelebration = event
             }
         }
     }
@@ -1250,6 +1265,9 @@ fun HomeScreen(
                     }
                 } else if (!isInitialLoad) {
                     item {
+                        val userName = remember {
+                            com.theblankstate.preamble.data.UserProfileStore.load(context).name?.trim()?.takeIf { it.isNotBlank() }
+                        }
                         val emptyHeadline: String
                         val emptySub: String
                         if (personalMode && pmSmartEmpty) {
@@ -1263,23 +1281,24 @@ fun HomeScreen(
                                 emptyHeadline = emptyOverride.headline
                                 emptySub = emptyOverride.subtitle ?: ""
                             } else {
+                                val nameTag = userName?.let { ", $it" } ?: ""
                                 when {
                                     currentHour in 5..11 -> {
-                                        emptyHeadline = "Your day is a blank canvas"
+                                        emptyHeadline = "Your day is a blank canvas$nameTag"
                                         emptySub = "What will you create today?"
                                     }
                                     currentHour in 12..16 -> {
-                                        emptyHeadline = "Nothing pending"
+                                        emptyHeadline = "Nothing pending$nameTag"
                                         emptySub = "Time to think ahead and plan tomorrow"
                                     }
                                     else -> {
-                                        emptyHeadline = "All clear"
+                                        emptyHeadline = "All clear$nameTag"
                                         emptySub = "Enjoy your evening \u2014 you've earned it"
                                     }
                                 }
                             }
                         } else {
-                            emptyHeadline = "No tasks for today"
+                            emptyHeadline = userName?.let { "No tasks for today, $it" } ?: "No tasks for today"
                             emptySub = "Tap + to add your first task"
                         }
                         Column(
@@ -1470,6 +1489,11 @@ fun HomeScreen(
                 )
             }
         }
+
+        com.theblankstate.preamble.ui.components.CelebrationOverlay(
+            event = activeCelebration,
+            onDone = { activeCelebration = null }
+        )
     }
 
     if (showAddSheet) {

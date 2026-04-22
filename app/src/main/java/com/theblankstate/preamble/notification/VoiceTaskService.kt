@@ -179,13 +179,12 @@ class VoiceTaskService : Service() {
                     // Fetch existing tasks for AI context (modify/delete operations)
                     val allTasks = app.repository.tasksFlow.firstOrNull() ?: emptyList()
                     val subtaskIntensity = applicationContext.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
-                        .getInt("ai_subtask_intensity", 0)
+                            .getInt("ai_subtask_intensity", 0)
                     Log.d("PreambleAI", "  SubtaskIntensity: $subtaskIntensity")
                     Log.d("PreambleAI", "  Context tasks: ${allTasks.size}")
-                    
-                    // Restrict to add-only tools when notification edit is disabled
+
                     val aiNotifEditEnabled = getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
-                        .getBoolean("ai_notif_edit", false)
+                            .getBoolean("ai_notif_edit", false)
                     val toolsToUse = if (isNotification && !aiNotifEditEnabled) {
                         com.theblankstate.preamble.ai.TaskTools.tools
                             .filter { it.name in listOf("add_task", "set_reminder") }

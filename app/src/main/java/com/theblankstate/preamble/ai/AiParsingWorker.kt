@@ -58,7 +58,7 @@ class AiParsingWorker(
         return try {
             val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
             val subtaskIntensity = applicationContext.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
-                .getInt("ai_subtask_intensity", 0)
+                    .getInt("ai_subtask_intensity", 0)
             val systemMsg = ChatMessage("system",
                 AiPromptFactory.buildSystemPrompt(subtaskIntensity = subtaskIntensity)
             )

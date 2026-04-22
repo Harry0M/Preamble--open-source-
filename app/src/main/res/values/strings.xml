@@ -2,4 +2,10 @@
     <string name="app_name">Preamble</string>
     <string name="widget_name">Preamble Tasks</string>
     <string name="widget_description">Shows today\'s pending tasks with quick completion</string>
+    <string name="shortcut_add_short">Add task</string>
+    <string name="shortcut_add_long">Quick add task</string>
+    <string name="shortcut_stats_short">Stats</string>
+    <string name="shortcut_stats_long">View your stats</string>
+    <string name="shortcut_wrapped_short">Wrapped</string>
+    <string name="shortcut_wrapped_long">Your week, wrapped</string>
 </resources>

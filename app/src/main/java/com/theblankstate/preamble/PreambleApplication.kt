@@ -13,10 +13,7 @@ import com.theblankstate.preamble.repository.TaskRepository
 import com.theblankstate.preamble.sync.FirebaseTaskSyncManager
 import com.theblankstate.preamble.sync.GoogleCalendarManager
 import com.theblankstate.preamble.sync.GoogleTasksManager
-import com.google.android.gms.ads.MobileAds
 import com.theblankstate.preamble.ads.FeatureGateManager
-import com.theblankstate.preamble.ads.RewardedAdManager
-import com.theblankstate.preamble.ads.AppOpenAdManager
 import com.theblankstate.preamble.analytics.AnalyticsManager
 import com.theblankstate.preamble.recurrence.RecurrenceWorker
 import com.theblankstate.preamble.sync.GoogleSyncWorker
@@ -83,10 +80,6 @@ class PreambleApplication : Application() {
         persistFcmToken()
         GoogleCalendarManager.init(this)
         GoogleTasksManager.init(this)
-        MobileAds.initialize(this) {
-            // SDK is ready — preload the app open ad so it's available when onResume fires
-            AppOpenAdManager.preload()
-        }
         FeatureGateManager.init(this)
 
         // PM Messages: Firestore se override messages fetch karo (background mein)
@@ -95,8 +88,6 @@ class PreambleApplication : Application() {
                 com.theblankstate.preamble.repository.PmMessageRepository.fetchAndCache(this@PreambleApplication)
             }
         }
-        RewardedAdManager.init(this)
-        AppOpenAdManager.init(this)
         // Start the persistent notification service only if user hasn't disabled it
         if (TaskNotificationService.isEnabled(this)) {
             TaskNotificationService.start(this)

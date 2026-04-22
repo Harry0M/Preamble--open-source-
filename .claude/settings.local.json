@@ -15,7 +15,13 @@
       "Bash(tar -xzf design.tar.gz)",
       "Bash(where graphify *)",
       "Bash(python -m graphify update .)",
-      "Bash(\"C:\\\\Users\\\\palha\\\\AppData\\\\Roaming\\\\Python\\\\Python314\\\\Scripts\\\\graphify.exe\" update *)"
+      "Bash(\"C:\\\\Users\\\\palha\\\\AppData\\\\Roaming\\\\Python\\\\Python314\\\\Scripts\\\\graphify.exe\" update *)",
+      "Bash(./gradlew :app:assembleDebug)",
+      "Bash(command -v graphify)",
+      "Read(//c/Users/palha/.local/**)",
+      "Bash(grep -nE \"rgba\\\\\\(|#[0-9a-fA-F]{3,6}|linear-gradient|radial-gradient\" admin-panel/public/css/style.css)",
+      "Bash(grep -nE \"#[0-9a-fA-F]{3,6}|rgba\\\\\\(\" admin-panel/public/css/style.css)",
+      "Bash(node -c server.js)"
     ]
   }
 }

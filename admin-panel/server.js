@@ -152,6 +152,17 @@ app.get('/api/users/:uid', requireAuth, async (req, res) => {
         blocked: userData.blocked || false,
         gender: userData.gender || null,
         age: userData.age || null,
+        name: userData.name || null,
+        role: userData.role || null,
+        goal: userData.goal || null,
+        goals: userData.goals || null,
+        baselineScore: userData.baselineScore || null,
+        discountEligible: userData.discountEligible || false,
+        entitlement_tier: userData.entitlement_tier || null,
+        entitlement_expires_at: userData.entitlement_expires_at || 0,
+        entitlement_student_expires_at: userData.entitlement_student_expires_at || 0,
+        entitlement_youngster_expires_at: userData.entitlement_youngster_expires_at || 0,
+        entitlement_activated_at: userData.entitlement_activated_at || 0,
         disabled: authUser?.disabled || false,
         creationTime: authUser?.metadata?.creationTime || null,
         lastSignInTime: authUser?.metadata?.lastSignInTime || null
@@ -162,6 +173,50 @@ app.get('/api/users/:uid', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Error fetching user:', err);
     res.status(500).json({ error: 'Failed to fetch user details' });
+  }
+});
+
+// Entitlement: set tier + expiries (Firebase-side source of truth, anti-mod).
+const VALID_TIERS = [
+  'FREE_TIER', 'UNPREMIUM', 'PROMOTIONAL',
+  'PREMIUM', 'PREMIUM_STUDENT', 'PREMIUM_YOUNGSTER'
+];
+
+app.post('/api/users/:uid/entitlement', requireAuth, async (req, res) => {
+  try {
+    const { uid } = req.params;
+    const {
+      tier,
+      expiresAtMs,
+      studentValidityExpiresAtMs,
+      youngsterValidityExpiresAtMs,
+    } = req.body;
+
+    if (!tier || !VALID_TIERS.includes(tier)) {
+      return res.status(400).json({ error: 'Invalid tier', validTiers: VALID_TIERS });
+    }
+
+    const now = Date.now();
+    const userRef = firestoreDb.collection('users').doc(uid);
+    const existing = await userRef.get();
+
+    const payload = {
+      entitlement_tier: tier,
+      entitlement_expires_at: Number.isFinite(+expiresAtMs) ? +expiresAtMs : 0,
+      entitlement_student_expires_at: Number.isFinite(+studentValidityExpiresAtMs) ? +studentValidityExpiresAtMs : 0,
+      entitlement_youngster_expires_at: Number.isFinite(+youngsterValidityExpiresAtMs) ? +youngsterValidityExpiresAtMs : 0,
+      entitlement_updated_at: now,
+      entitlement_updated_by: req.session.user.email,
+    };
+    if (!existing.exists || !existing.data().entitlement_activated_at) {
+      payload.entitlement_activated_at = now;
+    }
+
+    await userRef.set(payload, { merge: true });
+    res.json({ success: true, entitlement: payload });
+  } catch (err) {
+    console.error('Error updating entitlement:', err);
+    res.status(500).json({ error: 'Failed to update entitlement' });
   }
 });
 
