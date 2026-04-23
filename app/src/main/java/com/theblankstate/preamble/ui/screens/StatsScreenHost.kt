@@ -56,7 +56,7 @@ private const val K_VARIANT = "variant"
 private fun loadTweaks(ctx: Context): StatsTweaks {
     val p = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val accentLong = p.getLong(K_ACCENT, Long.MIN_VALUE)
-    val accent = if (accentLong == Long.MIN_VALUE) AccentPalette[0].color
+    val accent = if (accentLong == Long.MIN_VALUE) AccentPalette.last().color
         else Color((accentLong.toULong()) shl 32)
     val theme = runCatching { StatsTheme.valueOf(p.getString(K_THEME, null) ?: "LIGHT") }
         .getOrElse { StatsTheme.LIGHT }
@@ -100,6 +100,7 @@ fun StatsScreenHost(
     modifier: Modifier = Modifier
 ) {
     val ctx = LocalContext.current
+    val appAccent = com.theblankstate.preamble.ui.theme.LocalAccentColor.current
     val appIsDark = androidx.compose.foundation.isSystemInDarkTheme().let { sysDark ->
         val mode = com.theblankstate.preamble.ui.theme.ThemePreferences.themeMode.collectAsState().value
         when (mode) {
@@ -110,9 +111,12 @@ fun StatsScreenHost(
         }
     }
     val loaded = remember { loadTweaks(ctx) }
-    // Force stats theme to track app theme (user preference: no independent override)
-    var tweaks by remember(appIsDark) {
-        mutableStateOf(loaded.copy(theme = if (appIsDark) StatsTheme.DARK else StatsTheme.LIGHT))
+    // Sync stats accent + dark/light with the app theme; user can override from tweaks panel
+    var tweaks by remember(appIsDark, appAccent) {
+        mutableStateOf(loaded.copy(
+            theme = if (appIsDark) StatsTheme.DARK else StatsTheme.LIGHT,
+            accent = appAccent
+        ))
     }
     var range by rememberSaveable { mutableStateOf(StatsRange.MONTH) }
     var showTweaks by rememberSaveable { mutableStateOf(false) }

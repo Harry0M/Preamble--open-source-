@@ -34,6 +34,9 @@ object ThemePreferences {
     // Expressive Navigation
     private const val KEY_EXPRESSIVE_NAV      = "expressive_nav"
 
+    // Material You (dynamic color)
+    private const val KEY_MATERIAL_YOU        = "material_you"
+
     enum class ThemeMode { SYSTEM, LIGHT, DARK, AMOLED }
 
     private val _themeColor = MutableStateFlow<Color?>(null)
@@ -98,6 +101,10 @@ object ThemePreferences {
     private val _expressiveNav    = MutableStateFlow(false)
     val expressiveNav: StateFlow<Boolean> = _expressiveNav.asStateFlow()
 
+    // Material You
+    private val _materialYou      = MutableStateFlow(false)
+    val materialYou: StateFlow<Boolean> = _materialYou.asStateFlow()
+
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
@@ -141,8 +148,9 @@ object ThemePreferences {
 
             // UI features — normal defaults
             _expressiveNav.value       = false
+            _materialYou.value         = false
             _colorfulCards.value       = false
-            _timelineUi.value          = true
+            _timelineUi.value          = false
             _showRecurrenceLabel.value = false
 
             prefs.edit()
@@ -161,8 +169,9 @@ object ThemePreferences {
                 .putBoolean(KEY_PM_VARIABLE, true)
                 .putBoolean(KEY_PM_HEATMAP, true)
                 .putBoolean(KEY_EXPRESSIVE_NAV, false)
+                .putBoolean(KEY_MATERIAL_YOU, false)
                 .putBoolean(KEY_COLORFUL_CARDS, false)
-                .putBoolean(KEY_TIMELINE_UI, true)
+                .putBoolean(KEY_TIMELINE_UI, false)
                 .putBoolean(KEY_SHOW_RECURRENCE_LABEL, false)
                 .apply()
 
@@ -187,6 +196,7 @@ object ThemePreferences {
             _pmVariableRewards.value= prefs.getBoolean(KEY_PM_VARIABLE, true)
             _pmYearHeatmap.value   = prefs.getBoolean(KEY_PM_HEATMAP, true)
             _expressiveNav.value   = prefs.getBoolean(KEY_EXPRESSIVE_NAV, false)
+            _materialYou.value     = prefs.getBoolean(KEY_MATERIAL_YOU, false)
         }
     }
 
@@ -277,6 +287,9 @@ object ThemePreferences {
     fun setPmYearHeatmap(context: Context, v: Boolean)   = setBool(context, KEY_PM_HEATMAP, _pmYearHeatmap, v)
     fun setExpressiveNav(context: Context, v: Boolean) {
         setBool(context, KEY_EXPRESSIVE_NAV, _expressiveNav, v)
+    }
+    fun setMaterialYou(context: Context, v: Boolean) {
+        setBool(context, KEY_MATERIAL_YOU, _materialYou, v)
     }
 
     /**

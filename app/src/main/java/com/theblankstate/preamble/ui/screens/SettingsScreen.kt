@@ -13,13 +13,19 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -30,13 +36,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.theblankstate.preamble.PreambleApplication
@@ -44,7 +55,6 @@ import com.theblankstate.preamble.auth.AuthManager
 import com.theblankstate.preamble.sync.GoogleCalendarManager
 import com.theblankstate.preamble.sync.GoogleSyncCoordinator
 import com.theblankstate.preamble.sync.GoogleTasksManager
-import com.theblankstate.preamble.ui.components.ColorPickerComponent
 import com.theblankstate.preamble.ui.theme.ThemePreferences
 import kotlinx.coroutines.launch
 
@@ -127,7 +137,7 @@ fun SettingsScreen(
                     context = context,
                     reason = "link_bootstrap"
                 )
-                Toast.makeText(context, "Syncing Google Calendar in background…", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Syncing Google Calendar in background...", Toast.LENGTH_SHORT).show()
                 googleLinkLoading = false
             } catch (e: Throwable) {
                 Toast.makeText(context, "Link failed: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -256,7 +266,7 @@ fun SettingsScreen(
                         if (signInLoading) {
                             CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                         } else {
-                            Text("→", style = MaterialTheme.typography.titleLarge)
+                            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
                 }
@@ -340,7 +350,7 @@ fun SettingsScreen(
                             if (googleSyncing) {
                                 CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                             } else {
-                                Text("↻", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
+                                Icon(Icons.Filled.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                             }
                         }
                         HorizontalDivider()
@@ -383,7 +393,7 @@ fun SettingsScreen(
                             if (googleLinkLoading) {
                                 CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                             } else {
-                                Text("→", style = MaterialTheme.typography.titleLarge)
+                                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -393,31 +403,14 @@ fun SettingsScreen(
             SectionTitle("Appearance")
             SettingsCard {
                 Column {
+                    ThemePickerCard(context)
+                    HorizontalDivider()
                     SettingsToggleRow(
                         title = "Expressive Navigation",
-                        subtitle = if (expressiveNav) "Dynamic nav bar — tap icon to reveal label"
-                            else "Classic nav bar with icons and labels",
+                        subtitle = "Dynamic nav bar - tap icon to reveal label",
                         checked = expressiveNav,
                         onToggle = { v -> ThemePreferences.setExpressiveNav(context, v) }
                     )
-                    HorizontalDivider()
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column {
-                            Text("Theme Color", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "Customize the app's primary color",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                        ColorPickerComponent()
-                    }
-                    HorizontalDivider()
-                    ThemeSelectorRow(context)
                     HorizontalDivider()
                     SettingsToggleRow(
                         title = "Colorful Task Cards",
@@ -556,7 +549,7 @@ fun SettingsScreen(
                     }
                     SettingsToggleRow(
                         title = "Let AI Control Task Sheet",
-                        subtitle = "As you type, AI auto-fills time, date, priority, tags, and task type. Turn off for fully manual entry.",
+                        subtitle = "AI auto-fills date, time, priority and tags as you type",
                         checked = aiControlSheetEnabled,
                         onToggle = { enabled ->
                             aiControlSheetEnabled = enabled
@@ -567,7 +560,7 @@ fun SettingsScreen(
                     var subtaskIntensity by remember {
                         mutableStateOf(
                             context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                .getInt("ai_subtask_intensity", 0)
+                                .getInt("ai_subtask_intensity", 2)
                         )
                     }
                     val intensityLabels = listOf("Off", "Light", "Balanced", "Aggressive")
@@ -641,7 +634,7 @@ fun SettingsScreen(
                                     }
                                 }
                             }
-                            Text("Type edit/delete commands in notification. AI may occasionally misidentify tasks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                            Text("Control tasks with voice commands in the notification bar", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
                         }
                         Switch(
                             checked = notifEditEnabled,
@@ -675,10 +668,10 @@ fun SettingsScreen(
                                 Text("What this feature does:", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     listOf(
-                                        "\"gym cancel karo\" → deletes your Gym task",
-                                        "\"meeting ko kal shift karo\" → moves Meeting to tomorrow",
-                                        "\"hospital urgent kar do\" → sets Hospital task to High priority",
-                                        "\"camping ka alarm 7:30 baje set karo\" → adds reminder to Camping task"
+                                        "\"gym cancel karo\" deletes your Gym task",
+                                        "\"meeting ko kal shift karo\" moves Meeting to tomorrow",
+                                        "\"hospital urgent kar do\" sets Hospital task to High priority",
+                                        "\"camping alarm 7:30\" adds reminder to Camping task"
                                     ).forEach { example ->
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             Text("•", color = MaterialTheme.colorScheme.primary)
@@ -752,14 +745,14 @@ fun SettingsScreen(
                 Column {
                     PersonalToggle(
                         label = "Time-aware greeting",
-                        sub = "\"Good Morning, ${com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.displayName?.split(" ")?.firstOrNull() ?: "you"}\" — changes throughout the day",
+                        sub = "Good morning greeting - updates through the day",
                         checked = pmGreeting,
                         onToggle = { ThemePreferences.setPmGreeting(context, it) }
                     )
                     HorizontalDivider()
                     PersonalToggle(
                         label = "Smart progress messages",
-                        sub = "\"Gaining momentum!\" — adapts to your completion rate",
+                        sub = "Motivation messages that adapt to your completion pace",
                         checked = pmSmartProgress,
                         onToggle = { ThemePreferences.setPmSmartProgress(context, it) }
                     )
@@ -773,21 +766,21 @@ fun SettingsScreen(
                     HorizontalDivider()
                     PersonalToggle(
                         label = "Variable rewards",
-                        sub = "Unpredictable haptics and cheering messages when you complete tasks",
+                        sub = "Unpredictable haptics and cheers on task completion",
                         checked = pmVariableRewards,
                         onToggle = { ThemePreferences.setPmVariableRewards(context, it) }
                     )
                     HorizontalDivider()
                     PersonalToggle(
                         label = "Contextual empty state",
-                        sub = "\"Your day is a blank canvas\" — time-aware empty messages",
+                        sub = "Time-aware messages when your task list is empty",
                         checked = pmSmartEmpty,
                         onToggle = { ThemePreferences.setPmSmartEmpty(context, it) }
                     )
                     HorizontalDivider()
                     PersonalToggle(
                         label = "Last-task amplification",
-                        sub = "\"One task away from a perfect day\" — extra motivation at the finish",
+                        sub = "Extra motivation when only 1 task remains",
                         checked = pmLastTask,
                         onToggle = { ThemePreferences.setPmLastTask(context, it) }
                     )
@@ -801,7 +794,7 @@ fun SettingsScreen(
                     HorizontalDivider()
                     PersonalToggle(
                         label = "Personal bests",
-                        sub = "\"New record!\" toast when you beat your all-time daily task count",
+                        sub = "Toast when you beat your all-time daily task count",
                         checked = pmBests,
                         onToggle = { ThemePreferences.setPmBests(context, it) }
                     )
@@ -815,7 +808,7 @@ fun SettingsScreen(
                     HorizontalDivider()
                     PersonalToggle(
                         label = "Completion sparkle",
-                        sub = "Subtle glow animation when you finish every task for the day",
+                        sub = "Glow animation when you complete all tasks for the day",
                         checked = pmSparkle,
                         onToggle = { ThemePreferences.setPmSparkle(context, it) }
                     )
@@ -852,13 +845,13 @@ fun SettingsScreen(
             SectionTitle("Support")
             SettingsCard {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SupportLink("✉ Email", "theblankstateteam@gmail.com") {
+                    SupportLink("Email us", "theblankstateteam@gmail.com") {
                         context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:theblankstateteam@gmail.com")))
                     }
-                    SupportLink("🐙 GitHub", "Harry0M") {
+                    SupportLink("GitHub", "github.com/Harry0M") {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Harry0M")))
                     }
-                    SupportLink("🌐 Website", "theblankstate.com") {
+                    SupportLink("Website", "theblankstate.com") {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://theblankstate.com")))
                     }
                 }
@@ -918,7 +911,7 @@ fun SettingsScreen(
                 onClick = { showReviewSheet = true },
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = CircleShape
-            ) { Text("⭐ Rate Preamble") }
+            ) { Text("Rate Preamble ★") }
 
             Spacer(modifier = Modifier.height(32.dp))
         }
@@ -932,7 +925,7 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth().padding(24.dp).padding(bottom = 32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("⭐", style = MaterialTheme.typography.displayMedium)
+                    Text("★★★★★", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.primary)
                     Spacer(modifier = Modifier.height(16.dp))
                     Text("Enjoying Preamble?", style = MaterialTheme.typography.headlineSmall)
                     Spacer(modifier = Modifier.height(8.dp))
@@ -1031,21 +1024,36 @@ private fun SettingsCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Column(modifier = modifier.fillMaxWidth(), content = content)
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+        tonalElevation = 1.dp
+    ) {
+        Column(content = content)
+    }
 }
 
 @Composable
-private fun SupportLink(icon: String, label: String, onClick: () -> Unit) {
+private fun SupportLink(label: String, subtitle: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .padding(vertical = 4.dp),
+            .padding(vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("$icon  $label", style = MaterialTheme.typography.bodyLarge)
-        Text("→", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.primary)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
+        }
+        Icon(
+            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
+        )
     }
 }
 
@@ -1101,65 +1109,220 @@ private fun getCurrentAlarmToneName(context: Context): String {
 }
 
 @Composable
-private fun ThemeSelectorRow(context: Context) {
+private fun ThemePickerCard(context: Context) {
     val currentMode by ThemePreferences.themeMode.collectAsState()
-    var showDialog by remember { mutableStateOf(false) }
+    val currentColor by ThemePreferences.themeColor.collectAsState()
+    val materialYou by ThemePreferences.materialYou.collectAsState()
+    var expanded by remember { mutableStateOf(false) }
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { showDialog = true }
-            .padding(16.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column {
-            Text("App Theme", style = MaterialTheme.typography.bodyLarge)
-            val displayName = if (currentMode == ThemePreferences.ThemeMode.AMOLED) "AMOLED Black" else currentMode.name.lowercase().replaceFirstChar { it.uppercase() }
-            Text(
-                displayName,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-            )
+    val palePresets = listOf(
+        Color(0xFFF5EBE0), Color(0xFFE8EDDF), Color(0xFFFCE4E4),
+        Color(0xFFE4E6F1), Color(0xFFFFF3C4), Color(0xFFD6EAF8),
+    )
+    val vividPresets = listOf(
+        Color(0xFFF44336), Color(0xFFE91E63), Color(0xFF9C27B0),
+        Color(0xFF673AB7), Color(0xFF3F51B5), Color(0xFF2196F3), Color(0xFF03A9F4),
+        Color(0xFF00BCD4), Color(0xFF009688), Color(0xFF4CAF50), Color(0xFF8BC34A),
+        Color(0xFFFFEB3B), Color(0xFFFFC107), Color(0xFFFF9800), Color(0xFFFF5722),
+        Color(0xFF795548), Color(0xFF9E9E9E), Color(0xFF607D8B)
+    )
+    val modes = listOf(
+        ThemePreferences.ThemeMode.LIGHT  to "Light",
+        ThemePreferences.ThemeMode.DARK   to "Dark",
+        ThemePreferences.ThemeMode.AMOLED to "AMOLED",
+    )
+
+    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+        Text("Theme", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(12.dp))
+
+        // Mode pills
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            modes.forEach { (mode, label) ->
+                val active = !materialYou && currentMode == mode
+                val pillBg by androidx.compose.animation.animateColorAsState(
+                    targetValue = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    animationSpec = androidx.compose.animation.core.spring(
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMedium
+                    ), label = "pillBg_$label"
+                )
+                val pillTextColor by androidx.compose.animation.animateColorAsState(
+                    targetValue = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    animationSpec = androidx.compose.animation.core.tween(200), label = "pillText_$label"
+                )
+                val pillScale by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (active) 1.06f else 1f,
+                    animationSpec = androidx.compose.animation.core.spring(
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                    ), label = "pillScale_$label"
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .graphicsLayer { scaleX = pillScale; scaleY = pillScale }
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(pillBg)
+                        .clickable {
+                            ThemePreferences.setMaterialYou(context, false)
+                            ThemePreferences.setThemeMode(context, mode)
+                            expanded = true
+                        }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(label, style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                        color = pillTextColor)
+                }
+            }
+            // Material You pill
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                val youBg by androidx.compose.animation.animateColorAsState(
+                    targetValue = if (materialYou) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    animationSpec = androidx.compose.animation.core.spring(
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMedium
+                    ), label = "youBg"
+                )
+                val youScale by androidx.compose.animation.core.animateFloatAsState(
+                    targetValue = if (materialYou) 1.06f else 1f,
+                    animationSpec = androidx.compose.animation.core.spring(
+                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                    ), label = "youScale"
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .graphicsLayer { scaleX = youScale; scaleY = youScale }
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(youBg)
+                        .clickable {
+                            ThemePreferences.setMaterialYou(context, true)
+                            ThemePreferences.setColor(context, null)
+                            expanded = false
+                        }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("You", style = MaterialTheme.typography.labelMedium,
+                        fontWeight = if (materialYou) FontWeight.Bold else FontWeight.Normal,
+                        color = if (materialYou) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
-    }
 
-    if (showDialog) {
-        AlertDialog(
-            onDismissRequest = { showDialog = false },
-            title = { Text("Choose Theme") },
-            text = {
-                Column {
-                    ThemePreferences.ThemeMode.values().forEach { mode ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    ThemePreferences.setThemeMode(context, mode)
-                                    showDialog = false
-                                }
-                                .padding(vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            RadioButton(
-                                selected = currentMode == mode,
-                                onClick = {
-                                    ThemePreferences.setThemeMode(context, mode)
-                                    showDialog = false
-                                }
+        // Expandable color panel with spring animation
+        AnimatedVisibility(
+            visible = expanded && !materialYou,
+            enter = androidx.compose.animation.expandVertically(
+                animationSpec = androidx.compose.animation.core.spring(
+                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
+                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow
+                )
+            ) + androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)),
+            exit = androidx.compose.animation.shrinkVertically(
+                androidx.compose.animation.core.tween(180)
+            ) + androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))
+        ) {
+            Column {
+                Spacer(Modifier.height(18.dp))
+
+                // PALE row
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("PALE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                        letterSpacing = 1.4.sp, modifier = Modifier.width(52.dp))
+                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        items(palePresets.size) { i ->
+                            val c = palePresets[i]
+                            val isActive = !materialYou && currentColor == c
+                            val scale by androidx.compose.animation.core.animateFloatAsState(
+                                targetValue = if (isActive) 1.24f else 1f,
+                                animationSpec = androidx.compose.animation.core.spring(
+                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMedium
+                                ), label = "ps$i"
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            val displayName = if (mode == ThemePreferences.ThemeMode.AMOLED) "AMOLED Black" else mode.name.lowercase().replaceFirstChar { it.uppercase() }
-                            Text(displayName)
+                            val borderColor by animateColorAsState(
+                                targetValue = if (isActive) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f) else Color.Transparent,
+                                animationSpec = androidx.compose.animation.core.tween(200), label = "pc$i"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .graphicsLayer { scaleX = scale; scaleY = scale }
+                                    .clip(CircleShape)
+                                    .background(c)
+                                    .border(if (isActive) 2.dp else 0.dp, borderColor, CircleShape)
+                                    .clickable { ThemePreferences.setColor(context, c) }
+                            )
                         }
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showDialog = false }) {
-                    Text("Close")
+
+                Spacer(Modifier.height(12.dp))
+
+                // COLORS row
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("COLORS", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                        letterSpacing = 1.4.sp, modifier = Modifier.width(52.dp))
+                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        item {
+                            val isActive = currentColor == null
+                            val scale by androidx.compose.animation.core.animateFloatAsState(
+                                targetValue = if (isActive) 1.24f else 1f,
+                                animationSpec = androidx.compose.animation.core.spring(
+                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMedium
+                                ), label = "ms"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .graphicsLayer { scaleX = scale; scaleY = scale }
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFEEEEEE))
+                                    .border(if (isActive) 2.dp else 0.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), CircleShape)
+                                    .clickable { ThemePreferences.setColor(context, null) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF333333)))
+                            }
+                        }
+                        items(vividPresets.size) { i ->
+                            val c = vividPresets[i]
+                            val isActive = !materialYou && currentColor == c
+                            val scale by androidx.compose.animation.core.animateFloatAsState(
+                                targetValue = if (isActive) 1.24f else 1f,
+                                animationSpec = androidx.compose.animation.core.spring(
+                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMedium
+                                ), label = "vs$i"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .graphicsLayer { scaleX = scale; scaleY = scale }
+                                    .clip(CircleShape)
+                                    .background(c)
+                                    .border(if (isActive) 2.dp else 0.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), CircleShape)
+                                    .clickable { ThemePreferences.setColor(context, c) }
+                            )
+                        }
+                    }
                 }
+                Spacer(Modifier.height(4.dp))
             }
-        )
+        }
+
+        if (!expanded && !materialYou) {
+            Spacer(Modifier.height(8.dp))
+            Text("Tap a mode to pick color", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f))
+        }
     }
 }
