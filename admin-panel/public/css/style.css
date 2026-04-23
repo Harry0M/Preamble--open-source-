@@ -1072,3 +1072,135 @@ thead th {
   color: var(--gray-400);
   letter-spacing: 0;
 }
+
+/* ─── AI Assistant Panel ─── */
+.ai-fab {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--white);
+  color: var(--black);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-lg);
+  cursor: pointer;
+  z-index: 1000;
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.ai-fab:hover {
+  transform: scale(1.1);
+}
+
+.ai-panel {
+  position: fixed;
+  bottom: 5.5rem;
+  right: 2rem;
+  width: 360px;
+  height: 500px;
+  background: var(--glass);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  z-index: 999;
+  transform: translateY(20px) scale(0.95);
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.3s ease;
+}
+
+.ai-panel.active {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.ai-panel-header {
+  padding: 1rem;
+  border-bottom: 1px solid var(--glass-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--gray-100);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.ai-panel-header h3 {
+  font-size: 0.875rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ai-panel-messages {
+  flex: 1;
+  padding: 1rem;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ai-message {
+  max-width: 85%;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  line-height: 1.4;
+}
+
+.ai-message.user {
+  align-self: flex-end;
+  background: var(--accent);
+  color: var(--white);
+  border-bottom-right-radius: 0;
+}
+
+.ai-message.ai {
+  align-self: flex-start;
+  background: var(--gray-800);
+  color: var(--white);
+  border-bottom-left-radius: 0;
+}
+
+.ai-panel-input {
+  padding: 1rem;
+  border-top: 1px solid var(--glass-border);
+  display: flex;
+  gap: 0.5rem;
+}
+
+.ai-panel-input input {
+  flex: 1;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-full);
+  background: var(--gray-800);
+  color: var(--white);
+  outline: none;
+}
+
+.ai-panel-input button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--white);
+  color: var(--black);
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.ai-panel-input button:active {
+  transform: scale(0.9);
+}

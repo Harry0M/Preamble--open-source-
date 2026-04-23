@@ -1,8 +1,20 @@
+require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const cookieParser = require('cookie-parser');
 const path = require('path');
 const admin = require('firebase-admin');
+const { GoogleGenAI } = require('@google/genai');
+const NodeCache = require('node-cache');
+const cache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
+
+// Initialize Gemini (Will use process.env.GEMINI_API_KEY)
+let ai;
+try {
+  ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+} catch (e) {
+  console.warn('Gemini API not initialized (missing API key)');
+}
 
 // Initialize Firebase Admin SDK
 const serviceAccount = require('./serviceAccountKey.json');
@@ -91,6 +103,9 @@ app.get('/api/auth/me', (req, res) => {
 
 app.get('/api/users', requireAuth, async (req, res) => {
   try {
+    const cachedUsers = cache.get('all_users');
+    if (cachedUsers) return res.json({ users: cachedUsers });
+
     const usersSnap = await firestoreDb.collection('users').get();
     const users = [];
     for (const doc of usersSnap.docs) {
@@ -108,6 +123,7 @@ app.get('/api/users', requireAuth, async (req, res) => {
         taskCount: tasksSnap.size
       });
     }
+    cache.set('all_users', users);
     res.json({ users });
   } catch (err) {
     console.error('Error fetching users:', err);
@@ -324,10 +340,70 @@ app.delete('/api/tasks/:docId', requireAuth, async (req, res) => {
   }
 });
 
+// Mass Delete Tasks
+app.post('/api/tasks/mass_delete', requireAuth, async (req, res) => {
+  try {
+    const { status, beforeDate } = req.body;
+    let query = firestoreDb.collection('tasks');
+    
+    if (status === 'completed') {
+      query = query.where('isCompleted', '==', true);
+    } else if (status === 'active') {
+      query = query.where('isCompleted', '==', false);
+    }
+    
+    const snapshot = await query.get();
+    
+    let deletedCount = 0;
+    const batchArray = [];
+    let batch = firestoreDb.batch();
+    let count = 0;
+    
+    snapshot.docs.forEach((doc) => {
+      const data = doc.data();
+      if (beforeDate) {
+        // Simple comparison assuming createdDate is YYYY-MM-DD
+        if (data.createdDate && data.createdDate < beforeDate) {
+           batch.delete(doc.ref);
+           count++;
+           deletedCount++;
+        }
+      } else {
+        batch.delete(doc.ref);
+        count++;
+        deletedCount++;
+      }
+      
+      if (count === 500) {
+        batchArray.push(batch.commit());
+        batch = firestoreDb.batch();
+        count = 0;
+      }
+    });
+    
+    if (count > 0) {
+      batchArray.push(batch.commit());
+    }
+    
+    await Promise.all(batchArray);
+    
+    // Invalidate stats cache
+    cache.del('dashboard_stats');
+    
+    res.json({ success: true, deletedCount });
+  } catch (err) {
+    console.error('Error mass deleting tasks:', err);
+    res.status(500).json({ error: 'Failed to mass delete tasks' });
+  }
+});
+
 // ─── Dashboard Stats ───
 
 app.get('/api/stats', requireAuth, async (req, res) => {
   try {
+    const cachedStats = cache.get('dashboard_stats');
+    if (cachedStats) return res.json(cachedStats);
+
     const usersSnap = await firestoreDb.collection('users').get();
     const tasksSnap = await firestoreDb.collection('tasks').get();
 
@@ -345,16 +421,59 @@ app.get('/api/stats', requireAuth, async (req, res) => {
       if (doc.data().blocked) blockedUsers++;
     });
 
-    res.json({
+    const stats = {
       totalUsers: usersSnap.size,
       totalTasks: tasksSnap.size,
       activeTasks,
       completedTasks,
       blockedUsers
-    });
+    };
+    cache.set('dashboard_stats', stats);
+    res.json(stats);
   } catch (err) {
     console.error('Error fetching stats:', err);
     res.status(500).json({ error: 'Failed to fetch stats' });
+  }
+});
+
+// ─── AI Assistant Routes ───
+app.post('/api/ai/chat', requireAuth, async (req, res) => {
+  try {
+    const { prompt } = req.body;
+    if (!ai) return res.status(500).json({ error: 'Gemini API not configured' });
+
+    const stats = cache.get('dashboard_stats') || { note: "Stats not loaded yet." };
+    
+    const systemPrompt = `You are Preamble Admin AI, a helpful, advanced admin assistant.
+Current Dashboard Stats: ${JSON.stringify(stats)}
+You help the admin manage the app, answer questions, and automate tasks.
+If the admin asks to perform an action, respond with a JSON block formatted EXACTLY like this:
+\`\`\`json
+{
+  "action": "action_name",
+  "payload": { ... }
+}
+\`\`\`
+Available actions:
+- create_broadcast: { "title": "...", "description": "...", "targetType": "all" }
+- mass_delete_tasks: { "status": "completed", "beforeDate": "YYYY-MM-DD" }
+- mass_delete_broadcasts: {}
+- mass_delete_notifications: {}
+
+Or simply reply conversationally. Keep responses concise, clean, and professional. Use markdown for styling.`;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-pro',
+        contents: prompt,
+        config: {
+            systemInstruction: systemPrompt,
+        }
+    });
+    
+    res.json({ reply: response.text });
+  } catch (err) {
+    console.error('AI chat error:', err);
+    res.status(500).json({ error: 'AI request failed' });
   }
 });
 
@@ -522,6 +641,34 @@ app.post('/api/broadcasts/:id/toggle', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Error toggling broadcast:', err);
     res.status(500).json({ error: 'Failed to toggle broadcast' });
+  }
+});
+
+// Mass Delete Broadcasts
+app.post('/api/broadcasts/mass_delete', requireAuth, async (req, res) => {
+  try {
+    const snap = await firestoreDb.collection('broadcasts').get();
+    let batch = firestoreDb.batch();
+    let count = 0;
+    const batchArray = [];
+    
+    snap.docs.forEach(doc => {
+      batch.delete(doc.ref);
+      count++;
+      if (count === 500) {
+        batchArray.push(batch.commit());
+        batch = firestoreDb.batch();
+        count = 0;
+      }
+    });
+    
+    if (count > 0) batchArray.push(batch.commit());
+    await Promise.all(batchArray);
+    
+    res.json({ success: true, deletedCount: snap.size });
+  } catch (err) {
+    console.error('Error mass deleting broadcasts:', err);
+    res.status(500).json({ error: 'Failed to mass delete broadcasts' });
   }
 });
 
@@ -767,6 +914,34 @@ app.get('/api/notifications/history', requireAuth, async (req, res) => {
   } catch (err) {
     console.error('Error fetching notification history:', err);
     res.status(500).json({ error: 'Failed to fetch history' });
+  }
+});
+
+// Mass Delete Notifications (Clear History)
+app.post('/api/notifications/mass_delete', requireAuth, async (req, res) => {
+  try {
+    const snap = await firestoreDb.collection('notification_log').get();
+    let batch = firestoreDb.batch();
+    let count = 0;
+    const batchArray = [];
+    
+    snap.docs.forEach(doc => {
+      batch.delete(doc.ref);
+      count++;
+      if (count === 500) {
+        batchArray.push(batch.commit());
+        batch = firestoreDb.batch();
+        count = 0;
+      }
+    });
+    
+    if (count > 0) batchArray.push(batch.commit());
+    await Promise.all(batchArray);
+    
+    res.json({ success: true, deletedCount: snap.size });
+  } catch (err) {
+    console.error('Error clearing notification history:', err);
+    res.status(500).json({ error: 'Failed to clear notification history' });
   }
 });
 
