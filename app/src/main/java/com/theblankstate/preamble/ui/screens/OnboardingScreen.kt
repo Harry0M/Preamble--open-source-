@@ -11,6 +11,9 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
@@ -342,33 +345,33 @@ fun WelcomePage(context: Context, imageLoader: ImageLoader) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
+            .padding(horizontal = 24.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Top
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
         AsyncImage(
             model = ImageRequest.Builder(context)
-                .data("android.resource://${context.packageName}/${R.raw.doodle_croods}")
+                .data("android.resource://${context.packageName}/${R.raw.wildlife}")
                 .crossfade(true).build(),
-            contentDescription = "Welcome",
+            contentDescription = "Wildlife Welcome",
             imageLoader = imageLoader,
             contentScale = ContentScale.Fit,
-            modifier = Modifier.weight(0.5f).fillMaxWidth().padding(16.dp)
+            modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 8.dp)
         )
-        Column(modifier = Modifier.weight(0.5f).fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Text(
                 "Clear mind.\nEmpty inbox.",
                 style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-1).sp),
                 lineHeight = 40.sp,
                 color = Color.Black,
-                modifier = Modifier.padding(bottom = 16.dp)
+                modifier = Modifier.padding(bottom = 12.dp)
             )
             Text(
                 "Dump your thoughts instantly, and focus on what actually matters right now.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.Gray,
                 lineHeight = 24.sp,
-                modifier = Modifier.padding(bottom = 24.dp)
+                modifier = Modifier.padding(bottom = 16.dp)
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FeatureTag("Mental Clarity", Icons.Default.AutoAwesome)
@@ -526,10 +529,13 @@ fun LoginPage(
 
 @Composable
 fun WelcomeBackPage(userName: String?, onFinish: () -> Unit) {
+    val context = LocalContext.current
+    val imageLoader = remember {
+        ImageLoader.Builder(context).components { add(SvgDecoder.Factory()) }.build()
+    }
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     val greet = userName?.takeIf { it.isNotBlank() }?.let { "Welcome back, $it!" } ?: "Welcome back!"
 
-    // Konfetti party config
     val party = remember {
         listOf(
             Party(
@@ -543,7 +549,6 @@ fun WelcomeBackPage(userName: String?, onFinish: () -> Unit) {
         )
     }
 
-    // Celebration haptics
     LaunchedEffect(Unit) {
         kotlinx.coroutines.delay(300)
         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
@@ -553,7 +558,6 @@ fun WelcomeBackPage(userName: String?, onFinish: () -> Unit) {
         haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
     }
 
-    // Scale-in animation
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { visible = true }
     val scale by animateFloatAsState(
@@ -563,55 +567,58 @@ fun WelcomeBackPage(userName: String?, onFinish: () -> Unit) {
     )
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Konfetti overlay
-        KonfettiView(
-            modifier = Modifier.fillMaxSize(),
-            parties = party
-        )
+        KonfettiView(modifier = Modifier.fillMaxSize(), parties = party)
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 28.dp, vertical = 40.dp),
+                .padding(horizontal = 28.dp, vertical = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            Spacer(modifier = Modifier.height(48.dp))
+            AsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data("android.resource://${context.packageName}/${R.raw.doodle_thank_you}")
+                    .crossfade(true).build(),
+                contentDescription = "Thank You",
+                imageLoader = imageLoader,
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .scale(scale)
+                    .padding(horizontal = 24.dp)
+            )
 
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.scale(scale)
+                modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    "🎉",
-                    fontSize = 72.sp,
-                    modifier = Modifier.padding(bottom = 16.dp)
-                )
                 Text(
                     greet,
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Black,
                     color = Color.Black,
                     textAlign = TextAlign.Center,
-                    letterSpacing = (-0.5).sp
+                    letterSpacing = (-0.5).sp,
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
-                Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     "Your data is still here.\nPick up right where you left off.",
                     fontSize = 16.sp,
                     color = Color.Gray,
                     textAlign = TextAlign.Center,
                     lineHeight = 24.sp,
+                    modifier = Modifier.padding(bottom = 28.dp)
                 )
-            }
-
-            Button(
-                onClick = onFinish,
-                shape = CircleShape,
-                colors = ButtonDefaults.buttonColors(containerColor = Color.Black, contentColor = Color.White),
-                modifier = Modifier.fillMaxWidth().height(56.dp)
-            ) {
-                Text("Let's go", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                Button(
+                    onClick = onFinish,
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.Black, contentColor = Color.White),
+                    modifier = Modifier.fillMaxWidth().height(56.dp)
+                ) {
+                    Text("Let's go", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
@@ -619,54 +626,37 @@ fun WelcomeBackPage(userName: String?, onFinish: () -> Unit) {
 
 @Composable
 fun NotationsPage() {
+    val context = LocalContext.current
+    val imageLoader = remember {
+        ImageLoader.Builder(context).components { add(SvgDecoder.Factory()) }.build()
+    }
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 28.dp, vertical = 40.dp),
-        verticalArrangement = Arrangement.Top
+        modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
-        Text(
-            "YOUR NOTATION SYSTEM",
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Bold,
-            color = Color.Gray,
-            letterSpacing = 1.6.sp,
-            modifier = Modifier.padding(bottom = 12.dp)
+        AsyncImage(
+            model = ImageRequest.Builder(context)
+                .data("android.resource://${context.packageName}/${R.raw.notations}")
+                .crossfade(true).build(),
+            contentDescription = "Notations",
+            imageLoader = imageLoader,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.weight(1f).fillMaxWidth()
         )
-        Text(
-            "A new way\nto plan.",
-            style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-1).sp),
-            color = Color.Black,
-            lineHeight = 40.sp,
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
-        Text(
-            "Every task gets a visual indicator so you know exactly how it behaves.",
-            style = MaterialTheme.typography.bodyLarge,
-            color = Color.Gray,
-            lineHeight = 22.sp,
-            modifier = Modifier.padding(bottom = 32.dp)
-        )
-
-        NotationCard(
-            title = "One-Day Task",
-            desc = "Lives only for today. If not completed, it disappears tomorrow — perfect for daily intentions.",
-            type = "solid"
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-        NotationCard(
-            title = "Active Until Complete",
-            desc = "Rolls over to the next day automatically until you finish it. Your persistent to-do.",
-            type = "half_dotted"
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-
-        NotationCard(
-            title = "Recurring Task",
-            desc = "Repeats on a schedule you set — daily, weekly, or custom. Builds habits effortlessly.",
-            type = "fully_dotted"
-        )
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text("YOUR NOTATION SYSTEM", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.Gray, letterSpacing = 1.4.sp)
+            Spacer(Modifier.height(6.dp))
+            Text("A new way to plan.", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp), color = Color.Black)
+            Spacer(Modifier.height(4.dp))
+            Text("Every task gets a visual indicator so you know how it behaves.", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+            Spacer(Modifier.height(16.dp))
+            // Compact notation rows
+            NotationRow(title = "One-Day Task", desc = "Disappears if not done today.", type = "solid")
+            Spacer(Modifier.height(10.dp))
+            NotationRow(title = "Active Until Complete", desc = "Rolls over until finished.", type = "half_dotted")
+            Spacer(Modifier.height(10.dp))
+            NotationRow(title = "Recurring Task", desc = "Repeats on your schedule.", type = "fully_dotted")
+        }
     }
 }
 
@@ -725,6 +715,33 @@ fun NotationCard(title: String, desc: String, type: String) {
 }
 
 @Composable
+fun NotationRow(title: String, desc: String, type: String) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Box(modifier = Modifier.padding(end = 12.dp), contentAlignment = Alignment.Center) {
+            when (type) {
+                "solid" -> Canvas(modifier = Modifier.size(22.dp)) {
+                    drawCircle(color = Color.Black, radius = size.width / 2)
+                }
+                "half_dotted" -> Canvas(modifier = Modifier.size(22.dp)) {
+                    drawArc(color = Color.Black, startAngle = 180f, sweepAngle = 180f, useCenter = false,
+                        style = Stroke(width = 2.5f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)))
+                    drawArc(color = Color.Black, startAngle = 0f, sweepAngle = 180f, useCenter = false,
+                        style = Stroke(width = 2.5f))
+                }
+                "fully_dotted" -> Canvas(modifier = Modifier.size(22.dp)) {
+                    drawCircle(color = Color.Black, radius = size.width / 2,
+                        style = Stroke(width = 2.5f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(5f, 5f), 0f)))
+                }
+            }
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+            Text(desc, fontSize = 12.sp, color = Color.Gray, lineHeight = 16.sp)
+        }
+    }
+}
+
+@Composable
 fun PermissionsPage(
     context: Context,
     imageLoader: ImageLoader,
@@ -742,13 +759,29 @@ fun PermissionsPage(
         onAudioChange(granted)
         if (!granted) Toast.makeText(context, "Microphone needed for voice capture.", Toast.LENGTH_SHORT).show()
     }
+
+    // Auto-request permissions when this page appears
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(600)
+        if (!notifGranted) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                onNotifChange(true)
+            }
+        }
+        kotlinx.coroutines.delay(800)
+        if (!audioGranted) {
+            audioLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        }
+    }
     
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp, vertical = 32.dp),
+            .padding(horizontal = 24.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Top
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
         AsyncImage(
             model = ImageRequest.Builder(context)
@@ -757,22 +790,22 @@ fun PermissionsPage(
             contentDescription = "Permissions",
             imageLoader = imageLoader,
             contentScale = ContentScale.Fit,
-            modifier = Modifier.weight(0.4f).fillMaxWidth().padding(16.dp)
+            modifier = Modifier.weight(0.9f).fillMaxWidth().padding(horizontal = 8.dp)
         )
         
-        Column(modifier = Modifier.weight(0.6f).fillMaxWidth()) {
+        Column(modifier = Modifier.weight(1.1f).fillMaxWidth()) {
             Text(
                 "Your assistant.",
                 style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-1).sp),
                 color = Color.Black,
-                modifier = Modifier.padding(bottom = 16.dp)
+                modifier = Modifier.padding(bottom = 8.dp)
             )
             Text(
                 "Enable core features to get the most out of Preamble.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.Gray,
                 lineHeight = 24.sp,
-                modifier = Modifier.padding(bottom = 24.dp)
+                modifier = Modifier.padding(bottom = 20.dp)
             )
 
             PermissionRow(
@@ -789,7 +822,7 @@ fun PermissionsPage(
                 }
             )
             
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             
             PermissionRow(
                 title = "Microphone",
@@ -862,27 +895,40 @@ private fun QuestionHeader(kicker: String, title: String, sub: String) {
 
 @Composable
 fun NameQuestionPage(name: String, onNameChange: (String) -> Unit) {
+    val context = LocalContext.current
+    val imageLoader = remember {
+        ImageLoader.Builder(context).components { add(SvgDecoder.Factory()) }.build()
+    }
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 28.dp, vertical = 40.dp),
-        verticalArrangement = Arrangement.Top
+        modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
-        QuestionHeader(
-            kicker = "Step 1 of 5",
-            title = "What should\nwe call you?",
-            sub = "Just a first name — used to make Preamble feel like yours."
+        AsyncImage(
+            model = ImageRequest.Builder(context)
+                .data("android.resource://${context.packageName}/${R.raw.what_should_be_call_you}")
+                .crossfade(true).build(),
+            contentDescription = "What should we call you",
+            imageLoader = imageLoader,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.weight(1f).fillMaxWidth()
         )
-        Spacer(modifier = Modifier.height(32.dp))
-        OutlinedTextField(
-            value = name,
-            onValueChange = { if (it.length <= 40) onNameChange(it) },
-            placeholder = { Text("Your name") },
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        )
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text("Step 1 of 5", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.Gray, letterSpacing = 1.4.sp)
+            Spacer(Modifier.height(6.dp))
+            Text("What should we call you?", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp), color = Color.Black)
+            Spacer(Modifier.height(4.dp))
+            Text("Just a first name — used to make Preamble feel like yours.", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+            Spacer(Modifier.height(16.dp))
+            OutlinedTextField(
+                value = name,
+                onValueChange = { if (it.length <= 40) onNameChange(it) },
+                placeholder = { Text("Your name") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 }
 
@@ -900,112 +946,82 @@ fun AgeGenderQuestionPage(
         GenderOpt("nonbinary", "Non-binary", Icons.Filled.Transgender),
         GenderOpt("na", "Skip", Icons.Filled.VisibilityOff),
     )
+    val context = LocalContext.current
+    val imageLoader = remember {
+        ImageLoader.Builder(context).components { add(SvgDecoder.Factory()) }.build()
+    }
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     var sliderAge by remember(age) { mutableStateOf((age ?: 22).coerceIn(8, 99)) }
     var lastHapticAge by remember { mutableStateOf(sliderAge) }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 28.dp, vertical = 40.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
-        QuestionHeader(
-            kicker = "Step 2 of 5",
-            title = "A bit about you.",
-            sub = "Helps us tune reminders, streak copy and perks."
+        AsyncImage(
+            model = ImageRequest.Builder(context)
+                .data("android.resource://${context.packageName}/${R.raw.a_bit_more_about_you}")
+                .crossfade(true).build(),
+            contentDescription = "A bit more about you",
+            imageLoader = imageLoader,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.weight(1f).fillMaxWidth()
         )
-        Spacer(modifier = Modifier.height(28.dp))
-
-        Text("I identify as", fontWeight = FontWeight.SemiBold, color = Color.Black)
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            genderOptions.forEach { opt ->
-                val selected = gender == opt.key
-                val bg by animateColorAsState(
-                    targetValue = if (selected) Color.Black else Color(0xFFF5F5F5),
-                    animationSpec = tween(220), label = "gBg"
-                )
-                val sc by animateFloatAsState(
-                    if (selected) 1.04f else 1f, tween(180), label = "gSc"
-                )
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .weight(1f)
-                        .scale(sc)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(bg)
-                        .clickable {
-                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                            onGenderChange(if (selected) null else opt.key)
-                        }
-                        .padding(vertical = 16.dp, horizontal = 4.dp)
-                ) {
-                    Icon(
-                        opt.icon,
-                        contentDescription = opt.label,
-                        tint = if (selected) Color.White else Color.Black,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        opt.label,
-                        fontSize = 11.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (selected) Color.White else Color.DarkGray,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text("My age", fontWeight = FontWeight.SemiBold, color = Color.Black)
-        Spacer(modifier = Modifier.height(12.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Bottom
-        ) {
-            Text(
-                sliderAge.toString(),
-                fontSize = 56.sp,
-                lineHeight = 56.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color.Black,
-                letterSpacing = (-2).sp,
-            )
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "years",
-                fontSize = 16.sp,
-                color = Color.Gray,
-                modifier = Modifier.padding(bottom = 10.dp)
-            )
-        }
-        Spacer(modifier = Modifier.height(4.dp))
-        Slider(
-            value = sliderAge.toFloat(),
-            onValueChange = { v ->
-                val next = v.toInt().coerceIn(8, 99)
-                if (next != sliderAge) {
-                    sliderAge = next
-                    onAgeChange(next)
-                    if (next != lastHapticAge) {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                        lastHapticAge = next
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text("Step 2 of 5", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.Gray, letterSpacing = 1.4.sp)
+            Spacer(Modifier.height(6.dp))
+            Text("A bit about you.", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp), color = Color.Black)
+            Spacer(Modifier.height(4.dp))
+            Text("Helps us tune reminders and perks.", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+            Spacer(Modifier.height(14.dp))
+            // Gender capsules
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                genderOptions.forEach { opt ->
+                    val selected = gender == opt.key
+                    val bg by animateColorAsState(if (selected) Color.Black else Color(0xFFF0F0F0), tween(200), label = "gBg")
+                    Row(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(bg)
+                            .clickable {
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                onGenderChange(if (selected) null else opt.key)
+                            }
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(opt.icon, contentDescription = opt.label, tint = if (selected) Color.White else Color.Black, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text(opt.label, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, color = if (selected) Color.White else Color.DarkGray)
                     }
                 }
-            },
-            valueRange = 8f..99f,
-            steps = (99 - 8 - 1),
-            modifier = Modifier.fillMaxWidth()
-        )
-        LaunchedEffect(Unit) { onAgeChange(sliderAge) }
+            }
+            Spacer(Modifier.height(14.dp))
+            // Age slider
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(sliderAge.toString(), fontSize = 42.sp, lineHeight = 42.sp, fontWeight = FontWeight.ExtraBold, color = Color.Black, letterSpacing = (-2).sp)
+                Spacer(Modifier.width(6.dp))
+                Text("years", fontSize = 14.sp, color = Color.Gray, modifier = Modifier.padding(bottom = 6.dp))
+            }
+            Slider(
+                value = sliderAge.toFloat(),
+                onValueChange = { v ->
+                    val next = v.toInt().coerceIn(8, 99)
+                    if (next != sliderAge) {
+                        sliderAge = next
+                        onAgeChange(next)
+                        if (next != lastHapticAge) {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            lastHapticAge = next
+                        }
+                    }
+                },
+                valueRange = 8f..99f,
+                steps = (99 - 8 - 1),
+                modifier = Modifier.fillMaxWidth()
+            )
+            LaunchedEffect(Unit) { onAgeChange(sliderAge) }
+        }
     }
 }
 
@@ -1017,57 +1033,46 @@ fun RoleQuestionPage(role: UserRole?, onRoleChange: (UserRole?) -> Unit) {
         RoleOpt(UserRole.WORKING, "Working professional", Icons.Filled.Work),
         RoleOpt(UserRole.OTHER, "Something else", Icons.Filled.AutoAwesome),
     )
+    val context = LocalContext.current
+    val imageLoader = remember {
+        ImageLoader.Builder(context).components { add(SvgDecoder.Factory()) }.build()
+    }
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 28.dp, vertical = 40.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
-        QuestionHeader(
-            kicker = "Step 3 of 5",
-            title = "What best\ndescribes you?",
-            sub = "We use this only to pick sensible defaults and unlock discounts later."
+        AsyncImage(
+            model = ImageRequest.Builder(context)
+                .data("android.resource://${context.packageName}/${R.raw.what_describes_you_best}")
+                .crossfade(true).build(),
+            contentDescription = "What describes you best",
+            imageLoader = imageLoader,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.weight(1f).fillMaxWidth()
         )
-        Spacer(modifier = Modifier.height(24.dp))
-        opts.forEach { opt ->
-            val selected = role == opt.value
-            val bg by animateColorAsState(
-                targetValue = if (selected) Color(0xFFE8E8E8) else Color(0xFFF5F5F5),
-                animationSpec = tween(200), label = "roleBg"
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(bg)
-                    .clickable { onRoleChange(if (selected) null else opt.value) }
-                    .padding(horizontal = 18.dp, vertical = 18.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(if (selected) Color.Black else Color.White),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        opt.icon,
-                        contentDescription = null,
-                        tint = if (selected) Color.White else Color.Black,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(14.dp))
-                Text(
-                    opt.label,
-                    fontSize = 16.sp,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                    color = Color.Black,
-                    modifier = Modifier.weight(1f)
-                )
-                if (selected) {
-                    Icon(Icons.Default.Check, contentDescription = null, tint = Color.Black)
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text("Step 3 of 5", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.Gray, letterSpacing = 1.4.sp)
+            Spacer(Modifier.height(6.dp))
+            Text("What best describes you?", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp), color = Color.Black)
+            Spacer(Modifier.height(4.dp))
+            Text("Helps us pick sensible defaults.", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+            Spacer(Modifier.height(14.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                opts.forEach { opt ->
+                    val selected = role == opt.value
+                    val bg by animateColorAsState(if (selected) Color.Black else Color(0xFFF0F0F0), tween(200), label = "roleBg")
+                    Row(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(bg)
+                            .clickable { onRoleChange(if (selected) null else opt.value) }
+                            .padding(horizontal = 14.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(opt.icon, contentDescription = null, tint = if (selected) Color.White else Color.Black, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(5.dp))
+                        Text(opt.label, fontSize = 13.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, color = if (selected) Color.White else Color.Black)
+                    }
                 }
             }
         }
@@ -1082,6 +1087,9 @@ fun TasksGoalQuestionPage(
     onGoalsChange: (Set<PrimaryGoal>) -> Unit,
 ) {
     val context = LocalContext.current
+    val imageLoader = remember {
+        ImageLoader.Builder(context).components { add(SvgDecoder.Factory()) }.build()
+    }
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
 
     // Map slider value to TasksPerDay enum
@@ -1102,131 +1110,97 @@ fun TasksGoalQuestionPage(
 
     // Material icons for goals
     fun goalIcon(g: PrimaryGoal): ImageVector = when (g) {
-        PrimaryGoal.STUDY -> Icons.AutoMirrored.Filled.MenuBook
+        PrimaryGoal.STUDY -> Icons.Filled.Book
         PrimaryGoal.WORK -> Icons.Filled.BusinessCenter
         PrimaryGoal.HEALTH -> Icons.Filled.FitnessCenter
         PrimaryGoal.HABIT -> Icons.Filled.Loop
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(horizontal = 28.dp, vertical = 40.dp),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 28.dp, vertical = 24.dp),
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
-        QuestionHeader(
-            kicker = "Step 4 of 5",
-            title = "How much do you\njuggle in a day?",
-            sub = "And what's the one thing you want Preamble to help you win at?"
+        AsyncImage(
+            model = ImageRequest.Builder(context)
+                .data("android.resource://${context.packageName}/${R.raw.how_much_do_you_juggle}")
+                .crossfade(true).build(),
+            contentDescription = "How much do you juggle",
+            imageLoader = imageLoader,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.weight(1f).fillMaxWidth()
         )
-        Spacer(modifier = Modifier.height(24.dp))
-
-        Text("Tasks per day", fontWeight = FontWeight.SemiBold, color = Color.Black)
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Big number display like age slider
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Bottom
-        ) {
-            Text(
-                if (sliderValue >= 15) "15+" else sliderValue.toString(),
-                fontSize = 48.sp,
-                lineHeight = 48.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color.Black,
-                letterSpacing = (-2).sp,
-            )
-            Spacer(Modifier.width(8.dp))
-            Column(modifier = Modifier.padding(bottom = 8.dp)) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text("Step 4 of 5", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.Gray, letterSpacing = 1.4.sp)
+            Spacer(Modifier.height(6.dp))
+            Text("How much do you juggle?", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp), color = Color.Black)
+            Spacer(Modifier.height(4.dp))
+            Text("And what's the one thing you want to win at?", style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
+            Spacer(Modifier.height(12.dp))
+            // Compact number + slider
+            Row(verticalAlignment = Alignment.Bottom) {
                 Text(
-                    "tasks",
-                    fontSize = 16.sp,
-                    color = Color.Gray,
+                    if (sliderValue >= 15) "15+" else sliderValue.toString(),
+                    fontSize = 38.sp, lineHeight = 38.sp, fontWeight = FontWeight.ExtraBold, color = Color.Black, letterSpacing = (-2).sp
                 )
-                Text(
-                    sliderToTasksPerDay(sliderValue).hint,
-                    fontSize = 12.sp,
-                    color = Color.Gray,
-                    fontWeight = FontWeight.Medium,
-                )
-            }
-        }
-        Slider(
-            value = sliderValue.toFloat(),
-            onValueChange = { v ->
-                val next = v.roundToInt().coerceIn(1, 15)
-                if (next != sliderValue) {
-                    sliderValue = next
-                    onTasksChange(sliderToTasksPerDay(next))
-                    if (next != lastHapticVal) {
-                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                        lastHapticVal = next
-                    }
+                Spacer(Modifier.width(6.dp))
+                Column(modifier = Modifier.padding(bottom = 4.dp)) {
+                    Text("tasks", fontSize = 13.sp, color = Color.Gray)
+                    Text(sliderToTasksPerDay(sliderValue).hint, fontSize = 11.sp, color = Color.Gray, fontWeight = FontWeight.Medium)
                 }
-            },
-            valueRange = 1f..15f,
-            steps = 13,
-            modifier = Modifier.fillMaxWidth()
-        )
-        LaunchedEffect(Unit) { onTasksChange(sliderToTasksPerDay(sliderValue)) }
-
-        Spacer(modifier = Modifier.height(24.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("Primary goals", fontWeight = FontWeight.SemiBold, color = Color.Black)
-            Text(
-                "Pick up to 2 · ${goals.size}/2",
-                fontSize = 11.sp,
-                color = Color.Gray,
-                fontWeight = FontWeight.Medium
-            )
-        }
-        Spacer(modifier = Modifier.height(10.dp))
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryGoal.values().toList().chunked(2).forEach { rowOpts ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    rowOpts.forEach { g ->
-                        val selected = g in goals
-                        Row(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(if (selected) Color.Black else Color(0xFFF5F5F5))
-                                .clickable {
-                                    val next = if (selected) goals - g
-                                    else if (goals.size >= 2) {
-                                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                                        Toast.makeText(context, "Pick max 2 goals", Toast.LENGTH_SHORT).show()
-                                        return@clickable
-                                    } else goals + g
-                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-                                    onGoalsChange(next)
-                                }
-                                .padding(horizontal = 14.dp, vertical = 14.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                goalIcon(g),
-                                contentDescription = g.label,
-                                tint = if (selected) Color.White else Color.Black,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                g.label,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 14.sp,
-                                color = if (selected) Color.White else Color.Black
-                            )
+            }
+            Slider(
+                value = sliderValue.toFloat(),
+                onValueChange = { v ->
+                    val next = v.roundToInt().coerceIn(1, 15)
+                    if (next != sliderValue) {
+                        sliderValue = next
+                        onTasksChange(sliderToTasksPerDay(next))
+                        if (next != lastHapticVal) {
+                            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            lastHapticVal = next
                         }
                     }
-                    if (rowOpts.size == 1) Box(modifier = Modifier.weight(1f))
+                },
+                valueRange = 1f..15f,
+                steps = 13,
+                modifier = Modifier.fillMaxWidth()
+            )
+            LaunchedEffect(Unit) { onTasksChange(sliderToTasksPerDay(sliderValue)) }
+            // Goals as capsules
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Primary goals", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color.Black)
+                Text("Pick up to 2 · ${goals.size}/2", fontSize = 11.sp, color = Color.Gray)
+            }
+            Spacer(Modifier.height(8.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                PrimaryGoal.values().forEach { g ->
+                    val selected = g in goals
+                    val bg by animateColorAsState(if (selected) Color.Black else Color(0xFFF0F0F0), tween(200), label = "gBg")
+                    Row(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(bg)
+                            .clickable {
+                                val next = if (selected) goals - g
+                                else if (goals.size >= 2) {
+                                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                                    Toast.makeText(context, "Pick max 2 goals", Toast.LENGTH_SHORT).show()
+                                    return@clickable
+                                } else goals + g
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                                onGoalsChange(next)
+                            }
+                            .padding(horizontal = 12.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(goalIcon(g), contentDescription = g.label, tint = if (selected) Color.White else Color.Black, modifier = Modifier.size(13.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(g.label, fontSize = 12.sp, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium, color = if (selected) Color.White else Color.Black)
+                    }
                 }
             }
         }
