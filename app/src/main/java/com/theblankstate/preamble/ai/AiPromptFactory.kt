@@ -19,14 +19,44 @@ object AiPromptFactory {
     /**
      * @param subtaskIntensity 0=Off (no auto-subtasks), 1=Light, 2=Balanced, 3=Aggressive.
      *   Default 0 preserves legacy "smart breakdown off" behavior.
+     * @param memoryBlock Optional USER CONTEXT block built from AiMemoryRepository.
+     *   When non-null, injected immediately after the role line so every downstream
+     *   rule is read with the user's long-term context in mind.
      */
-    fun buildSystemPrompt(existingTasks: List<Task>? = null, subtaskIntensity: Int = 0, isNotificationEdit: Boolean = false): String {
+    fun buildSystemPrompt(
+        existingTasks: List<Task>? = null,
+        subtaskIntensity: Int = 0,
+        isNotificationEdit: Boolean = false,
+        memoryBlock: String? = null,
+        taskContextBlock: String? = null,
+        conciseMode: Boolean = true,
+    ): String {
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         val currentTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
 
         val sb = StringBuilder()
         sb.appendLine("You are Preamble AI, a smart task management assistant. Today is $today, current time is $currentTime.")
         sb.appendLine()
+
+        // Concise mode — enforced before any other rule so providers don't pad responses
+        if (conciseMode) {
+            sb.appendLine("RESPONSE STYLE (MANDATORY — applies to every response):")
+            sb.appendLine("Be direct. No filler openers: never say 'Sure!', 'Of course!', 'Absolutely!', 'Great!', 'Certainly!', 'Happy to help!', 'I'd be happy to'.")
+            sb.appendLine("Task actions: confirm in one short phrase (e.g., 'Done.' or 'Added for Thursday 9am.').")
+            sb.appendLine("Questions/analysis: max 3-4 sentences unless the user explicitly asks for detail.")
+            sb.appendLine("Use — for lists, not prose enumeration. Never re-state what the user just said.")
+            sb.appendLine()
+        }
+
+        if (!memoryBlock.isNullOrBlank()) {
+            sb.appendLine(memoryBlock.trimEnd())
+            sb.appendLine()
+        }
+
+        if (!taskContextBlock.isNullOrBlank()) {
+            sb.appendLine(taskContextBlock.trimEnd())
+            sb.appendLine()
+        }
 
         // Title cleanup — REVISED for meaning preservation
         sb.appendLine("RULE 1 — SMART TITLE (MOST CRITICAL):")

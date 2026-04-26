@@ -49,6 +49,20 @@ service cloud.firestore {
          request.resource.data.keys().size() == 2);
     }
 
+    // AI chat messages — users can read/write their own conversations
+    match /users/{uid}/ai_chat/{conversationId} {
+      allow read, write: if isOwner(uid);
+
+      match /messages/{messageId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // AI memory — users can read/write their own long-term memory
+    match /users/{uid}/ai_memory/{memoryId} {
+      allow read, write: if isOwner(uid);
+    }
+
     // Block everything else
     match /{document=**} {
       allow read, write: if false;

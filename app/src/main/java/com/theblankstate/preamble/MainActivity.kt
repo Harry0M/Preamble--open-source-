@@ -9,12 +9,14 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Analytics
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
@@ -40,6 +42,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.theblankstate.preamble.ai.AiChatViewModel
 import com.theblankstate.preamble.notification.TaskNotificationManager
 import com.theblankstate.preamble.notification.TaskNotificationService
+import com.theblankstate.preamble.ui.screens.AiChatScreen
 import com.theblankstate.preamble.ui.screens.CalendarScreen
 import com.theblankstate.preamble.ui.screens.HomeScreen
 import com.theblankstate.preamble.ui.screens.OnboardingScreen
@@ -284,7 +287,7 @@ fun PreambleApp(
 
     // PostHog: Har tab change pe screen view track karo
     // Compose mein traditional Activity nahi hota, toh manually track karna padta hai
-    val screenNames = remember { listOf("HomeScreen", "StatsScreen", "CalendarScreen", "SettingsScreen") }
+    val screenNames = remember { listOf("HomeScreen", "StatsScreen", "CalendarScreen", "AiChatScreen", "SettingsScreen") }
     androidx.compose.runtime.LaunchedEffect(selectedTab) {
         AnalyticsManager.trackScreenView(screenNames[selectedTab])
     }
@@ -299,6 +302,7 @@ fun PreambleApp(
             ExpressiveNavItem("Tasks", Icons.Default.Home),
             ExpressiveNavItem("Stats", Icons.Filled.Analytics),
             ExpressiveNavItem("Calendar", Icons.Default.DateRange),
+            ExpressiveNavItem("AI", Icons.Filled.AutoAwesome),
             ExpressiveNavItem("Settings", Icons.Default.Settings),
         )
     }
@@ -320,7 +324,8 @@ fun PreambleApp(
                     viewModel.refreshStats()
                 }
                 deepLinkTarget.startsWith("calendar") -> selectedTab = 2
-                deepLinkTarget.startsWith("settings") -> selectedTab = 3
+                deepLinkTarget.startsWith("ai") -> selectedTab = 3
+                deepLinkTarget.startsWith("settings") -> selectedTab = 4
             }
             onDeepLinkConsumed()
         }
@@ -394,6 +399,12 @@ fun PreambleApp(
                         NavigationBarItem(
                             selected = selectedTab == 3,
                             onClick = { selectedTab = 3 },
+                            icon = { Icon(Icons.Filled.AutoAwesome, contentDescription = "AI") },
+                            label = { Text("AI") }
+                        )
+                        NavigationBarItem(
+                            selected = selectedTab == 4,
+                            onClick = { selectedTab = 4 },
                             icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
                             label = { Text("Settings") }
                         )
@@ -537,7 +548,19 @@ fun PreambleApp(
                     )
                 }
             }
-            3 -> SettingsScreen(
+            3 -> {
+                val chatScreenVm: com.theblankstate.preamble.ai.AiChatScreenViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+                    factory = com.theblankstate.preamble.ai.AiChatScreenViewModel.Factory(
+                        androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application,
+                        viewModel
+                    )
+                )
+                AiChatScreen(
+                    viewModel = chatScreenVm,
+                    modifier = Modifier.padding(innerPadding).consumeWindowInsets(innerPadding)
+                )
+            }
+            4 -> SettingsScreen(
                 yearlyHeatmap = stats.yearlyHeatmap,
                 modifier = Modifier.padding(innerPadding)
             )

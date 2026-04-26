@@ -90,6 +90,14 @@
         </receiver>
 
         <receiver
+            android:name=".notification.AiReminderReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.theblankstate.preamble.AI_REMINDER" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
             android:name=".notification.WeeklyWrappedReceiver"
             android:exported="false">
             <intent-filter>

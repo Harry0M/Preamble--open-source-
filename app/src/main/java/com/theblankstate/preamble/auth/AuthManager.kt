@@ -60,6 +60,12 @@ object AuthManager {
                     displayName = user.displayName
                 )
             }
+
+            // Migrate locally-saved AI memories to the real uid + sync to Firestore
+            runCatching {
+                com.theblankstate.preamble.ai.AiMemoryRepository.get(context).migrateOnLogin()
+            }
+
             Result.success(SignInResult(authResult.user!!, isNew))
         } catch (e: GetCredentialException) {
             Result.failure(e)

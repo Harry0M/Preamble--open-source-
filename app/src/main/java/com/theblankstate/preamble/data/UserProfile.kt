@@ -3,6 +3,7 @@ package com.theblankstate.preamble.data
 import android.content.Context
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.launch
 
 enum class UserRole(val key: String, val label: String) {
     STUDENT("student", "Student"),
@@ -113,6 +114,38 @@ object UserProfileStore {
             putInt(K_PERCENTILE, pct)
             putLong(K_COMPLETED_AT, completedAt)
             apply()
+        }
+
+        // Bridge profile fields into long-term memory so AI sees them via memory snapshot.
+        bridgeToMemoryAsync(ctx, p)
+    }
+
+    private fun bridgeToMemoryAsync(ctx: Context, p: UserProfile) {
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                val repo = com.theblankstate.preamble.ai.AiMemoryRepository.get(ctx)
+                p.name?.takeIf { it.isNotBlank() }?.let {
+                    repo.save("name", it, "identity", 1.0f, source = "onboarding")
+                }
+                p.age?.let {
+                    repo.save("age", it.toString(), "identity", 1.0f, source = "onboarding")
+                }
+                p.gender?.takeIf { it.isNotBlank() }?.let {
+                    repo.save("gender", it, "identity", 1.0f, source = "onboarding")
+                }
+                p.role?.let {
+                    repo.save("role", it.label, "identity", 1.0f, source = "onboarding")
+                }
+                p.tasksPerDay?.let {
+                    repo.save("daily_load", "${it.label} tasks/day (${it.hint})", "context", 1.0f, source = "onboarding")
+                }
+                val goalsToSave = p.effectiveGoals
+                if (goalsToSave.isNotEmpty()) {
+                    repo.save("primary_goals", goalsToSave.joinToString(", ") { it.label }, "goal", 1.0f, source = "onboarding")
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("UserProfileStore", "Memory bridge failed", e)
+            }
         }
     }
 

@@ -11,7 +11,8 @@ interface AiProvider {
 data class ChatMessage(
     val role: String,  // "system", "user", "assistant", "tool"
     val content: String,
-    val toolCallId: String? = null
+    val toolCallId: String? = null,
+    val toolCalls: List<ToolCall>? = null,  // only for assistant turns that emitted tool calls
 )
 
 data class AiTool(

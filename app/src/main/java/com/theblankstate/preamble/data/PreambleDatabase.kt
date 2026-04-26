@@ -7,11 +7,18 @@ import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
-@Database(entities = [Task::class, TaskTagOverride::class, PomodoroSession::class], version = 19, exportSchema = false)
+@Database(
+    entities = [Task::class, TaskTagOverride::class, PomodoroSession::class, AiMemoryEntity::class, AiProcessLogEntity::class, ChatMessageEntity::class],
+    version = 21,
+    exportSchema = false
+)
 abstract class PreambleDatabase : RoomDatabase() {
 
     abstract fun taskDao(): TaskDao
     abstract fun pomodoroSessionDao(): PomodoroSessionDao
+    abstract fun aiMemoryDao(): AiMemoryDao
+    abstract fun aiProcessLogDao(): AiProcessLogDao
+    abstract fun chatMessageDao(): ChatMessageDao
 
     companion object {
         @Volatile
@@ -24,7 +31,7 @@ abstract class PreambleDatabase : RoomDatabase() {
                     PreambleDatabase::class.java,
                     "preamble_db"
                 )
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_19_20, MIGRATION_20_21)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -214,6 +221,71 @@ abstract class PreambleDatabase : RoomDatabase() {
                 // Extended Google Tasks metadata columns
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `webViewLink` TEXT")
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `taskLinksJson` TEXT")
+            }
+        }
+
+        private val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `ai_chat_message` (
+                        `id` TEXT NOT NULL,
+                        `conversationId` TEXT NOT NULL,
+                        `userId` TEXT NOT NULL,
+                        `role` TEXT NOT NULL,
+                        `content` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `toolCalls` TEXT,
+                        `toolResults` TEXT,
+                        `isStreaming` INTEGER NOT NULL DEFAULT 0,
+                        `syncPending` INTEGER NOT NULL DEFAULT 1,
+                        PRIMARY KEY(`id`)
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_ai_chat_message_conversationId` ON `ai_chat_message` (`conversationId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_ai_chat_message_timestamp` ON `ai_chat_message` (`timestamp`)")
+            }
+        }
+
+        private val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `ai_memory` (
+                        `id` TEXT NOT NULL,
+                        `userId` TEXT NOT NULL,
+                        `key` TEXT NOT NULL,
+                        `value` TEXT NOT NULL,
+                        `category` TEXT NOT NULL,
+                        `confidence` REAL NOT NULL,
+                        `source` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `lastUsedAt` INTEGER NOT NULL,
+                        `syncPending` INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY(`id`)
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_ai_memory_userId` ON `ai_memory` (`userId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_ai_memory_category` ON `ai_memory` (`category`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_ai_memory_key` ON `ai_memory` (`key`)")
+
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `ai_process_log` (
+                        `id` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `op` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL,
+                        `model` TEXT,
+                        `input` TEXT NOT NULL,
+                        `output` TEXT,
+                        `toolCalls` TEXT,
+                        `durationMs` INTEGER NOT NULL,
+                        `success` INTEGER NOT NULL,
+                        `error` TEXT,
+                        `thought` TEXT,
+                        PRIMARY KEY(`id`)
+                    )
+                """.trimIndent())
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_ai_process_log_timestamp` ON `ai_process_log` (`timestamp`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_ai_process_log_op` ON `ai_process_log` (`op`)")
             }
         }
 

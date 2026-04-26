@@ -31,14 +31,17 @@ private val sharedAiClient: OkHttpClient by lazy {
         .build()
 }
 
-class MistralProvider(private val apiKey: String) : AiProvider {
+class MistralProvider(
+    private val apiKey: String,
+    private val modelOverride: String? = null,
+) : AiProvider {
     override val name = "Mistral"
     private val client = sharedAiClient
     private val gson = Gson()
 
     override suspend fun chat(messages: List<ChatMessage>, tools: List<AiTool>): AiResponse =
         withContext(Dispatchers.IO) {
-            val model = "mistral-small-latest"
+            val model = modelOverride?.takeIf { it.isNotBlank() } ?: "mistral-small-latest"
             Log.d(TAG, "┌─── Mistral API Request ───")
             Log.d(TAG, "│ Model: $model")
             Log.d(TAG, "│ Messages: ${messages.size} (system + user)")
@@ -50,11 +53,7 @@ class MistralProvider(private val apiKey: String) : AiProvider {
 
             val body = JsonObject().apply {
                 addProperty("model", model)
-                add("messages", gson.toJsonTree(messages.map { msg ->
-                    mapOf("role" to msg.role, "content" to msg.content).let {
-                        if (msg.toolCallId != null) it + ("tool_call_id" to msg.toolCallId) else it
-                    }
-                }))
+                add("messages", gson.toJsonTree(messages.map { serializeOpenAiStyleMessage(it) }))
                 if (tools.isNotEmpty()) {
                     add("tools", gson.toJsonTree(tools.map { tool ->
                         mapOf(
@@ -109,7 +108,10 @@ class MistralProvider(private val apiKey: String) : AiProvider {
     }
 }
 
-class OpenAiProvider(private val apiKey: String) : AiProvider {
+class OpenAiProvider(
+    private val apiKey: String,
+    private val modelOverride: String? = null,
+) : AiProvider {
     override val name = "OpenAI"
     private val client = sharedAiClient
     private val gson = Gson()
@@ -117,12 +119,8 @@ class OpenAiProvider(private val apiKey: String) : AiProvider {
     override suspend fun chat(messages: List<ChatMessage>, tools: List<AiTool>): AiResponse =
         withContext(Dispatchers.IO) {
             val body = JsonObject().apply {
-                addProperty("model", "gpt-4o-mini")
-                add("messages", gson.toJsonTree(messages.map { msg ->
-                    mapOf("role" to msg.role, "content" to msg.content).let {
-                        if (msg.toolCallId != null) it + ("tool_call_id" to msg.toolCallId) else it
-                    }
-                }))
+                addProperty("model", modelOverride?.takeIf { it.isNotBlank() } ?: "gpt-4o-mini")
+                add("messages", gson.toJsonTree(messages.map { serializeOpenAiStyleMessage(it) }))
                 if (tools.isNotEmpty()) {
                     add("tools", gson.toJsonTree(tools.map { tool ->
                         mapOf(
@@ -163,10 +161,15 @@ class OpenAiProvider(private val apiKey: String) : AiProvider {
         }
 }
 
-class GeminiProvider(private val apiKey: String) : AiProvider {
+class GeminiProvider(
+    private val apiKey: String,
+    private val modelOverride: String? = null,
+) : AiProvider {
     override val name = "Gemini"
     private val client = sharedAiClient
     private val gson = Gson()
+
+    private val model = modelOverride?.takeIf { it.isNotBlank() } ?: "gemini-2.5-flash-lite"
 
     override suspend fun chat(messages: List<ChatMessage>, tools: List<AiTool>): AiResponse =
         withContext(Dispatchers.IO) {
@@ -213,7 +216,7 @@ class GeminiProvider(private val apiKey: String) : AiProvider {
             }
 
             val request = Request.Builder()
-                .url("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=$apiKey")
+                .url("https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey")
                 .addHeader("Content-Type", "application/json")
                 .post(body.toString().toRequestBody("application/json".toMediaType()))
                 .build()
@@ -228,14 +231,18 @@ class GeminiProvider(private val apiKey: String) : AiProvider {
             }
             val json = JsonParser.parseString(responseBody).asJsonObject
 
-            val candidates = json.getAsJsonArray("candidates")
+            val candidates = json.get("candidates")?.takeIf { it.isJsonArray }?.asJsonArray
             if (candidates == null || candidates.size() == 0) {
                 return@withContext AiResponse("Sorry, I couldn't process that.", null)
             }
 
             val parts = candidates[0].asJsonObject
                 .getAsJsonObject("content")
-                .getAsJsonArray("parts")
+                ?.let { it.get("parts")?.takeIf { p -> p.isJsonArray }?.asJsonArray }
+
+            if (parts == null || parts.size() == 0) {
+                return@withContext AiResponse("Sorry, I couldn't process that.", null)
+            }
 
             var text: String? = null
             val toolCalls = mutableListOf<ToolCall>()
@@ -263,7 +270,10 @@ class GeminiProvider(private val apiKey: String) : AiProvider {
         }
 }
 
-class ClaudeProvider(private val apiKey: String) : AiProvider {
+class ClaudeProvider(
+    private val apiKey: String,
+    private val modelOverride: String? = null,
+) : AiProvider {
     override val name = "Claude"
     private val client = sharedAiClient
     private val gson = Gson()
@@ -274,7 +284,7 @@ class ClaudeProvider(private val apiKey: String) : AiProvider {
             val chatMsgs = messages.filter { it.role != "system" }
 
             val body = JsonObject().apply {
-                addProperty("model", "claude-sonnet-4-20250514")
+                addProperty("model", modelOverride?.takeIf { it.isNotBlank() } ?: "claude-sonnet-4-20250514")
                 addProperty("max_tokens", 1024)
                 if (systemMsg != null) addProperty("system", systemMsg)
                 add("messages", gson.toJsonTree(chatMsgs.map { msg ->
@@ -315,7 +325,7 @@ class ClaudeProvider(private val apiKey: String) : AiProvider {
             }
             val json = JsonParser.parseString(responseBody).asJsonObject
 
-            val content = json.getAsJsonArray("content") ?: return@withContext AiResponse("Error processing response", null)
+            val content = json.get("content")?.takeIf { it.isJsonArray }?.asJsonArray ?: return@withContext AiResponse("Error processing response", null)
 
             var text: String? = null
             val toolCalls = mutableListOf<ToolCall>()
@@ -342,10 +352,42 @@ class ClaudeProvider(private val apiKey: String) : AiProvider {
         }
 }
 
+/**
+ * Serialize a chat message in OpenAI/Mistral request format.
+ * Handles assistant turns that emitted tool_calls, tool result rows, and plain text.
+ */
+internal fun serializeOpenAiStyleMessage(msg: ChatMessage): Map<String, Any?> {
+    val base = mutableMapOf<String, Any?>("role" to msg.role)
+    when {
+        msg.role == "assistant" && !msg.toolCalls.isNullOrEmpty() -> {
+            // Mistral/OpenAI require content even when null; set to empty string for safety on Mistral
+            base["content"] = msg.content.ifBlank { "" }
+            base["tool_calls"] = msg.toolCalls.map { call ->
+                mapOf(
+                    "id" to call.id,
+                    "type" to "function",
+                    "function" to mapOf(
+                        "name" to call.name,
+                        "arguments" to com.google.gson.Gson().toJson(call.arguments),
+                    )
+                )
+            }
+        }
+        msg.role == "tool" -> {
+            base["content"] = msg.content
+            if (msg.toolCallId != null) base["tool_call_id"] = msg.toolCallId
+        }
+        else -> {
+            base["content"] = msg.content
+        }
+    }
+    return base
+}
+
 // Shared parser for OpenAI-style responses (Mistral + OpenAI use the same format)
 internal fun parseOpenAiStyleResponse(json: JsonObject): AiResponse {
     val tag = "PreambleAI"
-    val choices = json.getAsJsonArray("choices")
+    val choices = json.get("choices")?.takeIf { it.isJsonArray }?.asJsonArray
     if (choices == null || choices.size() == 0) {
         val errorMsg = json.getAsJsonObject("error")?.get("message")?.asString
         Log.e(tag, "  ✘ No choices in response. Error: ${errorMsg ?: "unknown"}")
@@ -356,7 +398,7 @@ internal fun parseOpenAiStyleResponse(json: JsonObject): AiResponse {
     val message = choices[0].asJsonObject.getAsJsonObject("message")
     val text = message.get("content")?.let { if (it.isJsonNull) null else it.asString }
 
-    val toolCallsArray = message.getAsJsonArray("tool_calls")
+    val toolCallsArray = message.get("tool_calls")?.takeIf { it.isJsonArray }?.asJsonArray
     Log.d(tag, "  Content: ${text?.take(100) ?: "null"}")
     Log.d(tag, "  Tool calls: ${toolCallsArray?.size() ?: 0}")
     

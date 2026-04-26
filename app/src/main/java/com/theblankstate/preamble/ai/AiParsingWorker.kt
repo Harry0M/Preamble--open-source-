@@ -41,16 +41,8 @@ class AiParsingWorker(
             return Result.success()
         }
 
-        val provider: AiProvider = try {
-            val providerName = BuildConfig.AI_PROVIDER
-            when (AiProviderType.valueOf(providerName)) {
-                AiProviderType.MISTRAL -> MistralProvider(apiKey)
-                AiProviderType.OPENAI -> OpenAiProvider(apiKey)
-                AiProviderType.GEMINI -> GeminiProvider(apiKey)
-                AiProviderType.CLAUDE -> ClaudeProvider(apiKey)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to create AI provider", e)
+        val provider: AiProvider = AiProviderFactory.main() ?: run {
+            Log.e(TAG, "AI provider unavailable")
             app.repository.updateTask(task.copy(isSyncing = false))
             return Result.success()
         }

@@ -31,9 +31,23 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
 
-        // AI config from local.properties (gitignored, safe)
+        // AI config from local.properties (gitignored, safe).
+        // Default provider/model — can be overridden live via Firebase Remote Config.
         buildConfigField("String", "AI_PROVIDER", "\"${localProperties.getProperty("AI_PROVIDER", "MISTRAL")}\"")
         buildConfigField("String", "AI_API_KEY", "\"${localProperties.getProperty("AI_API_KEY", "")}\"")
+        buildConfigField("String", "AI_MODEL", "\"${localProperties.getProperty("AI_MODEL", "")}\"")
+
+        // Cheap-tier provider for extraction/planner/summarizer.
+        buildConfigField("String", "AI_MEMORY_PROVIDER", "\"${localProperties.getProperty("AI_MEMORY_PROVIDER", "GEMINI")}\"")
+        buildConfigField("String", "AI_MEMORY_API_KEY", "\"${localProperties.getProperty("AI_MEMORY_API_KEY", "")}\"")
+        buildConfigField("String", "AI_MEMORY_MODEL", "\"${localProperties.getProperty("AI_MEMORY_MODEL", "")}\"")
+
+        // Per-provider keys bundled at build time. Remote Config picks which one is active.
+        // Leave a key blank if you don't have an account for that provider.
+        buildConfigField("String", "AI_KEY_MISTRAL", "\"${localProperties.getProperty("AI_KEY_MISTRAL", localProperties.getProperty("AI_API_KEY", ""))}\"")
+        buildConfigField("String", "AI_KEY_GEMINI", "\"${localProperties.getProperty("AI_KEY_GEMINI", localProperties.getProperty("AI_MEMORY_API_KEY", ""))}\"")
+        buildConfigField("String", "AI_KEY_OPENAI", "\"${localProperties.getProperty("AI_KEY_OPENAI", "")}\"")
+        buildConfigField("String", "AI_KEY_CLAUDE", "\"${localProperties.getProperty("AI_KEY_CLAUDE", "")}\"")
 
         // PostHog analytics
         buildConfigField("String", "POSTHOG_API_KEY", "\"${localProperties.getProperty("POSTHOG_API_KEY", "")}\"")
@@ -92,6 +106,7 @@ dependencies {
     implementation(libs.firebase.auth)
     implementation(libs.firebase.firestore)
     implementation(libs.firebase.messaging)
+    implementation(libs.firebase.config)
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.credentials)

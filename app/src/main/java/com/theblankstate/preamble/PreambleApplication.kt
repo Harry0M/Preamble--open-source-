@@ -101,6 +101,38 @@ class PreambleApplication : Application() {
         generateRecurrenceInstancesNow()
         // Schedule daily 6 PM evening task summary reminder
         com.theblankstate.preamble.notification.EveningReminderScheduler.schedule(this)
+        // Schedule daily AI-generated personalized reminder
+        com.theblankstate.preamble.ai.AiReminderEngine.ensureChannel(this)
+        com.theblankstate.preamble.notification.AiReminderScheduler.schedule(this)
+        // Initialize Remote Config first so the rest of the AI pipeline reads live values.
+        // Then pull cloud memory + chat history, flush any pending writes, run maintenance.
+        // All best-effort, non-blocking.
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                com.theblankstate.preamble.ai.AiConfigService.initialize()
+            } catch (e: Exception) {
+                android.util.Log.w("PreambleApp", "AiConfigService init failed", e)
+            }
+            try {
+                val mem = com.theblankstate.preamble.ai.AiMemoryRepository.get(this@PreambleApplication)
+                mem.pullRemote()
+                mem.flushPending()
+            } catch (e: Exception) {
+                android.util.Log.w("PreambleApp", "Memory bootstrap failed", e)
+            }
+            try {
+                val chat = com.theblankstate.preamble.ai.ChatRepository.get(this@PreambleApplication)
+                chat.pullRemote(chat.defaultConversationId())
+                chat.flushPending()
+            } catch (e: Exception) {
+                android.util.Log.w("PreambleApp", "Chat bootstrap failed", e)
+            }
+            try {
+                com.theblankstate.preamble.ai.MemoryMaintenance.run(this@PreambleApplication)
+            } catch (e: Exception) {
+                android.util.Log.w("PreambleApp", "Memory maintenance failed", e)
+            }
+        }
         // Schedule periodic Google sync (every 15 min)
         scheduleGoogleSyncWorker()
         // Observe task changes to refresh home screen widget

@@ -539,8 +539,48 @@ fun SettingsScreen(
             }
 
             SectionTitle("AI")
+            var showMemorySheet by remember { mutableStateOf(false) }
+            var showProcessLogSheet by remember { mutableStateOf(false) }
             SettingsCard {
                 Column {
+                    var smartModeEnabled by remember {
+                        mutableStateOf(
+                            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                .getBoolean("ai_smart_mode", true)
+                        )
+                    }
+                    SettingsToggleRow(
+                        title = "Smart AI (long-term memory)",
+                        subtitle = "AI remembers your name, goals and preferences across chats. Turn off to use the simple assistant.",
+                        checked = smartModeEnabled,
+                        onToggle = { enabled ->
+                            smartModeEnabled = enabled
+                            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).edit().putBoolean("ai_smart_mode", enabled).apply()
+                        }
+                    )
+                    HorizontalDivider()
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { showMemorySheet = true }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("What AI remembers", style = MaterialTheme.typography.bodyLarge)
+                            Text("View or delete the facts AI has learned about you", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                        }
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    HorizontalDivider()
+                    Row(
+                        modifier = Modifier.fillMaxWidth().clickable { showProcessLogSheet = true }.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("AI activity", style = MaterialTheme.typography.bodyLarge)
+                            Text("See every AI call, what it did and how long it took", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                        }
+                        Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    HorizontalDivider()
                     var aiControlSheetEnabled by remember {
                         mutableStateOf(
                             context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
@@ -711,6 +751,16 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            if (showMemorySheet) {
+                AiMemoryBottomSheet(onDismiss = { showMemorySheet = false })
+            }
+            if (showProcessLogSheet) {
+                AiProcessLogBottomSheet(onDismiss = { showProcessLogSheet = false })
+            }
+
+            SectionTitle("AI Reminders")
+            AiReminderSettingsCard()
 
             SectionTitle("Alarms")
             SettingsCard(

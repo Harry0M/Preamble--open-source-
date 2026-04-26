@@ -1,0 +1,54 @@
+{
+  "parameters": {
+    "ai_chat_provider": {
+      "defaultValue": {
+        "value": "MISTRAL"
+      },
+      "description": "Active chat provider. Values: MISTRAL | GEMINI | OPENAI | CLAUDE",
+      "valueType": "STRING"
+    },
+    "ai_chat_model": {
+      "defaultValue": {
+        "value": ""
+      },
+      "description": "Chat model override. Empty = use provider built-in default. Example: mistral-medium-latest | gemini-2.5-flash | gpt-4o-mini",
+      "valueType": "STRING"
+    },
+    "ai_memory_provider": {
+      "defaultValue": {
+        "value": "GEMINI"
+      },
+      "description": "Provider used for memory extraction, summarization, and planning. Values: MISTRAL | GEMINI | OPENAI | CLAUDE",
+      "valueType": "STRING"
+    },
+    "ai_memory_model": {
+      "defaultValue": {
+        "value": "gemini-2.5-flash-lite"
+      },
+      "description": "Model for memory pipeline (extraction, summarizer, planner). Current live models: gemini-2.5-flash-lite (cheap) | gemini-2.5-flash (standard)",
+      "valueType": "STRING"
+    },
+    "ai_kill_switch": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "description": "Set true to disable ALL AI calls app-wide. Emergency brake — no app update needed.",
+      "valueType": "BOOLEAN"
+    },
+    "ai_smart_mode_default": {
+      "defaultValue": {
+        "value": "true"
+      },
+      "description": "Default value for smart mode (memory + task context injection) on first install.",
+      "valueType": "BOOLEAN"
+    }
+  },
+  "version": {
+    "versionNumber": "1",
+    "updateTime": "2026-04-26T00:00:00Z",
+    "updateUser": {
+      "email": "palhariom698@gmail.com"
+    },
+    "description": "Initial AI config — Gemini 2.5 models, Mistral chat default"
+  }
+}

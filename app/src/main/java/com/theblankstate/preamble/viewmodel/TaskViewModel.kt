@@ -162,13 +162,11 @@ class TaskViewModel(
         _allTodayTasks,
         _selectedTagFilter
     ) { tasks, tagFilter ->
-        val now = System.currentTimeMillis()
         val filtered = if (tagFilter == null) tasks
             else tasks.filter { it.tagList.contains(tagFilter) }
-        // Sort snoozed tasks to the bottom instead of hiding them
-        filtered.sortedBy { task ->
-            if (task.snoozedUntil != null && task.snoozedUntil > now) 1 else 0
-        }
+        // Smart ordering: deadline urgency × 5 + priority × 3 + staleness + rollover bonus.
+        // Snoozed/completed automatically sink to bottom inside TaskOrderer.
+        com.theblankstate.preamble.ai.TaskOrderer.ordered(filtered)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // Subtask state
