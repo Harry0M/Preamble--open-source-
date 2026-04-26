@@ -30,6 +30,9 @@ object AiPromptFactory {
         memoryBlock: String? = null,
         taskContextBlock: String? = null,
         conciseMode: Boolean = true,
+        /** True for parse path (voice / notification edit) — forces tool call.
+         *  False for chat — allows free conversation. */
+        forceToolCall: Boolean = true,
     ): String {
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         val currentTime = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
@@ -38,13 +41,27 @@ object AiPromptFactory {
         sb.appendLine("You are Preamble AI, a smart task management assistant. Today is $today, current time is $currentTime.")
         sb.appendLine()
 
-        // Concise mode — enforced before any other rule so providers don't pad responses
         if (conciseMode) {
             sb.appendLine("RESPONSE STYLE (MANDATORY — applies to every response):")
             sb.appendLine("Be direct. No filler openers: never say 'Sure!', 'Of course!', 'Absolutely!', 'Great!', 'Certainly!', 'Happy to help!', 'I'd be happy to'.")
             sb.appendLine("Task actions: confirm in one short phrase (e.g., 'Done.' or 'Added for Thursday 9am.').")
             sb.appendLine("Questions/analysis: max 3-4 sentences unless the user explicitly asks for detail.")
-            sb.appendLine("Use — for lists, not prose enumeration. Never re-state what the user just said.")
+            sb.appendLine("Never re-state what the user just said.")
+            sb.appendLine()
+            sb.appendLine("FORMATTING (use markdown — the app renders it):")
+            sb.appendLine("  - Lists: use '- item' (one dash, one space). Use bullets whenever you have 2+ items.")
+            sb.appendLine("  - Sub-points: indent 2 spaces ('  - sub-item').")
+            sb.appendLine("  - Section headers: '## Header' for major sections, '### Sub-header' for nested.")
+            sb.appendLine("  - Emphasis: **bold** for key terms, `code` for IDs / commands.")
+            sb.appendLine("  - Numbered steps: '1. step' only when order matters.")
+            sb.appendLine("  - Always blank line before/after a list or header. Never inline lists in prose.")
+            sb.appendLine()
+        } else {
+            sb.appendLine("FORMATTING (use markdown — the app renders it):")
+            sb.appendLine("  - Lists: '- item', sub-points indented 2 spaces.")
+            sb.appendLine("  - Headers: '## Section', '### Subsection'.")
+            sb.appendLine("  - **bold** for key terms, `code` for technical bits.")
+            sb.appendLine("  - Blank line before/after lists and headers.")
             sb.appendLine()
         }
 
@@ -231,7 +248,11 @@ object AiPromptFactory {
         sb.appendLine("")
         sb.appendLine("If the intent is modify/delete/complete, match the task title against EXISTING TASKS listed below.")
         sb.appendLine("If no existing tasks match, fall back to add_task with the raw text.")
-        sb.appendLine("NEVER respond with just text — ALWAYS make a tool call.")
+        if (forceToolCall) {
+            sb.appendLine("NEVER respond with just text — ALWAYS make a tool call.")
+        } else {
+            sb.appendLine("If the user is asking a question, having a conversation, or requesting information (e.g., 'list my tasks', 'what's on my plate', 'how am I doing'), respond conversationally. Use list_tasks tool first if you need to fetch task data, then format the result naturally for the user.")
+        }
         sb.appendLine()
 
         // Existing task context

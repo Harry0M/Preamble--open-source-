@@ -34,6 +34,8 @@ data class ChatMessageEntity(
     val toolResults: String? = null,
     val isStreaming: Boolean = false,
     val syncPending: Int = 1,
+    /** Model that produced this assistant response (e.g., "gemini-2.5-flash-lite"). Null for user/system rows. */
+    val modelUsed: String? = null,
 )
 
 @Dao

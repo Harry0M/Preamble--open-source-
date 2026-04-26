@@ -46,6 +46,9 @@ class ChatRepository private constructor(
 
     /**
      * Append a new message — generates id + timestamp + userId. Returns the saved row.
+     *
+     * @param skipSync set true when the row was created server-side (cloud path) and should
+     *   not be re-mirrored to Firestore by this client. Prevents duplicate Firestore writes.
      */
     suspend fun append(
         cid: String,
@@ -54,6 +57,8 @@ class ChatRepository private constructor(
         toolCalls: String? = null,
         toolResults: String? = null,
         isStreaming: Boolean = false,
+        modelUsed: String? = null,
+        skipSync: Boolean = false,
     ): ChatMessageEntity = withContext(Dispatchers.IO) {
         val u = uid() ?: "anonymous"
         val msg = ChatMessageEntity(
@@ -66,10 +71,11 @@ class ChatRepository private constructor(
             toolCalls = toolCalls,
             toolResults = toolResults,
             isStreaming = isStreaming,
-            syncPending = 1,
+            syncPending = if (skipSync) 0 else 1,
+            modelUsed = modelUsed,
         )
         dao.upsert(msg)
-        if (!isStreaming) syncOne(msg)
+        if (!isStreaming && !skipSync) syncOne(msg)
         msg
     }
 
@@ -146,6 +152,7 @@ class ChatRepository private constructor(
                     toolResults = doc.getString("toolResults"),
                     isStreaming = false,
                     syncPending = 0,
+                    modelUsed = doc.getString("modelUsed"),
                 )
             }
             if (rows.isNotEmpty()) dao.upsertAll(rows)
@@ -170,6 +177,7 @@ class ChatRepository private constructor(
             )
             msg.toolCalls?.let { data["toolCalls"] = it }
             msg.toolResults?.let { data["toolResults"] = it }
+            msg.modelUsed?.let { data["modelUsed"] = it }
             firestore.collection("users").document(u)
                 .collection("ai_chat").document(msg.conversationId)
                 .collection("messages").document(msg.id)

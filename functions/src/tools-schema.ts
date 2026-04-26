@@ -1,0 +1,152 @@
+/**
+ * Tool definitions for AI function calling — ported from TaskTools.kt.
+ * Used by all providers.
+ */
+import { PREDEFINED_TAGS } from "./config";
+
+export interface ToolDef {
+  name: string;
+  description: string;
+  parameters: {
+    type: "object";
+    properties: Record<string, { type: string; description: string; enum?: string[] }>;
+    required: string[];
+  };
+}
+
+export const TASK_TOOLS: ToolDef[] = [
+  {
+    name: "add_task",
+    description: "Add a new task. If the user specifies a date, use date parameter (YYYY-MM-DD). If they specify a time, use deadline_time (HH:mm 24h). ALWAYS provide at least 1 tag. Set 'rollover' per RULE 5B.",
+    parameters: {
+      type: "object",
+      properties: {
+        title:         { type: "string", description: "Short but self-explanatory task title. Remove temporal/urgency words." },
+        date:          { type: "string", description: "Date in YYYY-MM-DD format. Omit for today." },
+        deadline_time: { type: "string", description: "Deadline time in HH:mm 24-hour format." },
+        priority:      { type: "string", description: "Priority: 0=None, 1=Low, 2=Medium, 3=High." },
+        tags:          { type: "string", description: `REQUIRED. 1-4 comma-separated tags from: ${PREDEFINED_TAGS.join(", ")}` },
+        recurrence:    { type: "string", description: "Recurrence pattern: daily, weekly, monthly, yearly." },
+        rollover:      { type: "string", description: "true/false. Task stays sticky day-to-day until completed." },
+        subtasks:      { type: "string", description: "Comma-separated subtask items when user lists 2+ items." },
+        description:   { type: "string", description: "Brief 1-2 sentence description. Use same language as user." },
+      },
+      required: ["title", "tags"],
+    },
+  },
+  {
+    name: "modify_task",
+    description: "Modify an existing task. Finds closest matching task.",
+    parameters: {
+      type: "object",
+      properties: {
+        target_title: { type: "string", description: "Current title of the task to modify." },
+        new_title:    { type: "string", description: "New title (if changing)." },
+        new_date:     { type: "string", description: "New date in YYYY-MM-DD." },
+        new_time:     { type: "string", description: "New deadline time in HH:mm." },
+        new_priority: { type: "string", description: "New priority: 0-3." },
+        new_tags:     { type: "string", description: "New tags." },
+      },
+      required: ["target_title"],
+    },
+  },
+  {
+    name: "delete_task",
+    description: "Delete a task by title.",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Task title to delete." },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    name: "complete_task",
+    description: "Mark a task as completed.",
+    parameters: {
+      type: "object",
+      properties: {
+        title: { type: "string", description: "Task title to mark complete." },
+      },
+      required: ["title"],
+    },
+  },
+  {
+    name: "list_tasks",
+    description: "List all tasks for a date. Defaults to today.",
+    parameters: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "Date in YYYY-MM-DD. Omit for today." },
+      },
+      required: [],
+    },
+  },
+  {
+    name: "set_reminder",
+    description: "Add a task with an alarm reminder.",
+    parameters: {
+      type: "object",
+      properties: {
+        title:       { type: "string", description: "The task/reminder title." },
+        time:        { type: "string", description: "Time in HH:mm 24-hour format." },
+        date:        { type: "string", description: "Date in YYYY-MM-DD. Omit for today." },
+        subtasks:    { type: "string", description: "Comma-separated subtasks." },
+        description: { type: "string", description: "Brief description." },
+      },
+      required: ["title", "time"],
+    },
+  },
+];
+
+/** Convert our tool format to Gemini's function declaration format */
+export function toGeminiFunctionDeclarations() {
+  return TASK_TOOLS.map(t => ({
+    name: t.name,
+    description: t.description,
+    parameters: {
+      type: "OBJECT" as const,
+      properties: Object.fromEntries(
+        Object.entries(t.parameters.properties).map(([key, val]) => [
+          key,
+          { type: "STRING" as const, description: val.description },
+        ])
+      ),
+      required: t.parameters.required,
+    },
+  }));
+}
+
+/**
+ * Detect if a user message is a simple conversational query (no tools needed).
+ * Saves tokens by skipping tool definitions.
+ */
+export function isSimpleQuery(text: string): boolean {
+  const lower = text.toLowerCase().trim();
+  if (lower.length < 25) {
+    const taskKeywords = [
+      "add", "create", "task", "remind", "delete", "remove", "cancel",
+      "complete", "done", "modify", "change", "shift", "move", "schedule",
+      "karna", "banana", "hatao", "nikaal", "karo", "kar do", "set",
+      "hata do", "gym", "meeting", "hospital",
+    ];
+    if (taskKeywords.some(kw => lower.includes(kw))) return false;
+    return true;
+  }
+  const taskSignals = [
+    "add task", "create task", "new task", "remind me", "set reminder",
+    "delete task", "remove task", "mark done", "mark complete",
+    "kaam", "task banana", "task karo", "karna hai",
+    "shift karo", "change karo", "badal do",
+  ];
+  if (taskSignals.some(s => lower.includes(s))) return false;
+  const convPatterns = [
+    "what is", "what's", "who is", "how many", "tell me",
+    "explain", "describe", "define", "meaning of",
+    "kya hai", "kaun hai", "kitne", "batao",
+    "my name", "mera naam", "about me",
+  ];
+  if (convPatterns.some(p => lower.includes(p))) return true;
+  return false;
+}

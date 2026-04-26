@@ -6,6 +6,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.auth.FirebaseAuth
 import com.google.gson.Gson
 import com.theblankstate.preamble.BuildConfig
 import com.theblankstate.preamble.viewmodel.TaskViewModel
@@ -32,9 +33,12 @@ class AiChatViewModel(
     private fun smartModeEnabled(): Boolean = prefs().getBoolean(PREF_SMART_MODE, true)
     private fun subtaskIntensity(): Int = prefs().getInt("ai_subtask_intensity", 0)
 
+    /** True when user is logged in → use Cloud Functions */
+    private fun useCloud(): Boolean = FirebaseAuth.getInstance().currentUser != null
+
     private fun getProvider(): AiProvider? = AiProviderFactory.main()
 
-    fun isConfigured(): Boolean = BuildConfig.AI_API_KEY.isNotBlank()
+    fun isConfigured(): Boolean = useCloud() || BuildConfig.AI_API_KEY.isNotBlank()
 
     private suspend fun buildSystemMessage(contextTasks: List<com.theblankstate.preamble.data.Task>): ChatMessage {
         val memory = if (smartModeEnabled()) memoryRepo.buildPromptSnapshot() else null
@@ -62,65 +66,111 @@ class AiChatViewModel(
      */
     fun processVoiceCommand(text: String, onResult: (String) -> Unit) {
         viewModelScope.launch {
-            val provider = getProvider()
-            if (provider == null) {
-                taskViewModel.addTask(text, null, null)
-                onResult("Task saved: $text")
-                return@launch
-            }
-
             _isLoading.value = true
-            val contextTasks = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
-            val systemMsg = buildSystemMessage(contextTasks)
-            val userMsg = ChatMessage("user", text)
-
-            val t0 = System.currentTimeMillis()
             try {
-                val response = provider.chat(listOf(systemMsg, userMsg), TaskTools.tools)
-                val dt = System.currentTimeMillis() - t0
-
-                logger.log(
-                    op = AiProcessLogger.OP_VOICE,
-                    provider = provider.name,
-                    model = null,
-                    input = text,
-                    output = response.text,
-                    toolCalls = serializeToolCalls(response.toolCalls),
-                    durationMs = dt,
-                    success = true,
-                    thought = response.toolCalls?.joinToString(", ") { it.name }
-                        ?: "no tool call — fallback save",
-                )
-
-                if (!response.toolCalls.isNullOrEmpty()) {
-                    val results = response.toolCalls.map { call ->
-                        TaskTools.execute(call, taskViewModel, contextTasks)
-                    }
-                    onResult(results.joinToString(". "))
+                if (useCloud()) {
+                    // CLOUD PATH
+                    processViaCloud(text, onResult)
                 } else {
-                    taskViewModel.addTask(text, null, null)
-                    onResult("Task saved: $text")
+                    // LOCAL PATH
+                    processViaLocal(text, onResult)
                 }
-
-                if (smartModeEnabled()) MemoryExtractor.extractAsync(application, text)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error processing voice command", e)
-                logger.log(
-                    op = AiProcessLogger.OP_VOICE,
-                    provider = provider.name,
-                    model = null,
-                    input = text,
-                    output = null,
-                    toolCalls = null,
-                    durationMs = System.currentTimeMillis() - t0,
-                    success = false,
-                    error = e.message,
-                )
-                taskViewModel.addTask(text, null, null)
-                onResult("Task saved: $text")
             } finally {
                 _isLoading.value = false
             }
+        }
+    }
+
+    private suspend fun processViaCloud(text: String, onResult: (String) -> Unit) {
+        val t0 = System.currentTimeMillis()
+        val result = CloudAiService.parseTask(
+            rawText = text,
+            subtaskIntensity = subtaskIntensity(),
+        )
+        val dt = System.currentTimeMillis() - t0
+
+        if (result != null && result.toolCalls.isNotEmpty()) {
+            val todayCtx = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
+            val outputs = result.toolCalls.map { call ->
+                val toolCall = ToolCall(id = call.name, name = call.name, arguments = call.args)
+                TaskTools.execute(toolCall, taskViewModel, todayCtx)
+            }
+
+            logger.log(
+                op = AiProcessLogger.OP_VOICE,
+                provider = "cloud",
+                model = result.model,
+                input = text,
+                output = result.text,
+                toolCalls = gson.toJson(result.toolCalls.map { mapOf("name" to it.name, "args" to it.args) }),
+                durationMs = dt,
+                success = true,
+                thought = "cloud voice",
+            )
+            onResult(outputs.joinToString(". "))
+        } else {
+            // Cloud didn't return tool calls — save raw task
+            taskViewModel.addTask(text, null, null)
+            onResult("Task saved: $text")
+        }
+    }
+
+    private suspend fun processViaLocal(text: String, onResult: (String) -> Unit) {
+        val provider = getProvider()
+        if (provider == null) {
+            taskViewModel.addTask(text, null, null)
+            onResult("Task saved: $text")
+            return
+        }
+
+        val contextTasks = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
+        val systemMsg = buildSystemMessage(contextTasks)
+        val userMsg = ChatMessage("user", text)
+
+        val t0 = System.currentTimeMillis()
+        try {
+            val response = provider.chat(listOf(systemMsg, userMsg), TaskTools.tools)
+            val dt = System.currentTimeMillis() - t0
+
+            logger.log(
+                op = AiProcessLogger.OP_VOICE,
+                provider = provider.name,
+                model = null,
+                input = text,
+                output = response.text,
+                toolCalls = serializeToolCalls(response.toolCalls),
+                durationMs = dt,
+                success = true,
+                thought = response.toolCalls?.joinToString(", ") { it.name }
+                    ?: "no tool call — fallback save",
+            )
+
+            if (!response.toolCalls.isNullOrEmpty()) {
+                val results = response.toolCalls.map { call ->
+                    TaskTools.execute(call, taskViewModel, contextTasks)
+                }
+                onResult(results.joinToString(". "))
+            } else {
+                taskViewModel.addTask(text, null, null)
+                onResult("Task saved: $text")
+            }
+
+            if (smartModeEnabled()) MemoryExtractor.extractAsync(application, text)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing voice command", e)
+            logger.log(
+                op = AiProcessLogger.OP_VOICE,
+                provider = provider.name,
+                model = null,
+                input = text,
+                output = null,
+                toolCalls = null,
+                durationMs = System.currentTimeMillis() - t0,
+                success = false,
+                error = e.message,
+            )
+            taskViewModel.addTask(text, null, null)
+            onResult("Task saved: $text")
         }
     }
 
@@ -136,57 +186,64 @@ class AiChatViewModel(
         }
 
         viewModelScope.launch {
-            val provider = getProvider() ?: run {
-                onResult(false)
-                return@launch
-            }
-
             _isLoading.value = true
-            val contextTasks = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
-            val systemMsg = buildSystemMessage(contextTasks)
-            val userMsg = ChatMessage("user", text)
-
-            val t0 = System.currentTimeMillis()
             try {
-                val response = provider.chat(listOf(systemMsg, userMsg), TaskTools.tools)
-                val dt = System.currentTimeMillis() - t0
-
-                logger.log(
-                    op = AiProcessLogger.OP_TASK_INPUT,
-                    provider = provider.name,
-                    model = null,
-                    input = text,
-                    output = response.text,
-                    toolCalls = serializeToolCalls(response.toolCalls),
-                    durationMs = dt,
-                    success = true,
-                    thought = response.toolCalls?.joinToString(", ") { it.name }
-                        ?: "no tool call produced",
-                )
-
-                if (!response.toolCalls.isNullOrEmpty()) {
-                    for (call in response.toolCalls) {
-                        TaskTools.execute(call, taskViewModel, contextTasks)
+                if (useCloud()) {
+                    // CLOUD PATH
+                    val result = CloudAiService.parseTask(
+                        rawText = text,
+                        subtaskIntensity = subtaskIntensity(),
+                    )
+                    if (result != null && result.toolCalls.isNotEmpty()) {
+                        val todayCtx = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
+                        for (call in result.toolCalls) {
+                            val toolCall = ToolCall(id = call.name, name = call.name, arguments = call.args)
+                            TaskTools.execute(toolCall, taskViewModel, todayCtx)
+                        }
+                        onResult(true)
+                    } else {
+                        onResult(false)
                     }
-                    onResult(true)
                 } else {
-                    onResult(false)
-                }
+                    // LOCAL PATH
+                    val provider = getProvider() ?: run {
+                        onResult(false)
+                        return@launch
+                    }
+                    val contextTasks = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
+                    val systemMsg = buildSystemMessage(contextTasks)
+                    val userMsg = ChatMessage("user", text)
 
-                if (smartModeEnabled()) MemoryExtractor.extractAsync(application, text)
+                    val t0 = System.currentTimeMillis()
+                    val response = provider.chat(listOf(systemMsg, userMsg), TaskTools.tools)
+                    val dt = System.currentTimeMillis() - t0
+
+                    logger.log(
+                        op = AiProcessLogger.OP_TASK_INPUT,
+                        provider = provider.name,
+                        model = null,
+                        input = text,
+                        output = response.text,
+                        toolCalls = serializeToolCalls(response.toolCalls),
+                        durationMs = dt,
+                        success = true,
+                        thought = response.toolCalls?.joinToString(", ") { it.name }
+                            ?: "no tool call produced",
+                    )
+
+                    if (!response.toolCalls.isNullOrEmpty()) {
+                        for (call in response.toolCalls) {
+                            TaskTools.execute(call, taskViewModel, contextTasks)
+                        }
+                        onResult(true)
+                    } else {
+                        onResult(false)
+                    }
+
+                    if (smartModeEnabled()) MemoryExtractor.extractAsync(application, text)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing task input", e)
-                logger.log(
-                    op = AiProcessLogger.OP_TASK_INPUT,
-                    provider = provider.name,
-                    model = null,
-                    input = text,
-                    output = null,
-                    toolCalls = null,
-                    durationMs = System.currentTimeMillis() - t0,
-                    success = false,
-                    error = e.message,
-                )
                 onResult(false)
             } finally {
                 _isLoading.value = false
@@ -201,30 +258,37 @@ class AiChatViewModel(
      */
     suspend fun parseTaskPreview(text: String): Map<String, String>? {
         if (!isConfigured()) return null
-        val provider = getProvider() ?: return null
         return try {
             _isLoading.value = true
-            val contextTasks = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
-            val systemMsg = buildSystemMessage(contextTasks)
-            val userMsg = ChatMessage("user", text)
+            if (useCloud()) {
+                // CLOUD PATH
+                val result = CloudAiService.parseTask(rawText = text, subtaskIntensity = subtaskIntensity())
+                result?.toolCalls?.firstOrNull { it.name == "add_task" }?.args
+            } else {
+                // LOCAL PATH
+                val provider = getProvider() ?: return null
+                val contextTasks = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
+                val systemMsg = buildSystemMessage(contextTasks)
+                val userMsg = ChatMessage("user", text)
 
-            val t0 = System.currentTimeMillis()
-            val response = provider.chat(listOf(systemMsg, userMsg), TaskTools.tools)
-            val dt = System.currentTimeMillis() - t0
-            val args = response.toolCalls?.firstOrNull { it.name == "add_task" }?.arguments
+                val t0 = System.currentTimeMillis()
+                val response = provider.chat(listOf(systemMsg, userMsg), TaskTools.tools)
+                val dt = System.currentTimeMillis() - t0
+                val args = response.toolCalls?.firstOrNull { it.name == "add_task" }?.arguments
 
-            logger.log(
-                op = AiProcessLogger.OP_PREVIEW,
-                provider = provider.name,
-                model = null,
-                input = text,
-                output = response.text,
-                toolCalls = serializeToolCalls(response.toolCalls),
-                durationMs = dt,
-                success = args != null,
-                thought = if (args != null) "Preview built." else "No add_task in response.",
-            )
-            args
+                logger.log(
+                    op = AiProcessLogger.OP_PREVIEW,
+                    provider = provider.name,
+                    model = null,
+                    input = text,
+                    output = response.text,
+                    toolCalls = serializeToolCalls(response.toolCalls),
+                    durationMs = dt,
+                    success = args != null,
+                    thought = if (args != null) "Preview built." else "No add_task in response.",
+                )
+                args
+            }
         } catch (e: Exception) {
             Log.e(TAG, "parseTaskPreview failed", e)
             null

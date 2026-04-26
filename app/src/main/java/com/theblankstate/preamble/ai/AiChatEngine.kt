@@ -2,6 +2,7 @@ package com.theblankstate.preamble.ai
 
 import android.content.Context
 import android.util.Log
+import com.google.firebase.auth.FirebaseAuth
 import com.google.gson.Gson
 import com.theblankstate.preamble.BuildConfig
 import com.theblankstate.preamble.data.ChatMessageEntity
@@ -12,20 +13,13 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 
 /**
- * Stateless chat orchestrator. Each turn:
+ * Stateless chat orchestrator.
  *
- *   1. Pulls Room conversation history (last N user/assistant rows)
- *   2. Pre-pends a SUMMARY system-row if present (token saver)
- *   3. Builds full system prompt: rules + USER CONTEXT (memory) + TASK CONTEXT (volatile)
- *   4. Calls main provider with tools enabled
- *   5. If model returns tool_calls → execute against TaskTools, append "tool" results,
- *      loop up to [MAX_TOOL_ROUNDS] more turns
- *   6. Persists every message (user, assistant, tool) into ChatRepository (Firestore-mirrored)
- *   7. Fires async memory extraction on the user's text
- *   8. Triggers retention sweep (auto-summarize + prune)
- *
- * Streaming is implemented as flow emissions for incremental text.
- * Providers that don't support SSE just emit the final text once.
+ * CLOUD MODE: When user is logged in, routes through Cloud Functions.
+ *   - API keys stay on server (no keys in APK)
+ *   - Prompts built server-side (updatable without release)
+ *   - Credits checked server-side (tamper-proof)
+ *   - Falls back to local if cloud is unavailable
  */
 class AiChatEngine(
     private val appContext: Context,
@@ -36,15 +30,9 @@ class AiChatEngine(
     private val logger = AiProcessLogger.get(appContext)
     private val gson = Gson()
 
-    /**
-     * Sends [userText] in [conversationId] and emits engine events:
-     *   AssistantStart(messageId)
-     *   AssistantDelta(messageId, deltaText)   [for streaming providers; otherwise one big chunk]
-     *   ToolStart(messageId, toolName, args)
-     *   ToolResult(messageId, toolName, output)
-     *   AssistantDone(messageId, finalText)
-     *   Error(reason)
-     */
+    /** True if user is logged in → use Cloud Functions */
+    private fun useCloud(): Boolean = FirebaseAuth.getInstance().currentUser != null
+
     fun send(
         conversationId: String,
         userText: String,
@@ -53,32 +41,158 @@ class AiChatEngine(
     ): Flow<ChatEvent> = flow {
         if (userText.isBlank()) return@flow
 
-        // 1. Persist user message immediately
-        chatRepo.append(conversationId, role = "user", content = userText)
+        val onCloud = useCloud()
 
-        val provider = buildProvider(modelOverride) ?: run {
-            emit(ChatEvent.Error("AI not configured. Add AI_API_KEY in local.properties."))
-            return@flow
-        }
+        // Persist user message — cloud path skips Firestore mirror (server is the writer)
+        chatRepo.append(
+            cid = conversationId,
+            role = "user",
+            content = userText,
+            skipSync = onCloud,
+        )
 
-        // 2. Detect if this is a simple conversational query (no tools needed)
-        val simple = isSimpleQuery(userText)
-
-        // 3. Build messages list — system + summary + history + user already saved (no duplicate)
-        val messages = buildMessageList(conversationId, userText, conciseMode)
-
-        // Token-aware extraction trigger: only for substantial messages (skip "ok", "yes", "hmm")
         val smartMode = appContext.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
             .getBoolean("ai_smart_mode", true)
+
+        if (onCloud) {
+            // === CLOUD PATH ===
+            val model = modelOverride ?: "gemini-2.5-flash-lite"
+            val mode = if (conciseMode) "concise" else "normal"
+            val t0 = System.currentTimeMillis()
+
+            val fullText = StringBuilder()
+            var pendingToolCalls: List<CloudToolCall>? = null
+            var cloudError: String? = null
+            var chatResult: CloudChatResult? = null
+
+            CloudAiService.chat(
+                message = userText,
+                conversationId = conversationId,
+                model = model,
+                mode = mode,
+                onDelta = { delta -> fullText.append(delta) },
+                onToolCalls = { calls -> pendingToolCalls = calls },
+                onDone = { result -> chatResult = result },
+                onError = { err -> cloudError = err },
+            )
+
+            // Tool execution + follow-up
+            val executedTools = mutableListOf<Pair<CloudToolCall, String>>()
+            if (pendingToolCalls != null && pendingToolCalls!!.isNotEmpty()) {
+                val todayCtx = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
+                val toolResults = mutableListOf<ToolResult>()
+
+                for (call in pendingToolCalls!!) {
+                    val toolCall = ToolCall(id = call.name, name = call.name, arguments = call.args)
+                    emit(ChatEvent.ToolStart(call.name, call.name, call.args))
+                    val result = runCatching {
+                        TaskTools.execute(toolCall, taskViewModel, todayCtx)
+                    }.getOrElse { "Error: ${it.message}" }
+                    executedTools.add(call to result)
+                    toolResults.add(ToolResult(name = call.name, result = result))
+                    emit(ChatEvent.ToolResult(call.name, call.name, result))
+                }
+
+                val followUpText = StringBuilder()
+                CloudAiService.sendToolResults(
+                    conversationId = conversationId,
+                    toolResults = toolResults,
+                    model = model,
+                    mode = mode,
+                    onDelta = { delta -> followUpText.append(delta) },
+                    onDone = { r -> chatResult = r },
+                    onError = { err -> cloudError = err },
+                )
+                fullText.append(followUpText)
+            }
+
+            // Update credit balance
+            chatResult?.let { AiCreditsManager.updateBalance(it.creditsRemaining) }
+            val resolvedModel = chatResult?.model?.takeIf { it.isNotBlank() } ?: model
+
+            val dt = System.currentTimeMillis() - t0
+            val text = fullText.toString()
+
+            if (cloudError != null && text.isBlank()) {
+                if (cloudError!!.startsWith("INSUFFICIENT_CREDITS")) {
+                    val parts = cloudError!!.split(":")
+                    val needed = parts.getOrNull(1) ?: "1"
+                    emit(ChatEvent.Error("Not enough AI credits (need $needed). Watch an ad to earn 10 credits, or switch to the free model (Gemini Flash Lite + Concise)."))
+                    return@flow
+                }
+                Log.w(TAG, "Cloud failed ($cloudError), falling back to local")
+                sendLocalAndEmit(this, conversationId, userText, modelOverride, conciseMode, smartMode)
+                return@flow
+            }
+
+            // Persist assistant response Room-only (cloud already wrote to Firestore)
+            // Includes toolCalls + toolResults so the InlineTaskActionRow / ThinkingSection UI renders.
+            val toolCallsJson = if (executedTools.isNotEmpty()) {
+                gson.toJson(executedTools.map { (call, _) ->
+                    mapOf("id" to call.name, "name" to call.name, "args" to call.args)
+                })
+            } else null
+            val toolResultsJson = if (executedTools.isNotEmpty()) {
+                gson.toJson(executedTools.map { (call, result) ->
+                    mapOf("name" to call.name, "args" to call.args, "result" to result)
+                })
+            } else null
+
+            if (text.isNotBlank() || toolCallsJson != null) {
+                val saved = chatRepo.append(
+                    cid = conversationId,
+                    role = "assistant",
+                    content = text,
+                    toolCalls = toolCallsJson,
+                    toolResults = toolResultsJson,
+                    modelUsed = resolvedModel,
+                    skipSync = true,
+                )
+                emit(ChatEvent.AssistantStart(saved.id))
+                emit(ChatEvent.AssistantDelta(saved.id, text))
+                emit(ChatEvent.AssistantDone(saved.id, text))
+            }
+
+            logger.log(
+                op = AiProcessLogger.OP_CHAT, provider = "cloud", model = resolvedModel,
+                input = userText, output = text,
+                toolCalls = toolCallsJson,
+                durationMs = dt, success = text.isNotBlank(),
+                thought = "cloud path (${executedTools.size} tools)",
+            )
+            chatRepo.enforceRetention(conversationId)
+
+        } else {
+            // === LOCAL PATH ===
+            sendLocalAndEmit(this, conversationId, userText, modelOverride, conciseMode, smartMode)
+        }
+    }.flowOn(Dispatchers.IO)
+
+    /**
+     * Local path: original direct-API flow. Used when user is offline or not logged in.
+     */
+    private suspend fun sendLocalAndEmit(
+        collector: kotlinx.coroutines.flow.FlowCollector<ChatEvent>,
+        conversationId: String,
+        userText: String,
+        modelOverride: String?,
+        conciseMode: Boolean,
+        smartMode: Boolean,
+    ) {
+        val provider = buildProvider(modelOverride) ?: run {
+            collector.emit(ChatEvent.Error("AI not configured. Please sign in to use AI chat."))
+            return
+        }
+
+        val simple = isSimpleQuery(userText)
+        val messages = buildMessageList(conversationId, userText, conciseMode)
+
         if (smartMode && userText.length >= 20) MemoryExtractor.extractAsync(appContext, userText)
 
-        // 3. Tool-call loop
         var rounds = 0
         var finalText: String? = null
         var workingMessages = messages
         var assistantRowId: String? = null
-
-        // Use empty tools for simple queries to save tokens and speed up response
         val activeTools = if (simple) emptyList() else TaskTools.tools
 
         try {
@@ -88,69 +202,53 @@ class AiChatEngine(
                 val dt = System.currentTimeMillis() - t0
 
                 logger.log(
-                    op = AiProcessLogger.OP_CHAT,
-                    provider = provider.name,
-                    model = null,
-                    input = userText,
-                    output = resp.text,
+                    op = AiProcessLogger.OP_CHAT, provider = provider.name, model = null,
+                    input = userText, output = resp.text,
                     toolCalls = resp.toolCalls?.let { gson.toJson(it.map { c -> mapOf("name" to c.name, "args" to c.arguments) }) },
-                    durationMs = dt,
-                    success = true,
+                    durationMs = dt, success = true,
                     thought = resp.toolCalls?.joinToString(", ") { it.name } ?: "no tool call",
                 )
 
                 if (resp.toolCalls.isNullOrEmpty()) {
-                    // Final answer turn — persist assistant text once, exit loop.
                     if (!resp.text.isNullOrBlank()) {
                         val saved = chatRepo.append(
-                            conversationId,
+                            cid = conversationId,
                             role = "assistant",
                             content = resp.text,
+                            modelUsed = modelOverride ?: provider.name,
                         )
                         assistantRowId = saved.id
-                        emit(ChatEvent.AssistantStart(saved.id))
-                        emit(ChatEvent.AssistantDelta(saved.id, resp.text))
+                        collector.emit(ChatEvent.AssistantStart(saved.id))
+                        collector.emit(ChatEvent.AssistantDelta(saved.id, resp.text))
                     }
                     finalText = resp.text
                     break
                 }
 
-                // Execute tool calls, append results
                 val todayCtx = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
                 val toolResultsList = mutableListOf<Pair<ToolCall, String>>()
                 for (call in resp.toolCalls) {
-                    emit(ChatEvent.ToolStart(call.id, call.name, call.arguments))
+                    collector.emit(ChatEvent.ToolStart(call.id, call.name, call.arguments))
                     val result = runCatching { TaskTools.execute(call, taskViewModel, todayCtx) }
                         .getOrElse { "Error: ${it.message ?: "tool failed"}" }
                     toolResultsList.add(call to result)
-                    emit(ChatEvent.ToolResult(call.id, call.name, result))
+                    collector.emit(ChatEvent.ToolResult(call.id, call.name, result))
                 }
 
-                // Persist a single assistant row capturing tool calls + results so chat replay
-                // can show the trace. Empty content is fine — buildMessageList filters these out
-                // of conversation history to keep prompts clean (the trace stays for the UI).
                 val toolJson = gson.toJson(toolResultsList.map {
                     mapOf("name" to it.first.name, "args" to it.first.arguments, "result" to it.second)
                 })
                 chatRepo.append(
-                    conversationId,
+                    cid = conversationId,
                     role = "assistant",
                     content = resp.text ?: "",
                     toolCalls = gson.toJson(resp.toolCalls.map { mapOf("id" to it.id, "name" to it.name, "args" to it.arguments) }),
                     toolResults = toolJson,
+                    modelUsed = modelOverride ?: provider.name,
                 )
 
-                // Build next-round messages. The assistant turn that emitted the tool calls
-                // MUST be included with tool_calls attached — Mistral/OpenAI reject tool messages
-                // that come straight after a user turn. Content can be empty.
                 val nextRound = workingMessages.toMutableList()
-                nextRound.add(
-                    ChatMessage(
-                        role = "assistant",
-                        content = resp.text ?: "",
-                        toolCalls = resp.toolCalls,
-                    )
-                )
+                nextRound.add(ChatMessage(role = "assistant", content = resp.text ?: "", toolCalls = resp.toolCalls))
                 for ((call, result) in toolResultsList) {
                     nextRound.add(ChatMessage("tool", result, toolCallId = call.id))
                 }
@@ -159,29 +257,21 @@ class AiChatEngine(
             }
 
             if (finalText == null && rounds == MAX_TOOL_ROUNDS) {
-                emit(ChatEvent.Error("Tool-call loop exceeded max rounds"))
+                collector.emit(ChatEvent.Error("Tool-call loop exceeded max rounds"))
             } else {
-                emit(ChatEvent.AssistantDone(assistantRowId ?: "", finalText ?: ""))
+                collector.emit(ChatEvent.AssistantDone(assistantRowId ?: "", finalText ?: ""))
             }
-
-            // Retention sweep (summarize+prune oldest)
             chatRepo.enforceRetention(conversationId)
         } catch (e: Exception) {
             Log.e(TAG, "Chat turn failed", e)
             logger.log(
-                op = AiProcessLogger.OP_CHAT,
-                provider = provider.name,
-                model = null,
-                input = userText,
-                output = null,
-                toolCalls = null,
-                durationMs = 0,
-                success = false,
-                error = e.message,
+                op = AiProcessLogger.OP_CHAT, provider = provider.name, model = null,
+                input = userText, output = null, toolCalls = null,
+                durationMs = 0, success = false, error = e.message,
             )
-            emit(ChatEvent.Error(e.message ?: "Unknown error"))
+            collector.emit(ChatEvent.Error(e.message ?: "Unknown error"))
         }
-    }.flowOn(Dispatchers.IO)
+    }
 
     private suspend fun buildMessageList(cid: String, userText: String, conciseMode: Boolean = true): List<ChatMessage> {
         val smart = appContext.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
@@ -195,12 +285,11 @@ class AiChatEngine(
             memoryBlock = memory,
             taskContextBlock = taskCtx,
             conciseMode = conciseMode,
+            forceToolCall = false, // chat path: free conversation allowed
         )
 
         val historyRows = chatRepo.snapshot(cid)
         val summaryRow = historyRows.firstOrNull { it.role == "summary" }
-        // Drop assistant rows that exist only as a tool-call trace (no user-visible text).
-        // They're kept in the DB for replay/debug but pollute prompts on follow-up turns.
         val recent = historyRows
             .filter { row ->
                 when (row.role) {
@@ -216,7 +305,6 @@ class AiChatEngine(
         if (summaryRow != null) {
             messages.add(ChatMessage("system", "Earlier conversation summary: ${summaryRow.content}"))
         }
-        // History excludes the row we just appended (which equals userText). Drop the last user row to avoid duplication.
         val historyToInclude = if (recent.isNotEmpty() && recent.last().role == "user" && recent.last().content == userText)
             recent.dropLast(1) else recent
         for (row in historyToInclude) {
@@ -230,16 +318,9 @@ class AiChatEngine(
         if (!modelOverride.isNullOrBlank()) AiProviderFactory.mainWithModelOverride(modelOverride)
         else AiProviderFactory.main()
 
-    /**
-     * Heuristic: skip tool definitions for messages that are clearly conversational
-     * (questions about the user, general knowledge, greetings, short queries).
-     * This saves ~15K chars from the request body → faster response.
-     */
     private fun isSimpleQuery(text: String): Boolean {
         val lower = text.lowercase().trim()
-        // Short messages are almost never task operations
         if (lower.length < 25) {
-            // But check for task-intent keywords first
             val taskKeywords = listOf(
                 "add", "create", "task", "remind", "delete", "remove", "cancel",
                 "complete", "done", "modify", "change", "shift", "move", "schedule",
@@ -249,7 +330,6 @@ class AiChatEngine(
             if (taskKeywords.any { it in lower }) return false
             return true
         }
-        // Longer messages with clear task intent
         val taskSignals = listOf(
             "add task", "add_task", "create task", "new task",
             "remind me", "set reminder", "delete task", "remove task",
@@ -258,7 +338,6 @@ class AiChatEngine(
             "shift karo", "change karo", "badal do",
         )
         if (taskSignals.any { it in lower }) return false
-        // Questions / conversational patterns → skip tools
         val convPatterns = listOf(
             "what is", "what's", "who is", "how many", "tell me",
             "explain", "describe", "define", "meaning of",

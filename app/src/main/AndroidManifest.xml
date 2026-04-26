@@ -162,6 +162,12 @@
                 android:resource="@xml/task_widget_info" />
         </receiver>
 
+        <!-- Google AdMob — required for rewarded ads (AI credits) -->
+        <!-- TODO: Replace with your real AdMob app ID for production -->
+        <meta-data
+            android:name="com.google.android.gms.ads.APPLICATION_ID"
+            android:value="ca-app-pub-3940256099942544~3347511713" />
+
     </application>
 
 </manifest>

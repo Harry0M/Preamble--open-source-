@@ -73,8 +73,16 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.theblankstate.preamble.ai.AiChatScreenViewModel
+import com.theblankstate.preamble.ai.AiCreditsManager
 import com.theblankstate.preamble.data.ChatMessageEntity
 import com.theblankstate.preamble.data.UserProfileStore
+import android.app.Activity
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.draw.clip
+import com.google.firebase.auth.FirebaseAuth
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -93,6 +101,22 @@ fun AiChatScreen(
     var showOptions by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val keyboard = LocalSoftwareKeyboardController.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    // Credits UI state
+    val creditBalance by AiCreditsManager.balance.collectAsState()
+    val isAdLoading by AiCreditsManager.isAdLoading.collectAsState()
+    val isLoggedIn = FirebaseAuth.getInstance().currentUser != null
+    var adMessage by remember { mutableStateOf<String?>(null) }
+
+    // Preload ad and refresh balance when screen opens
+    LaunchedEffect(Unit) {
+        if (isLoggedIn) {
+            AiCreditsManager.preloadAd(context)
+            AiCreditsManager.refreshBalance(scope)
+        }
+    }
 
     // Auto-scroll to bottom on new message
     LaunchedEffect(messages.size, isSending) {
@@ -193,6 +217,88 @@ fun AiChatScreen(
                     .padding(horizontal = 16.dp, vertical = 6.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                // Credit balance + Watch Ad row
+                if (isLoggedIn) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "⚡",
+                                fontSize = 14.sp,
+                            )
+                            Text(
+                                " $creditBalance credits",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (creditBalance > 0) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.error,
+                            )
+                        }
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.clickable {
+                                val activity = context as? Activity
+                                if (activity != null) {
+                                    AiCreditsManager.showAdForCredits(
+                                        activity,
+                                        onReward = { newBal ->
+                                            adMessage = "✅ +10 credits! Balance: $newBal"
+                                        },
+                                        onError = { err ->
+                                            adMessage = err
+                                        },
+                                    )
+                                }
+                            },
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                if (isAdLoading) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(12.dp),
+                                        strokeWidth = 1.5.dp,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                    )
+                                } else {
+                                    Icon(
+                                        Icons.Filled.PlayCircle,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp),
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                    )
+                                }
+                                Text(
+                                    "Watch Ad +10",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                )
+                            }
+                        }
+                    }
+
+                    // Ad result message
+                    if (adMessage != null) {
+                        Text(
+                            adMessage ?: "",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (adMessage?.startsWith("✅") == true) MaterialTheme.colorScheme.primary
+                                    else MaterialTheme.colorScheme.error,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { adMessage = null }
+                                .padding(vertical = 2.dp),
+                        )
+                    }
+                }
+
                 Text(
                     "Model",
                     style = MaterialTheme.typography.labelSmall,
@@ -205,27 +311,42 @@ fun AiChatScreen(
                 ) {
                     val models = listOf(
                         "" to "Auto",
-                        "gemini-2.5-flash-lite" to "Gemini Flash Lite",
-                        "gemini-2.5-flash" to "Gemini Flash",
-                        "mistral-small-latest" to "Mistral Small",
-                        "mistral-medium-latest" to "Mistral Medium",
+                        "gemini-2.5-flash-lite" to "Flash Lite",
+                        "gemini-2.5-flash" to "Flash",
                     )
                     for ((id, label) in models) {
                         val selected = chatModelOverride == id
+                        val costModel = id.ifBlank { "gemini-2.5-flash-lite" }
+                        val isFree = AiCreditsManager.isFreeTier(costModel)
+                        val costLabel = AiCreditsManager.costLabel(costModel)
+
                         Surface(
                             shape = RoundedCornerShape(20.dp),
                             color = if (selected) MaterialTheme.colorScheme.primaryContainer
                                     else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
                             modifier = Modifier.clickable { viewModel.setChatModel(id) },
                         ) {
-                            Text(
-                                label,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text(
+                                    label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                )
+                                Text(
+                                    costLabel,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 9.sp,
+                                    color = if (isFree) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
                         }
                     }
                 }
@@ -414,10 +535,11 @@ private fun AssistantBubble(msg: ChatMessageEntity) {
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
-            // Copy button
+            // Copy button + model badge
             Row(
                 modifier = Modifier.padding(top = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 IconButton(
                     onClick = {
@@ -434,8 +556,36 @@ private fun AssistantBubble(msg: ChatMessageEntity) {
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                     )
                 }
+                msg.modelUsed?.takeIf { it.isNotBlank() }?.let { ModelBadge(it) }
             }
         }
+    }
+}
+
+@Composable
+private fun ModelBadge(model: String) {
+    val short = when {
+        model.contains("flash-lite") -> "Flash Lite"
+        model.contains("gemini-2.5-flash") -> "Flash"
+        model.contains("gemini-2.5-pro") -> "Pro"
+        model.contains("mistral-medium") -> "Mistral M"
+        model.contains("mistral-small") -> "Mistral S"
+        model.equals("gemini", ignoreCase = true) -> "Gemini"
+        model.equals("mistral", ignoreCase = true) -> "Mistral"
+        else -> model.take(20)
+    }
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+    ) {
+        Text(
+            short,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 9.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            fontWeight = FontWeight.Medium,
+        )
     }
 }
 

@@ -63,6 +63,12 @@ service cloud.firestore {
       allow read, write: if isOwner(uid);
     }
 
+    // AI credits — read-only for clients (writes only via Cloud Functions admin SDK)
+    match /users/{uid}/ai_credits/{doc} {
+      allow read: if isOwner(uid);
+      // No client write — only server can modify credits
+    }
+
     // Block everything else
     match /{document=**} {
       allow read, write: if false;

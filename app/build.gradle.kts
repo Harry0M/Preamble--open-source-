@@ -146,6 +146,9 @@ dependencies {
     // PostHog analytics
     implementation("com.posthog:posthog-android:3.7.4")
 
+    // Google AdMob — rewarded ads for AI credits
+    implementation("com.google.android.gms:play-services-ads:23.6.0")
+
     // Konfetti — confetti celebration animations
     implementation("nl.dionsegijn:konfetti-compose:2.0.5")
 
