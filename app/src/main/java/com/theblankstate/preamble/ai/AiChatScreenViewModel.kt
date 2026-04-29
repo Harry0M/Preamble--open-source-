@@ -11,6 +11,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import com.theblankstate.preamble.ai.TaskTools
+import com.theblankstate.preamble.ai.ToolCall
 
 /**
  * Backs the AiChatScreen — manages the conversation flow + inflight state for streaming.
@@ -18,7 +20,7 @@ import kotlinx.coroutines.launch
  */
 class AiChatScreenViewModel(
     app: Application,
-    taskViewModel: TaskViewModel,
+    private val taskViewModel: TaskViewModel,
 ) : AndroidViewModel(app) {
 
     private val chatRepo = ChatRepository.get(app)
@@ -34,6 +36,9 @@ class AiChatScreenViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _tokensRemaining = MutableStateFlow(-1)
+    val tokensRemaining: StateFlow<Int> = _tokensRemaining.asStateFlow()
+
     private val _chatModelOverride = MutableStateFlow(prefs.getString("chat_model_override", "") ?: "")
     val chatModelOverride: StateFlow<String> = _chatModelOverride.asStateFlow()
 
@@ -41,9 +46,13 @@ class AiChatScreenViewModel(
     val conciseMode: StateFlow<Boolean> = _conciseMode.asStateFlow()
 
     init {
-        // Pull remote conversation on first open (best-effort, non-blocking)
         viewModelScope.launch {
-            runCatching { chatRepo.pullRemote(cid) }
+            // Only pull remote if Room is empty — prevents duplicate messages
+            // (cloud path writes both to Room and Firestore; re-pulling creates dupes)
+            val existing = runCatching { chatRepo.snapshot(cid).size }.getOrDefault(0)
+            if (existing == 0) {
+                runCatching { chatRepo.pullRemote(cid) }
+            }
             runCatching { chatRepo.flushPending() }
         }
     }
@@ -59,7 +68,8 @@ class AiChatScreenViewModel(
                 engine.send(cid, text, modelOverride, concise).collect { ev ->
                     when (ev) {
                         is ChatEvent.Error -> _error.value = ev.reason
-                        else -> {} // history updates flow through Room observe
+                        is ChatEvent.Credits -> _tokensRemaining.value = ev.tokensRemaining
+                        else -> {}
                     }
                 }
             } finally {
@@ -79,6 +89,23 @@ class AiChatScreenViewModel(
     }
 
     fun clearError() { _error.value = null }
+
+    // In-memory set of dismissed suggestion keys: "$messageId:$suggestionIndex"
+    private val _dismissedSuggestions = MutableStateFlow<Set<String>>(emptySet())
+    val dismissedSuggestions: StateFlow<Set<String>> = _dismissedSuggestions.asStateFlow()
+
+    fun approveTaskSuggestion(messageId: String, index: Int, args: Map<String, String>) {
+        dismissSuggestion(messageId, index)
+        viewModelScope.launch {
+            val toolCall = ToolCall(id = "suggest_task", name = "add_task", arguments = args)
+            val ctx = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
+            runCatching { TaskTools.execute(toolCall, taskViewModel, ctx) }
+        }
+    }
+
+    fun dismissSuggestion(messageId: String, index: Int) {
+        _dismissedSuggestions.value = _dismissedSuggestions.value + "$messageId:$index"
+    }
 
     fun clearConversation() {
         viewModelScope.launch {

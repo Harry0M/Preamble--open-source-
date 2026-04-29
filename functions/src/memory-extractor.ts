@@ -41,6 +41,30 @@ interface ExtractedFact {
 }
 
 /**
+ * Cheap local pre-filter so normal knowledge/chat turns do not trigger an
+ * extra model call. The extractor prompt is still the source of truth.
+ */
+export function shouldAttemptMemoryExtraction(userMessage: string): boolean {
+  const lower = userMessage.toLowerCase().trim();
+  if (lower.length < 20) return false;
+
+  const knowledgeQuestion =
+    /^(what|who|when|where|why|how|explain|define|describe|tell me)\b/.test(lower) ||
+    /^(kya|kaun|kab|kahan|kyu|kyon|kaise)\b/.test(lower);
+  if (knowledgeQuestion && !/\b(i am|i'm|my|me|mera|mujhe|main|mein)\b/.test(lower)) {
+    return false;
+  }
+
+  const durableSignals = [
+    "my name is", "i am", "i'm", "i work", "i live", "i study",
+    "i like", "i love", "i hate", "i prefer", "my goal", "my dream",
+    "my wife", "my husband", "my sister", "my brother", "my friend",
+    "mera naam", "main ", "mein ", "mujhe pasand", "meri goal",
+  ];
+  return durableSignals.some(signal => lower.includes(signal));
+}
+
+/**
  * Extract durable memory facts from user message and save to Firestore.
  * Runs asynchronously — errors are swallowed.
  */
@@ -49,15 +73,19 @@ export async function extractMemoryFacts(
   userMessage: string,
   apiKey: string,
   db: Firestore,
+  model = "gemini-2.5-flash-lite",
 ): Promise<number> {
   try {
     const ai = new GoogleGenAI({ apiKey });
     const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-lite",
+      model,
       contents: [{ role: "user", parts: [{ text: userMessage }] }],
       config: {
         systemInstruction: EXTRACTION_PROMPT,
-      },
+        temperature: 0,
+        maxOutputTokens: 192,
+        responseMimeType: "application/json",
+      } as any,
     });
 
     const text = response.candidates?.[0]?.content?.parts?.[0]?.text?.trim();

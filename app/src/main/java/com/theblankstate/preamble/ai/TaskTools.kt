@@ -220,7 +220,9 @@ object TaskTools {
 
             "modify_task" -> {
                 val targetTitle = call.arguments["target_title"] ?: return "Error: target_title is required"
-                val task = findMatchingTask(targetTitle, todayTasks)
+                // Prefer today's tasks; fall back to broader context if not found
+                val task = findMatchingTask(targetTitle, viewModel.todayTasks.value)
+                    ?: findMatchingTask(targetTitle, todayTasks)
                 if (task != null) {
                     val newTitle = call.arguments["new_title"] ?: task.title
                     val newDate = call.arguments["new_date"] ?: task.createdDate
@@ -229,7 +231,7 @@ object TaskTools {
                     val newTags = call.arguments["new_tags"] ?: task.tags
                     if (newDate != task.createdDate && !isValidDate(newDate)) return "Error: invalid date format '$newDate', expected YYYY-MM-DD"
                     if (newTime != null && newTime != task.deadlineTime && !isValidTime(newTime)) return "Error: invalid time format '$newTime', expected HH:mm"
-                    
+
                     viewModel.updateTask(task, newTitle = newTitle, newDate = newDate, newDeadlineTime = newTime, newPriority = newPriority, newDescription = task.description, newTags = newTags)
                     "Task \"${task.title}\" modified successfully"
                 } else {
@@ -239,7 +241,8 @@ object TaskTools {
 
             "delete_task" -> {
                 val title = call.arguments["title"] ?: return "Error: title is required"
-                val task = findMatchingTask(title, todayTasks)
+                val task = findMatchingTask(title, viewModel.todayTasks.value)
+                    ?: findMatchingTask(title, todayTasks)
                 if (task != null) {
                     viewModel.deleteTask(task)
                     "Task \"${task.title}\" deleted successfully"
@@ -250,7 +253,8 @@ object TaskTools {
 
             "complete_task" -> {
                 val title = call.arguments["title"] ?: return "Error: title is required"
-                val task = findMatchingTask(title, todayTasks)
+                val task = findMatchingTask(title, viewModel.todayTasks.value)
+                    ?: findMatchingTask(title, todayTasks)
                 if (task != null) {
                     if (!task.isCompleted) viewModel.toggleTask(task)
                     "Task \"${task.title}\" marked as completed ✓"
@@ -260,15 +264,38 @@ object TaskTools {
             }
 
             "list_tasks" -> {
-                if (todayTasks.isEmpty()) {
-                    "No tasks for today"
+                val today = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                val requestedDate = call.arguments["date"]?.takeIf { it.isNotBlank() && isValidDate(it) }
+                val targetDate = requestedDate ?: today
+                // Exact mirror of what home screen shows for the requested date.
+                // Today: today's created + pending rollovers + recurring instances.
+                // Other date: same logic via repository.
+                val tasks = viewModel.fetchTasksForDate(targetDate)
+                if (tasks.isEmpty()) {
+                    "No tasks for $targetDate"
                 } else {
-                    val list = todayTasks.mapIndexed { i, t ->
-                        val status = if (t.isCompleted) "✓" else "○"
-                        val time = if (t.deadlineTime != null) " (${t.deadlineTime})" else ""
-                        "${i + 1}. $status ${t.title}$time"
-                    }.joinToString("\n")
-                    "Tasks for today:\n$list"
+                    val pending = tasks.filter { !it.isCompleted }
+                    val done = tasks.filter { it.isCompleted }
+                    val sb = StringBuilder("Tasks for $targetDate:\n")
+                    if (pending.isNotEmpty()) {
+                        sb.append("Pending:\n")
+                        pending.forEachIndexed { i, t ->
+                            val time = if (t.deadlineTime != null) " (${t.deadlineTime})" else ""
+                            val tag  = when (t.recurrenceType) {
+                                "rollover" -> " [rollover]"
+                                null, "" -> ""
+                                else -> " [${t.recurrenceType}]"
+                            }
+                            sb.append("${i + 1}. ○ ${t.title}$time$tag\n")
+                        }
+                    }
+                    if (done.isNotEmpty()) {
+                        sb.append("Done:\n")
+                        done.forEachIndexed { i, t ->
+                            sb.append("${i + 1}. ✓ ${t.title}\n")
+                        }
+                    }
+                    sb.toString().trimEnd()
                 }
             }
 

@@ -82,6 +82,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextAlign
 import com.google.firebase.auth.FirebaseAuth
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -95,6 +96,7 @@ fun AiChatScreen(
     val error by viewModel.error.collectAsState()
     val chatModelOverride by viewModel.chatModelOverride.collectAsState()
     val conciseMode by viewModel.conciseMode.collectAsState()
+    val dismissedSuggestions by viewModel.dismissedSuggestions.collectAsState()
 
     var input by remember { mutableStateOf("") }
     var showClearDialog by remember { mutableStateOf(false) }
@@ -173,7 +175,12 @@ fun AiChatScreen(
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
                 items(messages, key = { it.id }) { msg ->
-                    MessageRow(msg)
+                    MessageRow(
+                        msg = msg,
+                        dismissedSuggestions = dismissedSuggestions,
+                        onApproveSuggestion = { idx, args -> viewModel.approveTaskSuggestion(msg.id, idx, args) },
+                        onDismissSuggestion = { idx -> viewModel.dismissSuggestion(msg.id, idx) },
+                    )
                 }
                 if (isSending) {
                     item("typing") { TypingIndicator() }
@@ -191,8 +198,13 @@ fun AiChatScreen(
                     Modifier.padding(12.dp).clickable { viewModel.clearError() },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    val errorDisplay = when (error) {
+                        "DAILY_LIMIT_REACHED" ->
+                            "Daily limit reached. Watch an ad to get more, or switch to Flash Lite (free & unlimited)."
+                        else -> error ?: ""
+                    }
                     Text(
-                        error ?: "",
+                        errorDisplay,
                         modifier = Modifier.weight(1f),
                         color = MaterialTheme.colorScheme.onErrorContainer,
                         style = MaterialTheme.typography.bodySmall,
@@ -309,16 +321,22 @@ fun AiChatScreen(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
+                    // Auto = Flash (thinking). Flash Lite = explicit lite/free mode.
+                    // Mistral models are premium (daily token budget, refillable via ads).
                     val models = listOf(
                         "" to "Auto",
                         "gemini-2.5-flash-lite" to "Flash Lite",
-                        "gemini-2.5-flash" to "Flash",
+                        "mistral-small-latest" to "Mistral",
+                        "mistral-medium-latest" to "Mistral+",
                     )
                     for ((id, label) in models) {
                         val selected = chatModelOverride == id
-                        val costModel = id.ifBlank { "gemini-2.5-flash-lite" }
-                        val isFree = AiCreditsManager.isFreeTier(costModel)
-                        val costLabel = AiCreditsManager.costLabel(costModel)
+                        val isPremium = id.contains("mistral")
+                        val badge = when {
+                            id.isBlank() || id.contains("flash") -> "FREE"
+                            id.contains("mistral-medium") -> "DAILY"
+                            else -> "DAILY"
+                        }
 
                         Surface(
                             shape = RoundedCornerShape(20.dp),
@@ -339,11 +357,11 @@ fun AiChatScreen(
                                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                                 )
                                 Text(
-                                    costLabel,
+                                    badge,
                                     style = MaterialTheme.typography.labelSmall,
                                     fontSize = 9.sp,
-                                    color = if (isFree) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    color = if (!isPremium) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                            else MaterialTheme.colorScheme.tertiary.copy(alpha = 0.8f),
                                     fontWeight = FontWeight.Bold,
                                 )
                             }
@@ -467,10 +485,15 @@ fun AiChatScreen(
 }
 
 @Composable
-private fun MessageRow(msg: ChatMessageEntity) {
+private fun MessageRow(
+    msg: ChatMessageEntity,
+    dismissedSuggestions: Set<String> = emptySet(),
+    onApproveSuggestion: (Int, Map<String, String>) -> Unit = { _, _ -> },
+    onDismissSuggestion: (Int) -> Unit = {},
+) {
     when (msg.role) {
         "user" -> UserBubble(msg)
-        "assistant" -> AssistantBubble(msg)
+        "assistant" -> AssistantBubble(msg, dismissedSuggestions, onApproveSuggestion, onDismissSuggestion)
         "summary" -> SystemNote("📌 Earlier conversation summarized: ${msg.content.take(180)}")
         else -> SystemNote(msg.content)
     }
@@ -500,42 +523,52 @@ private fun UserBubble(msg: ChatMessageEntity) {
 }
 
 @Composable
-private fun AssistantBubble(msg: ChatMessageEntity) {
+private fun AssistantBubble(
+    msg: ChatMessageEntity,
+    dismissedSuggestions: Set<String>,
+    onApproveSuggestion: (Int, Map<String, String>) -> Unit,
+    onDismissSuggestion: (Int) -> Unit,
+) {
     val context = LocalContext.current
+
+    // Parse toolCalls JSON into typed buckets once
+    val thinkingText = remember(msg.toolCalls) { extractThinking(msg.toolCalls) }
+    val actionSteps = remember(msg.toolCalls, msg.toolResults) {
+        parseToolSteps(msg.toolCalls ?: "", msg.toolResults)
+            .filter { it.name !in setOf("thinking", "suggest_task") }
+    }
+    val suggestions = remember(msg.toolCalls) { extractSuggestions(msg.toolCalls) }
+
     Column(modifier = Modifier.fillMaxWidth().padding(end = 24.dp)) {
-        // Thinking section (tool calls)
-        if (!msg.toolCalls.isNullOrBlank()) {
-            ThinkingSection(msg.toolCalls, msg.toolResults)
+
+        // 1. Collapsible thinking (like Claude) — only for thinking-capable models
+        if (!thinkingText.isNullOrBlank()) {
+            ThinkingCollapsible(thinkingText)
+            Spacer(Modifier.height(4.dp))
+        }
+
+        // 2. Task action chips (add/modify/delete/complete/list)
+        if (actionSteps.isNotEmpty()) {
+            ThinkingSection(actionSteps)
             Spacer(Modifier.height(8.dp))
         }
+
+        // 3. Main response text
         if (msg.content.isNotBlank()) {
-            // AI label
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(bottom = 6.dp),
-            ) {
-                Icon(
-                    Icons.Filled.AutoAwesome,
-                    contentDescription = null,
-                    modifier = Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    "Preamble AI",
-                    modifier = Modifier.padding(start = 6.dp),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-            // Rich text content — no bubble, flat like Claude
+            Text(
+                "Preamble",
+                modifier = Modifier.padding(bottom = 4.dp),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.6.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f),
+            )
             SelectionContainer {
                 RichMarkdownText(
                     text = msg.content,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
-            // Copy button + model badge
             Row(
                 modifier = Modifier.padding(top = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -545,18 +578,31 @@ private fun AssistantBubble(msg: ChatMessageEntity) {
                     onClick = {
                         val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                         clip.setPrimaryClip(ClipData.newPlainText("AI Response", msg.content))
-                        Toast.makeText(context, "Copied to clipboard", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
                     },
                     modifier = Modifier.size(30.dp),
                 ) {
                     Icon(
                         Icons.Filled.ContentCopy,
-                        contentDescription = "Copy response",
+                        contentDescription = "Copy",
                         modifier = Modifier.size(15.dp),
                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                     )
                 }
                 msg.modelUsed?.takeIf { it.isNotBlank() }?.let { ModelBadge(it) }
+            }
+        }
+
+        // 4. Task suggestions (approve / skip) — shown below response
+        suggestions.forEachIndexed { idx, args ->
+            val key = "${msg.id}:$idx"
+            if (key !in dismissedSuggestions) {
+                Spacer(Modifier.height(10.dp))
+                SuggestionCard(
+                    args = args,
+                    onApprove = { onApproveSuggestion(idx, args) },
+                    onDismiss = { onDismissSuggestion(idx) },
+                )
             }
         }
     }
@@ -587,6 +633,31 @@ private fun ModelBadge(model: String) {
             fontWeight = FontWeight.Medium,
         )
     }
+}
+
+// ───────────── Helpers: parse toolCalls JSON into typed buckets ─────────────
+
+private fun extractThinking(toolCallsJson: String?): String? {
+    if (toolCallsJson.isNullOrBlank()) return null
+    return runCatching {
+        val arr = com.google.gson.JsonParser.parseString(toolCallsJson).asJsonArray
+        arr.firstOrNull { it.asJsonObject.get("name")?.asString == "thinking" }
+            ?.asJsonObject?.getAsJsonObject("args")?.get("text")?.asString
+    }.getOrNull()
+}
+
+private fun extractSuggestions(toolCallsJson: String?): List<Map<String, String>> {
+    if (toolCallsJson.isNullOrBlank()) return emptyList()
+    return runCatching {
+        val arr = com.google.gson.JsonParser.parseString(toolCallsJson).asJsonArray
+        arr.filter { it.asJsonObject.get("name")?.asString == "suggest_task" }
+            .mapNotNull { el ->
+                val argsObj = el.asJsonObject.getAsJsonObject("args") ?: return@mapNotNull null
+                argsObj.entrySet().associate { (k, v) ->
+                    k to if (v.isJsonPrimitive) v.asString else v.toString()
+                }
+            }
+    }.getOrDefault(emptyList())
 }
 
 // ───────────── Thinking / Tool Calls Section ─────────────
@@ -649,11 +720,114 @@ private fun parseToolSteps(toolCallsJson: String, toolResultsJson: String?): Lis
     }.getOrDefault(emptyList())
 }
 
+// Collapsible "Thought for a moment" block — like Claude
 @Composable
-private fun ThinkingSection(toolCallsJson: String, toolResultsJson: String?) {
-    val steps = remember(toolCallsJson, toolResultsJson) {
-        parseToolSteps(toolCallsJson, toolResultsJson)
+private fun ThinkingCollapsible(thinkingText: String) {
+    var expanded by remember { mutableStateOf(false) }
+    Column {
+        Row(
+            modifier = Modifier
+                .clickable { expanded = !expanded }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                Icons.Filled.AutoAwesome,
+                contentDescription = null,
+                modifier = Modifier.size(13.dp),
+                tint = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.7f),
+            )
+            Text(
+                if (expanded) "Thinking" else "Thought for a moment",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.8f),
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f),
+            )
+            Icon(
+                if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                contentDescription = null,
+                modifier = Modifier.size(13.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.35f),
+            )
+        }
+        AnimatedVisibility(visible = expanded, enter = expandVertically(), exit = shrinkVertically()) {
+            androidx.compose.material3.Surface(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            ) {
+                SelectionContainer {
+                    Text(
+                        thinkingText,
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        lineHeight = 18.sp,
+                    )
+                }
+            }
+        }
     }
+}
+
+// Suggestion card with approve / skip
+@Composable
+private fun SuggestionCard(
+    args: Map<String, String>,
+    onApprove: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val title = args["title"] ?: return
+    val tags = args["tags"]
+    val priority = args["priority"]?.toIntOrNull() ?: 0
+    val description = args["description"]
+
+    Column(modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
+        Text(
+            "Suggested task",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+            modifier = Modifier.padding(bottom = 3.dp),
+        )
+        Text(
+            title,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        if (!description.isNullOrBlank()) {
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+        Row(
+            modifier = Modifier.padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Text(
+                "Add task",
+                modifier = Modifier.clickable { onApprove() },
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Text(
+                "Dismiss",
+                modifier = Modifier.clickable { onDismiss() },
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThinkingSection(steps: List<ToolStep>) {
     if (steps.isEmpty()) return
 
     // Single task action → structured inline card (no expand needed)
@@ -978,6 +1152,8 @@ private fun RichMarkdownText(
     val lines = text.split("\n")
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         for (line in lines) {
+            // Strip suggestion markers — they are rendered as SuggestionCard, not inline text
+            if (line.trimStart().startsWith("[SUGGEST:")) continue
             when {
                 line.isBlank() -> Spacer(Modifier.height(4.dp))
                 line.startsWith("### ") -> Text(

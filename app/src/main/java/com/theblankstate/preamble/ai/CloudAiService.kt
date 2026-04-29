@@ -59,24 +59,25 @@ object CloudAiService {
     suspend fun chat(
         message: String,
         conversationId: String = "default",
-        model: String = "gemini-2.5-flash-lite",
+        model: String? = null,
         mode: String = "concise",
-        onDelta: (String) -> Unit = {},
-        onToolCalls: (List<CloudToolCall>) -> Unit = {},
-        onDone: (CloudChatResult) -> Unit = {},
-        onError: (String) -> Unit = {},
-    ) = withContext(Dispatchers.IO) {
+        onDelta: suspend (String) -> Unit = {},
+        onThinking: suspend (String) -> Unit = {},
+        onToolCalls: suspend (List<CloudToolCall>) -> Unit = {},
+        onDone: suspend (CloudChatResult) -> Unit = {},
+        onError: suspend (String) -> Unit = {},
+    ) {
         val token = getAuthToken()
         if (token == null) {
             onError("Not logged in. Please sign in to use AI chat.")
-            return@withContext
+            return
         }
 
         val body = JSONObject().apply {
             put("message", message)
             put("conversationId", conversationId)
-            put("model", model)
             put("mode", mode)
+            if (!model.isNullOrBlank()) put("model", model)
         }
 
         val request = Request.Builder()
@@ -88,18 +89,14 @@ object CloudAiService {
         try {
             val response = client.newCall(request).execute()
 
-            if (response.code == 402) {
-                val errBody = response.body?.string() ?: ""
-                val json = runCatching { JSONObject(errBody) }.getOrNull()
-                val needed = json?.optInt("creditsNeeded", 1) ?: 1
-                val remaining = json?.optInt("creditsRemaining", 0) ?: 0
-                onError("INSUFFICIENT_CREDITS:$needed:$remaining")
-                return@withContext
+            if (response.code == 429) {
+                onError("DAILY_LIMIT_REACHED")
+                return
             }
 
             if (!response.isSuccessful) {
                 onError("Server error: ${response.code}")
-                return@withContext
+                return
             }
 
             // Parse SSE stream
@@ -107,7 +104,8 @@ object CloudAiService {
             var currentEvent = ""
             var dataBuffer = StringBuilder()
 
-            reader.forEachLine { line ->
+            while (true) {
+                val line = reader.readLine() ?: break
                 when {
                     line.startsWith("event: ") -> {
                         currentEvent = line.removePrefix("event: ").trim()
@@ -119,7 +117,7 @@ object CloudAiService {
                         // End of SSE event — process it
                         val data = dataBuffer.toString()
                         dataBuffer = StringBuilder()
-                        processSSEEvent(currentEvent, data, onDelta, onToolCalls, onDone, onError)
+                        processSSEEvent(currentEvent, data, onDelta, onThinking, onToolCalls, onDone, onError)
                         currentEvent = ""
                     }
                 }
@@ -139,15 +137,15 @@ object CloudAiService {
     suspend fun sendToolResults(
         conversationId: String,
         toolResults: List<ToolResult>,
-        model: String = "gemini-2.5-flash-lite",
+        model: String? = null,
         mode: String = "concise",
-        onDelta: (String) -> Unit = {},
-        onDone: (CloudChatResult) -> Unit = {},
-        onError: (String) -> Unit = {},
-    ) = withContext(Dispatchers.IO) {
+        onDelta: suspend (String) -> Unit = {},
+        onDone: suspend (CloudChatResult) -> Unit = {},
+        onError: suspend (String) -> Unit = {},
+    ) {
         val token = getAuthToken() ?: run {
             onError("Not logged in")
-            return@withContext
+            return
         }
 
         val resultsJson = JSONArray()
@@ -161,8 +159,8 @@ object CloudAiService {
         val body = JSONObject().apply {
             put("conversationId", conversationId)
             put("toolResults", resultsJson)
-            put("model", model)
             put("mode", mode)
+            if (!model.isNullOrBlank()) put("model", model)
         }
 
         val request = Request.Builder()
@@ -175,19 +173,20 @@ object CloudAiService {
             val response = client.newCall(request).execute()
             if (!response.isSuccessful) {
                 onError("Server error: ${response.code}")
-                return@withContext
+                return
             }
 
             val reader = BufferedReader(InputStreamReader(response.body!!.byteStream()))
             var currentEvent = ""
             var dataBuffer = StringBuilder()
 
-            reader.forEachLine { line ->
+            while (true) {
+                val line = reader.readLine() ?: break
                 when {
                     line.startsWith("event: ") -> currentEvent = line.removePrefix("event: ").trim()
                     line.startsWith("data: ") -> dataBuffer.append(line.removePrefix("data: "))
                     line.isBlank() && dataBuffer.isNotEmpty() -> {
-                        processSSEEvent(currentEvent, dataBuffer.toString(), onDelta, { }, onDone, onError)
+                        processSSEEvent(currentEvent, dataBuffer.toString(), onDelta, { _ -> }, { _ -> }, onDone, onError)
                         dataBuffer = StringBuilder()
                         currentEvent = ""
                     }
@@ -240,6 +239,7 @@ object CloudAiService {
                 creditsAdded = json.optInt("creditsAdded", 10),
                 firstTimeBonus = json.optInt("firstTimeBonus", 0),
                 newBalance = json.optInt("balance", 0),
+                adsRemainingToday = json.optInt("adsRemainingToday", -1).takeIf { it >= 0 },
             )
         } catch (e: Exception) {
             Log.w(TAG, "Reward failed", e)
@@ -307,17 +307,22 @@ object CloudAiService {
         }
     }
 
-    private fun processSSEEvent(
+    private suspend fun processSSEEvent(
         event: String,
         data: String,
-        onDelta: (String) -> Unit,
-        onToolCalls: (List<CloudToolCall>) -> Unit,
-        onDone: (CloudChatResult) -> Unit,
-        onError: (String) -> Unit,
+        onDelta: suspend (String) -> Unit,
+        onThinking: suspend (String) -> Unit,
+        onToolCalls: suspend (List<CloudToolCall>) -> Unit,
+        onDone: suspend (CloudChatResult) -> Unit,
+        onError: suspend (String) -> Unit,
     ) {
-        runCatching {
+        try {
             val json = JSONObject(data)
             when (event) {
+                "thinking" -> {
+                    val text = json.optString("text", "")
+                    if (text.isNotEmpty()) onThinking(text)
+                }
                 "delta" -> {
                     val text = json.optString("text", "")
                     if (text.isNotEmpty()) onDelta(text)
@@ -337,23 +342,32 @@ object CloudAiService {
                 }
                 "done" -> {
                     onDone(CloudChatResult(
-                        creditsUsed = json.optInt("creditsUsed", 0),
-                        creditsRemaining = json.optInt("creditsRemaining", 0),
+                        tokensRemaining = json.optInt("tokensRemaining", -1),
                         model = json.optString("model", ""),
                         hasToolCalls = json.optBoolean("hasToolCalls", false),
+                        inputTokens = json.optInt("inputTokens", 0),
+                        outputTokens = json.optInt("outputTokens", 0),
                     ))
                 }
                 "error" -> {
                     onError(json.optString("message", "Unknown error"))
                 }
             }
-        }.onFailure { Log.w(TAG, "SSE parse error: $event", it) }
+        } catch (e: Exception) {
+            Log.w(TAG, "SSE parse error: $event", e)
+        }
     }
 }
 
 data class CloudToolCall(val name: String, val args: Map<String, String>)
-data class CloudChatResult(val creditsUsed: Int, val creditsRemaining: Int, val model: String, val hasToolCalls: Boolean)
+data class CloudChatResult(
+    val tokensRemaining: Int = -1,
+    val model: String = "",
+    val hasToolCalls: Boolean = false,
+    val inputTokens: Int = 0,
+    val outputTokens: Int = 0,
+)
 data class CreditBalance(val balance: Int, val totalEarned: Int, val totalSpent: Int)
-data class RewardResult(val creditsAdded: Int, val firstTimeBonus: Int, val newBalance: Int)
+data class RewardResult(val creditsAdded: Int, val firstTimeBonus: Int, val newBalance: Int, val adsRemainingToday: Int? = null)
 data class ToolResult(val name: String, val result: String)
 data class ParseTaskResult(val toolCalls: List<CloudToolCall>, val text: String, val model: String)

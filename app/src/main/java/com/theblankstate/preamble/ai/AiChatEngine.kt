@@ -4,8 +4,6 @@ import android.content.Context
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.gson.Gson
-import com.theblankstate.preamble.BuildConfig
-import com.theblankstate.preamble.data.ChatMessageEntity
 import com.theblankstate.preamble.viewmodel.TaskViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -56,21 +54,44 @@ class AiChatEngine(
 
         if (onCloud) {
             // === CLOUD PATH ===
-            val model = modelOverride ?: "gemini-2.5-flash-lite"
+            val requestedModel = modelOverride?.takeIf { it.isNotBlank() }
             val mode = if (conciseMode) "concise" else "normal"
             val t0 = System.currentTimeMillis()
 
             val fullText = StringBuilder()
+            val thinkingBuffer = StringBuilder()
             var pendingToolCalls: List<CloudToolCall>? = null
             var cloudError: String? = null
             var chatResult: CloudChatResult? = null
+            var assistantMessageId: String? = null
+
+            suspend fun ensureAssistantMessage(): String {
+                assistantMessageId?.let { return it }
+                val saved = chatRepo.append(
+                    cid = conversationId,
+                    role = "assistant",
+                    content = "",
+                    isStreaming = true,
+                    modelUsed = requestedModel,
+                    skipSync = true,
+                )
+                assistantMessageId = saved.id
+                emit(ChatEvent.AssistantStart(saved.id))
+                return saved.id
+            }
 
             CloudAiService.chat(
                 message = userText,
                 conversationId = conversationId,
-                model = model,
+                model = requestedModel,
                 mode = mode,
-                onDelta = { delta -> fullText.append(delta) },
+                onDelta = { delta ->
+                    fullText.append(delta)
+                    val id = ensureAssistantMessage()
+                    chatRepo.updateContent(id, fullText.toString(), isStreaming = true, skipSync = true)
+                    emit(ChatEvent.AssistantDelta(id, delta))
+                },
+                onThinking = { chunk -> thinkingBuffer.append(chunk) },
                 onToolCalls = { calls -> pendingToolCalls = calls },
                 onDone = { result -> chatResult = result },
                 onError = { err -> cloudError = err },
@@ -93,41 +114,52 @@ class AiChatEngine(
                     emit(ChatEvent.ToolResult(call.name, call.name, result))
                 }
 
-                val followUpText = StringBuilder()
                 CloudAiService.sendToolResults(
                     conversationId = conversationId,
                     toolResults = toolResults,
-                    model = model,
+                    model = requestedModel,
                     mode = mode,
-                    onDelta = { delta -> followUpText.append(delta) },
+                    onDelta = { delta ->
+                        fullText.append(delta)
+                        val id = ensureAssistantMessage()
+                        chatRepo.updateContent(id, fullText.toString(), isStreaming = true, skipSync = true)
+                        emit(ChatEvent.AssistantDelta(id, delta))
+                    },
                     onDone = { r -> chatResult = r },
                     onError = { err -> cloudError = err },
                 )
-                fullText.append(followUpText)
             }
 
-            // Update credit balance
-            chatResult?.let { AiCreditsManager.updateBalance(it.creditsRemaining) }
-            val resolvedModel = chatResult?.model?.takeIf { it.isNotBlank() } ?: model
+            val resolvedModel = chatResult?.model?.takeIf { it.isNotBlank() }
+                ?: requestedModel
+                ?: "gemini-2.5-flash-lite"
 
             val dt = System.currentTimeMillis() - t0
             val text = fullText.toString()
 
             if (cloudError != null && text.isBlank()) {
-                if (cloudError!!.startsWith("INSUFFICIENT_CREDITS")) {
-                    val parts = cloudError!!.split(":")
-                    val needed = parts.getOrNull(1) ?: "1"
-                    emit(ChatEvent.Error("Not enough AI credits (need $needed). Watch an ad to earn 10 credits, or switch to the free model (Gemini Flash Lite + Concise)."))
-                    return@flow
+                when (cloudError) {
+                    "DAILY_LIMIT_REACHED" -> {
+                        emit(ChatEvent.Error("DAILY_LIMIT_REACHED"))
+                        return@flow
+                    }
+                    else -> {
+                        Log.w(TAG, "Cloud failed ($cloudError), falling back to local")
+                        sendLocalAndEmit(this, conversationId, userText, modelOverride, conciseMode, smartMode)
+                        return@flow
+                    }
                 }
-                Log.w(TAG, "Cloud failed ($cloudError), falling back to local")
-                sendLocalAndEmit(this, conversationId, userText, modelOverride, conciseMode, smartMode)
-                return@flow
             }
 
-            // Persist assistant response Room-only (cloud already wrote to Firestore)
-            // Includes toolCalls + toolResults so the InlineTaskActionRow / ThinkingSection UI renders.
-            val toolCallsJson = if (executedTools.isNotEmpty()) {
+            chatResult?.let { r ->
+                emit(ChatEvent.Credits(r.tokensRemaining))
+            }
+
+            // Parse suggestion blocks from response text; strip them from display text
+            val (cleanText, suggestionsJson) = parseSuggestionsFromText(text)
+
+            // Build toolCalls JSON: thinking → task actions → suggestions (all in one JSON array)
+            val taskToolCallsJson = if (executedTools.isNotEmpty()) {
                 gson.toJson(executedTools.map { (call, _) ->
                     mapOf("id" to call.name, "name" to call.name, "args" to call.args)
                 })
@@ -137,27 +169,47 @@ class AiChatEngine(
                     mapOf("name" to call.name, "args" to call.args, "result" to result)
                 })
             } else null
+            val toolCallsJson = buildMergedToolCallsJson(
+                thinkingText = thinkingBuffer.takeIf { it.isNotBlank() }?.toString(),
+                taskToolCallsJson = taskToolCallsJson,
+                suggestionsJson = suggestionsJson,
+            )
 
-            if (text.isNotBlank() || toolCallsJson != null) {
-                val saved = chatRepo.append(
-                    cid = conversationId,
-                    role = "assistant",
-                    content = text,
-                    toolCalls = toolCallsJson,
-                    toolResults = toolResultsJson,
-                    modelUsed = resolvedModel,
-                    skipSync = true,
-                )
-                emit(ChatEvent.AssistantStart(saved.id))
-                emit(ChatEvent.AssistantDelta(saved.id, text))
-                emit(ChatEvent.AssistantDone(saved.id, text))
+            if (cleanText.isNotBlank() || toolCallsJson != null) {
+                val text = cleanText  // shadow with clean version
+                val existingId = assistantMessageId
+                if (existingId != null) {
+                    chatRepo.updateAssistantTurn(
+                        id = existingId,
+                        content = text,
+                        toolCalls = toolCallsJson,
+                        toolResults = toolResultsJson,
+                        isStreaming = false,
+                        modelUsed = resolvedModel,
+                        skipSync = true,
+                    )
+                    emit(ChatEvent.AssistantDone(existingId, text))
+                } else {
+                    val saved = chatRepo.append(
+                        cid = conversationId,
+                        role = "assistant",
+                        content = text,
+                        toolCalls = toolCallsJson,
+                        toolResults = toolResultsJson,
+                        modelUsed = resolvedModel,
+                        skipSync = true,
+                    )
+                    emit(ChatEvent.AssistantStart(saved.id))
+                    emit(ChatEvent.AssistantDelta(saved.id, text))
+                    emit(ChatEvent.AssistantDone(saved.id, text))
+                }
             }
 
             logger.log(
                 op = AiProcessLogger.OP_CHAT, provider = "cloud", model = resolvedModel,
                 input = userText, output = text,
                 toolCalls = toolCallsJson,
-                durationMs = dt, success = text.isNotBlank(),
+                durationMs = dt, success = text.isNotBlank() || executedTools.isNotEmpty(),
                 thought = "cloud path (${executedTools.size} tools)",
             )
             chatRepo.enforceRetention(conversationId)
@@ -184,16 +236,18 @@ class AiChatEngine(
             return
         }
 
-        val simple = isSimpleQuery(userText)
+        val taskToolsEnabled = ChatPromptFactory.shouldUseTaskTools(userText)
         val messages = buildMessageList(conversationId, userText, conciseMode)
 
-        if (smartMode && userText.length >= 20) MemoryExtractor.extractAsync(appContext, userText)
+        if (smartMode && ChatPromptFactory.shouldAttemptMemoryExtraction(userText)) {
+            MemoryExtractor.extractAsync(appContext, userText)
+        }
 
         var rounds = 0
         var finalText: String? = null
         var workingMessages = messages
         var assistantRowId: String? = null
-        val activeTools = if (simple) emptyList() else TaskTools.tools
+        val activeTools = if (taskToolsEnabled) TaskTools.tools else emptyList()
 
         try {
             while (rounds < MAX_TOOL_ROUNDS) {
@@ -211,17 +265,20 @@ class AiChatEngine(
 
                 if (resp.toolCalls.isNullOrEmpty()) {
                     if (!resp.text.isNullOrBlank()) {
+                        val (cleanText, suggestionsJson) = parseSuggestionsFromText(resp.text)
+                        val toolCallsJson = buildMergedToolCallsJson(null, null, suggestionsJson)
                         val saved = chatRepo.append(
                             cid = conversationId,
                             role = "assistant",
-                            content = resp.text,
+                            content = cleanText,
+                            toolCalls = toolCallsJson,
                             modelUsed = modelOverride ?: provider.name,
                         )
                         assistantRowId = saved.id
                         collector.emit(ChatEvent.AssistantStart(saved.id))
-                        collector.emit(ChatEvent.AssistantDelta(saved.id, resp.text))
+                        collector.emit(ChatEvent.AssistantDelta(saved.id, cleanText))
+                        finalText = cleanText
                     }
-                    finalText = resp.text
                     break
                 }
 
@@ -276,16 +333,14 @@ class AiChatEngine(
     private suspend fun buildMessageList(cid: String, userText: String, conciseMode: Boolean = true): List<ChatMessage> {
         val smart = appContext.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
             .getBoolean("ai_smart_mode", true)
-        val memory = if (smart) memoryRepo.buildPromptSnapshot() else null
-        val taskCtx = if (smart) TaskContextBuilder.build(appContext) else null
-        val systemPrompt = AiPromptFactory.buildSystemPrompt(
-            existingTasks = null,
-            subtaskIntensity = appContext.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                .getInt("ai_subtask_intensity", 0),
+        val taskToolsEnabled = ChatPromptFactory.shouldUseTaskTools(userText)
+        val memory = if (smart) memoryRepo.buildPromptSnapshot(maxChars = 900) else null
+        val taskCtx = if (smart && taskToolsEnabled) TaskContextBuilder.build(appContext, maxChars = 900) else null
+        val systemPrompt = ChatPromptFactory.buildSystemPrompt(
             memoryBlock = memory,
             taskContextBlock = taskCtx,
             conciseMode = conciseMode,
-            forceToolCall = false, // chat path: free conversation allowed
+            taskToolsEnabled = taskToolsEnabled,
         )
 
         val historyRows = chatRepo.snapshot(cid)
@@ -314,44 +369,56 @@ class AiChatEngine(
         return messages
     }
 
+    /**
+     * Extracts [SUGGEST:{...}] blocks from AI response text.
+     * Returns (cleanText, suggestionsJsonArray?) where clean text has markers stripped.
+     */
+    private fun parseSuggestionsFromText(text: String): Pair<String, String?> {
+        val regex = Regex("""\[SUGGEST:\s*(\{[^}]*\})\]""")
+        val entries = regex.findAll(text).mapNotNull { match ->
+            try {
+                @Suppress("UNCHECKED_CAST")
+                val raw = gson.fromJson(match.groupValues[1], Map::class.java) as Map<String, Any?>
+                val args = raw.mapValues { (_, v) -> v?.toString() ?: "" }
+                mapOf("name" to "suggest_task", "args" to args)
+            } catch (_: Exception) { null }
+        }.toList()
+        val clean = regex.replace(text, "").trimEnd()
+        return clean to if (entries.isNotEmpty()) gson.toJson(entries) else null
+    }
+
+    /**
+     * Merges thinking, task tool calls, and suggestion entries into a single toolCalls JSON array.
+     * Order: thinking → task actions → suggestions (so UI renders top-to-bottom correctly).
+     */
+    private fun buildMergedToolCallsJson(
+        thinkingText: String?,
+        taskToolCallsJson: String?,
+        suggestionsJson: String?,
+    ): String? {
+        val all = mutableListOf<Any>()
+        if (!thinkingText.isNullOrBlank()) {
+            all.add(mapOf("name" to "thinking", "args" to mapOf("text" to thinkingText)))
+        }
+        if (!taskToolCallsJson.isNullOrBlank()) {
+            @Suppress("UNCHECKED_CAST")
+            (gson.fromJson(taskToolCallsJson, List::class.java) as? List<Any>)?.let { all.addAll(it) }
+        }
+        if (!suggestionsJson.isNullOrBlank()) {
+            @Suppress("UNCHECKED_CAST")
+            (gson.fromJson(suggestionsJson, List::class.java) as? List<Any>)?.let { all.addAll(it) }
+        }
+        return if (all.isNotEmpty()) gson.toJson(all) else null
+    }
+
     private fun buildProvider(modelOverride: String? = null): AiProvider? =
         if (!modelOverride.isNullOrBlank()) AiProviderFactory.mainWithModelOverride(modelOverride)
         else AiProviderFactory.main()
 
-    private fun isSimpleQuery(text: String): Boolean {
-        val lower = text.lowercase().trim()
-        if (lower.length < 25) {
-            val taskKeywords = listOf(
-                "add", "create", "task", "remind", "delete", "remove", "cancel",
-                "complete", "done", "modify", "change", "shift", "move", "schedule",
-                "karna", "banana", "hatao", "nikaal", "karo", "kar do", "set",
-                "hata do", "gym", "meeting", "hospital"
-            )
-            if (taskKeywords.any { it in lower }) return false
-            return true
-        }
-        val taskSignals = listOf(
-            "add task", "add_task", "create task", "new task",
-            "remind me", "set reminder", "delete task", "remove task",
-            "mark done", "mark complete", "cancel task",
-            "kaam", "task banana", "task karo", "karna hai",
-            "shift karo", "change karo", "badal do",
-        )
-        if (taskSignals.any { it in lower }) return false
-        val convPatterns = listOf(
-            "what is", "what's", "who is", "how many", "tell me",
-            "explain", "describe", "define", "meaning of",
-            "kya hai", "kaun hai", "kitne", "batao",
-            "my name", "mera naam", "about me",
-        )
-        if (convPatterns.any { it in lower }) return true
-        return false
-    }
-
     companion object {
         private const val TAG = "AiChatEngine"
         private const val MAX_TOOL_ROUNDS = 3
-        private const val HISTORY_WINDOW = 16
+        private const val HISTORY_WINDOW = 12
     }
 }
 
@@ -362,4 +429,5 @@ sealed class ChatEvent {
     data class ToolStart(val callId: String, val name: String, val args: Map<String, String>) : ChatEvent()
     data class ToolResult(val callId: String, val name: String, val output: String) : ChatEvent()
     data class Error(val reason: String) : ChatEvent()
+    data class Credits(val tokensRemaining: Int) : ChatEvent()
 }

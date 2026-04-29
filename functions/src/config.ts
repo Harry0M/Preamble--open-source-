@@ -1,65 +1,143 @@
 /**
- * Token-based credit pricing.
+ * Preamble AI — Pricing & Limits
  *
- * Pricing model: credits per 1000 tokens (input + output combined).
- * Why per-token: a 100-token chat shouldn't cost the same as a 5000-token chat.
+ * ARCHITECTURE: No per-response output cap (responses never get cut off).
+ *               Flash models = free. Mistral = daily token budget, refillable by ads.
  *
- * Rate calibration (1 credit ≈ ₹0.04, derived from ad revenue):
- *   gemini-2.5-flash-lite — 0 credits (free tier covers Tier 1 limits)
- *   gemini-2.5-flash      — 1 credit / 1k  (≈ ₹0.04, real cost ₹0.033)
- *   mistral-small-latest  — 2-3 credits / 1k
- *   mistral-medium-latest — 8-12 credits / 1k
+ * ECONOMICS (blended global eCPM ~$10/1K views = $0.01/view):
+ *   Model costs (60% input / 40% output split):
+ *     gemini-2.5-flash-lite : $0          → FREE (Google free tier ≤ 1500 req/day)
+ *     gemini-2.5-flash      : $0.000165/1K → negligible; absorbed as free
+ *     mistral-small-latest  : $0.000180/1K → $0.0014 per 8K token ad grant  → 86% margin
+ *     mistral-medium-latest : $0.001040/1K → $0.00104 per 1K token ad grant → 90% margin
  *
- * "Concise" mode auto-reduces output tokens, so single rate is enough —
- * no need to charge differently for concise vs normal.
+ *   Per-ad token grant (sized so AI cost ≤ 14% of ad revenue at $0.01/view):
+ *     mistral-small  : 8 000 tokens (~6–7 messages)
+ *     mistral-medium : 1 000 tokens (~1 message)
+ *
+ *   Free daily baseline (new-user experience, resets midnight UTC):
+ *     mistral-small  : 3 000 tokens  (~2–3 messages/day)
+ *     mistral-medium :   500 tokens  (~1 message/day — teaser only)
+ *
+ * NOTE: Flash daily message limit is purely anti-abuse, not monetization.
  */
-export const CREDIT_PER_1K_TOKENS: Record<string, number> = {
-  "gemini-2.5-flash-lite": 0,
-  "gemini-2.5-flash":      1,
-  "mistral-small-latest":  2,
-  "mistral-medium-latest": 8,
-};
 
-/** Minimum credits reserved before a non-free call (anti-spam). */
-export const MIN_CREDITS_FOR_PAID_CALL = 1;
+// ---------------------------------------------------------------------------
+// Flash models (free tier — no credits, no token billing)
+// ---------------------------------------------------------------------------
 
-export const DEFAULT_MODEL = "gemini-2.5-flash-lite";
+export const DEFAULT_MODEL = "gemini-2.5-flash"; // Auto = Flash (thinking enabled)
 export const DEFAULT_MODE  = "concise";
 
-/** Credits earned per rewarded ad */
-export const CREDITS_PER_AD = 10;
-/** First-time bonus credits */
-export const FIRST_TIME_BONUS = 20;
-/** Minimum seconds between ad rewards (anti-spam) */
-export const AD_COOLDOWN_SECONDS = 30;
+/** Daily message caps for free (Gemini) models — anti-abuse only. -1 = unlimited. */
+export const FLASH_DAILY_MSG_LIMITS: Record<string, number> = {
+  "gemini-2.5-flash-lite": -1,   // unlimited
+  "gemini-2.5-flash":      100,  // generous; costs us ~$0.02/user/day at cap
+};
 
-/** True if the model is in our free tier (no credit deduction). */
-export function isFreeModel(model: string): boolean {
-  return (CREDIT_PER_1K_TOKENS[model] ?? 1) === 0;
+export function flashDailyMsgField(model: string): string {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const tier  = model.includes("lite") ? "fll" : "fl";
+  return `ai_fm_${tier}_${date}`;
 }
 
-/**
- * Compute credits for a finished call based on real token usage.
- * Charges minimum 1 credit on paid tiers even for tiny calls (covers fixed overhead).
- */
-export function computeTokenCredits(
-  model: string,
-  inputTokens: number,
-  outputTokens: number,
+export function getFlashMsgsRemaining(model: string, usedToday: number): number {
+  const limit = FLASH_DAILY_MSG_LIMITS[model] ?? 50;
+  if (limit === -1) return -1;
+  return Math.max(0, limit - usedToday);
+}
+
+// ---------------------------------------------------------------------------
+// Mistral models (premium — daily token budget, refillable with ads)
+// ---------------------------------------------------------------------------
+
+/** Whether a model uses the Mistral token-budget system. */
+export function isMistralPremium(model: string): boolean {
+  return model.includes("mistral") || model.includes("mixtral");
+}
+
+/** Daily FREE token baseline per Mistral model (resets midnight UTC). */
+export const MISTRAL_DAILY_FREE_TOKENS: Record<string, number> = {
+  "mistral-small-latest":  3_000,
+  "mistral-medium-latest":   500,
+};
+
+/** Tokens added to the daily budget per ad watch. */
+export const MISTRAL_TOKENS_PER_AD: Record<string, number> = {
+  "mistral-small-latest":  8_000,
+  "mistral-medium-latest": 1_000,
+};
+
+/** Weighted cost multiplier vs mistral-small baseline. Used so medium calls cost more budget. */
+export const MISTRAL_COST_WEIGHT: Record<string, number> = {
+  "mistral-small-latest":  1,
+  "mistral-medium-latest": 6, // ~6× more expensive per token
+};
+
+/** How many weighted tokens a real call consumes from the daily budget. */
+export function mistralWeightedTokens(model: string, totalTokens: number): number {
+  return Math.round(totalTokens * (MISTRAL_COST_WEIGHT[model] ?? 1));
+}
+
+/** Firestore field: tokens used today (weighted). */
+export function mistralUsedField(model: string): string {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const tier  = model.includes("medium") ? "mm" : "ms";
+  return `ai_mt_used_${tier}_${date}`;
+}
+
+/** Firestore field: bonus tokens granted by ads today. */
+export function mistralBonusField(model: string): string {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  const tier  = model.includes("medium") ? "mm" : "ms";
+  return `ai_mt_bonus_${tier}_${date}`;
+}
+
+/** Total daily budget = free baseline + ad bonuses. */
+export function getMistralDailyBudget(model: string, bonusToday: number): number {
+  return (MISTRAL_DAILY_FREE_TOKENS[model] ?? 3_000) + bonusToday;
+}
+
+/** Remaining weighted tokens in today's budget. */
+export function getMistralTokensRemaining(
+  model: string, usedToday: number, bonusToday: number,
 ): number {
-  const rate = CREDIT_PER_1K_TOKENS[model] ?? 1;
-  if (rate === 0) return 0;
-  const total = Math.max(0, inputTokens) + Math.max(0, outputTokens);
-  return Math.max(1, Math.ceil((total / 1000) * rate));
+  return Math.max(0, getMistralDailyBudget(model, bonusToday) - usedToday);
 }
 
-/** Pre-flight credit check before paying for an AI call. */
-export function preflightCreditCheck(model: string, balance: number): { ok: boolean; needed: number } {
-  if (isFreeModel(model)) return { ok: true, needed: 0 };
-  return { ok: balance >= MIN_CREDITS_FOR_PAID_CALL, needed: MIN_CREDITS_FOR_PAID_CALL };
+// ---------------------------------------------------------------------------
+// Ad system
+// ---------------------------------------------------------------------------
+
+export const CREDITS_PER_AD      = 10;
+export const FIRST_TIME_BONUS    = 20;
+export const AD_COOLDOWN_SECONDS = 300; // 5 minutes between ads
+
+// ---------------------------------------------------------------------------
+// Legacy credit system (Flash only — Mistral now uses token budgets)
+// ---------------------------------------------------------------------------
+
+export const CREDIT_PER_1K_TOKENS: Record<string, number> = {
+  "gemini-2.5-flash-lite": 0,
+  "gemini-2.5-flash":      0, // free — absorbed as cost of service
+};
+
+export function isFreeModel(model: string): boolean {
+  return !isMistralPremium(model);
 }
 
-/** Predefined tags for task AI */
+export function computeTokenCredits(): number {
+  return 0; // Mistral charges via token budget, not credits
+}
+
+export function preflightCreditCheck(): { ok: boolean; needed: number } {
+  return { ok: true, needed: 0 }; // credit gate removed; Mistral uses token budget
+}
+
+// ---------------------------------------------------------------------------
+// Shared
+// ---------------------------------------------------------------------------
+
 export const PREDEFINED_TAGS = [
   "Health", "Fitness", "Work", "Meeting", "Study", "Food",
   "Family", "Social", "Shopping", "Finance", "Travel",

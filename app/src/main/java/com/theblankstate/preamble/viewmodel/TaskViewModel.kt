@@ -186,6 +186,20 @@ class TaskViewModel(
         .map { tasks: List<Task> -> tasks.groupBy { it.createdDate } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
+    /**
+     * Fetch tasks for any date — exact mirror of what home screen shows for that date.
+     * For today, prefer the [todayTasks] StateFlow (already in memory).
+     * For other dates, queries the repository with full rollover + recurring resolution.
+     */
+    suspend fun fetchTasksForDate(date: String): List<Task> {
+        val today = TaskRepository.todayString()
+        return if (date == today) {
+            todayTasks.value
+        } else {
+            repository.getTasksForDateWithRecurrence(date)
+        }
+    }
+
     // Search
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()

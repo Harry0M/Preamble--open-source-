@@ -8,7 +8,7 @@
  *   parseModel      → default model for task parsing (default: "gemini-2.5-flash-lite")
  *   memoryModel     → model for memory extraction (default: "gemini-2.5-flash-lite")
  *   killSwitch      → true to disable all AI      (default: false)
- *   maxHistoryWindow → messages to include         (default: 16)
+ *   maxHistoryWindow → messages to include         (default: 12)
  *
  * To change models:
  *   1. Go to Firebase Console → Firestore → preamble database
@@ -31,11 +31,11 @@ export interface AiConfig {
 }
 
 const DEFAULT_CONFIG: AiConfig = {
-  chatModel: "gemini-2.5-flash-lite",
+  chatModel: "gemini-2.5-flash",  // Auto = Flash (thinking); change via Firestore config/ai
   parseModel: "gemini-2.5-flash-lite",
   memoryModel: "gemini-2.5-flash-lite",
   killSwitch: false,
-  maxHistoryWindow: 16,
+  maxHistoryWindow: 12,
 };
 
 // Cache config for 60 seconds to avoid reading Firestore on every request

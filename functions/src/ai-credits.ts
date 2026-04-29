@@ -6,7 +6,13 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
-import { CREDITS_PER_AD, FIRST_TIME_BONUS, AD_COOLDOWN_SECONDS } from "./config";
+import {
+  CREDITS_PER_AD,
+  FIRST_TIME_BONUS,
+  AD_COOLDOWN_SECONDS,
+  MISTRAL_TOKENS_PER_AD,
+  mistralBonusField,
+} from "./config";
 
 async function verifyAuth(authHeader: string | undefined): Promise<string | null> {
   if (!authHeader?.startsWith("Bearer ")) return null;
@@ -42,27 +48,35 @@ export const aiCreditsReward = onRequest(
     const userDoc = await userRef.get();
     const data = userDoc.data() || {};
 
-    // Anti-spam: check cooldown
-    const lastAd = data.ai_credits_last_ad || 0;
     const now = Date.now();
+
+    // Only protection: 5-minute cooldown between successful ad rewards
+    const lastAd = data.ai_credits_last_ad || 0;
     if (now - lastAd < AD_COOLDOWN_SECONDS * 1000) {
+      const retryAfter = Math.ceil(AD_COOLDOWN_SECONDS - (now - lastAd) / 1000);
       res.status(429).json({
-        error: "Too soon. Please wait before watching another ad.",
-        retryAfterSeconds: Math.ceil(AD_COOLDOWN_SECONDS - (now - lastAd) / 1000),
+        error: `Please wait ${Math.ceil(retryAfter / 60)} min before watching another ad.`,
+        retryAfterSeconds: retryAfter,
       });
       return;
     }
 
-    // First-time bonus check
     const isFirstTime = !data.ai_credits_first_bonus;
     const creditsToAdd = CREDITS_PER_AD + (isFirstTime ? FIRST_TIME_BONUS : 0);
 
-    await userRef.set({
+    const update: Record<string, any> = {
       ai_credits: FieldValue.increment(creditsToAdd),
       ai_credits_total_earned: FieldValue.increment(creditsToAdd),
-      ai_credits_last_ad: now,
       ai_credits_first_bonus: true,
-    }, { merge: true });
+      ai_credits_last_ad: now,
+    };
+
+    // Refill Mistral token budgets (no cap — unlimited ad watches allowed)
+    for (const [model, tokens] of Object.entries(MISTRAL_TOKENS_PER_AD)) {
+      update[mistralBonusField(model)] = FieldValue.increment(tokens);
+    }
+
+    await userRef.set(update, { merge: true });
 
     const updated = await userRef.get();
     const newBalance = updated.data()?.ai_credits ?? 0;
@@ -72,6 +86,7 @@ export const aiCreditsReward = onRequest(
       creditsAdded: creditsToAdd,
       firstTimeBonus: isFirstTime ? FIRST_TIME_BONUS : 0,
       balance: newBalance,
+      retryAfterSeconds: AD_COOLDOWN_SECONDS,
     });
   }
 );

@@ -4,8 +4,8 @@
  * Flow:
  *   1. Verify auth, pre-check credits.
  *   2. Resolve model: request override > server config (Firestore config/ai) > default.
- *   3. Pull memory + history + tasks from Firestore.
- *   4. Build system prompt server-side.
+ *   3. Pull compact memory/history and task context only when useful.
+ *   4. Build a small chat-only system instruction server-side.
  *   5. Stream Gemini/Mistral.
  *   6. Capture token usage.
  *   7. Save assistant message (cloud is sole writer; client skips Firestore mirror).
@@ -16,21 +16,35 @@ import { onRequest } from "firebase-functions/v2/https";
 import { GoogleGenAI } from "@google/genai";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
-import { buildSystemPrompt, MemoryFact, TaskSnapshot } from "./prompt-builder";
-import { TASK_TOOLS, toGeminiFunctionDeclarations, isSimpleQuery } from "./tools-schema";
+import { TASK_TOOLS, toGeminiFunctionDeclarations, shouldUseTaskTools } from "./tools-schema";
 import {
-  computeTokenCredits,
-  preflightCreditCheck,
-  isFreeModel,
   DEFAULT_MODEL,
   DEFAULT_MODE,
+  isMistralPremium,
+  // Flash limits
+  flashDailyMsgField,
+  getFlashMsgsRemaining,
+  // Mistral token budget
+  mistralUsedField,
+  mistralBonusField,
+  getMistralDailyBudget,
+  getMistralTokensRemaining,
+  mistralWeightedTokens,
 } from "./config";
-import { extractMemoryFacts } from "./memory-extractor";
+import { extractMemoryFacts, shouldAttemptMemoryExtraction } from "./memory-extractor";
 import { getAiConfig } from "./ai-config";
+import {
+  buildChatSystemPrompt,
+  buildMemoryContext,
+  buildTaskContext,
+  geminiGenerationConfig,
+  MemoryFact,
+  TaskSnapshot,
+} from "./chat-prompt";
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const MISTRAL_KEY = process.env.MISTRAL_API_KEY || "";
-const HISTORY_WINDOW = 16;
+const HISTORY_WINDOW = 12;
 
 function isMistralModel(model: string): boolean {
   return model.includes("mistral") || model.includes("mixtral");
@@ -99,18 +113,38 @@ export const aiChat = onRequest(
       return;
     }
 
-    // --- Pre-flight credit check (anti-spam: must have at least 1 credit for paid tiers) ---
     const userDocRef = db.doc(`users/${uid}`);
     const userDoc = await userDocRef.get();
-    const balance: number = userDoc.data()?.ai_credits ?? 0;
-    const preflight = preflightCreditCheck(model, balance);
-    if (!preflight.ok) {
-      res.status(402).json({
-        error: "Insufficient credits",
-        creditsNeeded: preflight.needed,
-        creditsRemaining: balance,
-      });
-      return;
+    const userData = userDoc.data() || {};
+
+    if (isMistralPremium(model)) {
+      // --- Mistral: check daily token budget ---
+      const usedField  = mistralUsedField(model);
+      const bonusField = mistralBonusField(model);
+      const usedToday  = (userData[usedField]  ?? 0) as number;
+      const bonusToday = (userData[bonusField] ?? 0) as number;
+      const tokensLeft = getMistralTokensRemaining(model, usedToday, bonusToday);
+      if (tokensLeft <= 0) {
+        res.status(429).json({
+          error: "Daily token budget exhausted for this model.",
+          tokensRemaining: 0,
+          resetAt: "midnight UTC",
+          hint: "Watch an ad to refill your budget.",
+        });
+        return;
+      }
+    } else {
+      // --- Flash: check daily message limit (anti-abuse) ---
+      const fmField  = flashDailyMsgField(model);
+      const fmUsed   = (userData[fmField] ?? 0) as number;
+      const fmLeft   = getFlashMsgsRemaining(model, fmUsed);
+      if (fmLeft === 0) {
+        res.status(429).json({
+          error: "Daily message limit reached. Resets at midnight.",
+          messagesRemaining: 0,
+        });
+        return;
+      }
     }
 
     // --- Set up SSE ---
@@ -122,9 +156,16 @@ export const aiChat = onRequest(
     });
 
     try {
-      // --- Pull user memory ---
+      const taskToolsEnabled = message ? shouldUseTaskTools(message) : false;
+      const baseWindow = Math.min(config.maxHistoryWindow || HISTORY_WINDOW, HISTORY_WINDOW);
+      const isSimpleQuery = message != null &&
+        message.trim().split(/\s+/).length < 25 &&
+        !/\b(earlier|before|said|mentioned|we (talked|discussed)|last time|previous|above|that|it)\b/i.test(message);
+      const historyWindow = isSimpleQuery ? Math.min(4, baseWindow) : baseWindow;
+
+      // --- Pull compact user memory ---
       const memorySnap = await db.collection(`users/${uid}/ai_memory`)
-        .orderBy("lastUsedAt", "desc").limit(40).get();
+        .orderBy("lastUsedAt", "desc").limit(12).get();
       const memoryFacts: MemoryFact[] = memorySnap.docs.map(d => ({
         key: d.data().key,
         value: d.data().value,
@@ -132,44 +173,54 @@ export const aiChat = onRequest(
       }));
 
       const userName = userDoc.data()?.displayName || userDoc.data()?.name || "";
+      const needsMemory = !message || /\b(i|my|me|myself|i'm|i've|mera|mujhe|main|mein)\b/i.test(message);
+      const memoryContext = needsMemory ? buildMemoryContext(memoryFacts, userName) : "";
 
-      // --- Pull tasks ---
-      const tasksSnap = await db.collection("tasks").where("uid", "==", uid).limit(30).get();
-      const tasks: TaskSnapshot[] = tasksSnap.docs.map(d => ({
-        title: d.data().title,
-        createdDate: d.data().createdDate || "",
-        deadlineTime: d.data().deadlineTime || undefined,
-        priority: d.data().priority || 0,
-        isCompleted: d.data().isCompleted || false,
-      }));
+      // --- Pull task context only for task-related turns ---
+      let taskContext = "";
+      if (taskToolsEnabled) {
+        const tasksSnap = await db.collection("tasks").where("uid", "==", uid).limit(24).get();
+        const tasks: TaskSnapshot[] = tasksSnap.docs.map(d => ({
+          title: d.data().title,
+          createdDate: d.data().createdDate || "",
+          deadlineTime: d.data().deadlineTime || undefined,
+          priority: d.data().priority || 0,
+          isCompleted: d.data().isCompleted || false,
+        }));
+        taskContext = buildTaskContext(tasks);
+      }
 
       // --- Pull chat history ---
       const histSnap = await db.collection(`users/${uid}/ai_chat/${conversationId}/messages`)
-        .orderBy("timestamp", "asc")
-        .limit(config.maxHistoryWindow * 4)
+        .orderBy("timestamp", "desc")
+        .limit(historyWindow)
         .get();
       const historyRows = histSnap.docs
         .map(d => d.data())
+        .reverse()
         .filter(m => (m.role === "user" || m.role === "assistant") && m.content);
 
-      // --- Build prompt ---
-      const simple = message ? isSimpleQuery(message) : false;
-      const systemPrompt = buildSystemPrompt({
-        tasks: simple ? undefined : tasks,
-        memoryFacts,
-        userName,
+      // --- Build lean chat instruction ---
+      const systemPrompt = buildChatSystemPrompt({
         conciseMode: mode === "concise",
-        forceToolCall: false, // chat path: free conversation allowed
+        taskToolsEnabled,
+        memoryContext,
+        taskContext,
       });
 
       // --- Build messages ---
       const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
-      const recentHistory = historyRows.slice(-(config.maxHistoryWindow || HISTORY_WINDOW));
+      const SUGGEST_RE = /\[SUGGEST:\s*\{[^\]]*\}\]/g;
+      const recentHistory = historyRows.slice(-historyWindow);
       for (const row of recentHistory) {
         if (row.role === "user" && row.content === message) continue;
+        const content = row.role === "assistant"
+          ? row.content.replace(SUGGEST_RE, "").trim()
+          : row.content;
+        if (!content) continue;
         contents.push({
           role: row.role === "assistant" ? "model" : "user",
-          parts: [{ text: row.content }],
+          parts: [{ text: content }],
         });
       }
       if (message) {
@@ -192,6 +243,7 @@ export const aiChat = onRequest(
 
       // --- Call provider ---
       let fullText = "";
+      let thinkingText = "";
       let toolCalls: Array<{ name: string; args: Record<string, string> }> = [];
       let inputTokens = 0;
       let outputTokens = 0;
@@ -201,11 +253,16 @@ export const aiChat = onRequest(
         for (const c of contents) {
           mistralMessages.push({ role: c.role === "model" ? "assistant" : c.role, content: c.parts[0].text });
         }
-        const mistralTools = simple ? undefined : TASK_TOOLS.map(t => ({
+        const mistralTools = taskToolsEnabled ? TASK_TOOLS.map(t => ({
           type: "function" as const,
           function: { name: t.name, description: t.description, parameters: t.parameters },
-        }));
-        const mistralBody: any = { model, messages: mistralMessages, stream: true };
+        })) : undefined;
+        const mistralBody: any = {
+          model,
+          messages: mistralMessages,
+          stream: true,
+          max_tokens: 4096,
+        };
         if (mistralTools) mistralBody.tools = mistralTools;
 
         const mistralRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
@@ -262,27 +319,34 @@ export const aiChat = onRequest(
         }
       } else {
         const ai = new GoogleGenAI({ apiKey: GEMINI_KEY });
-        const tools: any = simple ? undefined : [{ functionDeclarations: toGeminiFunctionDeclarations() }];
+        const tools: any = taskToolsEnabled ? [{ functionDeclarations: toGeminiFunctionDeclarations() }] : undefined;
         const geminiModel = model.startsWith("gemini") ? model : DEFAULT_MODEL;
         const response = await ai.models.generateContentStream({
           model: geminiModel,
           contents,
-          config: { systemInstruction: systemPrompt, tools },
+          config: geminiGenerationConfig({
+            systemPrompt,
+            tools,
+            conciseMode: mode === "concise",
+            model: geminiModel,
+          }),
         });
 
         for await (const chunk of response) {
           const parts = chunk.candidates?.[0]?.content?.parts;
           if (parts) {
             for (const part of parts) {
-              if (part.functionCall) {
+              if ((part as any).thought === true) {
+                thinkingText += part.text || "";
+                sseWrite(res, "thinking", { text: part.text || "" });
+              } else if (part.functionCall) {
                 const fc = part.functionCall;
                 const args: Record<string, string> = {};
                 if (fc.args) {
                   for (const [k, v] of Object.entries(fc.args)) args[k] = String(v);
                 }
                 toolCalls.push({ name: fc.name || "", args });
-              }
-              if (part.text) {
+              } else if (part.text) {
                 fullText += part.text;
                 sseWrite(res, "delta", { text: part.text });
               }
@@ -315,10 +379,11 @@ export const aiChat = onRequest(
           syncPending: 0,
         });
       }
-      if (fullText || toolCalls.length > 0) {
+      const storedText = fullText.replace(/\[SUGGEST:\s*\{[^\]]*\}\]/g, "").trim();
+      if (storedText || toolCalls.length > 0) {
         await msgCol.add({
           role: "assistant",
-          content: fullText || "",
+          content: storedText,
           timestamp: now,
           userId: uid,
           conversationId,
@@ -328,39 +393,48 @@ export const aiChat = onRequest(
         });
       }
 
-      // --- Deduct credits based on real token usage ---
-      const tokenCost = computeTokenCredits(model, inputTokens, outputTokens);
-      if (tokenCost > 0) {
-        await userDocRef.set({
-          ai_credits: FieldValue.increment(-tokenCost),
-          ai_credits_total_spent: FieldValue.increment(tokenCost),
-        }, { merge: true });
+      // --- Track usage ---
+      const totalTokens = inputTokens + outputTokens;
+      const usageUpdate: Record<string, any> = {};
+      let tokensRemaining = -1;
+
+      if (isMistralPremium(model)) {
+        const usedField  = mistralUsedField(model);
+        const bonusField = mistralBonusField(model);
+        const weighted   = mistralWeightedTokens(model, totalTokens);
+        usageUpdate[usedField] = FieldValue.increment(weighted);
+        const prevUsed  = (userData[usedField]  ?? 0) as number;
+        const prevBonus = (userData[bonusField] ?? 0) as number;
+        tokensRemaining = getMistralTokensRemaining(model, prevUsed + weighted, prevBonus);
+      } else {
+        const fmField = flashDailyMsgField(model);
+        usageUpdate[fmField] = FieldValue.increment(1);
+        const fmUsed = (userData[fmField] ?? 0) as number;
+        tokensRemaining = getFlashMsgsRemaining(model, fmUsed + 1);
+      }
+
+      if (Object.keys(usageUpdate).length > 0) {
+        await userDocRef.set(usageUpdate, { merge: true });
       }
 
       // --- Async memory extraction ---
-      if (message && message.length >= 20 && GEMINI_KEY) {
-        extractMemoryFacts(uid, message, GEMINI_KEY, db).catch(() => {});
+      if (message && GEMINI_KEY && shouldAttemptMemoryExtraction(message)) {
+        extractMemoryFacts(uid, message, GEMINI_KEY, db, config.memoryModel).catch(() => {});
       }
 
-      // --- Final event ---
-      const updatedDoc = await userDocRef.get();
-      const creditsRemaining = updatedDoc.data()?.ai_credits ?? 0;
       const dt = Date.now() - startedAt;
-
       console.log("aiChat success", {
         uid, model, mode,
         msgLen: message?.length ?? 0,
         respLen: fullText.length,
         toolCalls: toolCalls.length,
         inputTokens, outputTokens,
-        creditsUsed: tokenCost,
-        creditsRemaining,
+        tokensRemaining,
         durationMs: dt,
       });
 
       sseWrite(res, "done", {
-        creditsUsed: tokenCost,
-        creditsRemaining,
+        tokensRemaining,
         model,
         inputTokens,
         outputTokens,
@@ -429,11 +503,16 @@ export const aiChatContinue = onRequest(
         .orderBy("timestamp", "desc").limit(6).get();
       const recent = histSnap.docs.reverse().map(d => d.data()).filter(m => m.content);
 
+      const SUGGEST_RE2 = /\[SUGGEST:\s*\{[^\]]*\}\]/g;
       const contents: Array<{ role: string; parts: Array<{ text: string }> }> = [];
       for (const row of recent) {
+        const content = row.role === "assistant"
+          ? row.content.replace(SUGGEST_RE2, "").trim()
+          : row.content;
+        if (!content) continue;
         contents.push({
           role: row.role === "assistant" ? "model" : "user",
-          parts: [{ text: row.content }],
+          parts: [{ text: content }],
         });
       }
       contents.push({
@@ -441,10 +520,10 @@ export const aiChatContinue = onRequest(
         parts: [{ text: `[Tool execution results]\n${toolText}\n\n${instruction}` }],
       });
 
-      // Build a minimal style-only system prompt (no rules — already executed)
-      const styleSystem = mode === "concise"
-        ? "You are Preamble AI. Use markdown formatting: '- ' for bullets, '## ' for headers, **bold**, `code`. Be direct. No filler openers."
-        : "You are Preamble AI. Use markdown formatting: '- ' for bullets, '## ' for headers, **bold**, `code`.";
+      const styleSystem = buildChatSystemPrompt({
+        conciseMode: mode === "concise",
+        taskToolsEnabled: false,
+      });
 
       let fullText = "";
       let inputTokens = 0;
@@ -461,7 +540,12 @@ export const aiChatContinue = onRequest(
         const mistralRes = await fetch("https://api.mistral.ai/v1/chat/completions", {
           method: "POST",
           headers: { "Content-Type": "application/json", "Authorization": `Bearer ${MISTRAL_KEY}` },
-          body: JSON.stringify({ model, messages, stream: true }),
+          body: JSON.stringify({
+            model,
+            messages,
+            stream: true,
+            max_tokens: 4096,
+          }),
         });
         if (!mistralRes.ok) throw new Error(`Mistral error: ${mistralRes.status}`);
         const reader = mistralRes.body?.getReader();
@@ -497,7 +581,11 @@ export const aiChatContinue = onRequest(
         const response = await ai.models.generateContentStream({
           model: geminiModel,
           contents,
-          config: { systemInstruction: styleSystem },
+          config: geminiGenerationConfig({
+            systemPrompt: styleSystem,
+            conciseMode: mode === "concise",
+            model: geminiModel,
+          }),
         });
         for await (const chunk of response) {
           const text = chunk.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -526,28 +614,21 @@ export const aiChatContinue = onRequest(
         });
       }
 
-      // Deduct credits for the follow-up call (token-based)
+      // Track usage for follow-up call
       const userDocRef = db.doc(`users/${uid}`);
-      const tokenCost = computeTokenCredits(model, inputTokens, outputTokens);
-      if (tokenCost > 0 && !isFreeModel(model)) {
-        await userDocRef.set({
-          ai_credits: FieldValue.increment(-tokenCost),
-          ai_credits_total_spent: FieldValue.increment(tokenCost),
-        }, { merge: true });
+      if (isMistralPremium(model) && (inputTokens + outputTokens) > 0) {
+        const usedField = mistralUsedField(model);
+        const weighted  = mistralWeightedTokens(model, inputTokens + outputTokens);
+        await userDocRef.set({ [usedField]: FieldValue.increment(weighted) }, { merge: true });
       }
-      const updatedDoc = await userDocRef.get();
-      const creditsRemaining = updatedDoc.data()?.ai_credits ?? 0;
       const dt = Date.now() - startedAt;
 
       console.log("aiChatContinue success", {
         uid, model, hasListTasks, toolResultCount: toolResults.length,
-        respLen: fullText.length, inputTokens, outputTokens,
-        creditsUsed: tokenCost, creditsRemaining, durationMs: dt,
+        respLen: fullText.length, inputTokens, outputTokens, durationMs: dt,
       });
 
       sseWrite(res, "done", {
-        creditsUsed: tokenCost,
-        creditsRemaining,
         model,
         inputTokens,
         outputTokens,

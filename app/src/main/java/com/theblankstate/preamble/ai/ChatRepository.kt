@@ -80,11 +80,42 @@ class ChatRepository private constructor(
     }
 
     /** Update existing row in-place (e.g. streaming text growing). */
-    suspend fun updateContent(id: String, content: String, isStreaming: Boolean) = withContext(Dispatchers.IO) {
+    suspend fun updateContent(
+        id: String,
+        content: String,
+        isStreaming: Boolean,
+        skipSync: Boolean = false,
+    ) = withContext(Dispatchers.IO) {
         val existing = dao.findById(id) ?: return@withContext
-        val updated = existing.copy(content = content, isStreaming = isStreaming, syncPending = if (!isStreaming) 1 else 0)
+        val updated = existing.copy(
+            content = content,
+            isStreaming = isStreaming,
+            syncPending = if (skipSync || isStreaming) 0 else 1,
+        )
         dao.upsert(updated)
-        if (!isStreaming) syncOne(updated)
+        if (!isStreaming && !skipSync) syncOne(updated)
+    }
+
+    suspend fun updateAssistantTurn(
+        id: String,
+        content: String,
+        toolCalls: String?,
+        toolResults: String?,
+        isStreaming: Boolean,
+        modelUsed: String?,
+        skipSync: Boolean = false,
+    ) = withContext(Dispatchers.IO) {
+        val existing = dao.findById(id) ?: return@withContext
+        val updated = existing.copy(
+            content = content,
+            toolCalls = toolCalls,
+            toolResults = toolResults,
+            isStreaming = isStreaming,
+            modelUsed = modelUsed ?: existing.modelUsed,
+            syncPending = if (skipSync || isStreaming) 0 else 1,
+        )
+        dao.upsert(updated)
+        if (!isStreaming && !skipSync) syncOne(updated)
     }
 
     suspend fun delete(id: String) = withContext(Dispatchers.IO) {

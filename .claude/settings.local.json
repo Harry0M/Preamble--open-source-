@@ -21,7 +21,10 @@
       "Read(//c/Users/palha/.local/**)",
       "Bash(grep -nE \"rgba\\\\\\(|#[0-9a-fA-F]{3,6}|linear-gradient|radial-gradient\" admin-panel/public/css/style.css)",
       "Bash(grep -nE \"#[0-9a-fA-F]{3,6}|rgba\\\\\\(\" admin-panel/public/css/style.css)",
-      "Bash(node -c server.js)"
+      "Bash(node -c server.js)",
+      "Bash(firebase deploy *)",
+      "Bash(firebase projects:list)",
+      "Bash(firebase use *)"
     ]
   }
 }

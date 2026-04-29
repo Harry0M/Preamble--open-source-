@@ -34,6 +34,8 @@ object AiCreditsManager {
     // TODO: Replace with your actual AdMob rewarded ad unit ID
     private const val AD_UNIT_ID = "ca-app-pub-3940256099942544/5224354917" // Test ID — replace for production
 
+    private const val SUCCESS_COOLDOWN_MS = 5 * 60 * 1000L // 5 min after successful ad (mirrors server)
+
     private val _balance = MutableStateFlow(0)
     val balance: StateFlow<Int> = _balance
 
@@ -42,6 +44,9 @@ object AiCreditsManager {
 
     private var rewardedAd: RewardedAd? = null
     private var isLoadingAd = false
+    private var lastSuccessMs = 0L
+    private var notAvailableTaps = 0
+    private var notAvailableCooldownMs = 0L
 
     /**
      * Credit cost per 1000 tokens (input + output combined). Mirrors server config.ts.
@@ -82,11 +87,6 @@ object AiCreditsManager {
         }
     }
 
-    /** Update balance from a chat response */
-    fun updateBalance(creditsRemaining: Int) {
-        _balance.value = creditsRemaining
-    }
-
     /** Preload a rewarded ad so it's ready when needed */
     fun preloadAd(context: Context) {
         if (isLoadingAd || rewardedAd != null) return
@@ -100,6 +100,8 @@ object AiCreditsManager {
                 rewardedAd = ad
                 isLoadingAd = false
                 _isAdLoading.value = false
+                notAvailableTaps = 0
+                notAvailableCooldownMs = 0L
             }
 
             override fun onAdFailedToLoad(err: LoadAdError) {
@@ -122,9 +124,31 @@ object AiCreditsManager {
         onReward: (newBalance: Int) -> Unit,
         onError: (String) -> Unit,
     ) {
+        val now = System.currentTimeMillis()
+
+        // Only gate: 5-min cooldown after a successful ad
+        if (lastSuccessMs > 0 && now - lastSuccessMs < SUCCESS_COOLDOWN_MS) {
+            val minutesLeft = ((SUCCESS_COOLDOWN_MS - (now - lastSuccessMs)) / 60_000).coerceAtLeast(1)
+            onError("Next ad available in $minutesLeft min.")
+            return
+        }
+
         val ad = rewardedAd
         if (ad == null) {
-            onError("Ad not ready yet. Please wait...")
+            // If user is spamming "try again", enforce a short wait
+            if (notAvailableCooldownMs > 0 && now - notAvailableCooldownMs < 30_000) {
+                val secsLeft = ((30_000 - (now - notAvailableCooldownMs)) / 1000).coerceAtLeast(1)
+                onError("Ad loading... please wait ${secsLeft}s.")
+                return
+            }
+            notAvailableTaps++
+            if (notAvailableTaps >= 3) {
+                notAvailableTaps = 0
+                notAvailableCooldownMs = now
+                onError("Ad still loading. Please wait 30s.")
+            } else {
+                onError("Ad not available. Try again.")
+            }
             preloadAd(activity)
             return
         }
@@ -132,25 +156,27 @@ object AiCreditsManager {
         ad.fullScreenContentCallback = object : FullScreenContentCallback() {
             override fun onAdDismissedFullScreenContent() {
                 rewardedAd = null
-                preloadAd(activity)  // Preload next ad
+                preloadAd(activity)
             }
 
             override fun onAdFailedToShowFullScreenContent(err: AdError) {
                 rewardedAd = null
-                onError("Ad failed to show: ${err.message}")
+                onError("Ad not available. Try again.")
                 preloadAd(activity)
             }
         }
 
         ad.show(activity) { _ ->
-            // User earned reward — call server to add credits
+            lastSuccessMs = System.currentTimeMillis()
+            notAvailableTaps = 0
+            notAvailableCooldownMs = 0L
             CoroutineScope(Dispatchers.Main).launch {
                 val result = withContext(Dispatchers.IO) { CloudAiService.rewardCredits() }
                 if (result != null) {
                     _balance.value = result.newBalance
                     onReward(result.newBalance)
                 } else {
-                    onError("Failed to add credits. Please try again.")
+                    onError("Failed to add tokens. Try again.")
                 }
             }
         }

@@ -119,34 +119,62 @@ export function toGeminiFunctionDeclarations() {
 }
 
 /**
- * Detect if a user message is a simple conversational query (no tools needed).
- * Saves tokens by skipping tool definitions.
+ * Detect whether task tools are likely useful for this chat turn.
+ * The chat surface should behave like a normal AI by default, so this stays
+ * conservative and only enables tool schemas for task/reminder management.
  */
-export function isSimpleQuery(text: string): boolean {
+export function shouldUseTaskTools(text: string): boolean {
   const lower = text.toLowerCase().trim();
-  if (lower.length < 25) {
-    const taskKeywords = [
-      "add", "create", "task", "remind", "delete", "remove", "cancel",
-      "complete", "done", "modify", "change", "shift", "move", "schedule",
-      "karna", "banana", "hatao", "nikaal", "karo", "kar do", "set",
-      "hata do", "gym", "meeting", "hospital",
-    ];
-    if (taskKeywords.some(kw => lower.includes(kw))) return false;
-    return true;
-  }
-  const taskSignals = [
-    "add task", "create task", "new task", "remind me", "set reminder",
-    "delete task", "remove task", "mark done", "mark complete",
-    "kaam", "task banana", "task karo", "karna hai",
-    "shift karo", "change karo", "badal do",
-  ];
-  if (taskSignals.some(s => lower.includes(s))) return false;
-  const convPatterns = [
+  if (!lower) return false;
+
+  const conversationalPatterns = [
     "what is", "what's", "who is", "how many", "tell me",
     "explain", "describe", "define", "meaning of",
-    "kya hai", "kaun hai", "kitne", "batao",
-    "my name", "mera naam", "about me",
+    "kya hai", "kaun hai", "kitne",
   ];
-  if (convPatterns.some(p => lower.includes(p))) return true;
-  return false;
+  const taskDomainWords = [
+    "task", "tasks", "todo", "to-do", "reminder", "reminders",
+    "schedule", "deadline", "due", "focus", "plate", "done",
+  ];
+  if (
+    conversationalPatterns.some(p => lower.includes(p)) &&
+    !taskDomainWords.some(w => lower.includes(w))
+  ) {
+    return false;
+  }
+
+  const directSignals = [
+    "add task", "create task", "new task", "make a task",
+    "add reminder", "set reminder", "remind me",
+    "delete task", "remove task", "cancel task",
+    "mark done", "mark complete", "complete task",
+    "move my", "shift my", "reschedule", "change the time",
+    "list my tasks", "show my tasks", "today's tasks", "todays tasks",
+    "my todo", "my to-do", "what's on my plate", "what is on my plate",
+    "what should i focus", "plan my day", "got done", "completed this week",
+    "task banana", "task banao", "kaam add", "yaad dilana",
+    "hata do", "delete karo", "complete kar", "done mark",
+    "shift karo", "badal do", "kal shift", "aaj ke tasks",
+  ];
+  if (directSignals.some(s => lower.includes(s))) return true;
+
+  if (/\b(tasks?|todos?|to-dos?|reminders?)\b/.test(lower)) return true;
+
+  const dateOrTime =
+    /\b(today|tomorrow|tonight|morning|afternoon|evening|night|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/.test(lower) ||
+    /\b\d{1,2}(:\d{2})?\s?(am|pm)\b/.test(lower) ||
+    /\b(aaj|kal|parso|subah|dopahar|shaam|raat)\b/.test(lower);
+
+  const taskVerb =
+    /\b(buy|call|email|finish|submit|pay|pack|clean|visit|meet|gym|doctor|hospital|appointment|meeting)\b/.test(lower) ||
+    /\b(karna hai|jana hai|jaana hai|laana hai|lana hai|banana hai|bhejna hai)\b/.test(lower);
+
+  return dateOrTime && taskVerb;
+}
+
+/**
+ * Backward-compatible helper: true means no tools needed.
+ */
+export function isSimpleQuery(text: string): boolean {
+  return !shouldUseTaskTools(text);
 }
