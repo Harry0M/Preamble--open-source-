@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -30,6 +31,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
@@ -63,6 +66,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -128,6 +132,7 @@ fun AiChatScreen(
                 ?.and(WindowManager.LayoutParams.SOFT_INPUT_MASK_STATE)
                 ?: 0
             window?.setSoftInputMode(stateMode or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+            Unit
         }
     }
     SideEffect { applyChatSoftInputMode() }
@@ -194,7 +199,7 @@ fun AiChatScreen(
                     modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                     state = listState,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(top = 52.dp, bottom = 8.dp)
+                    contentPadding = PaddingValues(top = 52.dp, bottom = 100.dp)
                 ) {
                     items(visibleMessages, key = { it.id }) { msg ->
                         MessageRow(
@@ -242,287 +247,215 @@ fun AiChatScreen(
 
             AnimatedVisibility(
                 visible = showOptions,
-                enter = expandVertically(),
-                exit = shrinkVertically(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .padding(top = 6.dp, bottom = 74.dp),
+                enter = expandVertically(expandFrom = Alignment.Bottom),
+                exit = shrinkVertically(shrinkTowards = Alignment.Bottom),
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(22.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 5.dp,
+                    shadowElevation = 5.dp,
                 ) {
-                    // Credit balance + Watch Ad row
-                    if (isLoggedIn) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    "⚡",
-                                    fontSize = 14.sp,
-                                )
-                                Text(
-                                    " $creditBalance credits",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = if (creditBalance > 0) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.error,
-                                )
-                            }
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.clickable {
-                                    val activity = context as? Activity
-                                    if (activity != null) {
-                                        AiCreditsManager.showAdForCredits(
-                                            activity,
-                                            onReward = { newBal ->
-                                                adMessage = "✅ +10 credits! Balance: $newBal"
-                                            },
-                                            onError = { err ->
-                                                adMessage = err
-                                            },
-                                        )
-                                    }
-                                },
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        // Credit balance + Watch Ad row
+                        if (isLoggedIn) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "⚡",
+                                        fontSize = 14.sp,
+                                    )
+                                    Text(
+                                        " $creditBalance credits",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = if (creditBalance > 0) MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.error,
+                                    )
+                                }
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.clickable {
+                                        val activity = context as? Activity
+                                        if (activity != null) {
+                                            AiCreditsManager.showAdForCredits(
+                                                activity,
+                                                onReward = { newBal ->
+                                                    adMessage = "✅ +10 credits! Balance: $newBal"
+                                                },
+                                                onError = { err ->
+                                                    adMessage = err
+                                                },
+                                            )
+                                        }
+                                    },
                                 ) {
-                                    if (isAdLoading) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(12.dp),
-                                            strokeWidth = 1.5.dp,
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        if (isAdLoading) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(12.dp),
+                                                strokeWidth = 1.5.dp,
+                                                color = MaterialTheme.colorScheme.onPrimary,
+                                            )
+                                        } else {
+                                            Icon(
+                                                Icons.Filled.PlayCircle,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(14.dp),
+                                                tint = MaterialTheme.colorScheme.onPrimary,
+                                            )
+                                        }
+                                        Text(
+                                            "Watch Ad +10",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = FontWeight.SemiBold,
                                             color = MaterialTheme.colorScheme.onPrimary,
                                         )
-                                    } else {
-                                        Icon(
-                                            Icons.Filled.PlayCircle,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(14.dp),
-                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                    }
+                                }
+                            }
+
+                            // Ad result message
+                            if (adMessage != null) {
+                                Text(
+                                    adMessage ?: "",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (adMessage?.startsWith("✅") == true) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.error,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { adMessage = null }
+                                        .padding(vertical = 2.dp),
+                                )
+                            }
+                        }
+
+                        Text(
+                            "Model",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Row(
+                            modifier = Modifier.horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            // Auto = Flash (thinking). Flash Lite = explicit lite/free mode.
+                            // Mistral models are premium (daily token budget, refillable via ads).
+                            val models = listOf(
+                                "" to "Auto",
+                                "gemini-2.5-flash-lite" to "Flash Lite",
+                                "mistral-small-latest" to "Mistral",
+                                "mistral-medium-latest" to "Mistral+",
+                            )
+                            for ((id, label) in models) {
+                                val selected = chatModelOverride == id
+                                val isPremium = id.contains("mistral")
+                                val badge = when {
+                                    id.isBlank() || id.contains("flash") -> "FREE"
+                                    id.contains("mistral-medium") -> "DAILY"
+                                    else -> "DAILY"
+                                }
+
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = if (selected) MaterialTheme.colorScheme.primaryContainer
+                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.clickable { viewModel.setChatModel(id) },
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                    ) {
+                                        Text(
+                                            label,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                        )
+                                        Text(
+                                            badge,
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontSize = 9.sp,
+                                            color = if (!isPremium) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                                    else MaterialTheme.colorScheme.tertiary.copy(alpha = 0.8f),
+                                            fontWeight = FontWeight.Bold,
                                         )
                                     }
-                                    Text(
-                                        "Watch Ad +10",
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = MaterialTheme.colorScheme.onPrimary,
-                                    )
                                 }
                             }
                         }
-
-                        // Ad result message
-                        if (adMessage != null) {
-                            Text(
-                                adMessage ?: "",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (adMessage?.startsWith("✅") == true) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.error,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { adMessage = null }
-                                    .padding(vertical = 2.dp),
-                            )
-                        }
-                    }
-
-                    Text(
-                        "Model",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Row(
-                        modifier = Modifier.horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        // Auto = Flash (thinking). Flash Lite = explicit lite/free mode.
-                        // Mistral models are premium (daily token budget, refillable via ads).
-                        val models = listOf(
-                            "" to "Auto",
-                            "gemini-2.5-flash-lite" to "Flash Lite",
-                            "mistral-small-latest" to "Mistral",
-                            "mistral-medium-latest" to "Mistral+",
+                        Text(
+                            "Response Style",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.SemiBold,
                         )
-                        for ((id, label) in models) {
-                            val selected = chatModelOverride == id
-                            val isPremium = id.contains("mistral")
-                            val badge = when {
-                                id.isBlank() || id.contains("flash") -> "FREE"
-                                id.contains("mistral-medium") -> "DAILY"
-                                else -> "DAILY"
-                            }
-
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = if (selected) MaterialTheme.colorScheme.primaryContainer
-                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.clickable { viewModel.setChatModel(id) },
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            for ((enabled, label) in listOf(true to "Concise", false to "Normal")) {
+                                val selected = conciseMode == enabled
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = if (selected) MaterialTheme.colorScheme.primaryContainer
+                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.clickable { viewModel.setConciseMode(enabled) },
                                 ) {
                                     Text(
                                         label,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                         style = MaterialTheme.typography.labelMedium,
                                         color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
                                                 else MaterialTheme.colorScheme.onSurfaceVariant,
                                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                                     )
-                                    Text(
-                                        badge,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontSize = 9.sp,
-                                        color = if (!isPremium) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                                                else MaterialTheme.colorScheme.tertiary.copy(alpha = 0.8f),
-                                        fontWeight = FontWeight.Bold,
-                                    )
                                 }
-                            }
-                        }
-                    }
-                    Text(
-                        "Response Style",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        for ((enabled, label) in listOf(true to "Concise", false to "Normal")) {
-                            val selected = conciseMode == enabled
-                            Surface(
-                                shape = RoundedCornerShape(20.dp),
-                                color = if (selected) MaterialTheme.colorScheme.primaryContainer
-                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.clickable { viewModel.setConciseMode(enabled) },
-                            ) {
-                                Text(
-                                    label,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = if (showOptions) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.primaryContainer,
-                    tonalElevation = 4.dp,
-                    shadowElevation = 4.dp,
-                    modifier = Modifier
-                        .size(46.dp)
-                        .clip(CircleShape)
-                        .clickable { showOptions = !showOptions },
-                ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Filled.Tune,
-                            contentDescription = "Options",
-                            modifier = Modifier.size(20.dp),
-                            tint = if (showOptions) MaterialTheme.colorScheme.onPrimary
-                                   else MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-                Surface(
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    tonalElevation = 4.dp,
-                    shadowElevation = 4.dp,
-                    border = BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
-                    ),
-                ) {
-                    Row(
-                        modifier = Modifier.padding(start = 4.dp, end = 5.dp),
-                        verticalAlignment = Alignment.Bottom,
-                    ) {
-                        androidx.compose.material3.TextField(
-                            value = input,
-                            onValueChange = { input = it },
-                            modifier = Modifier
-                                .weight(1f)
-                                .onFocusChanged { focusState ->
-                                    if (focusState.isFocused) applyChatSoftInputMode()
-                                },
-                            placeholder = {
-                                Text(
-                                    "Ask anything...",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.58f),
-                                )
-                            },
-                            keyboardOptions = KeyboardOptions(
-                                capitalization = KeyboardCapitalization.Sentences,
-                                imeAction = ImeAction.Send,
-                            ),
-                            maxLines = 5,
-                            textStyle = MaterialTheme.typography.bodyLarge,
-                            colors = androidx.compose.material3.TextFieldDefaults.colors(
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent,
-                                disabledIndicatorColor = Color.Transparent,
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                disabledContainerColor = Color.Transparent,
-                                cursorColor = MaterialTheme.colorScheme.primary,
-                            ),
-                        )
-                        val canSend = input.isNotBlank() && !isSending
-                        Surface(
-                            shape = CircleShape,
-                            color = if (canSend) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.surface,
-                            tonalElevation = if (canSend) 2.dp else 0.dp,
-                            modifier = Modifier
-                                .padding(bottom = 7.dp)
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .clickable(enabled = canSend) {
-                                    viewModel.send(input.trim())
-                                    input = ""
-                                    keyboard?.hide()
-                                },
-                        ) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Icon(
-                                    Icons.AutoMirrored.Filled.Send,
-                                    contentDescription = "Send",
-                                    modifier = Modifier.size(18.dp),
-                                    tint = if (canSend) MaterialTheme.colorScheme.onPrimary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f),
-                                )
                             }
                         }
                     }
                 }
             }
         }
+
+        AiChatComposer(
+            input = input,
+            onInputChange = { input = it },
+            showOptions = showOptions,
+            onToggleOptions = { showOptions = !showOptions },
+            isSending = isSending,
+            onFocus = applyChatSoftInputMode,
+            onSend = {
+                if (input.isNotBlank() && !isSending) {
+                    viewModel.send(input.trim())
+                    input = ""
+                    keyboard?.hide()
+                }
+            },
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+        )
 
         AiChatHeader(
             onOpenChats = { showChatSheet = true },
@@ -545,6 +478,124 @@ fun AiChatScreen(
             },
             onDelete = { cid -> viewModel.deleteConversation(cid) },
         )
+    }
+}
+
+@Composable
+private fun AiChatComposer(
+    input: String,
+    onInputChange: (String) -> Unit,
+    showOptions: Boolean,
+    onToggleOptions: () -> Unit,
+    isSending: Boolean,
+    onFocus: () -> Unit,
+    onSend: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val canSend = input.isNotBlank() && !isSending
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.Bottom,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = if (showOptions) MaterialTheme.colorScheme.primary
+            else MaterialTheme.colorScheme.primaryContainer,
+            tonalElevation = 5.dp,
+            shadowElevation = 5.dp,
+            modifier = Modifier
+                .size(46.dp)
+                .clip(CircleShape)
+                .clickable { onToggleOptions() },
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Filled.Tune,
+                    contentDescription = "Options",
+                    modifier = Modifier.size(19.dp),
+                    tint = if (showOptions) MaterialTheme.colorScheme.onPrimary
+                           else MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+
+        Surface(
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(26.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = 5.dp,
+            shadowElevation = 5.dp,
+        ) {
+            Row(
+                modifier = Modifier
+                    .heightIn(min = 46.dp)
+                    .padding(start = 15.dp, end = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BasicTextField(
+                    value = input,
+                    onValueChange = onInputChange,
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { focusState ->
+                            if (focusState.isFocused) onFocus()
+                        },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Send,
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onSend = {
+                            if (canSend) onSend()
+                        },
+                    ),
+                    maxLines = 4,
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.CenterStart,
+                        ) {
+                            if (input.isBlank()) {
+                                Text(
+                                    "Ask anything...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.58f),
+                                )
+                            }
+                            innerTextField()
+                        }
+                    },
+                )
+
+                Surface(
+                    shape = CircleShape,
+                    color = if (canSend) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.surface,
+                    tonalElevation = if (canSend) 2.dp else 0.dp,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .clickable(enabled = canSend) { onSend() },
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send",
+                            modifier = Modifier.size(17.dp),
+                            tint = if (canSend) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
