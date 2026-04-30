@@ -89,7 +89,13 @@ object ChatPromptFactory {
 
     fun shouldAttemptMemoryExtraction(text: String): Boolean {
         val lower = text.lowercase().trim()
-        if (lower.length < 20) return false
+        if (lower.length < 12) return false
+
+        if (Regex("\\b(forget|remove|delete|don't remember|do not remember|stop remembering)\\b").containsMatchIn(lower) ||
+            Regex("\\b(yaad mat rakh|bhool ja|bhul ja|delete kar|hata do)\\b").containsMatchIn(lower)
+        ) {
+            return true
+        }
 
         val knowledgeQuestion =
             Regex("^(what|who|when|where|why|how|explain|define|describe|tell me)\\b").containsMatchIn(lower) ||
@@ -101,8 +107,13 @@ object ChatPromptFactory {
         val durableSignals = listOf(
             "my name is", "i am", "i'm", "i work", "i live", "i study",
             "i like", "i love", "i hate", "i prefer", "my goal", "my dream",
+            "my plan is to", "i want to become", "i'm trying to", "i am trying to",
+            "i usually", "i always", "i mostly", "i often", "i never",
+            "my timezone", "my city", "my job", "my college", "my school",
             "my wife", "my husband", "my sister", "my brother", "my friend",
-            "mera naam", "main ", "mein ", "mujhe pasand", "meri goal",
+            "my father", "my mother", "my son", "my daughter",
+            "mera naam", "meri naam", "main ", "mein ", "mujhe pasand", "meri goal",
+            "mera goal", "main chahta", "main chahti", "main padh", "main kaam",
         )
         return durableSignals.any { it in lower }
     }

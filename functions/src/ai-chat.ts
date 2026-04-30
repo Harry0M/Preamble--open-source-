@@ -77,6 +77,27 @@ function safeClientMessageId(value: unknown): string | null {
   return value;
 }
 
+function shouldIncludeMemory(message: string | null, taskToolsEnabled: boolean): boolean {
+  if (!message) return true;
+  const lower = message.toLowerCase().trim();
+  if (taskToolsEnabled) return true;
+  if (/\b(i|my|me|myself|i'm|i've|mera|meri|mere|mujhe|main|mein|hum|hamara)\b/i.test(lower)) return true;
+  if (/\b(plan|focus|routine|goal|habit|preference|remember|forget|personal|profile)\b/i.test(lower)) return true;
+  const genericQuestion =
+    /^(what|who|when|where|why|how|explain|define|describe|tell me)\b/.test(lower) ||
+    /^(kya|kaun|kab|kahan|kyu|kyon|kaise)\b/.test(lower);
+  return !genericQuestion;
+}
+
+function cleanMemoryKey(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 64);
+}
+
 async function saveMessage(msgCol: any, clientMessageId: string | null, data: Record<string, any>) {
   if (clientMessageId) {
     await msgCol.doc(clientMessageId).set(data, { merge: true });
@@ -118,6 +139,7 @@ export const aiChat = onRequest(
     const requestedModel: string | undefined = req.body.model;
     const model: string = requestedModel || config.chatModel || DEFAULT_MODEL;
     const mode: string = req.body.mode || DEFAULT_MODE;
+    const smartMode: boolean = req.body.smartMode !== false;
     const conversationId: string = req.body.conversationId || "default";
     const userMessageId = safeClientMessageId(req.body.userMessageId);
     const assistantMessageId = safeClientMessageId(req.body.assistantMessageId);
@@ -180,17 +202,40 @@ export const aiChat = onRequest(
       const historyWindow = isSimpleQuery ? Math.min(4, baseWindow) : baseWindow;
 
       // --- Pull compact user memory ---
-      const memorySnap = await db.collection(`users/${uid}/ai_memory`)
-        .orderBy("lastUsedAt", "desc").limit(12).get();
-      const memoryFacts: MemoryFact[] = memorySnap.docs.map(d => ({
-        key: d.data().key,
-        value: d.data().value,
-        category: d.data().category || "context",
-      }));
+      let memoryFacts: MemoryFact[] = [];
+      if (smartMode) {
+        const memorySnap = await db.collection(`users/${uid}/ai_memory`)
+          .orderBy("lastUsedAt", "desc").limit(50).get();
+        const byKey = new Map<string, MemoryFact>();
+        const duplicateRefs: any[] = [];
+        for (const doc of memorySnap.docs) {
+          const data = doc.data();
+          const key = cleanMemoryKey(data.key);
+          const value = String(data.value || "").trim();
+          if (!key || !value) continue;
+          if (byKey.has(key)) {
+            duplicateRefs.push(doc.ref);
+            continue;
+          }
+          byKey.set(key, {
+            key,
+            value,
+            category: data.category || "context",
+            confidence: data.confidence || 0.8,
+            lastUsedAt: data.lastUsedAt || 0,
+            source: data.source || "chat",
+          });
+        }
+        memoryFacts = [...byKey.values()];
+        if (duplicateRefs.length > 0) {
+          Promise.all(duplicateRefs.map(ref => ref.delete())).catch(() => {});
+        }
+      }
 
       const userName = userDoc.data()?.displayName || userDoc.data()?.name || "";
-      const needsMemory = !message || /\b(i|my|me|myself|i'm|i've|mera|mujhe|main|mein)\b/i.test(message);
-      const memoryContext = needsMemory ? buildMemoryContext(memoryFacts, userName) : "";
+      const memoryContext = smartMode && shouldIncludeMemory(message, taskToolsEnabled)
+        ? buildMemoryContext(memoryFacts, userName, message || undefined)
+        : "";
 
       // --- Pull task context only for task-related turns ---
       let taskContext = "";
@@ -216,12 +261,21 @@ export const aiChat = onRequest(
         .reverse()
         .filter(m => (m.role === "user" || m.role === "assistant") && m.content);
 
+      const summarySnap = await db.collection(`users/${uid}/ai_chat/${conversationId}/messages`)
+        .where("role", "==", "summary")
+        .limit(1)
+        .get();
+      const conversationSummary = summarySnap.docs
+        .map(d => String(d.data().content || "").trim())
+        .find(Boolean) || "";
+
       // --- Build lean chat instruction ---
       const systemPrompt = buildChatSystemPrompt({
         conciseMode: mode === "concise",
         taskToolsEnabled,
         memoryContext,
         taskContext,
+        conversationSummary,
       });
 
       // --- Build messages ---
@@ -434,8 +488,8 @@ export const aiChat = onRequest(
       }
 
       // --- Async memory extraction ---
-      if (message && GEMINI_KEY && shouldAttemptMemoryExtraction(message)) {
-        extractMemoryFacts(uid, message, GEMINI_KEY, db, config.memoryModel).catch(() => {});
+      if (smartMode && message && GEMINI_KEY && shouldAttemptMemoryExtraction(message)) {
+        extractMemoryFacts(uid, message, GEMINI_KEY, db, config.memoryModel, memoryFacts).catch(() => {});
       }
 
       const dt = Date.now() - startedAt;

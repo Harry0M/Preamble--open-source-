@@ -72,7 +72,12 @@ fun AiMemoryBottomSheet(onDismiss: () -> Unit) {
     var isExtracting by remember { mutableStateOf(false) }
     var feedback by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) { runCatching { repo.pullRemote() } }
+    LaunchedEffect(Unit) {
+        runCatching {
+            repo.pullRemote()
+            repo.cleanupDuplicateKeys()
+        }
+    }
 
     // Auto-clear feedback after 3 seconds
     LaunchedEffect(feedback) {

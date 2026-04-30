@@ -51,7 +51,7 @@ class AiMemoryRepository private constructor(
         source: String,
     ): AiMemoryEntity? = withContext(Dispatchers.IO) {
         val u = uid()
-        val cleanKey = key.trim().lowercase()
+        val cleanKey = cleanMemoryKey(key)
         val cleanValue = value.trim()
         if (cleanKey.isBlank() || cleanValue.isBlank()) return@withContext null
 
@@ -87,6 +87,7 @@ class AiMemoryRepository private constructor(
         }
         dao.upsert(entity)
         if (isLoggedIn()) syncOne(entity)
+        pruneDuplicateKey(u, cleanKey, keepId = entity.id)
         entity
     }
 
@@ -98,6 +99,20 @@ class AiMemoryRepository private constructor(
             firestore.collection("users").document(u)
                 .collection("ai_memory").document(id).delete()
         }.onFailure { Log.w(TAG, "Firestore delete failed", it) }
+    }
+
+    suspend fun deleteByKey(key: String): Boolean = withContext(Dispatchers.IO) {
+        val cleanKey = cleanMemoryKey(key)
+        if (cleanKey.isBlank()) return@withContext false
+        val rows = dao.snapshot(uid(), limit = 5000)
+            .filter { cleanMemoryKey(it.key) == cleanKey }
+        if (rows.isEmpty()) return@withContext false
+        rows.forEach { deleteMemoryRow(it.id) }
+        true
+    }
+
+    suspend fun cleanupDuplicateKeys(): Int = withContext(Dispatchers.IO) {
+        pruneDuplicateKeys(uid())
     }
 
     suspend fun clearAll() = withContext(Dispatchers.IO) {
@@ -126,7 +141,8 @@ class AiMemoryRepository private constructor(
             val snapshot = firestore.collection("users").document(u)
                 .collection("ai_memory").get().await()
             val remote = snapshot.documents.mapNotNull { doc ->
-                val key = doc.getString("key") ?: return@mapNotNull null
+                val key = cleanMemoryKey(doc.getString("key") ?: return@mapNotNull null)
+                if (key.isBlank()) return@mapNotNull null
                 val value = doc.getString("value") ?: return@mapNotNull null
                 AiMemoryEntity(
                     id = doc.id,
@@ -142,6 +158,7 @@ class AiMemoryRepository private constructor(
                 )
             }
             if (remote.isNotEmpty()) dao.upsertAll(remote)
+            pruneDuplicateKeys(u)
             remote.size
         }.onFailure { Log.w(TAG, "pullRemote failed", it) }.getOrDefault(0)
     }
@@ -156,15 +173,18 @@ class AiMemoryRepository private constructor(
 
     /**
      * Build compact, token-budgeted context block for injection into system prompt.
-     * Sorted by recency, capped at ~400 tokens worth (roughly 1600 chars).
+     * Ranked by importance, confidence, recency and query relevance, then capped
+     * at ~400 tokens worth (roughly 1600 chars).
      */
-    suspend fun buildPromptSnapshot(maxChars: Int = 1600): String? {
-        val items = snapshot(limit = 40)
+    suspend fun buildPromptSnapshot(maxChars: Int = 1600, query: String? = null): String? {
+        pruneDuplicateKeys(uid())
+        val items = snapshot(limit = 40).rankForPrompt(query)
         if (items.isEmpty()) return null
 
         val profile = runCatching { UserProfileStore.load(appContext) }.getOrNull()
         val sb = StringBuilder()
         sb.appendLine("USER CONTEXT (long-term memory — use naturally, don't announce):")
+        sb.appendLine("  Use only when relevant; latest user message overrides memory if there is conflict.")
         profile?.name?.takeIf { it.isNotBlank() }?.let { sb.appendLine("  - Name: $it") }
         profile?.role?.label?.let { sb.appendLine("  - Role: $it") }
         profile?.effectiveGoals
@@ -210,6 +230,126 @@ class AiMemoryRepository private constructor(
                 .await()
             dao.markSynced(entity.id)
         }.onFailure { Log.w(TAG, "Firestore sync failed for ${entity.id}", it) }
+    }
+
+    private suspend fun pruneDuplicateKey(userId: String, key: String, keepId: String? = null): Int {
+        return pruneDuplicateKeys(userId, onlyKey = key, keepId = keepId)
+    }
+
+    private suspend fun pruneDuplicateKeys(
+        userId: String,
+        onlyKey: String? = null,
+        keepId: String? = null,
+    ): Int {
+        val rows = dao.snapshot(userId, limit = 5000)
+            .filter { onlyKey == null || cleanMemoryKey(it.key) == onlyKey }
+        val grouped = rows.groupBy { cleanMemoryKey(it.key) }.filterKeys { it.isNotBlank() }
+        var removed = 0
+
+        for ((key, group) in grouped) {
+            if (group.size <= 1) {
+                val single = group.firstOrNull()
+                if (single != null && single.key != key) {
+                    val normalized = single.copy(key = key, syncPending = 1)
+                    dao.upsert(normalized)
+                    if (isLoggedIn()) syncOne(normalized)
+                }
+                continue
+            }
+
+            val keep = group.firstOrNull { it.id == keepId } ?: chooseCanonical(group)
+            val normalizedKeep = if (keep.key != key) keep.copy(key = key, syncPending = 1) else keep
+            if (normalizedKeep != keep) {
+                dao.upsert(normalizedKeep)
+                if (isLoggedIn()) syncOne(normalizedKeep)
+            }
+
+            for (row in group) {
+                if (row.id == keep.id) continue
+                deleteMemoryRow(row.id)
+                removed++
+            }
+        }
+
+        if (removed > 0) Log.d(TAG, "Pruned $removed duplicate memories")
+        return removed
+    }
+
+    private fun chooseCanonical(rows: List<AiMemoryEntity>): AiMemoryEntity {
+        return rows.maxWith(
+            compareBy<AiMemoryEntity> { it.lastUsedAt }
+                .thenBy { it.createdAt }
+                .thenBy { it.confidence }
+        )
+    }
+
+    private suspend fun deleteMemoryRow(id: String) {
+        dao.delete(id)
+        if (!isLoggedIn()) return
+        val u = uid()
+        runCatching {
+            firestore.collection("users").document(u)
+                .collection("ai_memory").document(id).delete()
+                .await()
+        }.onFailure { Log.w(TAG, "Firestore duplicate delete failed for $id", it) }
+    }
+
+    private fun List<AiMemoryEntity>.rankForPrompt(query: String?): List<AiMemoryEntity> {
+        return groupBy { cleanMemoryKey(it.key) }
+            .values
+            .map { chooseCanonical(it) }
+            .sortedByDescending { memoryScore(it, query) }
+            .take(16)
+    }
+
+    private fun cleanMemoryKey(key: String): String =
+        key.trim()
+            .lowercase()
+            .replace(Regex("[^a-z0-9_]+"), "_")
+            .trim('_')
+            .take(64)
+
+    private fun memoryScore(memory: AiMemoryEntity, query: String?): Double {
+        val categoryBase = when (memory.category.lowercase()) {
+            "identity" -> 5.0
+            "relationship" -> 4.0
+            "preference" -> 4.0
+            "goal" -> 4.0
+            "interest" -> 2.5
+            "context" -> 2.0
+            else -> 1.5
+        }
+        var score = categoryBase
+        score += memory.confidence.coerceIn(0f, 1f).toDouble() * 2.0
+        if (memory.source == "onboarding" || memory.source == "user_edit") score += 1.5
+
+        val ageDays = ((System.currentTimeMillis() - memory.lastUsedAt).coerceAtLeast(0L)) / 86_400_000.0
+        score += (2.0 - ageDays.coerceAtMost(60.0) / 30.0).coerceAtLeast(0.0)
+
+        val tokens = queryTokens(query)
+        if (tokens.isNotEmpty()) {
+            val haystack = "${memory.key} ${memory.value} ${memory.category}".lowercase()
+            val hits = tokens.count { haystack.contains(it) }
+            score += (hits * 2.5).coerceAtMost(5.0)
+        }
+
+        if (cleanMemoryKey(memory.key) in setOf("name", "role", "language", "timezone", "primary_goals")) {
+            score += 2.0
+        }
+        return score
+    }
+
+    private fun queryTokens(query: String?): Set<String> {
+        if (query.isNullOrBlank()) return emptySet()
+        val stop = setOf(
+            "the", "and", "for", "you", "are", "what", "who", "when", "where", "why", "how",
+            "tell", "about", "mera", "meri", "mere", "mujhe", "main", "mein", "kya", "kaise",
+            "hai", "ho", "hu", "hun", "kar", "karo", "please", "pls",
+        )
+        return query.lowercase()
+            .split(Regex("[^a-z0-9]+"))
+            .filter { it.length >= 3 && it !in stop }
+            .toSet()
     }
 
     /**

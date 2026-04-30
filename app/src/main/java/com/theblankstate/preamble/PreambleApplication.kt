@@ -116,6 +116,7 @@ class PreambleApplication : Application() {
             try {
                 val mem = com.theblankstate.preamble.ai.AiMemoryRepository.get(this@PreambleApplication)
                 mem.pullRemote()
+                mem.cleanupDuplicateKeys()
                 mem.flushPending()
             } catch (e: Exception) {
                 android.util.Log.w("PreambleApp", "Memory bootstrap failed", e)

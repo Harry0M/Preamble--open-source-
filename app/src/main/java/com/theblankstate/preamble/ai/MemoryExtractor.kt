@@ -2,8 +2,10 @@ package com.theblankstate.preamble.ai
 
 import android.content.Context
 import android.util.Log
+import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.theblankstate.preamble.BuildConfig
+import com.theblankstate.preamble.data.AiMemoryEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -28,57 +30,49 @@ object MemoryExtractor {
     private const val TAG = "MemoryExtractor"
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val gson = Gson()
 
     private fun buildProvider(): AiProvider? = AiProviderFactory.memory()
 
     private fun buildPrompt(): String {
         return """
-You are a memory triage agent. Given a user message, decide what (if anything) to save to LONG-TERM MEMORY.
+You are Preamble's long-term memory controller. Decide whether the latest USER message should change permanent memory.
 
-## Two tiers — pick the right one:
-MEMORY = permanent, cross-chat user facts. Survives forever. Shared across ALL chats.
-  → identity (name, age, gender, location, job, timezone)
-  → stable preferences (language, theme, work style, likes/dislikes)
-  → long-term goals (career, health, learning targets)
-  → enduring interests (hobbies, passions, favorite topics)
-  → relationships (family names, key people)
+Memory is durable, cross-chat user knowledge. It should help future replies without the user repeating themselves.
 
-CONTEXT = ephemeral, only relevant to THIS conversation. Do NOT save these.
-  → what user just asked about, current task discussion
-  → today's plan, today's mood, one-off decisions
-  → generic knowledge questions ("what is Asia", "scientific name of X")
-  → greetings, confirmations, task additions, reminders
+Save only facts that are:
+- stable beyond this chat or likely useful for many future chats
+- about the user or the user's close relationships
+- explicitly stated by the user, not inferred from the assistant
+- safe to store
 
-## Output
-JSON array. Each element: {"key":<snake_case>,"value":<short phrase ≤60 chars>,"category":<identity|preference|goal|interest|relationship>,"confidence":<0.7-1.0>}
-Return [] if nothing qualifies as MEMORY.
-No markdown, no prose, no explanation. ONLY the JSON array.
+Allowed categories:
+- identity: name, age range, role, job/study, city/region, timezone, language
+- preference: communication style, UI/style preferences, likes/dislikes, work style
+- goal: long-term career, health, study, habit, or learning goals
+- interest: enduring hobbies, favorite topics, recurring passions
+- relationship: close people and their stable details
+- context: stable background such as "night-shift worker", "preparing for UPSC", "runs a small shop"
 
-## Rules
-- ONLY emit MEMORY-tier facts about the USER themselves.
-- Confidence ≥ 0.7 or skip.
-- Keys: lowercase snake_case english. Values: user's language or english.
-- NEVER save: task content, reminders, generic questions, greetings, ephemeral plans, knowledge queries.
-- When unsure → []. Being conservative is correct.
+Never save:
+- passwords, OTPs, API keys, auth tokens, card/bank/government IDs, private exact addresses
+- medical/legal/financial secrets unless user explicitly asks to remember a non-sensitive preference
+- one-off tasks, reminders, shopping items, today's plan, current mood, greetings, confirmations
+- generic knowledge questions or facts not about the user
+- guesses, stereotypes, diagnoses, or anything the user did not clearly say
 
-## Examples
-"mera naam Harry hai aur mujhe filmmaking pasand hai"
-[{"key":"name","value":"Harry","category":"identity","confidence":0.95},{"key":"interest_filmmaking","value":"filmmaking","category":"interest","confidence":0.9}]
+Use existing memory to avoid duplicates and handle corrections:
+- If the message corrects an old fact, upsert the same key with the new value.
+- If the user asks to forget/remove something, emit a delete op for the matching key.
+- If a new fact overlaps an existing key, prefer updating that key over creating a near-duplicate.
 
-"remind me to pick up milk at 7pm" → []
-"what is Asia" → []
-"add gym task for tomorrow" → []
-"how many days in a week" → []
+Output ONLY a JSON array. No markdown, no prose.
+Each item:
+{"op":"upsert","key":"snake_case","value":"short phrase <=80 chars","category":"identity|preference|goal|interest|relationship|context","confidence":0.7-1.0}
+or:
+{"op":"delete","key":"snake_case","value":"","category":"context","confidence":0.8-1.0}
 
-"I'm a CS student at IIT Delhi, I work mostly at night"
-[{"key":"education","value":"CS student at IIT Delhi","category":"identity","confidence":0.9},{"key":"work_time","value":"night owl","category":"preference","confidence":0.8}]
-
-"my sister's name is Priya and she lives in Mumbai"
-[{"key":"sister_name","value":"Priya","category":"relationship","confidence":0.9},{"key":"sister_location","value":"Mumbai","category":"relationship","confidence":0.85}]
-
-"I prefer dark mode and minimal UI" → [{"key":"ui_preference","value":"dark mode, minimal","category":"preference","confidence":0.9}]
-"call done" → []
-"what should I focus on today" → []
+Return [] when nothing should change. Be conservative.
         """.trimIndent()
     }
 
@@ -101,8 +95,9 @@ No markdown, no prose, no explanation. ONLY the JSON array.
         val repo = AiMemoryRepository.get(context)
         val logger = AiProcessLogger.get(context)
 
+        val existing = repo.snapshot(limit = 40)
         val sys = ChatMessage("system", buildPrompt())
-        val usr = ChatMessage("user", userMessage)
+        val usr = ChatMessage("user", buildUserPayload(existing, userMessage))
 
         val t0 = System.currentTimeMillis()
         val response = try {
@@ -128,9 +123,14 @@ No markdown, no prose, no explanation. ONLY the JSON array.
 
         var saved = 0
         for (fact in facts) {
-            val key = fact.key.ifBlank { continue }
-            val value = fact.value.ifBlank { continue }
+            val key = cleanKey(fact.key).ifBlank { continue }
+            val value = cleanValue(fact.value)
             if (fact.confidence < 0.7f) continue
+            if (fact.op == "delete") {
+                if (repo.deleteByKey(key)) saved++
+                continue
+            }
+            if (value.isBlank() || isLikelySensitiveMemory(key, value)) continue
             val saved0 = repo.save(key, value, fact.category, fact.confidence, source = "chat")
             if (saved0 != null) saved++
         }
@@ -153,11 +153,28 @@ No markdown, no prose, no explanation. ONLY the JSON array.
     }
 
     private data class Fact(
+        val op: String,
         val key: String,
         val value: String,
         val category: String,
         val confidence: Float,
     )
+
+    private fun buildUserPayload(existing: List<AiMemoryEntity>, userMessage: String): String {
+        val rows = existing.take(40).map {
+            mapOf(
+                "key" to it.key.take(64),
+                "value" to it.value.take(140),
+                "category" to it.category.take(32),
+            )
+        }
+        return gson.toJson(
+            mapOf(
+                "existing_memory" to rows,
+                "latest_user_message" to userMessage,
+            )
+        )
+    }
 
     private fun parseJsonArray(raw: String): List<Fact> {
         if (raw.isBlank()) return emptyList()
@@ -173,17 +190,46 @@ No markdown, no prose, no explanation. ONLY the JSON array.
             val arr = JsonParser.parseString(slice).asJsonArray
             arr.mapNotNull { el ->
                 val obj = el.asJsonObject
-                val key = obj.get("key")?.asString?.trim() ?: return@mapNotNull null
-                val value = obj.get("value")?.asString?.trim() ?: return@mapNotNull null
-                val cat = obj.get("category")?.asString?.trim()?.lowercase() ?: "context"
-                val conf = obj.get("confidence")?.asFloat ?: 0.7f
+                val opEl = obj.get("op")
+                val opRaw = if (opEl == null || opEl.isJsonNull) "upsert" else opEl.asString.trim().lowercase()
+                val op = if (opRaw == "delete") "delete" else "upsert"
+                val keyEl = obj.get("key")
+                val key = if (keyEl == null || keyEl.isJsonNull) return@mapNotNull null else keyEl.asString.trim()
+                val valueEl = obj.get("value")
+                val value = if (valueEl == null || valueEl.isJsonNull) "" else valueEl.asString.trim()
+                val catEl = obj.get("category")
+                val cat = if (catEl == null || catEl.isJsonNull) "context" else catEl.asString.trim().lowercase()
+                val confEl = obj.get("confidence")
+                val conf = if (confEl == null || confEl.isJsonNull) 0.7f else confEl.asFloat
                 val allowed = setOf("identity", "preference", "goal", "interest", "context", "relationship")
                 val cleanCat = if (cat in allowed) cat else "context"
-                Fact(key.lowercase(), value, cleanCat, conf)
+                Fact(op, key.lowercase(), value, cleanCat, conf)
             }
         }.getOrElse {
             Log.w(TAG, "parse failed: $slice", it)
             emptyList()
         }
+    }
+
+    private fun cleanKey(value: String): String =
+        value.trim()
+            .lowercase()
+            .replace(Regex("[^a-z0-9_]+"), "_")
+            .trim('_')
+            .take(64)
+
+    private fun cleanValue(value: String): String =
+        value.replace(Regex("\\s+"), " ")
+            .trim()
+            .take(120)
+
+    private fun isLikelySensitiveMemory(key: String, value: String): Boolean {
+        val combined = "$key $value".lowercase()
+        if (Regex("\\b(password|passcode|otp|one[_\\s-]?time|pin|api[_\\s-]?key|secret|token|bearer|private[_\\s-]?key)\\b").containsMatchIn(combined)) return true
+        if (Regex("\\b(card|credit|debit|cvv|cvc|bank|account|ifsc|routing|ssn|aadhaar|aadhar|pan card|passport)\\b").containsMatchIn(combined)) return true
+        if (Regex("\\b\\d{12,19}\\b").containsMatchIn(value.replace(Regex("[\\s-]"), ""))) return true
+        if (Regex("AIza[0-9A-Za-z_-]{20,}").containsMatchIn(value)) return true
+        if (Regex("sk-[0-9A-Za-z_-]{20,}").containsMatchIn(value)) return true
+        return false
     }
 }

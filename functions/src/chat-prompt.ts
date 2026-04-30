@@ -10,6 +10,9 @@ export interface MemoryFact {
   key: string;
   value: string;
   category: string;
+  confidence?: number;
+  lastUsedAt?: number;
+  source?: string;
 }
 
 function clean(value: unknown, max = 120): string {
@@ -19,28 +22,116 @@ function clean(value: unknown, max = 120): string {
     .slice(0, max);
 }
 
+function cleanKey(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 64);
+}
+
+function queryTokens(query?: string): Set<string> {
+  const stop = new Set([
+    "the", "and", "for", "you", "are", "what", "who", "when", "where", "why", "how",
+    "tell", "about", "mera", "meri", "mere", "mujhe", "main", "mein", "kya", "kaise",
+    "hai", "ho", "hu", "hun", "kar", "karo", "please", "pls",
+  ]);
+  return new Set(
+    String(query || "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(t => t.length >= 3 && !stop.has(t)),
+  );
+}
+
+function scoreMemory(fact: MemoryFact, query?: string): number {
+  const key = cleanKey(fact.key);
+  const value = clean(fact.value, 160).toLowerCase();
+  const category = clean(fact.category || "context", 24).toLowerCase();
+  const categoryWeight: Record<string, number> = {
+    identity: 5,
+    relationship: 4,
+    preference: 4,
+    goal: 4,
+    interest: 2.5,
+    context: 2,
+  };
+
+  let score = categoryWeight[category] ?? 1.5;
+  score += Math.min(Math.max(Number(fact.confidence ?? 0.8), 0), 1) * 2;
+  if (fact.source === "onboarding" || fact.source === "user_edit") score += 1.5;
+
+  const ageDays = fact.lastUsedAt
+    ? Math.max(0, (Date.now() - Number(fact.lastUsedAt)) / 86_400_000)
+    : 30;
+  score += Math.max(0, 2 - Math.min(ageDays, 60) / 30);
+
+  const tokens = queryTokens(query);
+  if (tokens.size > 0) {
+    const haystack = `${key} ${value} ${category}`;
+    let hits = 0;
+    for (const token of tokens) {
+      if (haystack.includes(token)) hits++;
+    }
+    score += Math.min(5, hits * 2.5);
+  }
+
+  // These are broadly useful profile anchors even when the current query is vague.
+  if (["name", "role", "language", "timezone", "primary_goals"].includes(key)) score += 2;
+  return score;
+}
+
+function rankMemories(memoryFacts: MemoryFact[], query?: string, maxFacts = 12): MemoryFact[] {
+  const byKey = new Map<string, MemoryFact>();
+  for (const fact of memoryFacts) {
+    const key = cleanKey(fact.key);
+    const value = clean(fact.value, 100);
+    if (!key || !value) continue;
+    const normalized = { ...fact, key, value };
+    const existing = byKey.get(key);
+    if (!existing || scoreMemory(normalized, query) > scoreMemory(existing, query)) {
+      byKey.set(key, normalized);
+    }
+  }
+
+  return [...byKey.values()]
+    .sort((a, b) => scoreMemory(b, query) - scoreMemory(a, query))
+    .slice(0, maxFacts);
+}
+
 export function buildMemoryContext(
   memoryFacts: MemoryFact[],
   userName: string,
+  query?: string,
   maxFacts = 12,
 ): string {
-  const lines: string[] = [];
+  const lines: string[] = [
+    "User memory. Use only when relevant, never announce it, and prefer newer facts if anything conflicts.",
+  ];
   const name = clean(userName, 60);
   if (name) lines.push(`- name: ${name}`);
 
-  for (const fact of memoryFacts.slice(0, maxFacts)) {
-    const key = clean(fact.key, 48);
-    const value = clean(fact.value, 100);
+  const categoryOrder = ["identity", "relationship", "preference", "goal", "interest", "context"];
+  const grouped = new Map<string, MemoryFact[]>();
+  for (const fact of rankMemories(memoryFacts, query, maxFacts)) {
     const category = clean(fact.category || "context", 24);
-    if (!key || !value) continue;
-    lines.push(`- ${category}.${key}: ${value}`);
+    grouped.set(category, [...(grouped.get(category) || []), fact]);
   }
 
-  if (lines.length === 0) return "";
-  return [
-    "User memory, for personalization only. Use naturally when relevant; do not mention this block.",
-    ...lines,
-  ].join("\n");
+  for (const category of [...categoryOrder, ...[...grouped.keys()].filter(c => !categoryOrder.includes(c))]) {
+    const rows = grouped.get(category);
+    if (!rows?.length) continue;
+    lines.push(`[${category}]`);
+    for (const fact of rows) {
+      const key = clean(fact.key, 48);
+      const value = clean(fact.value, 100);
+      if (!key || !value) continue;
+      lines.push(`- ${key}: ${value}`);
+    }
+  }
+
+  return lines.length > 1 ? lines.join("\n") : "";
 }
 
 export function buildTaskContext(tasks: TaskSnapshot[], maxTasks = 18): string {
@@ -67,6 +158,7 @@ export function buildChatSystemPrompt(opts: {
   taskToolsEnabled?: boolean;
   memoryContext?: string;
   taskContext?: string;
+  conversationSummary?: string;
 }): string {
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
@@ -89,6 +181,13 @@ export function buildChatSystemPrompt(opts: {
 
   if (opts.memoryContext) {
     lines.push("", opts.memoryContext);
+  }
+  if (opts.conversationSummary) {
+    lines.push(
+      "",
+      "Earlier conversation summary. Use for continuity only; latest user message overrides this if there is conflict.",
+      clean(opts.conversationSummary, 900),
+    );
   }
   if (opts.taskContext) {
     lines.push("", opts.taskContext);

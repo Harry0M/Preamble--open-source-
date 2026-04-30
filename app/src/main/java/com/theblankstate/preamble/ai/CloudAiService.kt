@@ -63,6 +63,7 @@ object CloudAiService {
         assistantMessageId: String? = null,
         model: String? = null,
         mode: String = "concise",
+        smartMode: Boolean = true,
         onDelta: suspend (String) -> Unit = {},
         onThinking: suspend (String) -> Unit = {},
         onToolCalls: suspend (List<CloudToolCall>) -> Unit = {},
@@ -79,6 +80,7 @@ object CloudAiService {
             put("message", message)
             put("conversationId", conversationId)
             put("mode", mode)
+            put("smartMode", smartMode)
             if (!userMessageId.isNullOrBlank()) put("userMessageId", userMessageId)
             if (!assistantMessageId.isNullOrBlank()) put("assistantMessageId", assistantMessageId)
             if (!model.isNullOrBlank()) put("model", model)

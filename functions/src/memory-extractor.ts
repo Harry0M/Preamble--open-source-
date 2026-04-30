@@ -5,39 +5,56 @@
 import { GoogleGenAI } from "@google/genai";
 import type { Firestore } from "firebase-admin/firestore";
 
-const EXTRACTION_PROMPT = `You are a memory triage agent. Given a user message, decide what (if anything) to save to LONG-TERM MEMORY.
+const EXTRACTION_PROMPT = `You are Preamble's long-term memory controller. Decide whether the latest USER message should change permanent memory.
 
-## Two tiers — pick the right one:
-MEMORY = permanent, cross-chat user facts. Survives forever. Shared across ALL chats.
-  → identity (name, age, gender, location, job, timezone)
-  → stable preferences (language, theme, work style, likes/dislikes)
-  → long-term goals (career, health, learning targets)
-  → enduring interests (hobbies, passions, favorite topics)
-  → relationships (family names, key people)
+Memory is durable, cross-chat user knowledge. It should help future replies without the user repeating themselves.
 
-CONTEXT = ephemeral, only relevant to THIS conversation. Do NOT save these.
-  → what user just asked about, current task discussion
-  → today's plan, today's mood, one-off decisions
-  → generic knowledge questions
-  → greetings, confirmations, task additions, reminders
+Save only facts that are:
+- stable beyond this chat or likely useful for many future chats
+- about the user or the user's close relationships
+- explicitly stated by the user, not inferred from the assistant
+- safe to store
 
-## Output
-JSON array. Each element: {"key":<snake_case>,"value":<short phrase ≤60 chars>,"category":<identity|preference|goal|interest|relationship>,"confidence":<0.7-1.0>}
-Return [] if nothing qualifies as MEMORY.
-No markdown, no prose, no explanation. ONLY the JSON array.
+Allowed categories:
+- identity: name, age range, role, job/study, city/region, timezone, language
+- preference: communication style, UI/style preferences, likes/dislikes, work style
+- goal: long-term career, health, study, habit, or learning goals
+- interest: enduring hobbies, favorite topics, recurring passions
+- relationship: close people and their stable details
+- context: stable background such as "night-shift worker", "preparing for UPSC", "runs a small shop"
 
-## Rules
-- ONLY emit MEMORY-tier facts about the USER themselves.
-- Confidence ≥ 0.7 or skip.
-- Keys: lowercase snake_case english. Values: user's language or english.
-- NEVER save: task content, reminders, generic questions, greetings, ephemeral plans.
-- When unsure → []. Being conservative is correct.`;
+Never save:
+- passwords, OTPs, API keys, auth tokens, card/bank/government IDs, private exact addresses
+- medical/legal/financial secrets unless user explicitly asks to remember a non-sensitive preference
+- one-off tasks, reminders, shopping items, today's plan, current mood, greetings, confirmations
+- generic knowledge questions or facts not about the user
+- guesses, stereotypes, diagnoses, or anything the user did not clearly say
+
+Use existing memory to avoid duplicates and handle corrections:
+- If the message corrects an old fact, upsert the same key with the new value.
+- If the user asks to forget/remove something, emit a delete op for the matching key.
+- If a new fact overlaps an existing key, prefer updating that key over creating a near-duplicate.
+
+Output ONLY a JSON array. No markdown, no prose.
+Each item:
+{"op":"upsert","key":"snake_case","value":"short phrase <=80 chars","category":"identity|preference|goal|interest|relationship|context","confidence":0.7-1.0}
+or:
+{"op":"delete","key":"snake_case","value":"","category":"context","confidence":0.8-1.0}
+
+Return [] when nothing should change. Be conservative.`;
 
 interface ExtractedFact {
+  op?: string;
   key: string;
   value: string;
   category: string;
   confidence: number;
+}
+
+export interface ExistingMemoryFact {
+  key: string;
+  value: string;
+  category?: string;
 }
 
 /**
@@ -46,7 +63,12 @@ interface ExtractedFact {
  */
 export function shouldAttemptMemoryExtraction(userMessage: string): boolean {
   const lower = userMessage.toLowerCase().trim();
-  if (lower.length < 20) return false;
+  if (lower.length < 12) return false;
+
+  if (/\b(forget|remove|delete|don't remember|do not remember|stop remembering)\b/.test(lower) ||
+      /\b(yaad mat rakh|bhool ja|bhul ja|delete kar|hata do)\b/.test(lower)) {
+    return true;
+  }
 
   const knowledgeQuestion =
     /^(what|who|when|where|why|how|explain|define|describe|tell me)\b/.test(lower) ||
@@ -58,10 +80,57 @@ export function shouldAttemptMemoryExtraction(userMessage: string): boolean {
   const durableSignals = [
     "my name is", "i am", "i'm", "i work", "i live", "i study",
     "i like", "i love", "i hate", "i prefer", "my goal", "my dream",
+    "my plan is to", "i want to become", "i'm trying to", "i am trying to",
+    "i usually", "i always", "i mostly", "i often", "i never",
+    "my timezone", "my city", "my job", "my college", "my school",
     "my wife", "my husband", "my sister", "my brother", "my friend",
-    "mera naam", "main ", "mein ", "mujhe pasand", "meri goal",
+    "my father", "my mother", "my son", "my daughter",
+    "mera naam", "meri naam", "main ", "mein ", "mujhe pasand", "meri goal",
+    "mera goal", "main chahta", "main chahti", "main padh", "main kaam",
   ];
   return durableSignals.some(signal => lower.includes(signal));
+}
+
+function buildExtractionUserPrompt(
+  userMessage: string,
+  existingMemories: ExistingMemoryFact[] = [],
+): string {
+  const memoryRows = existingMemories.slice(0, 40).map(m => ({
+    key: String(m.key || "").slice(0, 64),
+    value: String(m.value || "").slice(0, 140),
+    category: String(m.category || "context").slice(0, 32),
+  })).filter(m => m.key && m.value);
+
+  return JSON.stringify({
+    existing_memory: memoryRows,
+    latest_user_message: userMessage,
+  });
+}
+
+function cleanKey(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 64);
+}
+
+function cleanValue(value: unknown): string {
+  return String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120);
+}
+
+function isLikelySensitiveMemory(key: string, value: string): boolean {
+  const combined = `${key} ${value}`.toLowerCase();
+  if (/\b(password|passcode|otp|one[_\s-]?time|pin|api[_\s-]?key|secret|token|bearer|private[_\s-]?key)\b/.test(combined)) return true;
+  if (/\b(card|credit|debit|cvv|cvc|bank|account|ifsc|routing|ssn|aadhaar|aadhar|pan card|passport)\b/.test(combined)) return true;
+  if (/\b\d{12,19}\b/.test(value.replace(/[\s-]/g, ""))) return true;
+  if (/AIza[0-9A-Za-z_-]{20,}/.test(value)) return true;
+  if (/sk-[0-9A-Za-z_-]{20,}/.test(value)) return true;
+  return false;
 }
 
 /**
@@ -74,12 +143,14 @@ export async function extractMemoryFacts(
   apiKey: string,
   db: Firestore,
   model = "gemini-2.5-flash-lite",
+  existingMemories: ExistingMemoryFact[] = [],
 ): Promise<number> {
   try {
     const ai = new GoogleGenAI({ apiKey });
+    const extractionInput = buildExtractionUserPrompt(userMessage, existingMemories);
     const response = await ai.models.generateContent({
       model,
-      contents: [{ role: "user", parts: [{ text: userMessage }] }],
+      contents: [{ role: "user", parts: [{ text: extractionInput }] }],
       config: {
         systemInstruction: EXTRACTION_PROMPT,
         temperature: 0,
@@ -98,44 +169,61 @@ export async function extractMemoryFacts(
     const facts: ExtractedFact[] = JSON.parse(jsonMatch[0]);
     if (!Array.isArray(facts) || facts.length === 0) return 0;
 
-    const allowedCategories = new Set([
-      "identity", "preference", "goal", "interest", "context", "relationship",
-    ]);
+    const allowedCategories = new Set(["identity", "preference", "goal", "interest", "context", "relationship"]);
+    const allowedOps = new Set(["upsert", "delete"]);
 
     let saved = 0;
     const memRef = db.collection(`users/${uid}/ai_memory`);
 
     for (const fact of facts) {
-      if (!fact.key || !fact.value) continue;
+      const op = allowedOps.has(String(fact.op || "upsert")) ? String(fact.op || "upsert") : "upsert";
+      if (!fact.key) continue;
       if (fact.confidence < 0.7) continue;
 
-      const cleanKey = fact.key.trim().toLowerCase();
-      const cleanValue = fact.value.trim();
+      const key = cleanKey(fact.key);
+      const value = cleanValue(fact.value);
       const category = allowedCategories.has(fact.category) ? fact.category : "context";
+      if (!key) continue;
+      if (op === "upsert" && !value) continue;
+      if (op === "upsert" && isLikelySensitiveMemory(key, value)) continue;
 
-      // Check for existing key — update if exists
-      const existing = await memRef.where("key", "==", cleanKey).limit(1).get();
+      const existing = await memRef.where("key", "==", key).limit(10).get();
       const now = Date.now();
+
+      if (op === "delete") {
+        if (!existing.empty) {
+          await Promise.all(existing.docs.map(doc => doc.ref.delete()));
+          saved++;
+        }
+        continue;
+      }
 
       if (!existing.empty) {
         const doc = existing.docs[0];
+        const prev = doc.data();
+        const sameValue = String(prev.value || "").trim().toLowerCase() === value.toLowerCase();
         await doc.ref.update({
-          value: cleanValue,
+          value: sameValue && (prev.confidence || 0) > fact.confidence ? prev.value : value,
           category,
           confidence: Math.max(fact.confidence, doc.data().confidence || 0),
           lastUsedAt: now,
+          updatedAt: now,
           source: "chat",
         });
+        for (const duplicate of existing.docs.slice(1)) {
+          await duplicate.ref.delete();
+        }
       } else {
         await memRef.add({
           userId: uid,
-          key: cleanKey,
-          value: cleanValue,
+          key,
+          value,
           category,
           confidence: fact.confidence,
           source: "chat",
           createdAt: now,
           lastUsedAt: now,
+          updatedAt: now,
           syncPending: 0,
         });
       }

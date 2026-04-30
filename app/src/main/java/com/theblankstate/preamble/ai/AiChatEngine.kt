@@ -89,6 +89,7 @@ class AiChatEngine(
                 assistantMessageId = cloudAssistantMessageId,
                 model = requestedModel,
                 mode = mode,
+                smartMode = smartMode,
                 onDelta = { delta ->
                     fullText.append(delta)
                     val id = ensureAssistantMessage()
@@ -340,7 +341,7 @@ class AiChatEngine(
         val smart = appContext.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
             .getBoolean("ai_smart_mode", true)
         val taskToolsEnabled = ChatPromptFactory.shouldUseTaskTools(userText)
-        val memory = if (smart) memoryRepo.buildPromptSnapshot(maxChars = 900) else null
+        val memory = if (smart) memoryRepo.buildPromptSnapshot(maxChars = 900, query = userText) else null
         val taskCtx = if (smart && taskToolsEnabled) TaskContextBuilder.build(appContext, maxChars = 900) else null
         val systemPrompt = ChatPromptFactory.buildSystemPrompt(
             memoryBlock = memory,
