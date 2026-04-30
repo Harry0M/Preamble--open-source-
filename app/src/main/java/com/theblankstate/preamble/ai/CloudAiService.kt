@@ -59,6 +59,8 @@ object CloudAiService {
     suspend fun chat(
         message: String,
         conversationId: String = "default",
+        userMessageId: String? = null,
+        assistantMessageId: String? = null,
         model: String? = null,
         mode: String = "concise",
         onDelta: suspend (String) -> Unit = {},
@@ -77,6 +79,8 @@ object CloudAiService {
             put("message", message)
             put("conversationId", conversationId)
             put("mode", mode)
+            if (!userMessageId.isNullOrBlank()) put("userMessageId", userMessageId)
+            if (!assistantMessageId.isNullOrBlank()) put("assistantMessageId", assistantMessageId)
             if (!model.isNullOrBlank()) put("model", model)
         }
 
@@ -137,6 +141,7 @@ object CloudAiService {
     suspend fun sendToolResults(
         conversationId: String,
         toolResults: List<ToolResult>,
+        assistantMessageId: String? = null,
         model: String? = null,
         mode: String = "concise",
         onDelta: suspend (String) -> Unit = {},
@@ -160,6 +165,7 @@ object CloudAiService {
             put("conversationId", conversationId)
             put("toolResults", resultsJson)
             put("mode", mode)
+            if (!assistantMessageId.isNullOrBlank()) put("assistantMessageId", assistantMessageId)
             if (!model.isNullOrBlank()) put("model", model)
         }
 

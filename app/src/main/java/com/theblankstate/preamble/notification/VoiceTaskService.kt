@@ -170,6 +170,21 @@ class VoiceTaskService : Service() {
             Log.d("PreambleAI", "═══ VoiceTaskService.saveTask() ═══")
             Log.d("PreambleAI", "  Input: '$title'")
             Log.d("PreambleAI", "  ExistingTaskId: $existingTaskId")
+
+            // Match the in-app voice/add-sheet behavior: logged-in users parse through
+            // the Cloud Function instead of relying on API keys embedded in the APK.
+            if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null && existingTaskId != null) {
+                val aiNotifEditEnabled = getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+                    .getBoolean("ai_notif_edit", false)
+                if (!isNotification || !aiNotifEditEnabled) {
+                    Log.d("PreambleAI", "  Routing optimistic task through cloud AiParsingWorker")
+                    scheduleAiRetry(existingTaskId, title)
+                    CoroutineScope(Dispatchers.Main).launch {
+                        stopSelf()
+                    }
+                    return@launch
+                }
+            }
             
             val provider = getOrCreateProvider()
             Log.d("PreambleAI", "  Provider: ${provider?.name ?: "NULL (no AI configured)"}")

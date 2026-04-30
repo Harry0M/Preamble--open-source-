@@ -42,7 +42,7 @@ class AiChatEngine(
         val onCloud = useCloud()
 
         // Persist user message — cloud path skips Firestore mirror (server is the writer)
-        chatRepo.append(
+        val userMessage = chatRepo.append(
             cid = conversationId,
             role = "user",
             content = userText,
@@ -64,6 +64,7 @@ class AiChatEngine(
             var cloudError: String? = null
             var chatResult: CloudChatResult? = null
             var assistantMessageId: String? = null
+            val cloudAssistantMessageId = java.util.UUID.randomUUID().toString()
 
             suspend fun ensureAssistantMessage(): String {
                 assistantMessageId?.let { return it }
@@ -74,6 +75,7 @@ class AiChatEngine(
                     isStreaming = true,
                     modelUsed = requestedModel,
                     skipSync = true,
+                    id = cloudAssistantMessageId,
                 )
                 assistantMessageId = saved.id
                 emit(ChatEvent.AssistantStart(saved.id))
@@ -83,6 +85,8 @@ class AiChatEngine(
             CloudAiService.chat(
                 message = userText,
                 conversationId = conversationId,
+                userMessageId = userMessage.id,
+                assistantMessageId = cloudAssistantMessageId,
                 model = requestedModel,
                 mode = mode,
                 onDelta = { delta ->
@@ -117,6 +121,7 @@ class AiChatEngine(
                 CloudAiService.sendToolResults(
                     conversationId = conversationId,
                     toolResults = toolResults,
+                    assistantMessageId = cloudAssistantMessageId,
                     model = requestedModel,
                     mode = mode,
                     onDelta = { delta ->
@@ -198,6 +203,7 @@ class AiChatEngine(
                         toolResults = toolResultsJson,
                         modelUsed = resolvedModel,
                         skipSync = true,
+                        id = cloudAssistantMessageId,
                     )
                     emit(ChatEvent.AssistantStart(saved.id))
                     emit(ChatEvent.AssistantDelta(saved.id, text))

@@ -71,6 +71,20 @@ function sseWrite(res: any, event: string, data: any) {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 }
 
+function safeClientMessageId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  if (!/^[A-Za-z0-9_-]{8,128}$/.test(value)) return null;
+  return value;
+}
+
+async function saveMessage(msgCol: any, clientMessageId: string | null, data: Record<string, any>) {
+  if (clientMessageId) {
+    await msgCol.doc(clientMessageId).set(data, { merge: true });
+  } else {
+    await msgCol.add(data);
+  }
+}
+
 export const aiChat = onRequest(
   {
     cors: true,
@@ -105,6 +119,8 @@ export const aiChat = onRequest(
     const model: string = requestedModel || config.chatModel || DEFAULT_MODEL;
     const mode: string = req.body.mode || DEFAULT_MODE;
     const conversationId: string = req.body.conversationId || "default";
+    const userMessageId = safeClientMessageId(req.body.userMessageId);
+    const assistantMessageId = safeClientMessageId(req.body.assistantMessageId);
     const message: string | null = req.body.message ?? null;
     const toolResults: Array<{ name: string; result: string }> | null = req.body.toolResults ?? null;
 
@@ -370,7 +386,7 @@ export const aiChat = onRequest(
       const now = Date.now();
 
       if (message) {
-        await msgCol.add({
+        await saveMessage(msgCol, userMessageId, {
           role: "user",
           content: message,
           timestamp: now - 1,
@@ -381,7 +397,7 @@ export const aiChat = onRequest(
       }
       const storedText = fullText.replace(/\[SUGGEST:\s*\{[^\]]*\}\]/g, "").trim();
       if (storedText || toolCalls.length > 0) {
-        await msgCol.add({
+        await saveMessage(msgCol, assistantMessageId, {
           role: "assistant",
           content: storedText,
           timestamp: now,
@@ -475,6 +491,7 @@ export const aiChatContinue = onRequest(
     const model: string = requestedModel || config.chatModel || DEFAULT_MODEL;
     const mode: string = req.body.mode || DEFAULT_MODE;
     const conversationId: string = req.body.conversationId || "default";
+    const assistantMessageId = safeClientMessageId(req.body.assistantMessageId);
     const toolResults: Array<{ name: string; result: string }> = req.body.toolResults;
 
     if (!toolResults || !Array.isArray(toolResults)) {
@@ -603,13 +620,14 @@ export const aiChatContinue = onRequest(
 
       // Save assistant follow-up
       if (fullText) {
-        await db.collection(`users/${uid}/ai_chat/${conversationId}/messages`).add({
+        await saveMessage(db.collection(`users/${uid}/ai_chat/${conversationId}/messages`), assistantMessageId, {
           role: "assistant",
           content: fullText,
           timestamp: Date.now(),
           userId: uid,
           conversationId,
           modelUsed: model,
+          toolResults: JSON.stringify(toolResults),
           syncPending: 0,
         });
       }

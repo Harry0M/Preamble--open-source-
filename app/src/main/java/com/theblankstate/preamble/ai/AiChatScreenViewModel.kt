@@ -5,11 +5,11 @@ import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.theblankstate.preamble.data.ChatMessageEntity
 import com.theblankstate.preamble.viewmodel.TaskViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import com.theblankstate.preamble.ai.TaskTools
 import com.theblankstate.preamble.ai.ToolCall
@@ -28,10 +28,14 @@ class AiChatScreenViewModel(
     private val cid = chatRepo.defaultConversationId()
     private val prefs = app.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
 
-    val messages = chatRepo.observe(cid)
+    private val _messages = MutableStateFlow<List<ChatMessageEntity>?>(null)
+    val messages: StateFlow<List<ChatMessageEntity>?> = _messages.asStateFlow()
 
     private val _isSending = MutableStateFlow(false)
     val isSending: StateFlow<Boolean> = _isSending.asStateFlow()
+
+    private val _isHistoryReady = MutableStateFlow(false)
+    val isHistoryReady: StateFlow<Boolean> = _isHistoryReady.asStateFlow()
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
@@ -47,13 +51,22 @@ class AiChatScreenViewModel(
 
     init {
         viewModelScope.launch {
-            // Only pull remote if Room is empty — prevents duplicate messages
-            // (cloud path writes both to Room and Firestore; re-pulling creates dupes)
-            val existing = runCatching { chatRepo.snapshot(cid).size }.getOrDefault(0)
-            if (existing == 0) {
-                runCatching { chatRepo.pullRemote(cid) }
+            chatRepo.observe(cid).collect { rows ->
+                _messages.value = rows
             }
-            runCatching { chatRepo.flushPending() }
+        }
+        viewModelScope.launch {
+            try {
+                // Only pull remote if Room is empty — prevents duplicate messages
+                // (cloud path writes both to Room and Firestore; re-pulling creates dupes)
+                val existing = runCatching { chatRepo.snapshot(cid).size }.getOrDefault(0)
+                if (existing == 0) {
+                    runCatching { chatRepo.pullRemote(cid) }
+                }
+                runCatching { chatRepo.flushPending() }
+            } finally {
+                _isHistoryReady.value = true
+            }
         }
     }
 

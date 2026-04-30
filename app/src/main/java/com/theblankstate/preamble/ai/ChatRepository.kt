@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 import java.util.UUID
 
 /**
@@ -59,10 +60,11 @@ class ChatRepository private constructor(
         isStreaming: Boolean = false,
         modelUsed: String? = null,
         skipSync: Boolean = false,
+        id: String = UUID.randomUUID().toString(),
     ): ChatMessageEntity = withContext(Dispatchers.IO) {
         val u = uid() ?: "anonymous"
         val msg = ChatMessageEntity(
-            id = UUID.randomUUID().toString(),
+            id = id,
             conversationId = cid,
             userId = u,
             role = role,
@@ -169,7 +171,7 @@ class ChatRepository private constructor(
             val docs = firestore.collection("users").document(u)
                 .collection("ai_chat").document(cid)
                 .collection("messages").get().await()
-            val rows = docs.documents.mapNotNull { doc ->
+            val remoteRows = docs.documents.mapNotNull { doc ->
                 val role = doc.getString("role") ?: return@mapNotNull null
                 val content = doc.getString("content") ?: return@mapNotNull null
                 ChatMessageEntity(
@@ -185,8 +187,10 @@ class ChatRepository private constructor(
                     syncPending = 0,
                     modelUsed = doc.getString("modelUsed"),
                 )
-            }
+            }.sortedBy { it.timestamp }
+            val rows = filterLegacyCloudDuplicates(cid, remoteRows)
             if (rows.isNotEmpty()) dao.upsertAll(rows)
+            pruneLocalLegacyCloudDuplicates(cid)
             rows.size
         }.onFailure { Log.w(TAG, "pullRemote failed", it) }.getOrDefault(0)
     }
@@ -218,10 +222,94 @@ class ChatRepository private constructor(
         }.onFailure { Log.w(TAG, "Firestore sync failed for ${msg.id}", it) }
     }
 
+    private suspend fun filterLegacyCloudDuplicates(
+        cid: String,
+        remoteRows: List<ChatMessageEntity>,
+    ): List<ChatMessageEntity> {
+        if (remoteRows.isEmpty()) return emptyList()
+        val accepted = dao.snapshot(cid).toMutableList()
+        val upserts = mutableListOf<ChatMessageEntity>()
+
+        for (row in remoteRows) {
+            val existingIndex = accepted.indexOfFirst { it.id == row.id }
+            if (existingIndex >= 0) {
+                accepted[existingIndex] = row
+                upserts += row
+                continue
+            }
+
+            if (accepted.any { isLegacyCloudDuplicate(it, row) }) {
+                continue
+            }
+
+            accepted += row
+            upserts += row
+        }
+
+        return upserts
+    }
+
+    private suspend fun pruneLocalLegacyCloudDuplicates(cid: String) {
+        val rows = dao.snapshot(cid).sortedBy { it.timestamp }
+        val kept = mutableListOf<ChatMessageEntity>()
+        val deleteIds = linkedSetOf<String>()
+
+        for (row in rows) {
+            val duplicate = kept.firstOrNull { isLegacyCloudDuplicate(it, row) }
+            if (duplicate == null) {
+                kept += row
+                continue
+            }
+
+            val preferred = preferredDuplicateRow(duplicate, row)
+            val discarded = if (preferred.id == duplicate.id) row else duplicate
+            deleteIds += discarded.id
+
+            if (preferred.id != duplicate.id) {
+                kept.remove(duplicate)
+                kept += preferred
+            }
+        }
+
+        if (deleteIds.isNotEmpty()) {
+            dao.deleteMany(deleteIds.toList())
+        }
+    }
+
+    private fun isLegacyCloudDuplicate(a: ChatMessageEntity, b: ChatMessageEntity): Boolean {
+        if (a.id == b.id || a.role != b.role) return false
+        if (a.role != "user" && a.role != "assistant") return false
+        if (isUuidLike(a.id) == isUuidLike(b.id)) return false
+        if (abs(a.timestamp - b.timestamp) > LEGACY_DUPLICATE_WINDOW_MS) return false
+        return messageFingerprint(a) == messageFingerprint(b)
+    }
+
+    private fun preferredDuplicateRow(a: ChatMessageEntity, b: ChatMessageEntity): ChatMessageEntity {
+        val aUuid = isUuidLike(a.id)
+        val bUuid = isUuidLike(b.id)
+        if (aUuid != bUuid) return if (aUuid) a else b
+        if (a.content.isBlank() != b.content.isBlank()) return if (a.content.isNotBlank()) a else b
+        return if (a.timestamp <= b.timestamp) a else b
+    }
+
+    private fun messageFingerprint(row: ChatMessageEntity): String {
+        val content = normalizeMessageText(row.content)
+        val toolCalls = if (content.isBlank()) normalizeMessageText(row.toolCalls.orEmpty()) else ""
+        return "${row.role}|$content|$toolCalls"
+    }
+
+    private fun normalizeMessageText(text: String): String =
+        WHITESPACE_RE.replace(text.trim(), " ")
+
+    private fun isUuidLike(id: String): Boolean = UUID_RE.matches(id)
+
     companion object {
         private const val TAG = "ChatRepository"
         const val HARD_CAP = 100
         const val SOFT_KEEP = 50
+        private const val LEGACY_DUPLICATE_WINDOW_MS = 10 * 60 * 1000L
+        private val UUID_RE = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+        private val WHITESPACE_RE = Regex("\\s+")
 
         @Volatile private var INSTANCE: ChatRepository? = null
 

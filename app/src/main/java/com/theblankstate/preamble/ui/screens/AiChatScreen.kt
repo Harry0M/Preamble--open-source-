@@ -3,6 +3,7 @@ package com.theblankstate.preamble.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
@@ -50,7 +51,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,8 +61,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -91,7 +96,9 @@ fun AiChatScreen(
     viewModel: AiChatScreenViewModel,
     modifier: Modifier = Modifier,
 ) {
-    val messages by viewModel.messages.collectAsState(initial = emptyList())
+    val messages by viewModel.messages.collectAsState()
+    val visibleMessages = messages.orEmpty()
+    val isHistoryReady by viewModel.isHistoryReady.collectAsState()
     val isSending by viewModel.isSending.collectAsState()
     val error by viewModel.error.collectAsState()
     val chatModelOverride by viewModel.chatModelOverride.collectAsState()
@@ -104,7 +111,38 @@ fun AiChatScreen(
     val listState = rememberLazyListState()
     val keyboard = LocalSoftwareKeyboardController.current
     val context = LocalContext.current
+    val activity = context as? Activity
+    val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+
+    val applyChatSoftInputMode = remember(activity) {
+        {
+            val window = activity?.window
+            val stateMode = window?.attributes?.softInputMode
+                ?.and(WindowManager.LayoutParams.SOFT_INPUT_MASK_STATE)
+                ?: 0
+            window?.setSoftInputMode(stateMode or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        }
+    }
+    SideEffect { applyChatSoftInputMode() }
+
+    DisposableEffect(activity, lifecycleOwner) {
+        val window = activity?.window
+        val previousSoftInputMode = window?.attributes?.softInputMode
+        applyChatSoftInputMode()
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_START ||
+                event == androidx.lifecycle.Lifecycle.Event.ON_RESUME
+            ) {
+                applyChatSoftInputMode()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            previousSoftInputMode?.let { window?.setSoftInputMode(it) }
+        }
+    }
 
     // Credits UI state
     val creditBalance by AiCreditsManager.balance.collectAsState()
@@ -121,9 +159,9 @@ fun AiChatScreen(
     }
 
     // Auto-scroll to bottom on new message
-    LaunchedEffect(messages.size, isSending) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.size - 1)
+    LaunchedEffect(visibleMessages.size, isSending) {
+        if (visibleMessages.isNotEmpty()) {
+            listState.animateScrollToItem(visibleMessages.size - 1)
         }
     }
 
@@ -149,7 +187,7 @@ fun AiChatScreen(
                 }
             },
             actions = {
-                if (messages.isNotEmpty()) {
+                if (visibleMessages.isNotEmpty()) {
                     IconButton(onClick = { showClearDialog = true }) {
                         Icon(Icons.Filled.DeleteForever, contentDescription = "Clear")
                     }
@@ -160,7 +198,9 @@ fun AiChatScreen(
             ),
         )
 
-        if (messages.isEmpty()) {
+        if (messages == null || (visibleMessages.isEmpty() && !isHistoryReady)) {
+            Box(modifier = Modifier.weight(1f).fillMaxWidth())
+        } else if (visibleMessages.isEmpty()) {
             EmptyChatPlaceholder(
                 modifier = Modifier.weight(1f),
                 onSuggestion = { suggestion ->
@@ -174,7 +214,7 @@ fun AiChatScreen(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(vertical = 8.dp)
             ) {
-                items(messages, key = { it.id }) { msg ->
+                items(visibleMessages, key = { it.id }) { msg ->
                     MessageRow(
                         msg = msg,
                         dismissedSuggestions = dismissedSuggestions,
@@ -419,7 +459,11 @@ fun AiChatScreen(
             androidx.compose.material3.TextField(
                 value = input,
                 onValueChange = { input = it },
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .onFocusChanged { focusState ->
+                        if (focusState.isFocused) applyChatSoftInputMode()
+                    },
                 placeholder = {
                     Text(
                         "Ask anything, or describe a task…",
