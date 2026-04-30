@@ -109,12 +109,15 @@ export function buildMemoryContext(
   const lines: string[] = [
     "User memory. Use only when relevant, never announce it, and prefer newer facts if anything conflicts.",
   ];
-  const name = clean(userName, 60);
-  if (name) lines.push(`- name: ${name}`);
 
   const categoryOrder = ["identity", "relationship", "preference", "goal", "interest", "context"];
   const grouped = new Map<string, MemoryFact[]>();
-  for (const fact of rankMemories(memoryFacts, query, maxFacts)) {
+  const rankedMemories = rankMemories(memoryFacts, query, maxFacts);
+  const hasSavedName = rankedMemories.some(f => cleanKey(f.key) === "name" && clean(f.value, 60));
+  const name = clean(userName, 60);
+  if (name && !hasSavedName) lines.push(`- account_name: ${name}`);
+
+  for (const fact of rankedMemories) {
     const category = clean(fact.category || "context", 24);
     grouped.set(category, [...(grouped.get(category) || []), fact]);
   }

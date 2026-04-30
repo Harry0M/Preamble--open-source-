@@ -24,7 +24,9 @@
       "Bash(node -c server.js)",
       "Bash(firebase deploy *)",
       "Bash(firebase projects:list)",
-      "Bash(firebase use *)"
+      "Bash(firebase use *)",
+      "Bash(./gradlew build *)",
+      "Bash(npm run *)"
     ]
   }
 }

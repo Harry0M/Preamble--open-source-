@@ -91,9 +91,7 @@ object ChatPromptFactory {
         val lower = text.lowercase().trim()
         if (lower.length < 12) return false
 
-        if (Regex("\\b(forget|remove|delete|don't remember|do not remember|stop remembering)\\b").containsMatchIn(lower) ||
-            Regex("\\b(yaad mat rakh|bhool ja|bhul ja|delete kar|hata do)\\b").containsMatchIn(lower)
-        ) {
+        if (hasExplicitMemoryIntent(text)) {
             return true
         }
 
@@ -116,5 +114,15 @@ object ChatPromptFactory {
             "mera goal", "main chahta", "main chahti", "main padh", "main kaam",
         )
         return durableSignals.any { it in lower }
+    }
+
+    fun hasExplicitMemoryIntent(text: String): Boolean {
+        val lower = text.lowercase().trim()
+        if (lower.length < 4) return false
+        return Regex("\\b(remember|save|memorize|store|update|change|set|correct)\\b.{0,80}\\b(name|preference|goal|memory|remember)\\b").containsMatchIn(lower) ||
+            Regex("\\b(name|preference|goal)\\b.{0,40}\\b(as|to|is)\\b").containsMatchIn(lower) ||
+            Regex("\\b(call me|you can call me|my name is|my name's)\\b").containsMatchIn(lower) ||
+            Regex("\\b(forget|remove|delete|don't remember|do not remember|stop remembering)\\b").containsMatchIn(lower) ||
+            Regex("\\b(yaad rakh|yaad rakho|save kar|naam|mera naam|meri naam|bhool ja|bhul ja|yaad mat rakh|hata do)\\b").containsMatchIn(lower)
     }
 }

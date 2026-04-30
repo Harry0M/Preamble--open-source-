@@ -185,7 +185,10 @@ class AiMemoryRepository private constructor(
         val sb = StringBuilder()
         sb.appendLine("USER CONTEXT (long-term memory — use naturally, don't announce):")
         sb.appendLine("  Use only when relevant; latest user message overrides memory if there is conflict.")
-        profile?.name?.takeIf { it.isNotBlank() }?.let { sb.appendLine("  - Name: $it") }
+        val hasSavedName = items.any { cleanMemoryKey(it.key) == "name" && it.value.isNotBlank() }
+        if (!hasSavedName) {
+            profile?.name?.takeIf { it.isNotBlank() }?.let { sb.appendLine("  - Name: $it") }
+        }
         profile?.role?.label?.let { sb.appendLine("  - Role: $it") }
         profile?.effectiveGoals
             ?.takeIf { it.isNotEmpty() }

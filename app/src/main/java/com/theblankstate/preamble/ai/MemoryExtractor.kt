@@ -94,6 +94,30 @@ Return [] when nothing should change. Be conservative.
         val provider = buildProvider() ?: return@withContext 0
         val repo = AiMemoryRepository.get(context)
         val logger = AiProcessLogger.get(context)
+        val deterministic = deterministicFacts(userMessage)
+        if (deterministic.isNotEmpty()) {
+            var saved = 0
+            for (fact in deterministic) {
+                if (fact.op == "delete") {
+                    if (repo.deleteByKey(fact.key)) saved++
+                } else {
+                    val saved0 = repo.save(fact.key, fact.value, fact.category, fact.confidence, source = "chat")
+                    if (saved0 != null) saved++
+                }
+            }
+            logger.log(
+                op = AiProcessLogger.OP_EXTRACT_MEMORY,
+                provider = "local-rule",
+                model = null,
+                input = userMessage,
+                output = deterministic.joinToString(", ") { "${it.op}:${it.key}=${it.value}" },
+                toolCalls = null,
+                durationMs = 0,
+                success = true,
+                thought = "Deterministic memory update: saved=$saved",
+            )
+            return@withContext saved
+        }
 
         val existing = repo.snapshot(limit = 40)
         val sys = ChatMessage("system", buildPrompt())
@@ -159,6 +183,41 @@ Return [] when nothing should change. Be conservative.
         val category: String,
         val confidence: Float,
     )
+
+    private fun deterministicFacts(userMessage: String): List<Fact> {
+        val text = userMessage.trim()
+        val lower = text.lowercase()
+        val deleteIntent = Regex("\\b(forget|remove|delete|don't remember|do not remember|stop remembering)\\b").containsMatchIn(lower) ||
+            Regex("\\b(yaad mat rakh|bhool ja|bhul ja|delete kar|hata do)\\b").containsMatchIn(lower)
+        if (deleteIntent && Regex("\\b(name|naam)\\b").containsMatchIn(lower)) {
+            return listOf(Fact("delete", "name", "", "identity", 0.95f))
+        }
+
+        val patterns = listOf(
+            Regex("\\b(?:save|remember|memorize|store|update|change|set|correct)\\s+(?:my\\s+)?name\\s+(?:as|to|is)\\s+([A-Za-z][A-Za-z .'-]{1,60})", RegexOption.IGNORE_CASE),
+            Regex("\\b(?:my name is|my name's|call me|you can call me)\\s+([A-Za-z][A-Za-z .'-]{1,60})", RegexOption.IGNORE_CASE),
+            Regex("\\b(?:mera naam|meri naam)\\s+([A-Za-z][A-Za-z .'-]{1,60})(?:\\s+hai|\\s+he|\\s+hain)?", RegexOption.IGNORE_CASE),
+        )
+        for (pattern in patterns) {
+            val name = pattern.find(text)?.groupValues?.getOrNull(1)?.let { cleanNameCandidate(it) }.orEmpty()
+            if (name.isNotBlank()) {
+                return listOf(Fact("upsert", "name", name, "identity", 0.98f))
+            }
+        }
+        return emptyList()
+    }
+
+    private fun cleanNameCandidate(value: String): String =
+        cleanValue(value)
+            .trim('"', '\'', '`')
+            .replace(Regex("\\b(please|pls|thanks|thank you)\\b.*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\b(and|aur|but|lekin)\\b.*", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\b(hai|he|hain|is)$", RegexOption.IGNORE_CASE), "")
+            .trim()
+            .trimEnd('.', '!', '?', ',', ';', ':')
+            .take(60)
+            .takeUnless { Regex("^(what|who|kya|kaun|kab|kaise|why|how)\\b", RegexOption.IGNORE_CASE).containsMatchIn(it) }
+            .orEmpty()
 
     private fun buildUserPayload(existing: List<AiMemoryEntity>, userMessage: String): String {
         val rows = existing.take(40).map {

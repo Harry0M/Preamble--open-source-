@@ -161,6 +161,13 @@ class AiChatEngine(
                 emit(ChatEvent.Credits(r.tokensRemaining))
             }
 
+            if (smartMode && ChatPromptFactory.hasExplicitMemoryIntent(userText)) {
+                runCatching {
+                    memoryRepo.pullRemote()
+                    memoryRepo.cleanupDuplicateKeys()
+                }.onFailure { Log.w(TAG, "Memory refresh after explicit update failed", it) }
+            }
+
             // Parse suggestion blocks from response text; strip them from display text
             val (cleanText, suggestionsJson) = parseSuggestionsFromText(text)
 
@@ -247,7 +254,11 @@ class AiChatEngine(
         val messages = buildMessageList(conversationId, userText, conciseMode)
 
         if (smartMode && ChatPromptFactory.shouldAttemptMemoryExtraction(userText)) {
-            MemoryExtractor.extractAsync(appContext, userText)
+            if (ChatPromptFactory.hasExplicitMemoryIntent(userText)) {
+                MemoryExtractor.extract(appContext, userText)
+            } else {
+                MemoryExtractor.extractAsync(appContext, userText)
+            }
         }
 
         var rounds = 0

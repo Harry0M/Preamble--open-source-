@@ -71,23 +71,6 @@ class RecurrenceWorker(
             }
         }
         Log.d("Recurrence", "Worker: DONE — generated $generated physical instances")
-
-        // Re-schedule reminders for active rollover tasks (daily safety net).
-        // computeReminderTriggerMs() projects rollover reminders to today/tomorrow.
-        val rolloverTasks = dao.getPendingRolloverTasks()
-        var rolloverScheduled = 0
-        for (task in rolloverTasks) {
-            if (task.hasReminders && !task.isAlarmPaused) {
-                com.theblankstate.preamble.notification.TaskAlarmManager.scheduleReminders(
-                    applicationContext, task
-                )
-                rolloverScheduled++
-            }
-        }
-        if (rolloverScheduled > 0) {
-            Log.d("Recurrence", "Worker: re-scheduled reminders for $rolloverScheduled rollover tasks")
-        }
-
         return Result.success()
     }
 

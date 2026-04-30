@@ -31,7 +31,7 @@ import {
   getMistralTokensRemaining,
   mistralWeightedTokens,
 } from "./config";
-import { extractMemoryFacts, shouldAttemptMemoryExtraction } from "./memory-extractor";
+import { extractMemoryFacts, hasExplicitMemoryIntent, shouldAttemptMemoryExtraction } from "./memory-extractor";
 import { getAiConfig } from "./ai-config";
 import {
   buildChatSystemPrompt,
@@ -489,7 +489,11 @@ export const aiChat = onRequest(
 
       // --- Async memory extraction ---
       if (smartMode && message && GEMINI_KEY && shouldAttemptMemoryExtraction(message)) {
-        extractMemoryFacts(uid, message, GEMINI_KEY, db, config.memoryModel, memoryFacts).catch(() => {});
+        if (hasExplicitMemoryIntent(message)) {
+          await extractMemoryFacts(uid, message, GEMINI_KEY, db, config.memoryModel, memoryFacts);
+        } else {
+          extractMemoryFacts(uid, message, GEMINI_KEY, db, config.memoryModel, memoryFacts).catch(() => {});
+        }
       }
 
       const dt = Date.now() - startedAt;

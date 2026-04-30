@@ -57,6 +57,18 @@ export interface ExistingMemoryFact {
   category?: string;
 }
 
+export function hasExplicitMemoryIntent(userMessage: string): boolean {
+  const lower = userMessage.toLowerCase().trim();
+  if (lower.length < 4) return false;
+  return (
+    /\b(remember|save|memorize|store|update|change|set|correct)\b.{0,80}\b(name|preference|goal|memory|remember)\b/.test(lower) ||
+    /\b(name|preference|goal)\b.{0,40}\b(as|to|is)\b/.test(lower) ||
+    /\b(call me|you can call me|my name is|my name's)\b/.test(lower) ||
+    /\b(forget|remove|delete|don't remember|do not remember|stop remembering)\b/.test(lower) ||
+    /\b(yaad rakh|yaad rakho|save kar|naam|mera naam|meri naam|bhool ja|bhul ja|yaad mat rakh|hata do)\b/.test(lower)
+  );
+}
+
 /**
  * Cheap local pre-filter so normal knowledge/chat turns do not trigger an
  * extra model call. The extractor prompt is still the source of truth.
@@ -65,8 +77,7 @@ export function shouldAttemptMemoryExtraction(userMessage: string): boolean {
   const lower = userMessage.toLowerCase().trim();
   if (lower.length < 12) return false;
 
-  if (/\b(forget|remove|delete|don't remember|do not remember|stop remembering)\b/.test(lower) ||
-      /\b(yaad mat rakh|bhool ja|bhul ja|delete kar|hata do)\b/.test(lower)) {
+  if (hasExplicitMemoryIntent(userMessage)) {
     return true;
   }
 
@@ -89,6 +100,46 @@ export function shouldAttemptMemoryExtraction(userMessage: string): boolean {
     "mera goal", "main chahta", "main chahti", "main padh", "main kaam",
   ];
   return durableSignals.some(signal => lower.includes(signal));
+}
+
+function cleanNameCandidate(value: string): string {
+  const name = cleanValue(value)
+    .replace(/^["'`]+|["'`]+$/g, "")
+    .replace(/\b(please|pls|thanks|thank you)\b.*$/i, "")
+    .replace(/\b(and|aur|but|lekin)\b.*$/i, "")
+    .replace(/\b(hai|he|hain|is)$/i, "")
+    .replace(/[.!?,;:]+$/g, "")
+    .trim()
+    .slice(0, 60);
+  if (/^(what|who|kya|kaun|kab|kaise|why|how)\b/i.test(name)) return "";
+  return name;
+}
+
+function deterministicMemoryFacts(userMessage: string): ExtractedFact[] {
+  const text = userMessage.trim();
+  const lower = text.toLowerCase();
+
+  if ((/\b(forget|remove|delete|don't remember|do not remember|stop remembering)\b/.test(lower) ||
+       /\b(yaad mat rakh|bhool ja|bhul ja|delete kar|hata do)\b/.test(lower)) &&
+      /\b(name|naam)\b/.test(lower)) {
+    return [{ op: "delete", key: "name", value: "", category: "identity", confidence: 0.95 }];
+  }
+
+  const namePatterns = [
+    /\b(?:save|remember|memorize|store|update|change|set|correct)\s+(?:my\s+)?name\s+(?:as|to|is)\s+([A-Za-z][A-Za-z .'-]{1,60})/i,
+    /\b(?:my name is|my name's|call me|you can call me)\s+([A-Za-z][A-Za-z .'-]{1,60})/i,
+    /\b(?:mera naam|meri naam)\s+([A-Za-z][A-Za-z .'-]{1,60})(?:\s+hai|\s+he|\s+hain)?/i,
+  ];
+
+  for (const pattern of namePatterns) {
+    const match = text.match(pattern);
+    const name = match?.[1] ? cleanNameCandidate(match[1]) : "";
+    if (name && name.length <= 60) {
+      return [{ op: "upsert", key: "name", value: name, category: "identity", confidence: 0.98 }];
+    }
+  }
+
+  return [];
 }
 
 function buildExtractionUserPrompt(
@@ -146,27 +197,30 @@ export async function extractMemoryFacts(
   existingMemories: ExistingMemoryFact[] = [],
 ): Promise<number> {
   try {
-    const ai = new GoogleGenAI({ apiKey });
-    const extractionInput = buildExtractionUserPrompt(userMessage, existingMemories);
-    const response = await ai.models.generateContent({
-      model,
-      contents: [{ role: "user", parts: [{ text: extractionInput }] }],
-      config: {
-        systemInstruction: EXTRACTION_PROMPT,
-        temperature: 0,
-        maxOutputTokens: 192,
-        responseMimeType: "application/json",
-      } as any,
-    });
+    let facts: ExtractedFact[] = deterministicMemoryFacts(userMessage);
+    if (facts.length === 0) {
+      const ai = new GoogleGenAI({ apiKey });
+      const extractionInput = buildExtractionUserPrompt(userMessage, existingMemories);
+      const response = await ai.models.generateContent({
+        model,
+        contents: [{ role: "user", parts: [{ text: extractionInput }] }],
+        config: {
+          systemInstruction: EXTRACTION_PROMPT,
+          temperature: 0,
+          maxOutputTokens: 192,
+          responseMimeType: "application/json",
+        } as any,
+      });
 
-    const text = response.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    if (!text) return 0;
+      const text = response.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (!text) return 0;
 
-    // Parse JSON array from response
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return 0;
+      // Parse JSON array from response
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) return 0;
 
-    const facts: ExtractedFact[] = JSON.parse(jsonMatch[0]);
+      facts = JSON.parse(jsonMatch[0]);
+    }
     if (!Array.isArray(facts) || facts.length === 0) return 0;
 
     const allowedCategories = new Set(["identity", "preference", "goal", "interest", "context", "relationship"]);

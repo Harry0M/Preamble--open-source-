@@ -46,12 +46,6 @@ class AlarmReceiver : BroadcastReceiver() {
                     else -> {
                         // Task is valid and active — ring the alarm
                         AlarmRingtoneService.startAlarm(context, taskId, task.title)
-                        // For rollover tasks, re-schedule for the next day
-                        // computeReminderTriggerMs() projects to today/tomorrow automatically
-                        if (task.recurrenceType == "rollover" && task.hasReminders) {
-                            TaskAlarmManager.scheduleReminders(context, task)
-                            Log.d("PreambleAlarm", "Re-scheduled rollover reminders for '${task.title}'")
-                        }
                     }
                 }
             } catch (e: Exception) {
