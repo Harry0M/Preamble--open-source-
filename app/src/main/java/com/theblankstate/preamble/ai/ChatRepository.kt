@@ -6,6 +6,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.theblankstate.preamble.data.ChatMessageDao
+import com.theblankstate.preamble.data.ChatConversationPreview
 import com.theblankstate.preamble.data.ChatMessageEntity
 import com.theblankstate.preamble.data.PreambleDatabase
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +38,10 @@ class ChatRepository private constructor(
     fun defaultConversationId(): String = "default"
 
     fun observe(cid: String): Flow<List<ChatMessageEntity>> = dao.observe(cid)
+
+    fun observeConversations(): Flow<List<ChatConversationPreview>> = dao.observeConversations()
+
+    fun newConversationId(): String = "chat_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(8)}"
 
     suspend fun snapshot(cid: String): List<ChatMessageEntity> = dao.snapshot(cid)
 
@@ -121,12 +126,13 @@ class ChatRepository private constructor(
     }
 
     suspend fun delete(id: String) = withContext(Dispatchers.IO) {
+        val existing = dao.findById(id)
         dao.delete(id)
         val u = uid() ?: return@withContext
         runCatching {
             // Firestore delete — best effort
             val msgs = firestore.collection("users").document(u)
-                .collection("ai_chat").document(defaultConversationId())
+                .collection("ai_chat").document(existing?.conversationId ?: defaultConversationId())
                 .collection("messages").document(id).delete()
             msgs.await()
         }

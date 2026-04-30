@@ -38,6 +38,13 @@ data class ChatMessageEntity(
     val modelUsed: String? = null,
 )
 
+data class ChatConversationPreview(
+    val conversationId: String,
+    val lastTimestamp: Long,
+    val lastContent: String?,
+    val messageCount: Int,
+)
+
 @Dao
 interface ChatMessageDao {
     @Query("SELECT * FROM ai_chat_message WHERE conversationId = :cid ORDER BY timestamp ASC")
@@ -54,6 +61,26 @@ interface ChatMessageDao {
 
     @Query("SELECT COUNT(*) FROM ai_chat_message WHERE conversationId = :cid AND role IN ('user','assistant')")
     suspend fun visibleCount(cid: String): Int
+
+    @Query("""
+        SELECT
+            c.conversationId AS conversationId,
+            MAX(c.timestamp) AS lastTimestamp,
+            (
+                SELECT m.content
+                FROM ai_chat_message m
+                WHERE m.conversationId = c.conversationId
+                  AND m.role IN ('user','assistant')
+                ORDER BY m.timestamp DESC
+                LIMIT 1
+            ) AS lastContent,
+            COUNT(*) AS messageCount
+        FROM ai_chat_message c
+        WHERE c.role IN ('user','assistant')
+        GROUP BY c.conversationId
+        ORDER BY lastTimestamp DESC
+    """)
+    fun observeConversations(): Flow<List<ChatConversationPreview>>
 
     @Upsert
     suspend fun upsert(msg: ChatMessageEntity)

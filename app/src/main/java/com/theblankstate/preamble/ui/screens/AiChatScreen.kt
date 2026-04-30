@@ -35,21 +35,21 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.theblankstate.preamble.ai.AiChatScreenViewModel
 import com.theblankstate.preamble.ai.AiCreditsManager
+import com.theblankstate.preamble.data.ChatConversationPreview
 import com.theblankstate.preamble.data.ChatMessageEntity
 import com.theblankstate.preamble.data.UserProfileStore
 import android.app.Activity
@@ -89,6 +90,9 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import com.google.firebase.auth.FirebaseAuth
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -104,9 +108,11 @@ fun AiChatScreen(
     val chatModelOverride by viewModel.chatModelOverride.collectAsState()
     val conciseMode by viewModel.conciseMode.collectAsState()
     val dismissedSuggestions by viewModel.dismissedSuggestions.collectAsState()
+    val conversations by viewModel.conversations.collectAsState()
+    val currentConversationId by viewModel.currentConversationId.collectAsState()
 
     var input by remember { mutableStateOf("") }
-    var showClearDialog by remember { mutableStateOf(false) }
+    var showChatSheet by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val keyboard = LocalSoftwareKeyboardController.current
@@ -165,367 +171,598 @@ fun AiChatScreen(
         }
     }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.surface)
             .imePadding()
     ) {
-        TopAppBar(
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.AutoAwesome,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                    Text(
-                        "Preamble AI",
-                        modifier = Modifier.padding(start = 8.dp),
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
-            },
-            actions = {
-                if (visibleMessages.isNotEmpty()) {
-                    IconButton(onClick = { showClearDialog = true }) {
-                        Icon(Icons.Filled.DeleteForever, contentDescription = "Clear")
-                    }
-                }
-            },
-            colors = TopAppBarDefaults.topAppBarColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-            ),
-        )
-
-        if (messages == null || (visibleMessages.isEmpty() && !isHistoryReady)) {
-            Box(modifier = Modifier.weight(1f).fillMaxWidth())
-        } else if (visibleMessages.isEmpty()) {
-            EmptyChatPlaceholder(
-                modifier = Modifier.weight(1f),
-                onSuggestion = { suggestion ->
-                    input = suggestion
-                }
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
-                state = listState,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(vertical = 8.dp)
-            ) {
-                items(visibleMessages, key = { it.id }) { msg ->
-                    MessageRow(
-                        msg = msg,
-                        dismissedSuggestions = dismissedSuggestions,
-                        onApproveSuggestion = { idx, args -> viewModel.approveTaskSuggestion(msg.id, idx, args) },
-                        onDismissSuggestion = { idx -> viewModel.dismissSuggestion(msg.id, idx) },
-                    )
-                }
-                if (isSending) {
-                    item("typing") { TypingIndicator() }
-                }
-            }
-        }
-
-        if (error != null) {
-            Surface(
-                color = MaterialTheme.colorScheme.errorContainer,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                shape = RoundedCornerShape(10.dp),
-            ) {
-                Row(
-                    Modifier.padding(12.dp).clickable { viewModel.clearError() },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    val errorDisplay = when (error) {
-                        "DAILY_LIMIT_REACHED" ->
-                            "Daily limit reached. Watch an ad to get more, or switch to Flash Lite (free & unlimited)."
-                        else -> error ?: ""
-                    }
-                    Text(
-                        errorDisplay,
-                        modifier = Modifier.weight(1f),
-                        color = MaterialTheme.colorScheme.onErrorContainer,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Text(
-                        "tap to dismiss",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f),
-                    )
-                }
-            }
-        }
-
-        AnimatedVisibility(
-            visible = showOptions,
-            enter = expandVertically(),
-            exit = shrinkVertically(),
+        Column(
+            modifier = Modifier.fillMaxSize()
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                // Credit balance + Watch Ad row
-                if (isLoggedIn) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                "⚡",
-                                fontSize = 14.sp,
-                            )
-                            Text(
-                                " $creditBalance credits",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (creditBalance > 0) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.error,
-                            )
-                        }
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable {
-                                val activity = context as? Activity
-                                if (activity != null) {
-                                    AiCreditsManager.showAdForCredits(
-                                        activity,
-                                        onReward = { newBal ->
-                                            adMessage = "✅ +10 credits! Balance: $newBal"
-                                        },
-                                        onError = { err ->
-                                            adMessage = err
-                                        },
-                                    )
-                                }
-                            },
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                if (isAdLoading) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(12.dp),
-                                        strokeWidth = 1.5.dp,
-                                        color = MaterialTheme.colorScheme.onPrimary,
-                                    )
-                                } else {
-                                    Icon(
-                                        Icons.Filled.PlayCircle,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(14.dp),
-                                        tint = MaterialTheme.colorScheme.onPrimary,
-                                    )
-                                }
-                                Text(
-                                    "Watch Ad +10",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onPrimary,
-                                )
-                            }
-                        }
+            if (messages == null || (visibleMessages.isEmpty() && !isHistoryReady)) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(top = 44.dp))
+            } else if (visibleMessages.isEmpty()) {
+                EmptyChatPlaceholder(
+                    modifier = Modifier.weight(1f).padding(top = 44.dp),
+                    onSuggestion = { suggestion ->
+                        input = suggestion
                     }
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(top = 52.dp, bottom = 8.dp)
+                ) {
+                    items(visibleMessages, key = { it.id }) { msg ->
+                        MessageRow(
+                            msg = msg,
+                            dismissedSuggestions = dismissedSuggestions,
+                            onApproveSuggestion = { idx, args -> viewModel.approveTaskSuggestion(msg.id, idx, args) },
+                            onDismissSuggestion = { idx -> viewModel.dismissSuggestion(msg.id, idx) },
+                        )
+                    }
+                    if (isSending) {
+                        item("typing") { TypingIndicator() }
+                    }
+                }
+            }
 
-                    // Ad result message
-                    if (adMessage != null) {
+            if (error != null) {
+                Surface(
+                    color = MaterialTheme.colorScheme.errorContainer,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                    shape = RoundedCornerShape(10.dp),
+                ) {
+                    Row(
+                        Modifier.padding(12.dp).clickable { viewModel.clearError() },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        val errorDisplay = when (error) {
+                            "DAILY_LIMIT_REACHED" ->
+                                "Daily limit reached. Watch an ad to get more, or switch to Flash Lite (free & unlimited)."
+                            else -> error ?: ""
+                        }
                         Text(
-                            adMessage ?: "",
+                            errorDisplay,
+                            modifier = Modifier.weight(1f),
+                            color = MaterialTheme.colorScheme.onErrorContainer,
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (adMessage?.startsWith("✅") == true) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.error,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { adMessage = null }
-                                .padding(vertical = 2.dp),
+                        )
+                        Text(
+                            "tap to dismiss",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f),
                         )
                     }
                 }
+            }
 
-                Text(
-                    "Model",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+            AnimatedVisibility(
+                visible = showOptions,
+                enter = expandVertically(),
+                exit = shrinkVertically(),
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    // Auto = Flash (thinking). Flash Lite = explicit lite/free mode.
-                    // Mistral models are premium (daily token budget, refillable via ads).
-                    val models = listOf(
-                        "" to "Auto",
-                        "gemini-2.5-flash-lite" to "Flash Lite",
-                        "mistral-small-latest" to "Mistral",
-                        "mistral-medium-latest" to "Mistral+",
-                    )
-                    for ((id, label) in models) {
-                        val selected = chatModelOverride == id
-                        val isPremium = id.contains("mistral")
-                        val badge = when {
-                            id.isBlank() || id.contains("flash") -> "FREE"
-                            id.contains("mistral-medium") -> "DAILY"
-                            else -> "DAILY"
+                    // Credit balance + Watch Ad row
+                    if (isLoggedIn) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    "⚡",
+                                    fontSize = 14.sp,
+                                )
+                                Text(
+                                    " $creditBalance credits",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (creditBalance > 0) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.error,
+                                )
+                            }
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.clickable {
+                                    val activity = context as? Activity
+                                    if (activity != null) {
+                                        AiCreditsManager.showAdForCredits(
+                                            activity,
+                                            onReward = { newBal ->
+                                                adMessage = "✅ +10 credits! Balance: $newBal"
+                                            },
+                                            onError = { err ->
+                                                adMessage = err
+                                            },
+                                        )
+                                    }
+                                },
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    if (isAdLoading) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(12.dp),
+                                            strokeWidth = 1.5.dp,
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                        )
+                                    } else {
+                                        Icon(
+                                            Icons.Filled.PlayCircle,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(14.dp),
+                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                        )
+                                    }
+                                    Text(
+                                        "Watch Ad +10",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                    )
+                                }
+                            }
                         }
 
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (selected) MaterialTheme.colorScheme.primaryContainer
-                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.clickable { viewModel.setChatModel(id) },
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        // Ad result message
+                        if (adMessage != null) {
+                            Text(
+                                adMessage ?: "",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (adMessage?.startsWith("✅") == true) MaterialTheme.colorScheme.primary
+                                        else MaterialTheme.colorScheme.error,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { adMessage = null }
+                                    .padding(vertical = 2.dp),
+                            )
+                        }
+                    }
+
+                    Text(
+                        "Model",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Row(
+                        modifier = Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        // Auto = Flash (thinking). Flash Lite = explicit lite/free mode.
+                        // Mistral models are premium (daily token budget, refillable via ads).
+                        val models = listOf(
+                            "" to "Auto",
+                            "gemini-2.5-flash-lite" to "Flash Lite",
+                            "mistral-small-latest" to "Mistral",
+                            "mistral-medium-latest" to "Mistral+",
+                        )
+                        for ((id, label) in models) {
+                            val selected = chatModelOverride == id
+                            val isPremium = id.contains("mistral")
+                            val badge = when {
+                                id.isBlank() || id.contains("flash") -> "FREE"
+                                id.contains("mistral-medium") -> "DAILY"
+                                else -> "DAILY"
+                            }
+
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (selected) MaterialTheme.colorScheme.primaryContainer
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.clickable { viewModel.setChatModel(id) },
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    Text(
+                                        label,
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+                                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                    )
+                                    Text(
+                                        badge,
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontSize = 9.sp,
+                                        color = if (!isPremium) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                                else MaterialTheme.colorScheme.tertiary.copy(alpha = 0.8f),
+                                        fontWeight = FontWeight.Bold,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Text(
+                        "Response Style",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for ((enabled, label) in listOf(true to "Concise", false to "Normal")) {
+                            val selected = conciseMode == enabled
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (selected) MaterialTheme.colorScheme.primaryContainer
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.clickable { viewModel.setConciseMode(enabled) },
                             ) {
                                 Text(
                                     label,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                                     style = MaterialTheme.typography.labelMedium,
                                     color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
                                             else MaterialTheme.colorScheme.onSurfaceVariant,
                                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                                 )
+                            }
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = if (showOptions) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.primaryContainer,
+                    tonalElevation = 4.dp,
+                    shadowElevation = 4.dp,
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .clickable { showOptions = !showOptions },
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Filled.Tune,
+                            contentDescription = "Options",
+                            modifier = Modifier.size(20.dp),
+                            tint = if (showOptions) MaterialTheme.colorScheme.onPrimary
+                                   else MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+                Surface(
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    tonalElevation = 4.dp,
+                    shadowElevation = 4.dp,
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f),
+                    ),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(start = 4.dp, end = 5.dp),
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        androidx.compose.material3.TextField(
+                            value = input,
+                            onValueChange = { input = it },
+                            modifier = Modifier
+                                .weight(1f)
+                                .onFocusChanged { focusState ->
+                                    if (focusState.isFocused) applyChatSoftInputMode()
+                                },
+                            placeholder = {
                                 Text(
-                                    badge,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontSize = 9.sp,
-                                    color = if (!isPremium) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                                            else MaterialTheme.colorScheme.tertiary.copy(alpha = 0.8f),
-                                    fontWeight = FontWeight.Bold,
+                                    "Ask anything...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.58f),
+                                )
+                            },
+                            keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.Sentences,
+                                imeAction = ImeAction.Send,
+                            ),
+                            maxLines = 5,
+                            textStyle = MaterialTheme.typography.bodyLarge,
+                            colors = androidx.compose.material3.TextFieldDefaults.colors(
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent,
+                                disabledIndicatorColor = Color.Transparent,
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                disabledContainerColor = Color.Transparent,
+                                cursorColor = MaterialTheme.colorScheme.primary,
+                            ),
+                        )
+                        val canSend = input.isNotBlank() && !isSending
+                        Surface(
+                            shape = CircleShape,
+                            color = if (canSend) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.surface,
+                            tonalElevation = if (canSend) 2.dp else 0.dp,
+                            modifier = Modifier
+                                .padding(bottom = 7.dp)
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .clickable(enabled = canSend) {
+                                    viewModel.send(input.trim())
+                                    input = ""
+                                    keyboard?.hide()
+                                },
+                        ) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = "Send",
+                                    modifier = Modifier.size(18.dp),
+                                    tint = if (canSend) MaterialTheme.colorScheme.onPrimary
+                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f),
                                 )
                             }
                         }
                     }
                 }
-                Text(
-                    "Response Style",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for ((enabled, label) in listOf(true to "Concise", false to "Normal")) {
-                        val selected = conciseMode == enabled
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = if (selected) MaterialTheme.colorScheme.primaryContainer
-                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            modifier = Modifier.clickable { viewModel.setConciseMode(enabled) },
-                        ) {
-                            Text(
-                                label,
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                            )
-                        }
-                    }
-                }
             }
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            IconButton(
-                onClick = { showOptions = !showOptions },
-                modifier = Modifier.size(40.dp),
-            ) {
-                Icon(
-                    Icons.Filled.Tune,
-                    contentDescription = "Options",
-                    modifier = Modifier.size(20.dp),
-                    tint = if (showOptions) MaterialTheme.colorScheme.primary
-                           else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-                )
-            }
-            androidx.compose.material3.TextField(
-                value = input,
-                onValueChange = { input = it },
-                modifier = Modifier
-                    .weight(1f)
-                    .onFocusChanged { focusState ->
-                        if (focusState.isFocused) applyChatSoftInputMode()
-                    },
-                placeholder = {
-                    Text(
-                        "Ask anything, or describe a task…",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    )
-                },
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Sentences,
-                    imeAction = ImeAction.Send,
-                ),
-                maxLines = 5,
-                textStyle = MaterialTheme.typography.bodyLarge,
-                colors = androidx.compose.material3.TextFieldDefaults.colors(
-                    focusedIndicatorColor = Color.Transparent,
-                    unfocusedIndicatorColor = Color.Transparent,
-                    disabledIndicatorColor = Color.Transparent,
-                    focusedContainerColor = Color.Transparent,
-                    unfocusedContainerColor = Color.Transparent,
-                    disabledContainerColor = Color.Transparent,
-                    cursorColor = MaterialTheme.colorScheme.primary,
-                ),
-            )
-            IconButton(
-                onClick = {
-                    if (input.isNotBlank() && !isSending) {
-                        viewModel.send(input.trim())
-                        input = ""
-                        keyboard?.hide()
-                    }
-                },
-                enabled = input.isNotBlank() && !isSending,
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Send,
-                    contentDescription = "Send",
-                    tint = if (input.isBlank() || isSending)
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    else MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
-    }
-
-    if (showClearDialog) {
-        AlertDialog(
-            onDismissRequest = { showClearDialog = false },
-            title = { Text("Clear conversation?") },
-            text = { Text("This deletes all chat messages on this device and on the cloud. Your tasks and memory stay intact.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    viewModel.clearConversation()
-                    showClearDialog = false
-                }) {
-                    Text("Clear", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showClearDialog = false }) { Text("Cancel") }
-            },
+        AiChatHeader(
+            onOpenChats = { showChatSheet = true },
+            modifier = Modifier.align(Alignment.TopCenter),
         )
     }
+
+    if (showChatSheet) {
+        ChatHistorySheet(
+            conversations = conversations,
+            currentConversationId = currentConversationId,
+            onDismiss = { showChatSheet = false },
+            onNewChat = {
+                viewModel.newConversation()
+                showChatSheet = false
+            },
+            onSelect = { cid ->
+                viewModel.selectConversation(cid)
+                showChatSheet = false
+            },
+            onDelete = { cid -> viewModel.deleteConversation(cid) },
+        )
+    }
+}
+
+@Composable
+private fun AiChatHeader(
+    onOpenChats: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(999.dp),
+            color = MaterialTheme.colorScheme.primaryContainer,
+            tonalElevation = 4.dp,
+            shadowElevation = 4.dp,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                com.theblankstate.preamble.ui.components.NotationIcon(
+                    type = "half_dotted",
+                    size = 14.dp,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Text(
+                    "Preamble",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        }
+
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary,
+            tonalElevation = 4.dp,
+            shadowElevation = 4.dp,
+            modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .clickable { onOpenChats() },
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(
+                    Icons.Filled.ChatBubbleOutline,
+                    contentDescription = "Chats",
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChatHistorySheet(
+    conversations: List<ChatConversationPreview>,
+    currentConversationId: String,
+    onDismiss: () -> Unit,
+    onNewChat: () -> Unit,
+    onSelect: (String) -> Unit,
+    onDelete: (String) -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp)
+                .padding(bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Chats",
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                )
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.65f),
+                    modifier = Modifier.clickable { onNewChat() },
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Add,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            "New chat",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
+
+            if (conversations.isEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "No previous chats yet.",
+                        modifier = Modifier.padding(16.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxWidth().height(420.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(conversations, key = { it.conversationId }) { convo ->
+                        ChatConversationRow(
+                            convo = convo,
+                            selected = convo.conversationId == currentConversationId,
+                            onSelect = { onSelect(convo.conversationId) },
+                            onDelete = { onDelete(convo.conversationId) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChatConversationRow(
+    convo: ChatConversationPreview,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier
+                .clickable { onSelect() }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                modifier = Modifier.size(28.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                com.theblankstate.preamble.ui.components.NotationIcon(
+                    type = if (selected) "half_dotted" else "solid",
+                    size = 16.dp,
+                    color = if (selected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    conversationTitle(convo),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    "${convo.messageCount} messages · ${formatConversationTime(convo.lastTimestamp)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onDelete, modifier = Modifier.size(34.dp)) {
+                Icon(
+                    Icons.Filled.DeleteForever,
+                    contentDescription = "Delete chat",
+                    tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+    }
+}
+
+private fun conversationTitle(convo: ChatConversationPreview): String {
+    val content = convo.lastContent?.replace(Regex("\\s+"), " ")?.trim().orEmpty()
+    if (content.isNotBlank()) return content.take(54)
+    return if (convo.conversationId == "default") "Default chat" else "Untitled chat"
+}
+
+private fun formatConversationTime(timestamp: Long): String {
+    if (timestamp <= 0L) return "just now"
+    return SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()).format(Date(timestamp))
 }
 
 @Composable
