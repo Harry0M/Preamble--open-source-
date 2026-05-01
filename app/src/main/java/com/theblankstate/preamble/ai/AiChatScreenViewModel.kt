@@ -121,6 +121,33 @@ class AiChatScreenViewModel(
         }
     }
 
+    fun editAndResend(messageId: String, text: String) {
+        if (messageId.isBlank() || text.isBlank() || _isSending.value) return
+        _error.value = null
+        val cid = _currentConversationId.value
+        val modelOverride = _chatModelOverride.value.takeIf { it.isNotBlank() }
+        val concise = _conciseMode.value
+        viewModelScope.launch {
+            _isSending.value = true
+            try {
+                val deleted = runCatching { chatRepo.deleteFromMessage(cid, messageId) }
+                if (deleted.isFailure) {
+                    _error.value = "Could not edit that message. Please try again."
+                    return@launch
+                }
+                engine.send(cid, text, modelOverride, concise).collect { ev ->
+                    when (ev) {
+                        is ChatEvent.Error -> _error.value = ev.reason
+                        is ChatEvent.Credits -> _tokensRemaining.value = ev.tokensRemaining
+                        else -> {}
+                    }
+                }
+            } finally {
+                _isSending.value = false
+            }
+        }
+    }
+
     fun setChatModel(modelId: String) {
         _chatModelOverride.value = modelId
         prefs.edit().putString("chat_model_override", modelId).apply()

@@ -8,10 +8,12 @@ import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
@@ -42,9 +44,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,18 +60,25 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
@@ -97,6 +106,7 @@ import com.google.firebase.auth.FirebaseAuth
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -116,6 +126,7 @@ fun AiChatScreen(
     val currentConversationId by viewModel.currentConversationId.collectAsState()
 
     var input by remember { mutableStateOf("") }
+    var editingMessageId by remember { mutableStateOf<String?>(null) }
     var showChatSheet by remember { mutableStateOf(false) }
     var showOptions by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
@@ -124,6 +135,13 @@ fun AiChatScreen(
     val activity = context as? Activity
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+    val showScrollToBottom by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
+            info.totalItemsCount > 0 && lastVisible < info.totalItemsCount - 1
+        }
+    }
 
     val applyChatSoftInputMode = remember(activity) {
         {
@@ -169,6 +187,12 @@ fun AiChatScreen(
         }
     }
 
+    LaunchedEffect(currentConversationId) {
+        editingMessageId = null
+        input = ""
+        showOptions = false
+    }
+
     // Auto-scroll to bottom on new message
     LaunchedEffect(visibleMessages.size, isSending) {
         if (visibleMessages.isNotEmpty()) {
@@ -205,42 +229,18 @@ fun AiChatScreen(
                         MessageRow(
                             msg = msg,
                             dismissedSuggestions = dismissedSuggestions,
+                            onEditUserMessage = { message ->
+                                editingMessageId = message.id
+                                input = message.content
+                                showOptions = false
+                                viewModel.clearError()
+                            },
                             onApproveSuggestion = { idx, args -> viewModel.approveTaskSuggestion(msg.id, idx, args) },
                             onDismissSuggestion = { idx -> viewModel.dismissSuggestion(msg.id, idx) },
                         )
                     }
                     if (isSending) {
                         item("typing") { TypingIndicator() }
-                    }
-                }
-            }
-
-            if (error != null) {
-                Surface(
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                    shape = RoundedCornerShape(10.dp),
-                ) {
-                    Row(
-                        Modifier.padding(12.dp).clickable { viewModel.clearError() },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        val errorDisplay = when (error) {
-                            "DAILY_LIMIT_REACHED" ->
-                                "Daily limit reached. Watch an ad to get more, or switch to Flash Lite (free & unlimited)."
-                            else -> error ?: ""
-                        }
-                        Text(
-                            errorDisplay,
-                            modifier = Modifier.weight(1f),
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Text(
-                            "tap to dismiss",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f),
-                        )
                     }
                 }
             }
@@ -437,16 +437,86 @@ fun AiChatScreen(
             }
         }
 
+        error?.let { currentError ->
+            AiChatErrorBanner(
+                error = currentError,
+                onDismiss = { viewModel.clearError() },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp)
+                    .padding(
+                        bottom = when {
+                            showOptions -> 250.dp
+                            editingMessageId != null -> 112.dp
+                            else -> 70.dp
+                        }
+                    ),
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showScrollToBottom,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(end = 18.dp)
+                .padding(
+                    bottom = when {
+                        showOptions -> 252.dp
+                        error != null -> 128.dp
+                        editingMessageId != null -> 118.dp
+                        else -> 78.dp
+                    }
+                ),
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primary,
+                tonalElevation = 6.dp,
+                shadowElevation = 6.dp,
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(CircleShape)
+                    .clickable {
+                        scope.launch {
+                            val lastIndex = listState.layoutInfo.totalItemsCount - 1
+                            if (lastIndex >= 0) listState.animateScrollToItem(lastIndex)
+                        }
+                    },
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Filled.ExpandMore,
+                        contentDescription = "Go to bottom",
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(21.dp),
+                    )
+                }
+            }
+        }
+
         AiChatComposer(
             input = input,
             onInputChange = { input = it },
             showOptions = showOptions,
             onToggleOptions = { showOptions = !showOptions },
+            isEditing = editingMessageId != null,
+            onCancelEdit = {
+                editingMessageId = null
+                input = ""
+            },
             isSending = isSending,
             onFocus = applyChatSoftInputMode,
             onSend = {
                 if (input.isNotBlank() && !isSending) {
-                    viewModel.send(input.trim())
+                    val text = input.trim()
+                    val editingId = editingMessageId
+                    if (editingId != null) {
+                        viewModel.editAndResend(editingId, text)
+                    } else {
+                        viewModel.send(text)
+                    }
+                    editingMessageId = null
                     input = ""
                     keyboard?.hide()
                 }
@@ -482,44 +552,128 @@ fun AiChatScreen(
 }
 
 @Composable
+private fun AiChatErrorBanner(
+    error: String,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val errorDisplay = when (error) {
+        "DAILY_LIMIT_REACHED" ->
+            "Daily limit reached. Watch an ad to get more, or switch to Flash Lite (free & unlimited)."
+        else -> error
+    }
+
+    Surface(
+        color = MaterialTheme.colorScheme.errorContainer,
+        modifier = modifier,
+        shape = RoundedCornerShape(14.dp),
+        tonalElevation = 6.dp,
+        shadowElevation = 6.dp,
+    ) {
+        Row(
+            Modifier
+                .clickable { onDismiss() }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                errorDisplay,
+                modifier = Modifier.weight(1f),
+                color = MaterialTheme.colorScheme.onErrorContainer,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                "tap to dismiss",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f),
+            )
+        }
+    }
+}
+
+@Composable
 private fun AiChatComposer(
     input: String,
     onInputChange: (String) -> Unit,
     showOptions: Boolean,
     onToggleOptions: () -> Unit,
+    isEditing: Boolean,
+    onCancelEdit: () -> Unit,
     isSending: Boolean,
     onFocus: () -> Unit,
     onSend: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val canSend = input.isNotBlank() && !isSending
+    val adjustInteractionSource = remember { MutableInteractionSource() }
+    val scheme = MaterialTheme.colorScheme
+    val surface = scheme.surface.copy(alpha = 1f)
+    val adjustBackground = solidThemeColor(
+        color = if (showOptions) scheme.primary else scheme.primaryContainer,
+        surface = surface,
+    )
+    val adjustForeground = readableThemeColor(
+        background = adjustBackground,
+        preferred = if (showOptions) scheme.onPrimary else scheme.onPrimaryContainer,
+    )
 
-    Row(
+    Column(
         modifier = modifier,
-        verticalAlignment = Alignment.Bottom,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Surface(
-            shape = CircleShape,
-            color = if (showOptions) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.primaryContainer,
-            tonalElevation = 5.dp,
-            shadowElevation = 5.dp,
-            modifier = Modifier
-                .size(46.dp)
-                .clip(CircleShape)
-                .clickable { onToggleOptions() },
-        ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(
-                    Icons.Filled.Tune,
-                    contentDescription = "Options",
-                    modifier = Modifier.size(19.dp),
-                    tint = if (showOptions) MaterialTheme.colorScheme.onPrimary
-                           else MaterialTheme.colorScheme.primary,
-                )
+        if (isEditing) {
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                tonalElevation = 4.dp,
+                shadowElevation = 4.dp,
+                modifier = Modifier.align(Alignment.End),
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        "Editing question",
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                    Text(
+                        "Cancel",
+                        modifier = Modifier.clickable { onCancelEdit() },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
             }
         }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Bottom,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(CircleShape)
+                    .background(adjustBackground, CircleShape)
+                    .border(1.dp, adjustForeground.copy(alpha = if (showOptions) 0f else 0.18f), CircleShape)
+                    .semantics { contentDescription = "Options" }
+                    .clickable(
+                        interactionSource = adjustInteractionSource,
+                        indication = null,
+                    ) { onToggleOptions() },
+                contentAlignment = Alignment.Center,
+            ) {
+                AdjustmentGlyph(
+                    color = adjustForeground,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
 
         Surface(
             modifier = Modifier.weight(1f),
@@ -596,7 +750,51 @@ private fun AiChatComposer(
                 }
             }
         }
+        }
     }
+}
+
+@Composable
+private fun AdjustmentGlyph(
+    color: Color,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(modifier = modifier) {
+        val strokeWidth = 1.7.dp.toPx()
+        val knobRadius = 2.15.dp.toPx()
+        val lineColor = color.copy(alpha = 0.86f)
+        val rows = listOf(
+            0.27f to 0.64f,
+            0.50f to 0.36f,
+            0.73f to 0.58f,
+        )
+
+        rows.forEach { (yFraction, knobFraction) ->
+            val y = size.height * yFraction
+            drawLine(
+                color = lineColor,
+                start = Offset(size.width * 0.16f, y),
+                end = Offset(size.width * 0.84f, y),
+                strokeWidth = strokeWidth,
+                cap = StrokeCap.Round,
+            )
+            drawCircle(
+                color = color,
+                radius = knobRadius,
+                center = Offset(size.width * knobFraction, y),
+            )
+        }
+    }
+}
+
+private fun solidThemeColor(color: Color, surface: Color): Color =
+    color.compositeOver(surface).copy(alpha = 1f)
+
+private fun readableThemeColor(background: Color, preferred: Color): Color {
+    val solidPreferred = preferred.compositeOver(background).copy(alpha = 1f)
+    val contrast = kotlin.math.abs(background.luminance() - solidPreferred.luminance())
+    if (contrast >= 0.32f) return solidPreferred
+    return if (background.luminance() > 0.55f) Color.Black else Color.White
 }
 
 @Composable
@@ -820,11 +1018,12 @@ private fun formatConversationTime(timestamp: Long): String {
 private fun MessageRow(
     msg: ChatMessageEntity,
     dismissedSuggestions: Set<String> = emptySet(),
+    onEditUserMessage: (ChatMessageEntity) -> Unit = {},
     onApproveSuggestion: (Int, Map<String, String>) -> Unit = { _, _ -> },
     onDismissSuggestion: (Int) -> Unit = {},
 ) {
     when (msg.role) {
-        "user" -> UserBubble(msg)
+        "user" -> UserBubble(msg, onEdit = { onEditUserMessage(msg) })
         "assistant" -> AssistantBubble(msg, dismissedSuggestions, onApproveSuggestion, onDismissSuggestion)
         "summary" -> SystemNote("📌 Earlier conversation summarized: ${msg.content.take(180)}")
         else -> SystemNote(msg.content)
@@ -832,10 +1031,13 @@ private fun MessageRow(
 }
 
 @Composable
-private fun UserBubble(msg: ChatMessageEntity) {
-    Row(
+private fun UserBubble(
+    msg: ChatMessageEntity,
+    onEdit: () -> Unit,
+) {
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.End,
+        horizontalAlignment = Alignment.End,
     ) {
         Surface(
             shape = RoundedCornerShape(20.dp, 20.dp, 4.dp, 20.dp),
@@ -849,6 +1051,26 @@ private fun UserBubble(msg: ChatMessageEntity) {
                 color = MaterialTheme.colorScheme.onPrimary,
                 style = MaterialTheme.typography.bodyLarge,
                 lineHeight = 22.sp,
+            )
+        }
+        Row(
+            modifier = Modifier
+                .padding(top = 2.dp, end = 4.dp)
+                .clickable { onEdit() },
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Icon(
+                Icons.Filled.Edit,
+                contentDescription = null,
+                modifier = Modifier.size(12.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+            )
+            Text(
+                "Edit",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+                fontWeight = FontWeight.SemiBold,
             )
         }
     }
@@ -870,6 +1092,10 @@ private fun AssistantBubble(
             .filter { it.name !in setOf("thinking", "suggest_task") }
     }
     val suggestions = remember(msg.toolCalls) { extractSuggestions(msg.toolCalls) }
+    val renderBlocks = remember(msg.renderBlocksJson) { parseRenderBlocks(msg.renderBlocksJson) }
+    val renderBlocksIncludeSuggestions = remember(renderBlocks) {
+        renderBlocks.any { it.type == "suggested_task" }
+    }
 
     Column(modifier = Modifier.fillMaxWidth().padding(end = 24.dp)) {
 
@@ -880,13 +1106,12 @@ private fun AssistantBubble(
         }
 
         // 2. Task action chips (add/modify/delete/complete/list)
-        if (actionSteps.isNotEmpty()) {
+        if (renderBlocks.isEmpty() && actionSteps.isNotEmpty()) {
             ThinkingSection(actionSteps)
             Spacer(Modifier.height(8.dp))
         }
 
-        // 3. Main response text
-        if (msg.content.isNotBlank()) {
+        if (renderBlocks.isNotEmpty()) {
             Text(
                 "Preamble",
                 modifier = Modifier.padding(bottom = 4.dp),
@@ -895,48 +1120,400 @@ private fun AssistantBubble(
                 letterSpacing = 0.6.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f),
             )
-            SelectionContainer {
-                RichMarkdownText(
-                    text = msg.content,
-                    color = MaterialTheme.colorScheme.onSurface,
+            RenderAssistantBlocks(
+                messageId = msg.id,
+                blocks = renderBlocks,
+                dismissedSuggestions = dismissedSuggestions,
+                onApproveSuggestion = onApproveSuggestion,
+                onDismissSuggestion = onDismissSuggestion,
+            )
+            ResponseMetaRow(context = context, msg = msg)
+            if (!renderBlocksIncludeSuggestions) {
+                SuggestionList(
+                    messageId = msg.id,
+                    suggestions = suggestions,
+                    dismissedSuggestions = dismissedSuggestions,
+                    onApproveSuggestion = onApproveSuggestion,
+                    onDismissSuggestion = onDismissSuggestion,
                 )
             }
-            Row(
-                modifier = Modifier.padding(top = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                IconButton(
-                    onClick = {
-                        val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                        clip.setPrimaryClip(ClipData.newPlainText("AI Response", msg.content))
-                        Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier.size(30.dp),
-                ) {
-                    Icon(
-                        Icons.Filled.ContentCopy,
-                        contentDescription = "Copy",
-                        modifier = Modifier.size(15.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+        } else {
+            // 3. Main response text
+            if (msg.content.isNotBlank()) {
+                Text(
+                    "Preamble",
+                    modifier = Modifier.padding(bottom = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Medium,
+                    letterSpacing = 0.6.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.30f),
+                )
+                SelectionContainer {
+                    RichMarkdownText(
+                        text = msg.content,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
-                msg.modelUsed?.takeIf { it.isNotBlank() }?.let { ModelBadge(it) }
+                ResponseMetaRow(context = context, msg = msg)
             }
-        }
 
-        // 4. Task suggestions (approve / skip) — shown below response
-        suggestions.forEachIndexed { idx, args ->
-            val key = "${msg.id}:$idx"
-            if (key !in dismissedSuggestions) {
-                Spacer(Modifier.height(10.dp))
-                SuggestionCard(
-                    args = args,
-                    onApprove = { onApproveSuggestion(idx, args) },
-                    onDismiss = { onDismissSuggestion(idx) },
+            // 4. Task suggestions (approve / skip) — shown below response
+            SuggestionList(
+                messageId = msg.id,
+                suggestions = suggestions,
+                dismissedSuggestions = dismissedSuggestions,
+                onApproveSuggestion = onApproveSuggestion,
+                onDismissSuggestion = onDismissSuggestion,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SuggestionList(
+    messageId: String,
+    suggestions: List<Map<String, String>>,
+    dismissedSuggestions: Set<String>,
+    onApproveSuggestion: (Int, Map<String, String>) -> Unit,
+    onDismissSuggestion: (Int) -> Unit,
+) {
+    suggestions.forEachIndexed { idx, args ->
+        val key = "$messageId:$idx"
+        if (key !in dismissedSuggestions) {
+            Spacer(Modifier.height(10.dp))
+            SuggestionCard(
+                args = args,
+                onApprove = { onApproveSuggestion(idx, args) },
+                onDismiss = { onDismissSuggestion(idx) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ResponseMetaRow(context: Context, msg: ChatMessageEntity) {
+    if (msg.content.isBlank() && msg.modelUsed.isNullOrBlank() && msg.timestamp <= 0L) return
+    Row(
+        modifier = Modifier
+            .padding(top = 2.dp)
+            .horizontalScroll(rememberScrollState()),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (msg.content.isNotBlank()) {
+            IconButton(
+                onClick = {
+                    val clip = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clip.setPrimaryClip(ClipData.newPlainText("AI Response", msg.content))
+                    Toast.makeText(context, "Copied", Toast.LENGTH_SHORT).show()
+                },
+                modifier = Modifier.size(30.dp),
+            ) {
+                Icon(
+                    Icons.Filled.ContentCopy,
+                    contentDescription = "Copy",
+                    modifier = Modifier.size(15.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                 )
             }
         }
+        msg.modelUsed?.takeIf { it.isNotBlank() }?.let { ModelBadge(it) }
+        if (msg.timestamp > 0L) {
+            MetaBadge(formatConversationTime(msg.timestamp))
+        }
+    }
+}
+
+@Composable
+private fun RenderAssistantBlocks(
+    messageId: String,
+    blocks: List<AiRenderBlock>,
+    dismissedSuggestions: Set<String>,
+    onApproveSuggestion: (Int, Map<String, String>) -> Unit,
+    onDismissSuggestion: (Int) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        blocks.forEachIndexed { index, block ->
+            when (block.type) {
+                "answer", "table", "code", "checklist" -> {
+                    block.markdown?.takeIf { it.isNotBlank() }?.let { markdown ->
+                        SelectionContainer {
+                            RichMarkdownText(
+                                text = markdown,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                }
+                "steps" -> StructuredListBlock(block = block, numbered = true)
+                "task_list" -> TaskListRenderBlock(block)
+                "suggested_task" -> {
+                    val args = block.args.orEmpty().toMutableMap()
+                    if (args["title"].isNullOrBlank()) args["title"] = block.title.orEmpty()
+                    if (args["description"].isNullOrBlank()) args["description"] = block.subtitle.orEmpty()
+                    val key = "$messageId:$index"
+                    if (key !in dismissedSuggestions) {
+                        SuggestionCard(
+                            args = args,
+                            onApprove = { onApproveSuggestion(index, args) },
+                            onDismiss = { onDismissSuggestion(index) },
+                        )
+                    }
+                }
+                else -> StatusRenderCard(block)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusRenderCard(block: AiRenderBlock) {
+    val accent = when (block.status) {
+        "error" -> MaterialTheme.colorScheme.error
+        "warning" -> MaterialTheme.colorScheme.tertiary
+        else -> MaterialTheme.colorScheme.primary
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(9.dp)
+                        .background(accent, CircleShape),
+                )
+                Text(
+                    renderBlockTitle(block),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            block.subtitle?.takeIf { it.isNotBlank() }?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            MetadataRow(block.items.orEmpty())
+        }
+    }
+}
+
+@Composable
+private fun StructuredListBlock(block: AiRenderBlock, numbered: Boolean) {
+    val items = block.items.orEmpty()
+    if (items.isEmpty()) {
+        block.markdown?.let {
+            SelectionContainer {
+                RichMarkdownText(text = it, color = MaterialTheme.colorScheme.onSurface)
+            }
+        }
+        return
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                block.title?.takeIf { it.isNotBlank() } ?: if (numbered) "Steps" else "Checklist",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            items.forEachIndexed { index, item ->
+                Row(
+                    verticalAlignment = Alignment.Top,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        if (numbered) "${index + 1}." else "•",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        item.title.orEmpty(),
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TaskListRenderBlock(block: AiRenderBlock) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.38f),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                block.title?.takeIf { it.isNotBlank() } ?: "Tasks",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            val groups = block.groups.orEmpty()
+            if (groups.isEmpty()) {
+                block.markdown?.let {
+                    SelectionContainer {
+                        RichMarkdownText(text = it, color = MaterialTheme.colorScheme.onSurface)
+                    }
+                }
+            } else {
+                groups.forEach { group ->
+                    Text(
+                        group.title.orEmpty(),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    group.items.orEmpty().forEach { item ->
+                        Row(
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            val done = item.status == "done"
+                            Text(
+                                if (done) "✓" else "○",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (done) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                item.title.orEmpty(),
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MetadataRow(items: List<AiRenderItem>) {
+    val visible = items.filter { !it.label.isNullOrBlank() && !it.value.isNullOrBlank() }
+    if (visible.isEmpty()) return
+    Row(
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        visible.forEach { item ->
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+            ) {
+                Text(
+                    "${item.label}: ${item.value}",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+private fun renderBlockTitle(block: AiRenderBlock): String {
+    val fallback = when (block.type) {
+        "task_created" -> "Task created"
+        "reminder_set" -> "Reminder set"
+        "task_updated" -> "Task updated"
+        "task_completed" -> "Task completed"
+        "task_deleted" -> "Task deleted"
+        "memory_saved" -> "Memory saved"
+        "memory_updated" -> "Memory updated"
+        else -> "Result"
+    }
+    return block.title?.takeIf { it.isNotBlank() } ?: fallback
+}
+
+private data class AiRenderEnvelope(
+    val version: Int? = null,
+    val blocks: List<AiRenderBlock>? = null,
+)
+
+private data class AiRenderBlock(
+    val type: String = "answer",
+    val title: String? = null,
+    val subtitle: String? = null,
+    val status: String? = null,
+    val markdown: String? = null,
+    val items: List<AiRenderItem>? = null,
+    val groups: List<AiRenderGroup>? = null,
+    val args: Map<String, String>? = null,
+)
+
+private data class AiRenderGroup(
+    val title: String? = null,
+    val items: List<AiRenderItem>? = null,
+)
+
+private data class AiRenderItem(
+    val title: String? = null,
+    val label: String? = null,
+    val value: String? = null,
+    val status: String? = null,
+)
+
+private fun parseRenderBlocks(json: String?): List<AiRenderBlock> {
+    if (json.isNullOrBlank()) return emptyList()
+    return runCatching {
+        com.google.gson.Gson().fromJson(json, AiRenderEnvelope::class.java)
+            ?.blocks
+            .orEmpty()
+            .filter { it.type.isNotBlank() }
+    }.getOrDefault(emptyList())
+}
+
+@Composable
+private fun MetaBadge(label: String) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontSize = 9.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -952,19 +1529,7 @@ private fun ModelBadge(model: String) {
         model.equals("mistral", ignoreCase = true) -> "Mistral"
         else -> model.take(20)
     }
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-    ) {
-        Text(
-            short,
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.labelSmall,
-            fontSize = 9.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-            fontWeight = FontWeight.Medium,
-        )
-    }
+    MetaBadge(short)
 }
 
 // ───────────── Helpers: parse toolCalls JSON into typed buckets ─────────────
@@ -1436,11 +2001,7 @@ private fun EmptyChatPlaceholder(modifier: Modifier = Modifier, onSuggestion: (S
             for (s in suggestions) {
                 Surface(
                     shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    border = BorderStroke(
-                        1.dp,
-                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                    ),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
                     modifier = Modifier.fillMaxWidth().clickable { onSuggestion(s.text) },
                 ) {
                     Row(
@@ -1483,57 +2044,113 @@ private fun RichMarkdownText(
     val codeBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
     val lines = text.split("\n")
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        for (line in lines) {
-            // Strip suggestion markers — they are rendered as SuggestionCard, not inline text
-            if (line.trimStart().startsWith("[SUGGEST:")) continue
-            when {
-                line.isBlank() -> Spacer(Modifier.height(4.dp))
-                line.startsWith("### ") -> Text(
-                    parseInlineMarkdown(line.removePrefix("### "), codeBackground),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = color,
-                )
-                line.startsWith("## ") -> Text(
-                    parseInlineMarkdown(line.removePrefix("## "), codeBackground),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = color,
-                )
-                line.trimStart().startsWith("- ") || line.trimStart().startsWith("* ") -> {
-                    val content = line.trimStart().drop(2)
-                    Row(modifier = Modifier.padding(start = 8.dp)) {
-                        Text("•  ", color = color, style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            parseInlineMarkdown(content, codeBackground),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = color,
-                        )
-                    }
+        var index = 0
+        while (index < lines.size) {
+            val line = lines[index]
+            val trimmed = line.trimStart()
+            if (trimmed.startsWith("```")) {
+                val language = trimmed.removePrefix("```").trim().takeIf { it.isNotBlank() }
+                val codeLines = mutableListOf<String>()
+                index++
+                while (index < lines.size && !lines[index].trimStart().startsWith("```")) {
+                    codeLines += lines[index]
+                    index++
                 }
-                line.trimStart().matches(Regex("^\\d+\\.\\s.*")) -> {
-                    val num = line.trimStart().substringBefore(".")
-                    val content = line.trimStart().substringAfter(". ")
-                    Row(modifier = Modifier.padding(start = 8.dp)) {
-                        Text(
-                            "$num. ",
-                            color = color,
-                            style = MaterialTheme.typography.bodyLarge,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Text(
-                            parseInlineMarkdown(content, codeBackground),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = color,
-                        )
-                    }
-                }
-                else -> Text(
-                    parseInlineMarkdown(line, codeBackground),
+                if (index < lines.size) index++
+                CodeFenceBlock(language = language, code = codeLines.joinToString("\n"))
+            } else {
+                MarkdownTextLine(line = line, codeBackground = codeBackground, color = color)
+                index++
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarkdownTextLine(line: String, codeBackground: Color, color: Color) {
+    if (line.trimStart().startsWith("[SUGGEST:")) return
+    when {
+        line.isBlank() -> Spacer(Modifier.height(4.dp))
+        line.startsWith("### ") -> Text(
+            parseInlineMarkdown(line.removePrefix("### "), codeBackground),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = color,
+        )
+        line.startsWith("## ") -> Text(
+            parseInlineMarkdown(line.removePrefix("## "), codeBackground),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = color,
+        )
+        line.trimStart().startsWith("- ") || line.trimStart().startsWith("* ") -> {
+            val content = line.trimStart().drop(2)
+            Row(modifier = Modifier.padding(start = 8.dp)) {
+                Text("•  ", color = color, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    parseInlineMarkdown(content, codeBackground),
                     style = MaterialTheme.typography.bodyLarge,
                     color = color,
                 )
             }
+        }
+        line.trimStart().matches(Regex("^\\d+\\.\\s.*")) -> {
+            val num = line.trimStart().substringBefore(".")
+            val content = line.trimStart().substringAfter(". ")
+            Row(modifier = Modifier.padding(start = 8.dp)) {
+                Text(
+                    "$num. ",
+                    color = color,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    parseInlineMarkdown(content, codeBackground),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = color,
+                )
+            }
+        }
+        else -> Text(
+            parseInlineMarkdown(line, codeBackground),
+            style = MaterialTheme.typography.bodyLarge,
+            color = color,
+        )
+    }
+}
+
+@Composable
+private fun CodeFenceBlock(language: String?, code: String) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            language?.let {
+                Text(
+                    it.uppercase(Locale.getDefault()),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 9.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Text(
+                code,
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                style = MaterialTheme.typography.bodySmall.copy(
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                ),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
         }
     }
 }

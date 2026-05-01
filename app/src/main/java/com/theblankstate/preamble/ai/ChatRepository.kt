@@ -62,6 +62,7 @@ class ChatRepository private constructor(
         content: String,
         toolCalls: String? = null,
         toolResults: String? = null,
+        renderBlocksJson: String? = null,
         isStreaming: Boolean = false,
         modelUsed: String? = null,
         skipSync: Boolean = false,
@@ -77,6 +78,7 @@ class ChatRepository private constructor(
             timestamp = System.currentTimeMillis(),
             toolCalls = toolCalls,
             toolResults = toolResults,
+            renderBlocksJson = renderBlocksJson,
             isStreaming = isStreaming,
             syncPending = if (skipSync) 0 else 1,
             modelUsed = modelUsed,
@@ -108,6 +110,7 @@ class ChatRepository private constructor(
         content: String,
         toolCalls: String?,
         toolResults: String?,
+        renderBlocksJson: String?,
         isStreaming: Boolean,
         modelUsed: String?,
         skipSync: Boolean = false,
@@ -117,6 +120,7 @@ class ChatRepository private constructor(
             content = content,
             toolCalls = toolCalls,
             toolResults = toolResults,
+            renderBlocksJson = renderBlocksJson,
             isStreaming = isStreaming,
             modelUsed = modelUsed ?: existing.modelUsed,
             syncPending = if (skipSync || isStreaming) 0 else 1,
@@ -136,6 +140,23 @@ class ChatRepository private constructor(
                 .collection("messages").document(id).delete()
             msgs.await()
         }
+    }
+
+    suspend fun deleteFromMessage(cid: String, messageId: String) = withContext(Dispatchers.IO) {
+        val anchor = dao.findById(messageId) ?: return@withContext
+        val targetCid = anchor.conversationId.takeIf { it.isNotBlank() } ?: cid
+        val deleteIds = dao.idsAtOrAfter(targetCid, anchor.timestamp)
+        if (deleteIds.isEmpty()) return@withContext
+
+        dao.deleteMany(deleteIds)
+
+        val u = uid() ?: return@withContext
+        val msgCol = firestore.collection("users").document(u)
+            .collection("ai_chat").document(targetCid)
+            .collection("messages")
+        runCatching {
+            deleteIds.forEach { id -> msgCol.document(id).delete().await() }
+        }.onFailure { Log.w(TAG, "Firestore branch delete failed for $messageId", it) }
     }
 
     suspend fun clear(cid: String) = withContext(Dispatchers.IO) {
@@ -189,6 +210,7 @@ class ChatRepository private constructor(
                     timestamp = doc.getLong("timestamp") ?: System.currentTimeMillis(),
                     toolCalls = doc.getString("toolCalls"),
                     toolResults = doc.getString("toolResults"),
+                    renderBlocksJson = doc.getString("renderBlocksJson"),
                     isStreaming = false,
                     syncPending = 0,
                     modelUsed = doc.getString("modelUsed"),
@@ -218,6 +240,7 @@ class ChatRepository private constructor(
             )
             msg.toolCalls?.let { data["toolCalls"] = it }
             msg.toolResults?.let { data["toolResults"] = it }
+            msg.renderBlocksJson?.let { data["renderBlocksJson"] = it }
             msg.modelUsed?.let { data["modelUsed"] = it }
             firestore.collection("users").document(u)
                 .collection("ai_chat").document(msg.conversationId)

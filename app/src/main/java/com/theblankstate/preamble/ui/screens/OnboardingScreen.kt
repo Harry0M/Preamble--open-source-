@@ -54,6 +54,7 @@ import com.theblankstate.preamble.data.UserProfileStore
 import com.theblankstate.preamble.data.UserRole
 import com.theblankstate.preamble.data.computeBaselineScore
 import com.theblankstate.preamble.data.computePercentile
+import com.theblankstate.preamble.ui.theme.ThemePreferences
 import kotlinx.coroutines.launch
 import nl.dionsegijn.konfetti.compose.KonfettiView
 import nl.dionsegijn.konfetti.core.Party
@@ -89,6 +90,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
 
     var audioPermGranted by remember { mutableStateOf(hasAudioPerm) }
     var notifPermGranted by remember { mutableStateOf(hasNotifPerm) }
+    var permissionBlinkSignal by remember { mutableIntStateOf(0) }
     var isExistingUser by rememberSaveable { mutableStateOf(false) }
     var loginUserName by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -216,7 +218,15 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                             onGoalsChange = { profileGoals = it }
                         )
                         PAGE_NOTATIONS -> NotationsPage()
-                        PAGE_PERMISSIONS -> PermissionsPage(context, imageLoader, notifPermGranted, audioPermGranted, { notifPermGranted = it }, { audioPermGranted = it })
+                        PAGE_PERMISSIONS -> PermissionsPage(
+                            context = context,
+                            imageLoader = imageLoader,
+                            notifGranted = notifPermGranted,
+                            audioGranted = audioPermGranted,
+                            onNotifChange = { notifPermGranted = it },
+                            onAudioChange = { audioPermGranted = it },
+                            blinkSignal = permissionBlinkSignal,
+                        )
                         PAGE_REVEAL -> RevealPage(
                             profile = UserProfileStore.load(context),
                             onFinish = onComplete
@@ -286,11 +296,18 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                             Spacer(modifier = Modifier.width(48.dp))
                         }
 
-                        val enabled = canAdvance(pagerState.currentPage)
+                        val enabled = canAdvance(pagerState.currentPage) || pagerState.currentPage == PAGE_PERMISSIONS
                         val isLastBeforeReveal = pagerState.currentPage == PAGE_PERMISSIONS
                         Button(
                             onClick = {
                                 scope.launch {
+                                    if (!canAdvance(pagerState.currentPage)) {
+                                        if (pagerState.currentPage == PAGE_PERMISSIONS) {
+                                            permissionBlinkSignal++
+                                            Toast.makeText(context, "Please allow the required permissions to continue.", Toast.LENGTH_SHORT).show()
+                                        }
+                                        return@launch
+                                    }
                                     if (isLastBeforeReveal) {
                                         // Save profile before reveal
                                         val p = buildProfile()
@@ -748,21 +765,24 @@ fun PermissionsPage(
     notifGranted: Boolean,
     audioGranted: Boolean,
     onNotifChange: (Boolean) -> Unit,
-    onAudioChange: (Boolean) -> Unit
+    onAudioChange: (Boolean) -> Unit,
+    blinkSignal: Int = 0,
 ) {
+    val currentThemeMode by ThemePreferences.themeMode.collectAsState()
+    val materialYou by ThemePreferences.materialYou.collectAsState()
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         onNotifChange(granted)
-        if (!granted) Toast.makeText(context, "Notifications help you stay on track.", Toast.LENGTH_SHORT).show()
+        if (!granted) Toast.makeText(context, "The task bar needs notification access to stay visible.", Toast.LENGTH_SHORT).show()
     }
     
     val audioLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         onAudioChange(granted)
-        if (!granted) Toast.makeText(context, "Microphone needed for voice capture.", Toast.LENGTH_SHORT).show()
+        if (!granted) Toast.makeText(context, "Voice capture needs microphone access.", Toast.LENGTH_SHORT).show()
     }
 
-    // Auto-request permissions when this page appears
+    // Give the benefit copy a moment on screen before Android's native prompts.
     LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(600)
+        kotlinx.coroutines.delay(1700)
         if (!notifGranted) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -779,9 +799,10 @@ fun PermissionsPage(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp, vertical = 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
+        verticalArrangement = Arrangement.Top
     ) {
         AsyncImage(
             model = ImageRequest.Builder(context)
@@ -790,29 +811,40 @@ fun PermissionsPage(
             contentDescription = "Permissions",
             imageLoader = imageLoader,
             contentScale = ContentScale.Fit,
-            modifier = Modifier.weight(0.9f).fillMaxWidth().padding(horizontal = 8.dp)
+            modifier = Modifier.height(150.dp).fillMaxWidth().padding(horizontal = 8.dp)
         )
         
-        Column(modifier = Modifier.weight(1.1f).fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Text(
-                "Your assistant.",
+                "Set up your workspace.",
                 style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-1).sp),
                 color = Color.Black,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
             Text(
-                "Enable core features to get the most out of Preamble.",
+                "Pick a clean theme, then turn on the capture tools that make Preamble feel instant.",
                 style = MaterialTheme.typography.bodyLarge,
                 color = Color.Gray,
                 lineHeight = 24.sp,
-                modifier = Modifier.padding(bottom = 20.dp)
+                modifier = Modifier.padding(bottom = 18.dp)
             )
 
+            OnboardingThemePicker(
+                currentMode = currentThemeMode,
+                materialYou = materialYou,
+                onSelect = { choice ->
+                    applyOnboardingTheme(context, choice)
+                },
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
             PermissionRow(
-                title = "Notifications",
-                desc = "Quick-add tasks without opening the app.",
+                title = "Always-ready task bar",
+                desc = "Preamble works best when your task bar stays visible. Enable it to add and view today's tasks instantly.",
                 icon = Icons.Default.Notifications,
                 isGranted = notifGranted,
+                attentionSignal = blinkSignal,
                 onRequest = {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -825,10 +857,11 @@ fun PermissionsPage(
             Spacer(modifier = Modifier.height(12.dp))
             
             PermissionRow(
-                title = "Microphone",
-                desc = "Capture tasks using your voice instantly.",
+                title = "Voice capture",
+                desc = "Enable it to capture a task the moment you think of it, hands-free and without typing.",
                 icon = Icons.Default.Mic,
                 isGranted = audioGranted,
+                attentionSignal = blinkSignal,
                 onRequest = {
                     audioLauncher.launch(Manifest.permission.RECORD_AUDIO)
                 }
@@ -837,12 +870,165 @@ fun PermissionsPage(
     }
 }
 
+private enum class OnboardingThemeChoice {
+    MATERIAL, LIGHT, DARK, AMOLED
+}
+
+private fun applyOnboardingTheme(context: Context, choice: OnboardingThemeChoice) {
+    ThemePreferences.setColor(context, null)
+    when (choice) {
+        OnboardingThemeChoice.MATERIAL -> {
+            ThemePreferences.setThemeMode(context, ThemePreferences.ThemeMode.SYSTEM)
+            ThemePreferences.setMaterialYou(context, true)
+        }
+        OnboardingThemeChoice.LIGHT -> {
+            ThemePreferences.setMaterialYou(context, false)
+            ThemePreferences.setThemeMode(context, ThemePreferences.ThemeMode.LIGHT)
+        }
+        OnboardingThemeChoice.DARK -> {
+            ThemePreferences.setMaterialYou(context, false)
+            ThemePreferences.setThemeMode(context, ThemePreferences.ThemeMode.DARK)
+        }
+        OnboardingThemeChoice.AMOLED -> {
+            ThemePreferences.setMaterialYou(context, false)
+            ThemePreferences.setThemeMode(context, ThemePreferences.ThemeMode.AMOLED)
+        }
+    }
+}
+
 @Composable
-fun PermissionRow(title: String, desc: String, icon: androidx.compose.ui.graphics.vector.ImageVector, isGranted: Boolean, onRequest: () -> Unit) {
+private fun OnboardingThemePicker(
+    currentMode: ThemePreferences.ThemeMode,
+    materialYou: Boolean,
+    onSelect: (OnboardingThemeChoice) -> Unit,
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text(
+            "Theme",
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = Color.Black,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            ThemeChoiceCard(
+                label = "Material",
+                desc = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) "System colors" else "System style",
+                active = materialYou,
+                preview = listOf(Color(0xFFE9EEF8), Color(0xFFB9C7E6), Color.White),
+                onClick = { onSelect(OnboardingThemeChoice.MATERIAL) },
+                modifier = Modifier.weight(1f),
+            )
+            ThemeChoiceCard(
+                label = "Light",
+                desc = "White base",
+                active = !materialYou && currentMode == ThemePreferences.ThemeMode.LIGHT,
+                preview = listOf(Color.White, Color(0xFFEDEDED), Color.Black),
+                onClick = { onSelect(OnboardingThemeChoice.LIGHT) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            ThemeChoiceCard(
+                label = "Dark",
+                desc = "Soft dark",
+                active = !materialYou && currentMode == ThemePreferences.ThemeMode.DARK,
+                preview = listOf(Color(0xFF121212), Color(0xFF2C2C2C), Color.White),
+                onClick = { onSelect(OnboardingThemeChoice.DARK) },
+                modifier = Modifier.weight(1f),
+            )
+            ThemeChoiceCard(
+                label = "AMOLED",
+                desc = "Pure black",
+                active = !materialYou && currentMode == ThemePreferences.ThemeMode.AMOLED,
+                preview = listOf(Color.Black, Color(0xFF101010), Color.White),
+                onClick = { onSelect(OnboardingThemeChoice.AMOLED) },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ThemeChoiceCard(
+    label: String,
+    desc: String,
+    active: Boolean,
+    preview: List<Color>,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val bg by animateColorAsState(
+        targetValue = if (active) Color.Black else Color(0xFFF5F5F5),
+        animationSpec = tween(180),
+        label = "themeChoiceBg",
+    )
+    val fg = if (active) Color.White else Color.Black
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(enabled = !isGranted, onClick = onRequest),
+        modifier = modifier.clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = bg),
+        border = null,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                preview.take(3).forEach { color ->
+                    Box(
+                        modifier = Modifier
+                            .size(13.dp)
+                            .clip(CircleShape)
+                            .background(color)
+                            .border(
+                                width = 1.dp,
+                                color = if (color == Color.White) Color.Black.copy(alpha = 0.18f) else Color.Transparent,
+                                shape = CircleShape,
+                            )
+                    )
+                }
+            }
+            Text(label, style = MaterialTheme.typography.labelLarge, color = fg, fontWeight = FontWeight.Bold)
+            Text(desc, style = MaterialTheme.typography.labelSmall, color = fg.copy(alpha = 0.68f), maxLines = 1)
+        }
+    }
+}
+
+@Composable
+fun PermissionRow(
+    title: String,
+    desc: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isGranted: Boolean,
+    attentionSignal: Int = 0,
+    onRequest: () -> Unit,
+) {
+    val pulse = remember { Animatable(1f) }
+    val attentionColor by animateColorAsState(
+        targetValue = if (!isGranted && pulse.value > 1f) Color(0xFFFFF1F1) else if (isGranted) Color(0xFFEDEDED) else Color(0xFFF5F5F5),
+        animationSpec = tween(110),
+        label = "permissionAttentionColor",
+    )
+
+    LaunchedEffect(attentionSignal, isGranted) {
+        if (attentionSignal > 0 && !isGranted) {
+            pulse.snapTo(1f)
+            repeat(3) {
+                pulse.animateTo(1.035f, animationSpec = tween(120, easing = FastOutSlowInEasing))
+                pulse.animateTo(1f, animationSpec = tween(120, easing = FastOutSlowInEasing))
+            }
+        }
+    }
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .scale(pulse.value)
+            .clickable(enabled = !isGranted, onClick = onRequest),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = if (isGranted) Color(0xFFEDEDED) else Color(0xFFF5F5F5)),
+        colors = CardDefaults.cardColors(containerColor = attentionColor),
         border = null
     ) {
         Row(

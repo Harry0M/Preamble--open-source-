@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [Task::class, TaskTagOverride::class, PomodoroSession::class, AiMemoryEntity::class, AiProcessLogEntity::class, ChatMessageEntity::class],
-    version = 22,
+    version = 23,
     exportSchema = false
 )
 abstract class PreambleDatabase : RoomDatabase() {
@@ -31,7 +31,7 @@ abstract class PreambleDatabase : RoomDatabase() {
                     PreambleDatabase::class.java,
                     "preamble_db"
                 )
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -227,6 +227,12 @@ abstract class PreambleDatabase : RoomDatabase() {
         private val MIGRATION_21_22 = object : Migration(21, 22) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `ai_chat_message` ADD COLUMN `modelUsed` TEXT")
+            }
+        }
+
+        private val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `ai_chat_message` ADD COLUMN `renderBlocksJson` TEXT")
             }
         }
 

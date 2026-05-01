@@ -41,6 +41,7 @@ import {
   MemoryFact,
   TaskSnapshot,
 } from "./chat-prompt";
+import { buildRenderBlocks } from "./render-blocks";
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const MISTRAL_KEY = process.env.MISTRAL_API_KEY || "";
@@ -103,6 +104,22 @@ async function saveMessage(msgCol: any, clientMessageId: string | null, data: Re
     await msgCol.doc(clientMessageId).set(data, { merge: true });
   } else {
     await msgCol.add(data);
+  }
+}
+
+function parseStoredToolCalls(value: unknown): Array<{ name: string; args: Record<string, string> }> {
+  if (typeof value !== "string" || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((entry: any) => ({
+      name: String(entry?.name || ""),
+      args: Object.fromEntries(
+        Object.entries(entry?.args || {}).map(([k, v]) => [k, String(v)])
+      ),
+    })).filter(entry => entry.name);
+  } catch {
+    return [];
   }
 }
 
@@ -450,6 +467,11 @@ export const aiChat = onRequest(
         });
       }
       const storedText = fullText.replace(/\[SUGGEST:\s*\{[^\]]*\}\]/g, "").trim();
+      const incomingToolResults = (toolResults || []).map(r => ({
+        name: r.name,
+        result: r.result,
+      }));
+      const renderBlocks = buildRenderBlocks(storedText, toolCalls, incomingToolResults);
       if (storedText || toolCalls.length > 0) {
         await saveMessage(msgCol, assistantMessageId, {
           role: "assistant",
@@ -459,6 +481,7 @@ export const aiChat = onRequest(
           conversationId,
           modelUsed: model,
           toolCalls: toolCalls.length > 0 ? JSON.stringify(toolCalls) : null,
+          renderBlocksJson: renderBlocks ? JSON.stringify(renderBlocks) : null,
           syncPending: 0,
         });
       }
@@ -513,6 +536,8 @@ export const aiChat = onRequest(
         inputTokens,
         outputTokens,
         hasToolCalls: toolCalls.length > 0,
+        renderBlocksVersion: renderBlocks?.version || 1,
+        renderBlocks: renderBlocks?.blocks || [],
       });
       res.end();
     } catch (err: any) {
@@ -677,8 +702,23 @@ export const aiChatContinue = onRequest(
       }
 
       // Save assistant follow-up
+      const msgCol = db.collection(`users/${uid}/ai_chat/${conversationId}/messages`);
+      let previousToolCalls: Array<{ name: string; args: Record<string, string> }> = [];
+      if (assistantMessageId) {
+        const existingAssistant = await msgCol.doc(assistantMessageId).get();
+        previousToolCalls = parseStoredToolCalls(existingAssistant.data()?.toolCalls);
+      }
+      const toolResultsWithArgs = toolResults.map(result => {
+        const matchingCall = previousToolCalls.find(call => call.name === result.name);
+        return {
+          name: result.name,
+          result: result.result,
+          args: matchingCall?.args || {},
+        };
+      });
+      const renderBlocks = buildRenderBlocks(fullText, previousToolCalls, toolResultsWithArgs);
       if (fullText) {
-        await saveMessage(db.collection(`users/${uid}/ai_chat/${conversationId}/messages`), assistantMessageId, {
+        await saveMessage(msgCol, assistantMessageId, {
           role: "assistant",
           content: fullText,
           timestamp: Date.now(),
@@ -686,6 +726,7 @@ export const aiChatContinue = onRequest(
           conversationId,
           modelUsed: model,
           toolResults: JSON.stringify(toolResults),
+          renderBlocksJson: renderBlocks ? JSON.stringify(renderBlocks) : null,
           syncPending: 0,
         });
       }
@@ -709,6 +750,8 @@ export const aiChatContinue = onRequest(
         inputTokens,
         outputTokens,
         hasToolCalls: false,
+        renderBlocksVersion: renderBlocks?.version || 1,
+        renderBlocks: renderBlocks?.blocks || [],
       });
       res.end();
     } catch (err: any) {

@@ -32,6 +32,7 @@ data class ChatMessageEntity(
     val timestamp: Long,
     val toolCalls: String? = null,
     val toolResults: String? = null,
+    val renderBlocksJson: String? = null,
     val isStreaming: Boolean = false,
     val syncPending: Int = 1,
     /** Model that produced this assistant response (e.g., "gemini-2.5-flash-lite"). Null for user/system rows. */
@@ -55,6 +56,9 @@ interface ChatMessageDao {
 
     @Query("SELECT * FROM ai_chat_message WHERE id = :id LIMIT 1")
     suspend fun findById(id: String): ChatMessageEntity?
+
+    @Query("SELECT id FROM ai_chat_message WHERE conversationId = :cid AND timestamp >= :timestamp")
+    suspend fun idsAtOrAfter(cid: String, timestamp: Long): List<String>
 
     @Query("SELECT * FROM ai_chat_message WHERE conversationId = :cid AND role IN ('user','assistant') ORDER BY timestamp DESC LIMIT :limit")
     suspend fun lastVisible(cid: String, limit: Int): List<ChatMessageEntity>

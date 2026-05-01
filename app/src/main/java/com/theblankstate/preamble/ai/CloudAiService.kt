@@ -70,9 +70,11 @@ object CloudAiService {
         onDone: suspend (CloudChatResult) -> Unit = {},
         onError: suspend (String) -> Unit = {},
     ) {
-        val token = getAuthToken()
+        val token = runCatching { getAuthToken() }
+            .onFailure { Log.w(TAG, "Auth token unavailable", it) }
+            .getOrNull()
         if (token == null) {
-            onError("Not logged in. Please sign in to use AI chat.")
+            onError("AUTH_TOKEN_UNAVAILABLE")
             return
         }
 
@@ -150,8 +152,10 @@ object CloudAiService {
         onDone: suspend (CloudChatResult) -> Unit = {},
         onError: suspend (String) -> Unit = {},
     ) {
-        val token = getAuthToken() ?: run {
-            onError("Not logged in")
+        val token = runCatching { getAuthToken() }
+            .onFailure { Log.w(TAG, "Auth token unavailable for tool results", it) }
+            .getOrNull() ?: run {
+            onError("AUTH_TOKEN_UNAVAILABLE")
             return
         }
 
@@ -349,12 +353,19 @@ object CloudAiService {
                     onToolCalls(toolCalls)
                 }
                 "done" -> {
+                    val renderBlocks = json.optJSONArray("renderBlocks")
                     onDone(CloudChatResult(
                         tokensRemaining = json.optInt("tokensRemaining", -1),
                         model = json.optString("model", ""),
                         hasToolCalls = json.optBoolean("hasToolCalls", false),
                         inputTokens = json.optInt("inputTokens", 0),
                         outputTokens = json.optInt("outputTokens", 0),
+                        renderBlocksJson = renderBlocks?.let {
+                            JSONObject()
+                                .put("version", json.optInt("renderBlocksVersion", 1))
+                                .put("blocks", it)
+                                .toString()
+                        },
                     ))
                 }
                 "error" -> {
@@ -374,6 +385,7 @@ data class CloudChatResult(
     val hasToolCalls: Boolean = false,
     val inputTokens: Int = 0,
     val outputTokens: Int = 0,
+    val renderBlocksJson: String? = null,
 )
 data class CreditBalance(val balance: Int, val totalEarned: Int, val totalSpent: Int)
 data class RewardResult(val creditsAdded: Int, val firstTimeBonus: Int, val newBalance: Int, val adsRemainingToday: Int? = null)

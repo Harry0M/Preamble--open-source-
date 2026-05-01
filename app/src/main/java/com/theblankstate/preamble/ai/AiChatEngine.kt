@@ -149,9 +149,19 @@ class AiChatEngine(
                         emit(ChatEvent.Error("DAILY_LIMIT_REACHED"))
                         return@flow
                     }
-                    else -> {
+                    "AUTH_TOKEN_UNAVAILABLE" -> {
+                        emit(ChatEvent.Error("Your sign-in session is still loading. Please try again in a moment."))
+                        return@flow
+                    }
+                    else -> if (executedTools.isNotEmpty()) {
+                        Log.w(TAG, "Cloud follow-up failed after tools completed: $cloudError")
+                    } else if (hasLocalProvider(modelOverride)) {
                         Log.w(TAG, "Cloud failed ($cloudError), falling back to local")
                         sendLocalAndEmit(this, conversationId, userText, modelOverride, conciseMode, smartMode)
+                        return@flow
+                    } else {
+                        Log.w(TAG, "Cloud failed with no local fallback available: $cloudError")
+                        emit(ChatEvent.Error(userFacingCloudError(cloudError)))
                         return@flow
                     }
                 }
@@ -190,6 +200,13 @@ class AiChatEngine(
 
             if (cleanText.isNotBlank() || toolCallsJson != null) {
                 val text = cleanText  // shadow with clean version
+                val localRenderBlocksJson = AiRenderBlockFactory.build(text, toolCallsJson, toolResultsJson)
+                val renderBlocksJson =
+                    if (AiRenderBlockFactory.shouldPreferLocalBlocks(text, chatResult?.renderBlocksJson)) {
+                        localRenderBlocksJson ?: chatResult?.renderBlocksJson
+                    } else {
+                        chatResult?.renderBlocksJson ?: localRenderBlocksJson
+                    }
                 val existingId = assistantMessageId
                 if (existingId != null) {
                     chatRepo.updateAssistantTurn(
@@ -197,6 +214,7 @@ class AiChatEngine(
                         content = text,
                         toolCalls = toolCallsJson,
                         toolResults = toolResultsJson,
+                        renderBlocksJson = renderBlocksJson,
                         isStreaming = false,
                         modelUsed = resolvedModel,
                         skipSync = true,
@@ -209,6 +227,7 @@ class AiChatEngine(
                         content = text,
                         toolCalls = toolCallsJson,
                         toolResults = toolResultsJson,
+                        renderBlocksJson = renderBlocksJson,
                         modelUsed = resolvedModel,
                         skipSync = true,
                         id = cloudAssistantMessageId,
@@ -246,7 +265,11 @@ class AiChatEngine(
         smartMode: Boolean,
     ) {
         val provider = buildProvider(modelOverride) ?: run {
-            collector.emit(ChatEvent.Error("AI not configured. Please sign in to use AI chat."))
+            val signedIn = FirebaseAuth.getInstance().currentUser != null
+            collector.emit(ChatEvent.Error(
+                if (signedIn) "AI service is not ready. Please try again in a moment."
+                else "AI not configured. Please sign in to use AI chat."
+            ))
             return
         }
 
@@ -285,11 +308,13 @@ class AiChatEngine(
                     if (!resp.text.isNullOrBlank()) {
                         val (cleanText, suggestionsJson) = parseSuggestionsFromText(resp.text)
                         val toolCallsJson = buildMergedToolCallsJson(null, null, suggestionsJson)
+                        val renderBlocksJson = AiRenderBlockFactory.build(cleanText, toolCallsJson, null)
                         val saved = chatRepo.append(
                             cid = conversationId,
                             role = "assistant",
                             content = cleanText,
                             toolCalls = toolCallsJson,
+                            renderBlocksJson = renderBlocksJson,
                             modelUsed = modelOverride ?: provider.name,
                         )
                         assistantRowId = saved.id
@@ -319,6 +344,11 @@ class AiChatEngine(
                     content = resp.text ?: "",
                     toolCalls = gson.toJson(resp.toolCalls.map { mapOf("id" to it.id, "name" to it.name, "args" to it.arguments) }),
                     toolResults = toolJson,
+                    renderBlocksJson = AiRenderBlockFactory.build(
+                        resp.text ?: "",
+                        gson.toJson(resp.toolCalls.map { mapOf("id" to it.id, "name" to it.name, "args" to it.arguments) }),
+                        toolJson,
+                    ),
                     modelUsed = modelOverride ?: provider.name,
                 )
 
@@ -432,6 +462,25 @@ class AiChatEngine(
     private fun buildProvider(modelOverride: String? = null): AiProvider? =
         if (!modelOverride.isNullOrBlank()) AiProviderFactory.mainWithModelOverride(modelOverride)
         else AiProviderFactory.main()
+
+    private fun hasLocalProvider(modelOverride: String?): Boolean =
+        buildProvider(modelOverride) != null
+
+    private fun userFacingCloudError(error: String?): String {
+        val clean = error.orEmpty().trim()
+        return when {
+            clean.isBlank() -> "AI service is temporarily unavailable. Please try again."
+            clean.startsWith("Server error: 401") || clean.startsWith("Server error: 403") ->
+                "Your sign-in session needs a refresh. Please try again in a moment."
+            clean.startsWith("Server error:") ->
+                "AI service is temporarily unavailable. Please try again. ($clean)"
+            clean.contains("timeout", ignoreCase = true) ||
+                clean.contains("network", ignoreCase = true) ||
+                clean.contains("Unable to resolve host", ignoreCase = true) ->
+                "Network issue while reaching AI service. Please check your connection and try again."
+            else -> "AI service is temporarily unavailable. Please try again."
+        }
+    }
 
     companion object {
         private const val TAG = "AiChatEngine"
