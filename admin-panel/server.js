@@ -20,7 +20,8 @@ try {
 const serviceAccount = require('./serviceAccountKey.json');
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  databaseURL: 'https://preambl-fbea6-default-rtdb.firebaseio.com'
+  databaseURL: 'https://preambl-fbea6-default-rtdb.firebaseio.com',
+  storageBucket: 'preambl-fbea6.firebasestorage.app'
 });
 
 // Use the "preamble" database (not default)
@@ -406,10 +407,12 @@ app.get('/api/stats', requireAuth, async (req, res) => {
 
     const usersSnap = await firestoreDb.collection('users').get();
     const tasksSnap = await firestoreDb.collection('tasks').get();
+    const reportsSnap = await firestoreDb.collection('problemReports').get();
 
     let completedTasks = 0;
     let activeTasks = 0;
     let blockedUsers = 0;
+    let openProblemReports = 0;
 
     tasksSnap.docs.forEach(doc => {
       const data = doc.data();
@@ -421,12 +424,18 @@ app.get('/api/stats', requireAuth, async (req, res) => {
       if (doc.data().blocked) blockedUsers++;
     });
 
+    reportsSnap.docs.forEach(doc => {
+      const status = doc.data().status || 'open';
+      if (status !== 'resolved') openProblemReports++;
+    });
+
     const stats = {
       totalUsers: usersSnap.size,
       totalTasks: tasksSnap.size,
       activeTasks,
       completedTasks,
-      blockedUsers
+      blockedUsers,
+      openProblemReports
     };
     cache.set('dashboard_stats', stats);
     res.json(stats);
@@ -1010,6 +1019,156 @@ app.delete('/api/pm-messages/:id', requireAuth, async (req, res) => {
   }
 });
 
+// ─── Problem Reports ───
+
+const VALID_REPORT_STATUSES = ['open', 'in_progress', 'resolved'];
+
+async function attachSignedMediaUrls(report) {
+  const bucket = admin.storage().bucket();
+  const attachments = Array.isArray(report.attachments) ? report.attachments : [];
+
+  const signedAttachments = await Promise.all(attachments.map(async (attachment) => {
+    if (!attachment || !attachment.storagePath) return attachment;
+    try {
+      const [url] = await bucket.file(attachment.storagePath).getSignedUrl({
+        action: 'read',
+        expires: Date.now() + 60 * 60 * 1000
+      });
+      return { ...attachment, signedUrl: url };
+    } catch (err) {
+      console.warn('Could not sign report attachment:', attachment.storagePath, err.message);
+      return { ...attachment, signedUrl: null };
+    }
+  }));
+
+  return { ...report, attachments: signedAttachments };
+}
+
+app.get('/api/problem-reports', requireAuth, async (req, res) => {
+  try {
+    const filterStatus = req.query.status || 'all';
+    const snap = await firestoreDb.collection('problemReports').orderBy('updatedAt', 'desc').limit(200).get();
+    let reports = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+    if (filterStatus !== 'all') {
+      reports = reports.filter(report => report.status === filterStatus);
+    }
+
+    reports = await Promise.all(reports.map(attachSignedMediaUrls));
+    res.json({ reports });
+  } catch (err) {
+    console.error('Error fetching problem reports:', err);
+    res.status(500).json({ error: 'Failed to fetch problem reports' });
+  }
+});
+
+app.put('/api/problem-reports/:id/status', requireAuth, async (req, res) => {
+  try {
+    const { status, adminNote } = req.body;
+    if (!VALID_REPORT_STATUSES.includes(status)) {
+      return res.status(400).json({ error: 'Invalid status', validStatuses: VALID_REPORT_STATUSES });
+    }
+
+    const now = Date.now();
+    const updates = {
+      status,
+      adminNote: adminNote || null,
+      updatedAt: now,
+      statusUpdatedAt: now,
+      statusUpdatedBy: req.session.user.email,
+      resolvedAt: status === 'resolved' ? now : null
+    };
+
+    const reportRef = firestoreDb.collection('problemReports').doc(req.params.id);
+    await firestoreDb.runTransaction(async (tx) => {
+      const reportDoc = await tx.get(reportRef);
+      if (!reportDoc.exists) {
+        throw Object.assign(new Error('Problem report not found'), { statusCode: 404 });
+      }
+
+      const report = reportDoc.data() || {};
+      const uid = report.uid;
+      const gateRef = uid ? firestoreDb.collection('problemReportGates').doc(uid) : null;
+      const gateDoc = gateRef ? await tx.get(gateRef) : null;
+
+      tx.update(reportRef, updates);
+
+      if (gateRef) {
+        if (status === 'resolved') {
+          if (!gateDoc?.exists || gateDoc.data()?.activeReportId === req.params.id) {
+            tx.delete(gateRef);
+          }
+        } else {
+          tx.set(gateRef, {
+            uid,
+            activeReportId: req.params.id,
+            status,
+            updatedAt: now
+          }, { merge: true });
+        }
+      }
+    });
+    cache.del('dashboard_stats');
+    res.json({ success: true, updates });
+  } catch (err) {
+    console.error('Error updating problem report:', err);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to update problem report' });
+  }
+});
+
+app.delete('/api/problem-reports/:id', requireAuth, async (req, res) => {
+  try {
+    const reportRef = firestoreDb.collection('problemReports').doc(req.params.id);
+    const reportDoc = await reportRef.get();
+    if (!reportDoc.exists) {
+      return res.status(404).json({ error: 'Problem report not found' });
+    }
+
+    const report = reportDoc.data() || {};
+    if (report.status !== 'resolved') {
+      return res.status(400).json({ error: 'Only resolved reports can be deleted.' });
+    }
+
+    const attachments = Array.isArray(report.attachments) ? report.attachments : [];
+
+    await firestoreDb.runTransaction(async (tx) => {
+      const latestReport = await tx.get(reportRef);
+      if (!latestReport.exists) {
+        throw Object.assign(new Error('Problem report not found'), { statusCode: 404 });
+      }
+      if (latestReport.data()?.status !== 'resolved') {
+        throw Object.assign(new Error('Only resolved reports can be deleted.'), { statusCode: 400 });
+      }
+
+      const uid = latestReport.data()?.uid;
+      const gateRef = uid ? firestoreDb.collection('problemReportGates').doc(uid) : null;
+      const gateDoc = gateRef ? await tx.get(gateRef) : null;
+      if (gateRef && gateDoc?.exists && gateDoc.data()?.activeReportId === req.params.id) {
+        tx.delete(gateRef);
+      }
+      tx.delete(reportRef);
+    });
+
+    const bucket = admin.storage().bucket();
+    const deletedAttachments = [];
+    for (const attachment of attachments) {
+      if (!attachment?.storagePath) continue;
+      try {
+        await bucket.file(attachment.storagePath).delete({ ignoreNotFound: true });
+        deletedAttachments.push(attachment.storagePath);
+      } catch (err) {
+        console.warn('Could not delete report attachment:', attachment.storagePath, err.message);
+      }
+    }
+
+    cache.del('dashboard_stats');
+    res.json({ success: true, deletedAttachments: deletedAttachments.length });
+  } catch (err) {
+    console.error('Error deleting problem report:', err);
+    res.status(err.statusCode || 500).json({ error: err.message || 'Failed to delete problem report' });
+  }
+});
+
 // ─── AI Text Generation (Mistral) ───
 
 const MISTRAL_API_KEY = 'kGPnSqNxoGLBMDY4acTyhVbprn0MZRJ0';
@@ -1096,6 +1255,10 @@ app.get('/broadcasts', requireAuth, (req, res) => {
 
 app.get('/notifications', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'notifications.html'));
+});
+
+app.get('/reports', requireAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'reports.html'));
 });
 
 app.get('/groups', requireAuth, (req, res) => {

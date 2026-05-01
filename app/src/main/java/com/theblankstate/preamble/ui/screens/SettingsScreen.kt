@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -22,11 +23,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -35,6 +44,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -45,18 +55,35 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import com.theblankstate.preamble.PreambleApplication
 import com.theblankstate.preamble.auth.AuthManager
+import com.theblankstate.preamble.data.ProblemReport
+import com.theblankstate.preamble.repository.ProblemReportRepository
 import com.theblankstate.preamble.sync.GoogleCalendarManager
 import com.theblankstate.preamble.sync.GoogleSyncCoordinator
 import com.theblankstate.preamble.sync.GoogleTasksManager
 import com.theblankstate.preamble.ui.theme.ThemePreferences
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+private enum class SettingsSubscreen {
+    Main,
+    Ai,
+    Personal,
+    ReportProblem,
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -90,6 +117,13 @@ fun SettingsScreen(
 
     var alarmToneName by remember { mutableStateOf(getCurrentAlarmToneName(context)) }
     var showReviewSheet by remember { mutableStateOf(false) }
+    var showPrivacySheet by remember { mutableStateOf(false) }
+    var showTermsSheet by remember { mutableStateOf(false) }
+    var settingsSubscreen by remember { mutableStateOf(SettingsSubscreen.Main) }
+
+    BackHandler(enabled = settingsSubscreen != SettingsSubscreen.Main) {
+        settingsSubscreen = SettingsSubscreen.Main
+    }
 
     val currentUser by AuthManager.currentUser.collectAsState()
     var signInLoading by remember { mutableStateOf(false) }
@@ -195,10 +229,58 @@ fun SettingsScreen(
         modifier = modifier.fillMaxSize(),
         topBar = {
             TopAppBar(
-                title = { Text("Settings", style = MaterialTheme.typography.titleLarge) }
+                title = {
+                    Text(
+                        when (settingsSubscreen) {
+                            SettingsSubscreen.Main -> "Settings"
+                            SettingsSubscreen.Ai -> "Preamble AI"
+                            SettingsSubscreen.Personal -> "Personal touches"
+                            SettingsSubscreen.ReportProblem -> "Report a problem"
+                        },
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                },
+                navigationIcon = {
+                    if (settingsSubscreen != SettingsSubscreen.Main) {
+                        IconButton(onClick = { settingsSubscreen = SettingsSubscreen.Main }) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                },
             )
         }
     ) { padding ->
+        when (settingsSubscreen) {
+            SettingsSubscreen.Ai -> {
+                AiSettingsSubscreen(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(16.dp),
+                )
+                return@Scaffold
+            }
+            SettingsSubscreen.Personal -> {
+                PersonalTouchSettingsSubscreen(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(16.dp),
+                )
+                return@Scaffold
+            }
+            SettingsSubscreen.ReportProblem -> {
+                ProblemReportSettingsSubscreen(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding)
+                        .padding(16.dp),
+                )
+                return@Scaffold
+            }
+            SettingsSubscreen.Main -> Unit
+        }
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -530,7 +612,26 @@ fun SettingsScreen(
                 }
             }
 
-            SectionTitle("AI")
+            SectionTitle("Preamble AI")
+            SettingsCard {
+                SettingsNavigationRow(
+                    title = "Preamble AI",
+                    subtitle = "Memory, AI task controls and reminders",
+                    onClick = { settingsSubscreen = SettingsSubscreen.Ai },
+                )
+            }
+
+            SectionTitle("Personal touches")
+            SettingsCard {
+                SettingsNavigationRow(
+                    title = "Personal touches",
+                    subtitle = "Greetings, progress messages and celebration behavior",
+                    onClick = { settingsSubscreen = SettingsSubscreen.Personal },
+                )
+            }
+
+            if (settingsSubscreen == SettingsSubscreen.Ai) {
+            SectionTitle("Preamble AI")
             var showMemorySheet by remember { mutableStateOf(false) }
             var showProcessLogSheet by remember { mutableStateOf(false) }
             SettingsCard {
@@ -542,7 +643,7 @@ fun SettingsScreen(
                         )
                     }
                     SettingsToggleRow(
-                        title = "Smart AI (long-term memory)",
+                        title = "Smart Preamble AI (long-term memory)",
                         subtitle = "AI remembers your name, goals and preferences across chats. Turn off to use the simple assistant.",
                         checked = smartModeEnabled,
                         onToggle = { enabled ->
@@ -556,7 +657,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text("What AI remembers", style = MaterialTheme.typography.bodyLarge)
+                            Text("What Preamble AI remembers", style = MaterialTheme.typography.bodyLarge)
                             Text("View or delete the facts AI has learned about you", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
                         }
                         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -567,7 +668,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text("AI activity", style = MaterialTheme.typography.bodyLarge)
+                            Text("Preamble AI activity", style = MaterialTheme.typography.bodyLarge)
                             Text("See every AI call, what it did and how long it took", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
                         }
                         Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -580,7 +681,7 @@ fun SettingsScreen(
                         )
                     }
                     SettingsToggleRow(
-                        title = "Let AI Control Task Sheet",
+                        title = "Let Preamble AI control task sheet",
                         subtitle = "AI auto-fills date, time, priority and tags as you type",
                         checked = aiControlSheetEnabled,
                         onToggle = { enabled ->
@@ -654,7 +755,7 @@ fun SettingsScreen(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text("AI Edit from Notification", style = MaterialTheme.typography.bodyLarge)
+                                Text("Preamble AI edit from notification", style = MaterialTheme.typography.bodyLarge)
                                 Surface(shape = RoundedCornerShape(4.dp), color = Color(0xFFFFF3E0)) {
                                     Row(
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -694,7 +795,7 @@ fun SettingsScreen(
                                     }
                                     Column {
                                         Text("Experimental Feature", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                        Text("AI Edit from Notification", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Preamble AI edit from notification", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                 }
                                 Text("What this feature does:", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
@@ -751,8 +852,9 @@ fun SettingsScreen(
                 AiProcessLogBottomSheet(onDismiss = { showProcessLogSheet = false })
             }
 
-            SectionTitle("AI Reminders")
+            SectionTitle("Preamble AI Reminders")
             AiReminderSettingsCard()
+            }
 
             SectionTitle("Alarms")
             SettingsCard(
@@ -782,6 +884,7 @@ fun SettingsScreen(
                 }
             }
 
+            if (settingsSubscreen == SettingsSubscreen.Personal) {
             SectionTitle("Personal Touches")
             SettingsCard {
                 Column {
@@ -863,6 +966,7 @@ fun SettingsScreen(
                     )
                 }
             }
+            }
 
             SectionTitle("General")
             SettingsCard {
@@ -887,8 +991,11 @@ fun SettingsScreen(
             SectionTitle("Support")
             SettingsCard {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SupportLink("Email us", "theblankstateteam@gmail.com") {
-                        context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:theblankstateteam@gmail.com")))
+                    SupportLink("Report a problem", "Send screenshots or videos and track the status") {
+                        settingsSubscreen = SettingsSubscreen.ReportProblem
+                    }
+                    SupportLink("Email us", "theblankstate@theblankstate.com") {
+                        context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:theblankstate@theblankstate.com")))
                     }
                     SupportLink("GitHub", "github.com/Harry0M") {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Harry0M")))
@@ -901,51 +1008,18 @@ fun SettingsScreen(
 
             SectionTitle("Legal")
             SettingsCard {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "Privacy Policy",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { }
-                            .padding(vertical = 4.dp)
+                Column {
+                    SettingsNavigationRow(
+                        title = "Privacy Policy",
+                        subtitle = "Data, AI services, Google integrations, analytics and ads",
+                        onClick = { showPrivacySheet = true },
                     )
-                    Text(
-                        "Preamble is fully open-source and respects your privacy. Tasks are always saved locally first; if you sign in, your tasks are securely synced to your own Firebase account for backup and realtime sync. No third-party analytics.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    HorizontalDivider()
+                    SettingsNavigationRow(
+                        title = "Terms and Conditions",
+                        subtitle = "Usage rules, AI limitations, ads and service availability",
+                        onClick = { showTermsSheet = true },
                     )
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    Text(
-                        "Terms of Service",
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                    )
-                    Text(
-                        "Preamble is provided as-is under the Apache License 2.0. You may use, modify, and distribute it freely. The developers are not liable for any damages arising from use of this software.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    )
-                }
-            }
-
-            SectionTitle("Open Source")
-            SettingsCard {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        "Licensed under Apache License 2.0",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                    LibraryItem("Jetpack Compose", "UI Toolkit", "Apache 2.0")
-                    LibraryItem("Room Database", "Local persistence", "Apache 2.0")
-                    LibraryItem("Kotlin Coroutines", "Async operations", "Apache 2.0")
-                    LibraryItem("Material Design 3", "Design system", "Apache 2.0")
-                    LibraryItem("AndroidX Core", "Android extensions", "Apache 2.0")
-                    LibraryItem("Navigation Compose", "Screen navigation", "Apache 2.0")
                 }
             }
 
@@ -1007,6 +1081,811 @@ fun SettingsScreen(
                         ) { Text("Rate Now") }
                     }
                 }
+            }
+        }
+
+        if (showPrivacySheet) {
+            LegalDocumentSheet(
+                title = "Privacy Policy",
+                sections = privacyPolicySections(),
+                onDismiss = { showPrivacySheet = false },
+            )
+        }
+
+        if (showTermsSheet) {
+            LegalDocumentSheet(
+                title = "Terms and Conditions",
+                sections = termsAndConditionsSections(),
+                onDismiss = { showTermsSheet = false },
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsNavigationRow(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            )
+        }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AiSettingsSubscreen(
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+
+    var showMemorySheet by remember { mutableStateOf(false) }
+    var showProcessLogSheet by remember { mutableStateOf(false) }
+    var showExperimentalSheet by remember { mutableStateOf(false) }
+    var smartModeEnabled by remember {
+        mutableStateOf(
+            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                .getBoolean("ai_smart_mode", true)
+        )
+    }
+    var aiControlSheetEnabled by remember {
+        mutableStateOf(
+            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                .getBoolean("ai_control_task_sheet", true)
+        )
+    }
+    var subtaskIntensity by remember {
+        mutableStateOf(
+            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                .getInt("ai_subtask_intensity", 2)
+        )
+    }
+    var notifEditEnabled by remember {
+        mutableStateOf(
+            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                .getBoolean("ai_notif_edit", false)
+        )
+    }
+
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
+        SectionTitle("Preamble AI")
+        SettingsCard {
+            Column {
+                SettingsToggleRow(
+                    title = "Smart Preamble AI (long-term memory)",
+                    subtitle = "AI remembers your name, goals and preferences across chats.",
+                    checked = smartModeEnabled,
+                    onToggle = { enabled ->
+                        smartModeEnabled = enabled
+                        context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                            .edit().putBoolean("ai_smart_mode", enabled).apply()
+                    }
+                )
+                HorizontalDivider()
+                SettingsNavigationRow(
+                    title = "What Preamble AI remembers",
+                    subtitle = "View or delete the facts AI has learned about you",
+                    onClick = { showMemorySheet = true },
+                )
+                HorizontalDivider()
+                SettingsNavigationRow(
+                    title = "Preamble AI activity",
+                    subtitle = "See every AI call, what it did and how long it took",
+                    onClick = { showProcessLogSheet = true },
+                )
+                HorizontalDivider()
+                SettingsToggleRow(
+                    title = "Let Preamble AI control task sheet",
+                    subtitle = "AI auto-fills date, time, priority and tags as you type",
+                    checked = aiControlSheetEnabled,
+                    onToggle = { enabled ->
+                        aiControlSheetEnabled = enabled
+                        context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                            .edit().putBoolean("ai_control_task_sheet", enabled).apply()
+                    }
+                )
+                HorizontalDivider()
+                SmartTaskBreakdownSetting(
+                    value = subtaskIntensity,
+                    onChange = { value ->
+                        subtaskIntensity = value
+                        context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                            .edit().putInt("ai_subtask_intensity", value).apply()
+                    },
+                )
+                HorizontalDivider()
+                AiNotificationEditSetting(
+                    enabled = notifEditEnabled,
+                    onChange = { enabled ->
+                        if (enabled) {
+                            showExperimentalSheet = true
+                        } else {
+                            notifEditEnabled = false
+                            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                .edit().putBoolean("ai_notif_edit", false).apply()
+                        }
+                    },
+                )
+            }
+        }
+
+        SectionTitle("Preamble AI Reminders")
+        AiReminderSettingsCard()
+
+        Spacer(modifier = Modifier.height(32.dp))
+    }
+
+    if (showMemorySheet) {
+        AiMemoryBottomSheet(onDismiss = { showMemorySheet = false })
+    }
+    if (showProcessLogSheet) {
+        AiProcessLogBottomSheet(onDismiss = { showProcessLogSheet = false })
+    }
+    if (showExperimentalSheet) {
+        AiNotificationEditWarningSheet(
+            onDismiss = { showExperimentalSheet = false },
+            onConfirm = {
+                notifEditEnabled = true
+                context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                    .edit().putBoolean("ai_notif_edit", true).apply()
+                showExperimentalSheet = false
+            },
+        )
+    }
+}
+
+@Composable
+private fun PersonalTouchSettingsSubscreen(
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val pmGreeting by ThemePreferences.pmGreeting.collectAsState()
+    val pmSmartProgress by ThemePreferences.pmSmartProgress.collectAsState()
+    val pmLateNight by ThemePreferences.pmLateNight.collectAsState()
+    val pmSmartEmpty by ThemePreferences.pmSmartEmpty.collectAsState()
+    val pmLastTask by ThemePreferences.pmLastTask.collectAsState()
+    val pmStreakWarn by ThemePreferences.pmStreakWarn.collectAsState()
+    val pmBests by ThemePreferences.pmBests.collectAsState()
+    val pmMilestones by ThemePreferences.pmMilestones.collectAsState()
+    val pmSparkle by ThemePreferences.pmSparkle.collectAsState()
+    val pmEasterEgg by ThemePreferences.pmEasterEgg.collectAsState()
+    val pmVariableRewards by ThemePreferences.pmVariableRewards.collectAsState()
+
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
+        SectionTitle("Personal Touches")
+        SettingsCard {
+            Column {
+                PersonalToggle(
+                    label = "Time-aware greeting",
+                    sub = "Good morning greeting - updates through the day",
+                    checked = pmGreeting,
+                    onToggle = { ThemePreferences.setPmGreeting(context, it) },
+                )
+                HorizontalDivider()
+                PersonalToggle(
+                    label = "Smart progress messages",
+                    sub = "Motivation messages that adapt to your completion pace",
+                    checked = pmSmartProgress,
+                    onToggle = { ThemePreferences.setPmSmartProgress(context, it) },
+                )
+                HorizontalDivider()
+                PersonalToggle(
+                    label = "Late-night care banner",
+                    sub = "Gentle reminder to rest when you use the app after 11 PM",
+                    checked = pmLateNight,
+                    onToggle = { ThemePreferences.setPmLateNight(context, it) },
+                )
+                HorizontalDivider()
+                PersonalToggle(
+                    label = "Variable rewards",
+                    sub = "Unpredictable haptics and cheers on task completion",
+                    checked = pmVariableRewards,
+                    onToggle = { ThemePreferences.setPmVariableRewards(context, it) },
+                )
+                HorizontalDivider()
+                PersonalToggle(
+                    label = "Contextual empty state",
+                    sub = "Time-aware messages when your task list is empty",
+                    checked = pmSmartEmpty,
+                    onToggle = { ThemePreferences.setPmSmartEmpty(context, it) },
+                )
+                HorizontalDivider()
+                PersonalToggle(
+                    label = "Last-task amplification",
+                    sub = "Extra motivation when only 1 task remains",
+                    checked = pmLastTask,
+                    onToggle = { ThemePreferences.setPmLastTask(context, it) },
+                )
+                HorizontalDivider()
+                PersonalToggle(
+                    label = "Streak at-risk warning",
+                    sub = "Notifies you when your streak is about to break",
+                    checked = pmStreakWarn,
+                    onToggle = { ThemePreferences.setPmStreakWarn(context, it) },
+                )
+                HorizontalDivider()
+                PersonalToggle(
+                    label = "Personal bests",
+                    sub = "Toast when you beat your all-time daily task count",
+                    checked = pmBests,
+                    onToggle = { ThemePreferences.setPmBests(context, it) },
+                )
+                HorizontalDivider()
+                PersonalToggle(
+                    label = "Streak milestone celebrations",
+                    sub = "Special message at 7, 14, 30, 50, and 100-day streaks",
+                    checked = pmMilestones,
+                    onToggle = { ThemePreferences.setPmMilestones(context, it) },
+                )
+                HorizontalDivider()
+                PersonalToggle(
+                    label = "Completion sparkle",
+                    sub = "Glow animation when you complete all tasks for the day",
+                    checked = pmSparkle,
+                    onToggle = { ThemePreferences.setPmSparkle(context, it) },
+                )
+                HorizontalDivider()
+                PersonalToggle(
+                    label = "Hidden easter egg",
+                    sub = "Tap the app title 7 times to discover a secret message",
+                    checked = pmEasterEgg,
+                    onToggle = { ThemePreferences.setPmEasterEgg(context, it) },
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+    }
+}
+
+@Composable
+private fun ProblemReportSettingsSubscreen(
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val currentUser by AuthManager.currentUser.collectAsState()
+
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var selectedMedia by remember { mutableStateOf<List<ProblemReportRepository.DraftMedia>>(emptyList()) }
+    var reports by remember { mutableStateOf<List<ProblemReport>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+    var isSubmitting by remember { mutableStateOf(false) }
+    var errorText by remember { mutableStateOf<String?>(null) }
+
+    fun refreshReports() {
+        scope.launch {
+            isLoading = true
+            errorText = null
+            runCatching { ProblemReportRepository.loadMyReports() }
+                .onSuccess { reports = it }
+                .onFailure { errorText = it.message ?: "Could not load problem reports." }
+            isLoading = false
+        }
+    }
+
+    LaunchedEffect(currentUser?.uid) {
+        if (currentUser != null) refreshReports()
+    }
+
+    val mediaPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            runCatching { ProblemReportRepository.inspectMedia(context, uris) }
+                .onSuccess { inspected ->
+                    selectedMedia = (selectedMedia + inspected).distinctBy { it.uri.toString() }
+                    errorText = null
+                }
+                .onFailure { errorText = it.message ?: "Could not attach selected media." }
+        }
+    }
+
+    val activeReports = reports.filter { !it.isResolved }
+    val hasUnresolvedReport = activeReports.isNotEmpty()
+    val canSubmit = currentUser != null &&
+        !hasUnresolvedReport &&
+        !isSubmitting &&
+        title.isNotBlank() &&
+        description.isNotBlank()
+
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
+    ) {
+        SectionTitle("Your reports")
+        SettingsCard {
+            Column {
+                if (currentUser == null) {
+                    Text(
+                        "Sign in to report a problem and track its status.",
+                        modifier = Modifier.padding(16.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else if (isLoading) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text("Loading reports...", style = MaterialTheme.typography.bodyMedium)
+                    }
+                } else if (reports.isEmpty()) {
+                    Text(
+                        "No reports yet. Add a clear title, details, and optional screenshots or videos.",
+                        modifier = Modifier.padding(16.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    reports.forEachIndexed { index, report ->
+                        ProblemReportStatusRow(report = report)
+                        if (index != reports.lastIndex) HorizontalDivider()
+                    }
+                }
+            }
+        }
+
+        SectionTitle("New report")
+        SettingsCard {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.BugReport,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            "Attach images or videos up to 50 MB each. New reports stay locked while one is open or in review.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                }
+
+                if (hasUnresolvedReport) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFFFFF3E0),
+                    ) {
+                        Text(
+                            "Your current report is ${activeReports.first().statusLabel.lowercase()}. You can send another once admin marks it resolved.",
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFFE65100),
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it.take(120) },
+                    enabled = currentUser != null && !hasUnresolvedReport && !isSubmitting,
+                    label = { Text("Problem title") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it.take(2000) },
+                    enabled = currentUser != null && !hasUnresolvedReport && !isSubmitting,
+                    label = { Text("What happened?") },
+                    minLines = 4,
+                    maxLines = 8,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                if (selectedMedia.isNotEmpty()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        selectedMedia.forEach { media ->
+                            ProblemReportMediaRow(
+                                media = media,
+                                enabled = !isSubmitting,
+                                onRemove = {
+                                    selectedMedia = selectedMedia.filterNot { it.uri == media.uri }
+                                },
+                            )
+                        }
+                    }
+                }
+
+                errorText?.let { message ->
+                    Text(
+                        message,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    OutlinedButton(
+                        onClick = { mediaPicker.launch(arrayOf("image/*", "video/*")) },
+                        enabled = currentUser != null && !hasUnresolvedReport && !isSubmitting,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Attach")
+                    }
+                    Button(
+                        onClick = {
+                            scope.launch {
+                                isSubmitting = true
+                                errorText = null
+                                runCatching {
+                                    ProblemReportRepository.submitReport(
+                                        context = context,
+                                        title = title,
+                                        description = description,
+                                        media = selectedMedia,
+                                    )
+                                }.onSuccess {
+                                    title = ""
+                                    description = ""
+                                    selectedMedia = emptyList()
+                                    Toast.makeText(context, "Report sent", Toast.LENGTH_SHORT).show()
+                                    reports = ProblemReportRepository.loadMyReports()
+                                }.onFailure {
+                                    errorText = it.message ?: "Could not send report."
+                                }
+                                isSubmitting = false
+                            }
+                        },
+                        enabled = canSubmit,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        if (isSubmitting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
+                            )
+                        } else {
+                            Icon(Icons.Filled.Send, contentDescription = null, modifier = Modifier.size(18.dp))
+                        }
+                        Spacer(Modifier.width(8.dp))
+                        Text(if (isSubmitting) "Sending" else "Send")
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+    }
+}
+
+@Composable
+private fun ProblemReportStatusRow(report: ProblemReport) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top,
+        ) {
+            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                Text(report.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Text(
+                    formatReportDate(report.createdAt),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            ProblemReportStatusChip(report.status)
+        }
+
+        Text(
+            report.description,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        if (report.attachments.isNotEmpty()) {
+            Text(
+                "${report.attachments.size} attachment${if (report.attachments.size == 1) "" else "s"}",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
+
+        if (!report.adminNote.isNullOrBlank()) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 1.dp,
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
+                    Text("Admin note", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    LinkifiedAdminNoteText(report.adminNote)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LinkifiedAdminNoteText(text: String) {
+    val uriHandler = LocalUriHandler.current
+    val linkColor = MaterialTheme.colorScheme.primary
+    val bodyColor = MaterialTheme.colorScheme.onSurface
+    val urlRegex = remember { Regex("""https?://[^\s]+""") }
+    val annotated = remember(text, linkColor, bodyColor) {
+        buildAnnotatedString {
+            var cursor = 0
+            urlRegex.findAll(text).forEach { match ->
+                if (match.range.first > cursor) {
+                    append(text.substring(cursor, match.range.first))
+                }
+                val rawUrl = match.value.trimEnd('.', ',', ')', ']')
+                val trailing = match.value.removePrefix(rawUrl)
+                pushStringAnnotation(tag = "URL", annotation = rawUrl)
+                withStyle(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)) {
+                    append(rawUrl)
+                }
+                pop()
+                append(trailing)
+                cursor = match.range.last + 1
+            }
+            if (cursor < text.length) {
+                append(text.substring(cursor))
+            }
+        }
+    }
+
+    ClickableText(
+        text = annotated,
+        style = MaterialTheme.typography.bodySmall.copy(color = bodyColor),
+        onClick = { offset ->
+            annotated
+                .getStringAnnotations(tag = "URL", start = offset, end = offset)
+                .firstOrNull()
+                ?.let { annotation -> uriHandler.openUri(annotation.item) }
+        },
+    )
+}
+
+@Composable
+private fun ProblemReportStatusChip(status: String) {
+    val (background, content, icon) = when (status) {
+        ProblemReport.STATUS_RESOLVED -> Triple(Color(0xFFE8F5E9), Color(0xFF2E7D32), Icons.Filled.CheckCircle)
+        ProblemReport.STATUS_IN_PROGRESS -> Triple(MaterialTheme.colorScheme.primaryContainer, MaterialTheme.colorScheme.onPrimaryContainer, Icons.Filled.HourglassTop)
+        else -> Triple(Color(0xFFFFF3E0), Color(0xFFE65100), Icons.Filled.BugReport)
+    }
+    Surface(shape = CircleShape, color = background) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(5.dp),
+        ) {
+            Icon(icon, contentDescription = null, modifier = Modifier.size(13.dp), tint = content)
+            Text(
+                when (status) {
+                    ProblemReport.STATUS_RESOLVED -> "Resolved"
+                    ProblemReport.STATUS_IN_PROGRESS -> "In review"
+                    else -> "Open"
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = content,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProblemReportMediaRow(
+    media: ProblemReportRepository.DraftMedia,
+    enabled: Boolean,
+    onRemove: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 1.dp,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 12.dp, top = 8.dp, bottom = 8.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(Icons.Filled.AttachFile, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(media.name, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+                Text(
+                    formatReportBytes(media.sizeBytes),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IconButton(onClick = onRemove, enabled = enabled) {
+                Icon(Icons.Filled.Close, contentDescription = "Remove attachment")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SmartTaskBreakdownSetting(
+    value: Int,
+    onChange: (Int) -> Unit,
+) {
+    val intensityLabels = listOf("Off", "Light", "Balanced", "Aggressive")
+    val intensityDescs = listOf(
+        "No auto-subtasks. Only extract when you list items.",
+        "Subtasks only for clearly multi-step planning tasks.",
+        "Subtasks for events, trips, projects, preparations.",
+        "Subtasks for almost any task with 2+ natural steps.",
+    )
+    Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("Smart Task Breakdown", style = MaterialTheme.typography.bodyLarge)
+            Text(
+                intensityLabels[value],
+                style = MaterialTheme.typography.labelMedium,
+                color = if (value == 0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary,
+            )
+        }
+        Text(
+            intensityDescs[value],
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            modifier = Modifier.padding(top = 2.dp),
+        )
+        Slider(
+            value = value.toFloat(),
+            onValueChange = { onChange(it.toInt().coerceIn(0, 3)) },
+            valueRange = 0f..3f,
+            steps = 2,
+            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun AiNotificationEditSetting(
+    enabled: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Preamble AI edit from notification", style = MaterialTheme.typography.bodyLarge)
+                Surface(shape = RoundedCornerShape(4.dp), color = Color(0xFFFFF3E0)) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(3.dp),
+                    ) {
+                        Icon(Icons.Filled.Science, contentDescription = null, modifier = Modifier.size(11.dp), tint = Color(0xFFE65100))
+                        Text("Experimental", style = MaterialTheme.typography.labelSmall, color = Color(0xFFE65100), fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+            Text(
+                "Control tasks with voice commands in the notification bar",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+            )
+        }
+        Switch(checked = enabled, onCheckedChange = onChange)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AiNotificationEditWarningSheet(
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Surface(shape = RoundedCornerShape(10.dp), color = Color(0xFFFFF3E0)) {
+                    Icon(Icons.Filled.Science, contentDescription = null, modifier = Modifier.padding(10.dp).size(28.dp), tint = Color(0xFFE65100))
+                }
+                Column {
+                    Text("Experimental Feature", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("Preamble AI edit from notification", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Text("What this feature does:", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(
+                    "\"gym cancel karo\" deletes your Gym task",
+                    "\"meeting ko kal shift karo\" moves Meeting to tomorrow",
+                    "\"hospital urgent kar do\" sets Hospital task to High priority",
+                    "\"camping alarm 7:30\" adds reminder to Camping task",
+                ).forEach { example ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("•", color = MaterialTheme.colorScheme.primary)
+                        Text(example, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+            Surface(shape = RoundedCornerShape(12.dp), color = Color(0xFFFFF8E1)) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Icon(Icons.Filled.Warning, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFFF57F17))
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Use with caution", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = Color(0xFFF57F17))
+                        Text("AI uses fuzzy matching to find tasks. It may occasionally modify or delete the wrong task if multiple tasks have similar names.", style = MaterialTheme.typography.bodySmall, color = Color(0xFF795548))
+                    }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
+                Button(onClick = onConfirm, modifier = Modifier.weight(1f)) { Text("I Understand, Enable") }
             }
         }
     }
@@ -1096,6 +1975,21 @@ private fun SupportLink(label: String, subtitle: String, onClick: () -> Unit) {
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
         )
+    }
+}
+
+private fun formatReportDate(timestamp: Long): String {
+    if (timestamp <= 0L) return "Unknown date"
+    return SimpleDateFormat("MMM d, yyyy h:mm a", Locale.getDefault()).format(Date(timestamp))
+}
+
+private fun formatReportBytes(bytes: Long): String {
+    if (bytes <= 0L) return "Unknown size"
+    val mb = bytes / (1024f * 1024f)
+    return if (mb >= 1f) {
+        String.format(Locale.getDefault(), "%.1f MB", mb)
+    } else {
+        String.format(Locale.getDefault(), "%.0f KB", bytes / 1024f)
     }
 }
 

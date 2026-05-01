@@ -41,6 +41,12 @@ service cloud.firestore {
       allow read: if request.auth != null;
     }
 
+    // Problem reports — users can track their own reports.
+    // Creation/status changes happen through Cloud Functions/Admin SDK so limits are enforced server-side.
+    match /problemReports/{reportId} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
     // Admin tasks - users can only read their assigned tasks
     match /users/{uid}/assignedTasks/{taskId} {
       allow read: if isOwner(uid);

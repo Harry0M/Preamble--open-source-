@@ -408,6 +408,8 @@ fun LoginPage(
     val scope = rememberCoroutineScope()
     var isLoading by remember { mutableStateOf(false) }
     var termsAccepted by remember { mutableStateOf(false) }
+    var showPrivacySheet by remember { mutableStateOf(false) }
+    var showTermsSheet by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -451,11 +453,9 @@ fun LoginPage(
                     colors = CheckboxDefaults.colors(checkedColor = Color.Black, uncheckedColor = Color.Gray, checkmarkColor = Color.White)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                val termsUrl = "https://theblankstate.com/preamble/terms"
-                val privacyUrl = "https://theblankstate.com/preamble/privacy"
                 val annotated = androidx.compose.ui.text.buildAnnotatedString {
                     append("I agree to the ")
-                    pushStringAnnotation(tag = "URL", annotation = privacyUrl)
+                    pushStringAnnotation(tag = "PRIVACY", annotation = "privacy")
                     withStyle(
                         androidx.compose.ui.text.SpanStyle(
                             color = Color.Black,
@@ -465,7 +465,7 @@ fun LoginPage(
                     ) { append("Privacy Policy") }
                     pop()
                     append(" & ")
-                    pushStringAnnotation(tag = "URL", annotation = termsUrl)
+                    pushStringAnnotation(tag = "TERMS", annotation = "terms")
                     withStyle(
                         androidx.compose.ui.text.SpanStyle(
                             color = Color.Black,
@@ -476,14 +476,15 @@ fun LoginPage(
                     pop()
                     append(".")
                 }
-                val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
                 androidx.compose.foundation.text.ClickableText(
                     text = annotated,
                     style = MaterialTheme.typography.bodySmall.copy(color = Color.Black),
                     onClick = { offset ->
-                        val link = annotated.getStringAnnotations("URL", offset, offset).firstOrNull()
-                        if (link != null) uriHandler.openUri(link.item)
-                        else termsAccepted = !termsAccepted
+                        when {
+                            annotated.getStringAnnotations("PRIVACY", offset, offset).isNotEmpty() -> showPrivacySheet = true
+                            annotated.getStringAnnotations("TERMS", offset, offset).isNotEmpty() -> showTermsSheet = true
+                            else -> termsAccepted = !termsAccepted
+                        }
                     }
                 )
             }
@@ -541,6 +542,22 @@ fun LoginPage(
                 Text("Start Offline (Skip)", fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
         }
+    }
+
+    if (showPrivacySheet) {
+        LegalDocumentSheet(
+            title = "Privacy Policy",
+            sections = privacyPolicySections(),
+            onDismiss = { showPrivacySheet = false },
+        )
+    }
+
+    if (showTermsSheet) {
+        LegalDocumentSheet(
+            title = "Terms and Conditions",
+            sections = termsAndConditionsSections(),
+            onDismiss = { showTermsSheet = false },
+        )
     }
 }
 

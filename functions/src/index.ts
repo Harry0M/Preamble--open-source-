@@ -15,3 +15,6 @@ export { aiParseTask } from "./ai-parse-task";
 
 // Credits endpoints
 export { aiCreditsReward, aiCreditsBalance } from "./ai-credits";
+
+// User problem reports
+export { submitProblemReport } from "./problem-reports";

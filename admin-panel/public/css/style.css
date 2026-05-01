@@ -485,6 +485,9 @@ tbody tr:last-child td {
 .badge-priority-1 { background: rgba(59, 130, 246, 0.14); color: #1D4ED8; }
 .badge-priority-2 { background: var(--warning-dim); color: var(--warning); }
 .badge-priority-3 { background: var(--danger-dim); color: var(--danger); }
+.badge-success { background: var(--success-dim); color: var(--success); }
+.badge-warning { background: var(--warning-dim); color: var(--warning); }
+.badge-danger { background: var(--danger-dim); color: var(--danger); }
 
 /* ─── Buttons ─── */
 .btn {
@@ -510,6 +513,19 @@ tbody tr:last-child td {
 }
 
 .btn-primary:hover { background: var(--accent-hover); }
+
+.btn-secondary {
+  background: var(--gray-100);
+  color: var(--gray-400);
+  border: 1px solid var(--glass-border);
+}
+
+.btn-secondary:hover,
+.filter-btn.active {
+  background: var(--accent-dim);
+  color: var(--accent-hover);
+  border-color: rgba(184, 170, 142, 0.4);
+}
 
 .btn-danger {
   background: var(--danger);
@@ -683,6 +699,80 @@ tbody tr:last-child td {
 }
 
 .task-item:hover .task-actions { opacity: 1; }
+
+/* ─── Problem Reports ─── */
+.report-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.report-label,
+.form-group .report-label {
+  display: block;
+  color: var(--gray-400);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.35rem;
+}
+
+.report-value,
+.report-description {
+  color: var(--gray-200);
+  font-size: 0.875rem;
+}
+
+.report-description {
+  background: var(--gray-100);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 0.875rem;
+  white-space: pre-wrap;
+}
+
+.report-attachments {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 0.75rem;
+}
+
+.report-thumb,
+.report-file {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: 72px;
+  padding: 0.75rem;
+  background: var(--gray-100);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  color: var(--gray-300);
+}
+
+.report-thumb:hover,
+.report-file:hover {
+  border-color: rgba(184, 170, 142, 0.5);
+  background: var(--gray-800);
+}
+
+.report-thumb img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: 0.5rem;
+  flex-shrink: 0;
+}
+
+.report-file span,
+.report-thumb span {
+  display: block;
+  color: var(--gray-500);
+  font-size: 0.72rem;
+  margin-top: 0.15rem;
+}
 
 /* ─── Modal ─── */
 .modal-overlay {

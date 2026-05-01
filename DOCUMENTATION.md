@@ -349,8 +349,7 @@ Box(modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)) {
 | **Notifications** | Switch toggle (synced with system), "Grant Permission" button |
 | **Alarms** | Alarm tone card → opens `RingtoneManager.ACTION_RINGTONE_PICKER` |
 | **Support** | Email, GitHub (Harry0M), Website links → opens intents |
-| **Legal** | Privacy Policy + Terms of Service (inline text) |
-| **Open Source** | Library list: Compose, Room, Coroutines, Material3, Core, Navigation |
+| **Legal** | Privacy Policy + Terms and Conditions sheets |
 | **Rate** | Button + auto-popup review `ModalBottomSheet` after 2 days |
 
 **All cards**: `CardDefaults.cardColors(containerColor = surfaceVariant)`
@@ -374,7 +373,7 @@ Box(modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)) {
 | Home | `HomeScreen.kt` | TopAppBar, WaveProgressBar, TaskItem list, Voice FAB, Add Task FAB, BottomWaveAnimation |
 | Stats | `StatsScreen.kt` | StatCards (Material icons), WaveChart (14-day/30-day), weekly bar chart |
 | Calendar | `CalendarScreen.kt` | Heat map grid, today dot, inline task list, legend |
-| Settings | `SettingsScreen.kt` | Appearance, Notifications, Alarms, Support, Legal, Open Source, Rate |
+| Settings | `SettingsScreen.kt` | Appearance, Notifications, Alarms, Support, Legal, Rate |
 
 ---
 
@@ -399,7 +398,7 @@ Box(modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)) {
 2. **Voice-first Design** — 3 voice entry points (FAB, notification, AddTaskSheet)
 3. **Overdue Task Highlighting** — Red background + ⚠ icon for missed deadlines
 4. **setAlarmClock() Alarms** — Most reliable alarm method, bypasses Doze
-5. **On-device Everything** — Zero network calls, zero analytics, zero data collection
+5. **Privacy-respecting Cloud Features** — Firebase sync, optional Google services, PostHog/Firebase reliability analytics, and no data selling
 6. **Full 360° Color Customization** — HSL hue wheel, not just presets
 7. **Canvas-drawn Onboarding Illustrations** — No external assets needed
 8. **GitHub-style Calendar Heat Map** — Color intensity shows task completion
@@ -410,7 +409,9 @@ Box(modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)) {
 
 ## License
 
-Apache License 2.0 — See [LICENSE](LICENSE) for full text.
+Preamble is proprietary software owned by The Blank State. Preamble is no longer open-source.
+
+See [TERMS_AND_CONDITIONS.md](TERMS_AND_CONDITIONS.md) and [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
 
 **Copyright 2024 The Blank State**
 
@@ -418,6 +419,6 @@ Apache License 2.0 — See [LICENSE](LICENSE) for full text.
 
 ## Contact
 
-- **Email:** theblankstateteam@gmail.com
+- **Email:** theblankstate@theblankstate.com
 - **GitHub:** [Harry0M](https://github.com/Harry0M)
 - **Website:** [theblankstate.com](https://theblankstate.com)
