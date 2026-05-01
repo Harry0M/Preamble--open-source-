@@ -678,7 +678,7 @@ fun NotationsPage() {
             modifier = Modifier.weight(1f).fillMaxWidth()
         )
         Column(modifier = Modifier.fillMaxWidth()) {
-            Text("YOUR NOTATION SYSTEM", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.Gray, letterSpacing = 1.4.sp)
+            Text("YOUR NOTATION SYSTEM", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold, color = Color.Gray, letterSpacing = 1.4.sp)
             Spacer(Modifier.height(6.dp))
             Text("A new way to plan.", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp), color = Color.Black)
             Spacer(Modifier.height(4.dp))
@@ -741,7 +741,7 @@ fun NotationCard(title: String, desc: String, type: String) {
             }
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color.Black)
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, color = Color.Black)
             Spacer(modifier = Modifier.height(4.dp))
             Text(desc, style = MaterialTheme.typography.bodyMedium, color = Color.DarkGray, lineHeight = 20.sp)
         }
@@ -769,7 +769,7 @@ fun NotationRow(title: String, desc: String, type: String) {
             }
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, color = Color.Black)
             Text(desc, fontSize = 12.sp, color = Color.Gray, lineHeight = 16.sp)
         }
     }
@@ -923,7 +923,7 @@ private fun OnboardingThemePicker(
         Text(
             "Theme",
             style = MaterialTheme.typography.labelLarge,
-            fontWeight = FontWeight.Bold,
+            fontWeight = FontWeight.ExtraBold,
             color = Color.Black,
             modifier = Modifier.padding(bottom = 8.dp)
         )
@@ -1060,7 +1060,7 @@ fun PermissionRow(
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(title, fontWeight = FontWeight.Bold, color = Color.Black)
+                Text(title, fontWeight = FontWeight.ExtraBold, color = Color.Black)
                 Text(desc, style = MaterialTheme.typography.bodySmall, color = Color.DarkGray)
             }
         }
@@ -1116,7 +1116,7 @@ fun NameQuestionPage(name: String, onNameChange: (String) -> Unit) {
             modifier = Modifier.weight(1f).fillMaxWidth()
         )
         Column(modifier = Modifier.fillMaxWidth()) {
-            Text("Step 1 of 5", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.Gray, letterSpacing = 1.4.sp)
+            Text("Step 1 of 5", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold, color = Color.Gray, letterSpacing = 1.4.sp)
             Spacer(Modifier.height(6.dp))
             Text("What should we call you?", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp), color = Color.Black)
             Spacer(Modifier.height(4.dp))
@@ -1171,7 +1171,7 @@ fun AgeGenderQuestionPage(
             modifier = Modifier.weight(1f).fillMaxWidth()
         )
         Column(modifier = Modifier.fillMaxWidth()) {
-            Text("Step 2 of 5", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.Gray, letterSpacing = 1.4.sp)
+            Text("Step 2 of 5", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold, color = Color.Gray, letterSpacing = 1.4.sp)
             Spacer(Modifier.height(6.dp))
             Text("A bit about you.", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp), color = Color.Black)
             Spacer(Modifier.height(4.dp))
@@ -1254,7 +1254,7 @@ fun RoleQuestionPage(role: UserRole?, onRoleChange: (UserRole?) -> Unit) {
             modifier = Modifier.weight(1f).fillMaxWidth()
         )
         Column(modifier = Modifier.fillMaxWidth()) {
-            Text("Step 3 of 5", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.Gray, letterSpacing = 1.4.sp)
+            Text("Step 3 of 5", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold, color = Color.Gray, letterSpacing = 1.4.sp)
             Spacer(Modifier.height(6.dp))
             Text("What best describes you?", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp), color = Color.Black)
             Spacer(Modifier.height(4.dp))
@@ -1333,7 +1333,7 @@ fun TasksGoalQuestionPage(
             modifier = Modifier.weight(1f).fillMaxWidth()
         )
         Column(modifier = Modifier.fillMaxWidth()) {
-            Text("Step 4 of 5", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = Color.Gray, letterSpacing = 1.4.sp)
+            Text("Step 4 of 5", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold, color = Color.Gray, letterSpacing = 1.4.sp)
             Spacer(Modifier.height(6.dp))
             Text("How much do you juggle?", style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black, letterSpacing = (-0.5).sp), color = Color.Black)
             Spacer(Modifier.height(4.dp))
@@ -1375,7 +1375,7 @@ fun TasksGoalQuestionPage(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Primary goals", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color.Black)
+                Text("Primary goals", fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color.Black)
                 Text("Pick up to 2 · ${goals.size}/2", fontSize = 11.sp, color = Color.Gray)
             }
             Spacer(Modifier.height(8.dp))

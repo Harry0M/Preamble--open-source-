@@ -95,7 +95,7 @@ object ThemePreferences {
     val pmYearHeatmap: StateFlow<Boolean> = _pmYearHeatmap.asStateFlow()
 
     // Material You
-    private val _materialYou      = MutableStateFlow(false)
+    private val _materialYou      = MutableStateFlow(true)
     val materialYou: StateFlow<Boolean> = _materialYou.asStateFlow()
 
     fun init(context: Context) {
@@ -140,7 +140,7 @@ object ThemePreferences {
             _pmYearHeatmap.value     = true
 
             // UI features — normal defaults
-            _materialYou.value         = false
+            _materialYou.value         = true
             _colorfulCards.value       = false
             _timelineUi.value          = false
             _showRecurrenceLabel.value = false
@@ -160,7 +160,7 @@ object ThemePreferences {
                 .putBoolean(KEY_PM_ENDOWED, true)
                 .putBoolean(KEY_PM_VARIABLE, true)
                 .putBoolean(KEY_PM_HEATMAP, true)
-                .putBoolean(KEY_MATERIAL_YOU, false)
+                .putBoolean(KEY_MATERIAL_YOU, true)
                 .putBoolean(KEY_COLORFUL_CARDS, false)
                 .putBoolean(KEY_TIMELINE_UI, false)
                 .putBoolean(KEY_SHOW_RECURRENCE_LABEL, false)
