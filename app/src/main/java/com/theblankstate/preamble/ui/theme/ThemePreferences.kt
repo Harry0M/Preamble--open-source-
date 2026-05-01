@@ -31,9 +31,6 @@ object ThemePreferences {
     private const val KEY_PM_VARIABLE         = "pm_variable"
     private const val KEY_PM_HEATMAP          = "pm_heatmap"
 
-    // Expressive Navigation
-    private const val KEY_EXPRESSIVE_NAV      = "expressive_nav"
-
     // Material You (dynamic color)
     private const val KEY_MATERIAL_YOU        = "material_you"
 
@@ -97,10 +94,6 @@ object ThemePreferences {
     private val _pmYearHeatmap    = MutableStateFlow(true)
     val pmYearHeatmap: StateFlow<Boolean> = _pmYearHeatmap.asStateFlow()
 
-    // Expressive Navigation
-    private val _expressiveNav    = MutableStateFlow(false)
-    val expressiveNav: StateFlow<Boolean> = _expressiveNav.asStateFlow()
-
     // Material You
     private val _materialYou      = MutableStateFlow(false)
     val materialYou: StateFlow<Boolean> = _materialYou.asStateFlow()
@@ -147,7 +140,6 @@ object ThemePreferences {
             _pmYearHeatmap.value     = true
 
             // UI features — normal defaults
-            _expressiveNav.value       = false
             _materialYou.value         = false
             _colorfulCards.value       = false
             _timelineUi.value          = false
@@ -168,7 +160,6 @@ object ThemePreferences {
                 .putBoolean(KEY_PM_ENDOWED, true)
                 .putBoolean(KEY_PM_VARIABLE, true)
                 .putBoolean(KEY_PM_HEATMAP, true)
-                .putBoolean(KEY_EXPRESSIVE_NAV, false)
                 .putBoolean(KEY_MATERIAL_YOU, false)
                 .putBoolean(KEY_COLORFUL_CARDS, false)
                 .putBoolean(KEY_TIMELINE_UI, false)
@@ -195,7 +186,6 @@ object ThemePreferences {
             _pmEndowedProgress.value= prefs.getBoolean(KEY_PM_ENDOWED, true)
             _pmVariableRewards.value= prefs.getBoolean(KEY_PM_VARIABLE, true)
             _pmYearHeatmap.value   = prefs.getBoolean(KEY_PM_HEATMAP, true)
-            _expressiveNav.value   = prefs.getBoolean(KEY_EXPRESSIVE_NAV, false)
             _materialYou.value     = prefs.getBoolean(KEY_MATERIAL_YOU, false)
         }
     }
@@ -285,9 +275,6 @@ object ThemePreferences {
     fun setPmEndowedProgress(context: Context, v: Boolean) = setBool(context, KEY_PM_ENDOWED, _pmEndowedProgress, v)
     fun setPmVariableRewards(context: Context, v: Boolean) = setBool(context, KEY_PM_VARIABLE, _pmVariableRewards, v)
     fun setPmYearHeatmap(context: Context, v: Boolean)   = setBool(context, KEY_PM_HEATMAP, _pmYearHeatmap, v)
-    fun setExpressiveNav(context: Context, v: Boolean) {
-        setBool(context, KEY_EXPRESSIVE_NAV, _expressiveNav, v)
-    }
     fun setMaterialYou(context: Context, v: Boolean) {
         setBool(context, KEY_MATERIAL_YOU, _materialYou, v)
     }

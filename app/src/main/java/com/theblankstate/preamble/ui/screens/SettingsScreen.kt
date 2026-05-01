@@ -119,7 +119,6 @@ fun SettingsScreen(
     val pmSparkle        by ThemePreferences.pmSparkle.collectAsState()
     val pmEasterEgg      by ThemePreferences.pmEasterEgg.collectAsState()
     val pmVariableRewards by ThemePreferences.pmVariableRewards.collectAsState()
-    val expressiveNav    by ThemePreferences.expressiveNav.collectAsState()
     val colorfulCards    by ThemePreferences.colorfulCards.collectAsState()
     val googleSignInLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -404,13 +403,6 @@ fun SettingsScreen(
             SettingsCard {
                 Column {
                     ThemePickerCard(context)
-                    HorizontalDivider()
-                    SettingsToggleRow(
-                        title = "Expressive Navigation",
-                        subtitle = "Dynamic nav bar - tap icon to reveal label",
-                        checked = expressiveNav,
-                        onToggle = { v -> ThemePreferences.setExpressiveNav(context, v) }
-                    )
                     HorizontalDivider()
                     SettingsToggleRow(
                         title = "Colorful Task Cards",
