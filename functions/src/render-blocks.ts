@@ -108,19 +108,6 @@ function contentBlock(text: string): JsonMap {
     };
   }
 
-  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
-  const numbered = lines
-    .map(l => l.match(/^\d+[\.)]\s+(.+)$/)?.[1]?.trim())
-    .filter(Boolean) as string[];
-  if (numbered.length >= 2) {
-    return {
-      type: "steps",
-      title: "Steps",
-      items: numbered.map(title => ({ title })),
-      markdown: text,
-    };
-  }
-
   return { type: "answer", markdown: text };
 }
 

@@ -111,17 +111,6 @@ object AiRenderBlockFactory {
             )
         }
 
-        val lines = text.lines().map { it.trim() }.filter { it.isNotBlank() }
-        val numbered = lines.mapNotNull { Regex("""^\d+[\.)]\s+(.+)$""").find(it)?.groupValues?.get(1)?.trim() }
-        if (numbered.size >= 2) {
-            return mapOf(
-                "type" to "steps",
-                "title" to "Steps",
-                "items" to numbered.map { mapOf("title" to it) },
-                "markdown" to text,
-            )
-        }
-
         return mapOf("type" to "answer", "markdown" to text)
     }
 

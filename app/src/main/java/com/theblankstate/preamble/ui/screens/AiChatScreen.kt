@@ -1235,7 +1235,7 @@ private fun RenderAssistantBlocks(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         blocks.forEachIndexed { index, block ->
             when (block.type) {
-                "answer", "table", "code", "checklist" -> {
+                "answer", "table", "code", "checklist", "steps" -> {
                     block.markdown?.takeIf { it.isNotBlank() }?.let { markdown ->
                         SelectionContainer {
                             RichMarkdownText(
@@ -1245,7 +1245,6 @@ private fun RenderAssistantBlocks(
                         }
                     }
                 }
-                "steps" -> StructuredListBlock(block = block, numbered = true)
                 "task_list" -> TaskListRenderBlock(block)
                 "suggested_task" -> {
                     val args = block.args.orEmpty().toMutableMap()

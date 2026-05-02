@@ -469,9 +469,6 @@ fun HomeScreen(
     Box(modifier = modifier.fillMaxSize()) {
         Scaffold(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
-            snackbarHost = {
-                SnackbarHost(hostState = snackbarHostState)
-            },
             topBar = {
                 TopAppBar(
                     title = {
@@ -1489,6 +1486,11 @@ fun HomeScreen(
                 )
             }
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter)
+        )
 
         com.theblankstate.preamble.ui.components.CelebrationOverlay(
             event = activeCelebration,
