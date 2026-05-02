@@ -495,6 +495,8 @@ fun SettingsScreen(
                 }
             }
 
+            var showAutoStartSheet by remember { mutableStateOf(false) }
+
             SectionTitle("Notifications")
             SettingsCard {
                 Column {
@@ -543,38 +545,62 @@ fun SettingsScreen(
                     }
                     if (notificationPrefEnabled) {
                         HorizontalDivider()
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
+                        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
                                 Text("Update Frequency", style = MaterialTheme.typography.bodyLarge)
                                 Text(
                                     when (notificationUpdateMode) {
-                                        com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE -> "Changes visible within 10 seconds (more battery usage)"
-                                        com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED -> "Changes visible within 30 seconds (recommended)"
-                                        com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER -> "Updates every 2 min when no tasks (lowest battery use)"
+                                        com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE -> "10s"
+                                        com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED -> "30s"
+                                        com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER -> "2 min"
                                     },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
-                        }
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            com.theblankstate.preamble.notification.NotificationUpdatePreference.values().forEach { mode ->
-                                FilterChip(
-                                    selected = notificationUpdateMode == mode,
-                                    onClick = {
-                                        notificationUpdateMode = mode
-                                        context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).edit().putString("notification_update_mode", mode.name).apply()
-                                    },
-                                    label = { Text(mode.displayName) },
-                                    modifier = Modifier.weight(1f)
-                                )
+                            Text(
+                                when (notificationUpdateMode) {
+                                    com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE -> "Fastest — changes show in ~10 sec, uses more battery"
+                                    com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED -> "Recommended — changes show in ~30 sec"
+                                    com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER -> "Battery saver — updates every 2 min"
+                                },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                            // Slider: 0 = 2 min (Battery Saver), 1 = 30s (Balanced), 2 = 10s (Aggressive)
+                            val sliderValue = when (notificationUpdateMode) {
+                                com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER -> 0f
+                                com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED -> 1f
+                                com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE -> 2f
+                            }
+                            Slider(
+                                value = sliderValue,
+                                onValueChange = { raw ->
+                                    val mode = when (raw.toInt()) {
+                                        0 -> com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER
+                                        1 -> com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED
+                                        else -> com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE
+                                    }
+                                    notificationUpdateMode = mode
+                                    context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                        .edit().putString("notification_update_mode", mode.name).apply()
+                                },
+                                valueRange = 0f..2f,
+                                steps = 1,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("2 min", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("30 sec", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("10 sec", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -608,6 +634,86 @@ fun SettingsScreen(
                                 TextButton(onClick = { requestIgnoreBatteryOptimizations(context) }, shape = CircleShape) { Text("Set to Unrestricted") }
                             }
                         }
+                    }
+                    HorizontalDivider()
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Fix: Always-ready task bar not showing", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "Some phones stop the task bar in background. Fix in 2 steps.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        }
+                        TextButton(
+                            onClick = { showAutoStartSheet = true },
+                            shape = CircleShape
+                        ) { Text("Fix") }
+                    }
+                }
+            }
+
+            if (showAutoStartSheet) {
+                val batteryUnrestricted = !isBatteryOptimized
+                ModalBottomSheet(
+                    onDismissRequest = { showAutoStartSheet = false },
+                    sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp)
+                            .padding(bottom = 40.dp)
+                    ) {
+                        Text(
+                            "Fix: Always-ready task bar not showing",
+                            style = MaterialTheme.typography.titleLarge,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                        Text(
+                            "3 quick steps to stop your phone from killing Preamble in background.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(bottom = 24.dp)
+                        )
+
+                        // Step 1 — Battery unrestricted
+                        NotifFixStep(
+                            number = 1,
+                            title = "Set Battery to Unrestricted",
+                            body = if (batteryUnrestricted)
+                                "Already set to Unrestricted — nothing to do here."
+                            else
+                                "Prevents the phone from killing Preamble in background.",
+                            done = batteryUnrestricted
+                        ) {
+                            if (!batteryUnrestricted) {
+                                Button(
+                                    onClick = { requestIgnoreBatteryOptimizations(context) },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("Set to Unrestricted") }
+                            }
+                        }
+
+                        Spacer(Modifier.height(16.dp))
+
+                        // Step 2 — Pin in recents (always manual)
+                        NotifFixStep(
+                            number = 2,
+                            title = "Pin Preamble in Recent Apps",
+                            body = "Open recent apps → long-press the Preamble card → tap the lock 🔒 icon to pin it.",
+                            done = false
+                        ) {}
+
+                        Spacer(Modifier.height(24.dp))
+                        TextButton(
+                            onClick = { showAutoStartSheet = false },
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Done") }
                     }
                 }
             }
@@ -1886,6 +1992,55 @@ private fun AiNotificationEditWarningSheet(
             ) {
                 OutlinedButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Cancel") }
                 Button(onClick = onConfirm, modifier = Modifier.weight(1f)) { Text("I Understand, Enable") }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NotifFixStep(
+    number: Int,
+    title: String,
+    body: String,
+    done: Boolean,
+    action: @Composable () -> Unit
+) {
+    Row(verticalAlignment = Alignment.Top) {
+        androidx.compose.material3.Surface(
+            shape = CircleShape,
+            color = if (done) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.primaryContainer,
+            modifier = Modifier.size(28.dp)
+        ) {
+            androidx.compose.foundation.layout.Box(contentAlignment = Alignment.Center) {
+                if (done) {
+                    Text("✓", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimary)
+                } else {
+                    Text(
+                        "$number",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (done) MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(
+                body,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (!done) {
+                Spacer(Modifier.height(8.dp))
+                action()
             }
         }
     }

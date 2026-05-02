@@ -34,6 +34,12 @@ class NotificationReceiver : BroadcastReceiver() {
         val results = RemoteInput.getResultsFromIntent(intent)
         val taskText = results?.getCharSequence(TaskNotificationManager.KEY_TASK_TEXT)?.toString()
 
+        // Mark RemoteInput interaction so subsequent rebuilds are suppressed during the
+        // grace window. Without this, the optimistic insert below triggers the DB flow
+        // observer which rebuilds the notification and closes the input mid-typing
+        // when the user is queueing a second task.
+        TaskNotificationService.lastRemoteInputTimeMs = System.currentTimeMillis()
+
         if (!taskText.isNullOrBlank()) {
             val app = context.applicationContext as PreambleApplication
             CoroutineScope(Dispatchers.IO).launch {

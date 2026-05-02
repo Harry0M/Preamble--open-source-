@@ -28,7 +28,21 @@
       "Bash(./gradlew build *)",
       "Bash(npm run *)",
       "Bash(.\\\\gradlew.bat :app:compileDebugKotlin)",
-      "Bash(npm start *)"
+      "Bash(npm start *)",
+      "Bash(git -C c:/Users/palha/preamble log --all --oneline)",
+      "Bash(git -C c:/Users/palha/preamble log --all --oneline -- \"functions/**\")",
+      "Bash(./gradlew :app:processDebugManifest)",
+      "Bash(gcloud --version)",
+      "Bash(gcloud config *)",
+      "PowerShell(gcloud --version 2>&1)",
+      "PowerShell($paths = @\\(\"$env:LOCALAPPDATA\\\\Google\\\\Cloud SDK\\\\google-cloud-sdk\\\\bin\\\\gcloud.cmd\", \"$env:ProgramFiles\\\\Google\\\\Cloud SDK\\\\google-cloud-sdk\\\\bin\\\\gcloud.cmd\", \"${env:ProgramFiles\\(x86\\)}\\\\Google\\\\Cloud SDK\\\\google-cloud-sdk\\\\bin\\\\gcloud.cmd\"\\); foreach \\($p in $paths\\) { if \\(Test-Path $p\\) { Write-Output \"FOUND: $p\" } }; firebase --version 2>&1 | Select-Object -First 1)",
+      "PowerShell(firebase functions:list --project=preambl-fbea6 2>&1)",
+      "PowerShell(winget install Google.CloudSDK --accept-package-agreements --accept-source-agreements 2>&1)",
+      "PowerShell(& \"C:\\\\Users\\\\palha\\\\AppData\\\\Local\\\\Google\\\\Cloud SDK\\\\google-cloud-sdk\\\\bin\\\\gcloud.cmd\" auth list --project=preambl-fbea6 2>&1)",
+      "PowerShell(& \"C:\\\\Users\\\\palha\\\\AppData\\\\Local\\\\Google\\\\Cloud SDK\\\\google-cloud-sdk\\\\bin\\\\gcloud.cmd\" auth list 2>&1)",
+      "PowerShell(& \"C:\\\\Users\\\\palha\\\\AppData\\\\Local\\\\Google\\\\Cloud SDK\\\\google-cloud-sdk\\\\bin\\\\gcloud.cmd\" scheduler jobs list --project=preambl-fbea6 --location=us-central1 2>&1)",
+      "PowerShell(& \"C:\\\\Users\\\\palha\\\\AppData\\\\Local\\\\Google\\\\Cloud SDK\\\\google-cloud-sdk\\\\bin\\\\gcloud.cmd\" scheduler jobs delete firebase-schedule-tasksPeriodicSync-us-central1 --project=preambl-fbea6 --location=us-central1 --quiet 2>&1)",
+      "PowerShell(& \"C:\\\\Users\\\\palha\\\\AppData\\\\Local\\\\Google\\\\Cloud SDK\\\\google-cloud-sdk\\\\bin\\\\gcloud.cmd\" scheduler jobs delete firebase-schedule-calendarPeriodicSyncGuard-us-central1 --project=preambl-fbea6 --location=us-central1 --quiet 2>&1)"
     ]
   }
 }

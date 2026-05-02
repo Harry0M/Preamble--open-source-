@@ -87,6 +87,20 @@ class MainActivity : ComponentActivity() {
             android.util.Log.e("MainActivity", "Failed to start notification service", e)
         }
 
+        // On aggressive-OEM devices (especially Vivo), battery optimization kills the
+        // foreground service within 10–15 min. Request "Unrestricted" on first launch
+        // so the OS never targets it. Show only once; user can revisit in Settings.
+        if (com.theblankstate.preamble.util.OemHelper.isAggressiveKiller &&
+            !com.theblankstate.preamble.util.OemHelper.isBatteryOptimizationIgnored(this) &&
+            !prefs.getBoolean("battery_opt_asked", false)) {
+            prefs.edit().putBoolean("battery_opt_asked", true).apply()
+            try {
+                com.theblankstate.preamble.util.OemHelper.requestIgnoreBatteryOptimizations(this)
+            } catch (e: Exception) {
+                android.util.Log.w("MainActivity", "Battery opt request failed", e)
+            }
+        }
+
         // Schedule Sunday 7pm Weekly Wrapped notification (reschedules itself after firing)
         try {
             com.theblankstate.preamble.notification.WeeklyWrappedScheduler.schedule(this)
@@ -263,7 +277,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun postNotification() {
-        // Notification is automatically managed by TaskNotificationService
+        // Called after onboarding completes and POST_NOTIFICATIONS has been granted.
+        // Service may already be running but notification was blocked during startup
+        // (Android 13+ requires permission before any notification shows).
+        // Re-starting here forces a fresh startForeground() with permission now active.
+        if (TaskNotificationService.isEnabled(this)) {
+            TaskNotificationService.start(this)
+        }
     }
 }
 

@@ -56,6 +56,9 @@ class TaskNotificationService : Service() {
     private var lastBuiltNotification: Notification? = null
     private var lastTaskIds: Set<String> = emptySet()
 
+    // Single in-flight deferred rebuild (set when grace blocks, fires once after grace expires)
+    @Volatile private var pendingRebuildScheduled = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -78,8 +81,11 @@ class TaskNotificationService : Service() {
 
         createNotificationChannel()
 
-        // Always (re-)post the notification — this is the core Android 16 fix.
-        promoteToForeground(buildNotification(lastPendingCount, lastPendingTasks))
+        // Initial start and explicit re-show (after dismiss) bypass the RemoteInput grace.
+        // Subsequent calls (e.g. KeepAlive ping while service alive) respect grace so they
+        // don't kill an open Quick Add input.
+        val bypassGrace = !isRunning || action == ACTION_RESHOW
+        promoteToForeground(buildNotification(lastPendingCount, lastPendingTasks), bypassGrace = bypassGrace)
 
         if (!isRunning) {
             isRunning = true
@@ -133,7 +139,19 @@ class TaskNotificationService : Service() {
 
     // ── Foreground promotion ──────────────────────────────────────────────
 
-    private fun promoteToForeground(notification: Notification) {
+    private fun promoteToForeground(notification: Notification, bypassGrace: Boolean = false) {
+        // Single chokepoint: any non-bypass post during the RemoteInput grace window
+        // is suppressed and a deferred rebuild is queued. Prevents the open Quick Add
+        // input field from being closed mid-typing by spurious notification rebuilds.
+        if (!bypassGrace) {
+            val timeSinceInput = System.currentTimeMillis() - lastRemoteInputTimeMs
+            if (timeSinceInput < REMOTE_INPUT_GRACE_PERIOD_MS) {
+                val remaining = REMOTE_INPUT_GRACE_PERIOD_MS - timeSinceInput
+                Log.d(TAG, "Suppressed rebuild — RemoteInput grace active (${remaining}ms left)")
+                scheduleDeferredRebuild(remaining + 200L)
+                return
+            }
+        }
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 ServiceCompat.startForeground(
@@ -148,6 +166,17 @@ class TaskNotificationService : Service() {
             Log.d(TAG, "Foreground posted")
         } catch (e: Exception) {
             Log.e(TAG, "promoteToForeground failed", e)
+        }
+    }
+
+    private fun scheduleDeferredRebuild(delayMs: Long) {
+        if (pendingRebuildScheduled) return
+        pendingRebuildScheduled = true
+        serviceScope.launch {
+            delay(delayMs)
+            pendingRebuildScheduled = false
+            if (!isActive) return@launch
+            promoteToForeground(buildNotification(lastPendingCount, lastPendingTasks))
         }
     }
 
@@ -171,15 +200,6 @@ class TaskNotificationService : Service() {
                 }
                 .collect { pending ->
                     if (!isActive) return@collect
-
-                    // If RemoteInput grace period is active, delay the re-post until it expires
-                    // This keeps the RemoteInput text field open while still ensuring we update after
-                    val timeSinceLastRemoteInput = System.currentTimeMillis() - lastRemoteInputTimeMs
-                    if (timeSinceLastRemoteInput < REMOTE_INPUT_GRACE_PERIOD_MS) {
-                        val delayTime = REMOTE_INPUT_GRACE_PERIOD_MS - timeSinceLastRemoteInput
-                        Log.d(TAG, "Delaying notification re-post by ${delayTime}ms for RemoteInput grace period")
-                        delay(delayTime)
-                    }
 
                     lastPendingCount = pending.size
                     lastPendingTasks = pending
@@ -454,7 +474,10 @@ class TaskNotificationService : Service() {
         private const val CHANNEL_ID = "preamble_tasks_persistent"
         private const val PREFS_NAME = "preamble_prefs"
         private const val PREF_NOTIFICATION_ENABLED = "notification_enabled"
-        private const val REMOTE_INPUT_GRACE_PERIOD_MS = 500L
+        // Grace window after user interacts with RemoteInput (Quick Add).
+        // During this window any non-essential notification rebuild is suppressed
+        // to keep the open input field from being torn down mid-typing.
+        private const val REMOTE_INPUT_GRACE_PERIOD_MS = 10_000L
         const val NOTIFICATION_ID = 1001
         const val ACTION_RESHOW = "com.theblankstate.preamble.ACTION_RESHOW_NOTIFICATION"
 

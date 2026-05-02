@@ -5,6 +5,7 @@ import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import com.theblankstate.preamble.data.PreambleDatabase
+import com.theblankstate.preamble.notification.NotificationKeepAliveJobService
 import com.theblankstate.preamble.notification.NotificationKeepAliveScheduler
 import com.theblankstate.preamble.notification.NotificationKeepAliveWorker
 import com.theblankstate.preamble.notification.TaskNotificationManager
@@ -96,6 +97,9 @@ class PreambleApplication : Application() {
         // kill the notification service in background
         scheduleNotificationKeepAlive()
         NotificationKeepAliveScheduler.schedule(this)
+        // Independent recovery path on platform JobScheduler. Several OEMs freeze
+        // WorkManager-managed jobs while leaving raw JobScheduler alone, so we run both.
+        NotificationKeepAliveJobService.schedule(this)
         // Schedule recurring task instance generation
         scheduleRecurrenceWorker()
         generateRecurrenceInstancesNow()

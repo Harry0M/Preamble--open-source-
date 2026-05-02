@@ -789,7 +789,14 @@ fun PermissionsPage(
     val materialYou by ThemePreferences.materialYou.collectAsState()
     val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         onNotifChange(granted)
-        if (!granted) Toast.makeText(context, "The task bar needs notification access to stay visible.", Toast.LENGTH_SHORT).show()
+        if (granted) {
+            // Permission just granted — kick the service so it can post its first
+            // notification immediately (was blocked during app startup when permission
+            // wasn't yet active).
+            com.theblankstate.preamble.notification.TaskNotificationService.start(context)
+        } else {
+            Toast.makeText(context, "The task bar needs notification access to stay visible.", Toast.LENGTH_SHORT).show()
+        }
     }
     
     val audioLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
