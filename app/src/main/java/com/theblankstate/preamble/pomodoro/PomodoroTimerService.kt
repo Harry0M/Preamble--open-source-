@@ -180,8 +180,8 @@ class PomodoroTimerService : Service() {
         val current = _state.value
         val elapsed = current.totalSeconds - current.remainingSeconds
 
-        // Save partial work session if stopped mid-WORK with at least 5 minutes elapsed
-        if (current.currentPhase == PomodoroPhase.WORK && elapsed >= 300) {
+        // Save partial work session if stopped mid-WORK with any meaningful time elapsed
+        if (current.currentPhase == PomodoroPhase.WORK && elapsed >= 120) {
             val now = System.currentTimeMillis()
             val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
             val session = PomodoroSession(
