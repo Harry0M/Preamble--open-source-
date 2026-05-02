@@ -177,12 +177,30 @@ class PomodoroTimerService : Service() {
     }
 
     private fun stopTimer() {
-        // PostHog: Focus cancelled/stopped — total time track karo
-        val elapsed = _state.value.totalSeconds - _state.value.remainingSeconds
+        val current = _state.value
+        val elapsed = current.totalSeconds - current.remainingSeconds
+
+        // Save partial work session if stopped mid-WORK with at least 5 minutes elapsed
+        if (current.currentPhase == PomodoroPhase.WORK && elapsed >= 300) {
+            val now = System.currentTimeMillis()
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+            val session = PomodoroSession(
+                taskId = current.taskId,
+                taskTitle = current.taskTitle,
+                startTimestamp = workPhaseStartTimestamp,
+                endTimestamp = now,
+                durationSeconds = elapsed,
+                date = sdf.format(java.util.Date(now))
+            )
+            serviceScope.launch(Dispatchers.IO) {
+                try { pomodoroSessionDao?.insertSession(session) } catch (_: Exception) {}
+            }
+        }
+
         AnalyticsManager.trackFocusMode(
             action = "cancelled",
             durationSeconds = elapsed,
-            taskId = _state.value.taskId
+            taskId = current.taskId
         )
 
         timerJob?.cancel()

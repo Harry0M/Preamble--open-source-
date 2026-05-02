@@ -188,6 +188,7 @@ fun HomeScreen(
     adminTasks: List<AdminTask> = emptyList(),
     onDismissAdminTask: ((String) -> Unit)? = null,
     onAdminTaskAction: ((String) -> Unit)? = null,
+    isSignedIn: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
@@ -760,6 +761,34 @@ fun HomeScreen(
                         color = MaterialTheme.colorScheme.primary,
                         trackColor = Color.Transparent
                     )
+                }
+
+                // Signed-out info strip
+                AnimatedVisibility(visible = !isSignedIn) {
+                    var signedOutBannerDismissed by remember { mutableStateOf(false) }
+                    AnimatedVisibility(visible = !signedOutBannerDismissed) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f))
+                                .clickable { signedOutBannerDismissed = true }
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "Sign in to enable AI features and cloud sync",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                "dismiss",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.6f)
+                            )
+                        }
+                    }
                 }
 
                 // Late-night care banner

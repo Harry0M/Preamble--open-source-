@@ -268,7 +268,7 @@ class AiChatEngine(
             val signedIn = FirebaseAuth.getInstance().currentUser != null
             collector.emit(ChatEvent.Error(
                 if (signedIn) "AI service is not ready. Please try again in a moment."
-                else "AI not configured. Please sign in to use AI chat."
+                else "Sign in to use AI features."
             ))
             return
         }

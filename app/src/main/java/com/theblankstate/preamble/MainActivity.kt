@@ -426,6 +426,7 @@ fun PreambleApp(
                 adminTasks = viewModel.adminTasks.collectAsState().value,
                 onDismissAdminTask = { viewModel.dismissAdminTask(it) },
                 onAdminTaskAction = { viewModel.adminTaskActioned(it) },
+                isSignedIn = AuthManager.isSignedIn(),
                 modifier = Modifier.padding(innerPadding)
             )
             1 -> StatsScreenHost(

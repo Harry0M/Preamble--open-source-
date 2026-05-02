@@ -560,6 +560,8 @@ private fun AiChatErrorBanner(
     val errorDisplay = when (error) {
         "DAILY_LIMIT_REACHED" ->
             "Daily limit reached. Watch an ad to get more, or switch to Flash Lite (free & unlimited)."
+        "Sign in to use AI features." ->
+            "Sign in to unlock AI chat. Go to Settings → Sign in with Google."
         else -> error
     }
 
