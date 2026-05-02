@@ -7,7 +7,6 @@ import android.util.Log
 import androidx.core.app.RemoteInput
 import com.theblankstate.preamble.PreambleApplication
 import com.theblankstate.preamble.notification.NotificationKeepAliveScheduler
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
@@ -30,6 +29,7 @@ class NotificationReceiver : BroadcastReceiver() {
     }
 
     private fun handleQuickAdd(context: Context, intent: Intent) {
+        val receivedAt = System.currentTimeMillis()
         val pendingResult = goAsync()
         val results = RemoteInput.getResultsFromIntent(intent)
         val taskText = results?.getCharSequence(TaskNotificationManager.KEY_TASK_TEXT)?.toString()
@@ -40,23 +40,39 @@ class NotificationReceiver : BroadcastReceiver() {
         // when the user is queueing a second task.
         TaskNotificationService.lastRemoteInputTimeMs = System.currentTimeMillis()
 
-        if (!taskText.isNullOrBlank()) {
-            val app = context.applicationContext as PreambleApplication
-            CoroutineScope(Dispatchers.IO).launch {
-                try {
-                    // OPTIMISTIC: Insert raw task immediately so it shows in the notification panel instantly
-                    val now = System.currentTimeMillis()
-                    val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
-                    val rawTask = com.theblankstate.preamble.data.Task(
-                        title = taskText,
-                        createdDate = today,
-                        createdTimestamp = now,
-                        updatedTimestamp = now,
-                        isSyncing = true  // Shows shimmer/spinner while AI refines
-                    )
-                    app.repository.insertTask(rawTask)
+        // OPTIMISTIC UI: build the raw Task synchronously (object alloc only — no IO)
+        // and finish the BroadcastReceiver immediately so Android collapses the
+        // RemoteInput "Sending…" spinner without waiting for DB / AI work. User can
+        // tap Quick Add again right away and queue another task with no perceived lag.
+        val rawTask = if (!taskText.isNullOrBlank()) {
+            val now = System.currentTimeMillis()
+            val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+            com.theblankstate.preamble.data.Task(
+                title = taskText,
+                createdDate = today,
+                createdTimestamp = now,
+                updatedTimestamp = now,
+                isSyncing = true  // shimmer in UI while AI refines
+            )
+        } else null
 
-                    // Now fire AI service in background to silently refine this task
+        // Release the receiver NOW — UI collapses input within ~10 ms instead of
+        // waiting for Room insert + foreground service start (~200–700 ms).
+        pendingResult.finish()
+        Log.d(
+            "NotifReceiver",
+            "QuickAdd onReceive->finish: ${System.currentTimeMillis() - receivedAt}ms " +
+                "(hasText=${rawTask != null}, len=${taskText?.length ?: 0})"
+        )
+        TaskNotificationService.acknowledgeQuickAdd(context, rawTask)
+
+        if (rawTask != null) {
+            val app = context.applicationContext as PreambleApplication
+            // appScope (SupervisorJob, process-lifetime) keeps work alive after
+            // receiver returns. Foreground notification service holds the process up.
+            app.appScope.launch(Dispatchers.IO) {
+                try {
+                    app.repository.insertTask(rawTask)
                     val aiIntent = Intent(context, VoiceTaskService::class.java).apply {
                         putExtra(VoiceTaskService.EXTRA_TEXT_COMMAND, taskText)
                         putExtra(VoiceTaskService.EXTRA_TASK_ID, rawTask.id)
@@ -67,12 +83,10 @@ class NotificationReceiver : BroadcastReceiver() {
                     } else {
                         context.startService(aiIntent)
                     }
-                } finally {
-                    pendingResult.finish()
+                } catch (e: Exception) {
+                    Log.e("NotifReceiver", "Background quick-add failed", e)
                 }
             }
-        } else {
-            pendingResult.finish()
         }
     }
 

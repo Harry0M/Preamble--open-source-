@@ -18,6 +18,7 @@ import androidx.core.app.ServiceCompat
 import com.theblankstate.preamble.MainActivity
 import com.theblankstate.preamble.PreambleApplication
 import com.theblankstate.preamble.R
+import com.theblankstate.preamble.data.Task
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -50,14 +51,11 @@ class TaskNotificationService : Service() {
 
     // Cache the latest task data so we can rebuild the notification instantly
     private var lastPendingCount = 0
-    private var lastPendingTasks: List<com.theblankstate.preamble.data.Task> = emptyList()
+    private var lastPendingTasks: List<Task> = emptyList()
 
     // Cache the last built notification to avoid rebuilding when nothing changed
     private var lastBuiltNotification: Notification? = null
     private var lastTaskIds: Set<String> = emptySet()
-
-    // Single in-flight deferred rebuild (set when grace blocks, fires once after grace expires)
-    @Volatile private var pendingRebuildScheduled = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -81,11 +79,21 @@ class TaskNotificationService : Service() {
 
         createNotificationChannel()
 
+        if (action == ACTION_QUICK_ADD_ACK) {
+            mergeOptimisticQuickAdd(intent.toOptimisticQuickAddTask())
+            Log.d(TAG, "QuickAdd ack: reposting notification to clear RemoteInput")
+        }
+
         // Initial start and explicit re-show (after dismiss) bypass the RemoteInput grace.
         // Subsequent calls (e.g. KeepAlive ping while service alive) respect grace so they
         // don't kill an open Quick Add input.
-        val bypassGrace = !isRunning || action == ACTION_RESHOW
-        promoteToForeground(buildNotification(lastPendingCount, lastPendingTasks), bypassGrace = bypassGrace)
+        val bypassGrace = !isRunning || action == ACTION_RESHOW || action == ACTION_QUICK_ADD_ACK
+        val forceStartForeground = !isRunning || action == ACTION_RESHOW
+        promoteToForeground(
+            buildNotification(lastPendingCount, lastPendingTasks),
+            bypassGrace = bypassGrace,
+            forceStartForeground = forceStartForeground
+        )
 
         if (!isRunning) {
             isRunning = true
@@ -139,7 +147,11 @@ class TaskNotificationService : Service() {
 
     // ── Foreground promotion ──────────────────────────────────────────────
 
-    private fun promoteToForeground(notification: Notification, bypassGrace: Boolean = false) {
+    private fun promoteToForeground(
+        notification: Notification,
+        bypassGrace: Boolean = false,
+        forceStartForeground: Boolean = false
+    ) {
         // Single chokepoint: any non-bypass post during the RemoteInput grace window
         // is suppressed and a deferred rebuild is queued. Prevents the open Quick Add
         // input field from being closed mid-typing by spurious notification rebuilds.
@@ -147,37 +159,56 @@ class TaskNotificationService : Service() {
             val timeSinceInput = System.currentTimeMillis() - lastRemoteInputTimeMs
             if (timeSinceInput < REMOTE_INPUT_GRACE_PERIOD_MS) {
                 val remaining = REMOTE_INPUT_GRACE_PERIOD_MS - timeSinceInput
-                Log.d(TAG, "Suppressed rebuild — RemoteInput grace active (${remaining}ms left)")
-                scheduleDeferredRebuild(remaining + 200L)
+                Log.d(TAG, "Suppressed rebuild — RemoteInput grace active (${remaining}ms left, no deferred repost)")
                 return
             }
         }
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val shouldStartForeground = forceStartForeground || !isRunning
+            if (shouldStartForeground && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 ServiceCompat.startForeground(
                     this,
                     NOTIFICATION_ID,
                     notification,
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
                 )
-            } else {
+            } else if (shouldStartForeground) {
                 startForeground(NOTIFICATION_ID, notification)
+            } else {
+                getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
             }
-            Log.d(TAG, "Foreground posted")
+            Log.d(TAG, if (shouldStartForeground) "Foreground posted" else "Notification updated")
         } catch (e: Exception) {
             Log.e(TAG, "promoteToForeground failed", e)
         }
     }
 
-    private fun scheduleDeferredRebuild(delayMs: Long) {
-        if (pendingRebuildScheduled) return
-        pendingRebuildScheduled = true
-        serviceScope.launch {
-            delay(delayMs)
-            pendingRebuildScheduled = false
-            if (!isActive) return@launch
-            promoteToForeground(buildNotification(lastPendingCount, lastPendingTasks))
-        }
+    private fun mergeOptimisticQuickAdd(task: Task?) {
+        if (task == null) return
+        val withoutDuplicate = lastPendingTasks.filterNot { it.id == task.id }
+        lastPendingTasks = (listOf(task) + withoutDuplicate)
+            .sortedByDescending { it.createdTimestamp }
+        lastPendingCount = lastPendingTasks.size
+        lastTaskIds = lastPendingTasks.map { it.id }.toSet()
+        lastBuiltNotification = buildNotification(lastPendingCount, lastPendingTasks)
+        Log.d(TAG, "QuickAdd ack: optimistic task merged count=$lastPendingCount")
+    }
+
+    private fun Intent?.toOptimisticQuickAddTask(): Task? {
+        if (this == null) return null
+        val id = getStringExtra(EXTRA_ACK_TASK_ID) ?: return null
+        val title = getStringExtra(EXTRA_ACK_TASK_TITLE)?.takeIf { it.isNotBlank() } ?: return null
+        val date = getStringExtra(EXTRA_ACK_TASK_DATE) ?: return null
+        val createdAt = getLongExtra(EXTRA_ACK_TASK_CREATED_AT, System.currentTimeMillis())
+        val updatedAt = getLongExtra(EXTRA_ACK_TASK_UPDATED_AT, createdAt)
+        return Task(
+            id = id,
+            title = title,
+            createdDate = date,
+            createdTimestamp = createdAt,
+            updatedTimestamp = updatedAt,
+            isSyncing = true
+        )
     }
 
     // ── Live task observer ────────────────────────────────────────────────
@@ -247,7 +278,7 @@ class TaskNotificationService : Service() {
      * Compares current pending tasks with cached tasks.
      * Returns true if count changed or task IDs changed.
      */
-    private fun isPendingTasksChanged(newPending: List<com.theblankstate.preamble.data.Task>): Boolean {
+    private fun isPendingTasksChanged(newPending: List<Task>): Boolean {
         if (newPending.size != lastPendingCount) return true
         val newIds = newPending.map { it.id }.toSet()
         return newIds != lastTaskIds
@@ -267,7 +298,7 @@ class TaskNotificationService : Service() {
 
     private fun buildNotification(
         pendingCount: Int,
-        pendingTasks: List<com.theblankstate.preamble.data.Task>
+        pendingTasks: List<Task>
     ): Notification {
         val openIntent = PendingIntent.getActivity(
             this, 0,
@@ -474,6 +505,12 @@ class TaskNotificationService : Service() {
         private const val CHANNEL_ID = "preamble_tasks_persistent"
         private const val PREFS_NAME = "preamble_prefs"
         private const val PREF_NOTIFICATION_ENABLED = "notification_enabled"
+        private const val ACTION_QUICK_ADD_ACK = "com.theblankstate.preamble.ACTION_QUICK_ADD_ACK"
+        private const val EXTRA_ACK_TASK_ID = "extra_ack_task_id"
+        private const val EXTRA_ACK_TASK_TITLE = "extra_ack_task_title"
+        private const val EXTRA_ACK_TASK_DATE = "extra_ack_task_date"
+        private const val EXTRA_ACK_TASK_CREATED_AT = "extra_ack_task_created_at"
+        private const val EXTRA_ACK_TASK_UPDATED_AT = "extra_ack_task_updated_at"
         // Grace window after user interacts with RemoteInput (Quick Add).
         // During this window any non-essential notification rebuild is suppressed
         // to keep the open input field from being torn down mid-typing.
@@ -494,6 +531,20 @@ class TaskNotificationService : Service() {
         fun start(context: Context) {
             val intent = Intent(context, TaskNotificationService::class.java)
             startServiceSafely(context, intent, "start()")
+        }
+
+        fun acknowledgeQuickAdd(context: Context, optimisticTask: Task?) {
+            val intent = Intent(context, TaskNotificationService::class.java).apply {
+                action = ACTION_QUICK_ADD_ACK
+                optimisticTask?.let { task ->
+                    putExtra(EXTRA_ACK_TASK_ID, task.id)
+                    putExtra(EXTRA_ACK_TASK_TITLE, task.title)
+                    putExtra(EXTRA_ACK_TASK_DATE, task.createdDate)
+                    putExtra(EXTRA_ACK_TASK_CREATED_AT, task.createdTimestamp)
+                    putExtra(EXTRA_ACK_TASK_UPDATED_AT, task.updatedTimestamp)
+                }
+            }
+            startServiceSafely(context, intent, "quickAddAck()")
         }
 
         /** Called by NotificationReceiver when user dismisses notification */
