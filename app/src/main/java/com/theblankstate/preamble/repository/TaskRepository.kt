@@ -25,7 +25,7 @@ import java.util.Locale
 class TaskRepository(
     private val dao: TaskDao,
     private val syncManager: FirebaseTaskSyncManager? = null,
-    private val pomodoroDao: com.theblankstate.preamble.data.PomodoroSessionDao? = null
+    private val focusDao: com.theblankstate.preamble.data.FocusSessionDao? = null
 ) {
     // Track recently deleted IDs to prevent sync from re-inserting them
     private val recentlyDeletedIds = mutableSetOf<String>()
@@ -982,33 +982,33 @@ class TaskRepository(
         return heatmap
     }
 
-    // ── Pomodoro Stats Methods ──
+    // ── Focus Stats Methods ──
 
     suspend fun getTodayFocusMinutes(): Int {
-        val seconds = pomodoroDao?.getTotalFocusSecondsForDate(todayString()) ?: 0
+        val seconds = focusDao?.getTotalFocusSecondsForDate(todayString()) ?: 0
         return seconds / 60
     }
 
-    suspend fun getTodayPomodoroCount(): Int {
-        return pomodoroDao?.getSessionCountForDate(todayString()) ?: 0
+    suspend fun getTodayFocusCount(): Int {
+        return focusDao?.getSessionCountForDate(todayString()) ?: 0
     }
 
     suspend fun getTotalFocusHours(): Float {
-        val seconds = pomodoroDao?.getTotalFocusSecondsAllTime() ?: 0
+        val seconds = focusDao?.getTotalFocusSecondsAllTime() ?: 0
         return seconds / 3600f
     }
 
     suspend fun getAverageDailyFocusMinutes(): Int {
-        val seconds = pomodoroDao?.getAverageDailyFocusSeconds() ?: 0
+        val seconds = focusDao?.getAverageDailyFocusSeconds() ?: 0
         return seconds / 60
     }
 
     suspend fun getBestFocusDayData(): BestFocusDay? {
-        return pomodoroDao?.getBestFocusDay()
+        return focusDao?.getBestFocusDay()
     }
 
     suspend fun getTopFocusedTasks(limit: Int = 5): List<TaskFocusSummary> {
-        return pomodoroDao?.getTopFocusedTasks(limit) ?: emptyList()
+        return focusDao?.getTopFocusedTasks(limit) ?: emptyList()
     }
 
     suspend fun getWeeklyFocusData(): List<Pair<String, Int>> {
@@ -1018,7 +1018,7 @@ class TaskRepository(
             val cal = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -6 + i) }
             sdf.format(cal.time)
         }
-        val focusMap = pomodoroDao?.getFocusStatsByDates(dates)?.associate { it.date to it } ?: emptyMap()
+        val focusMap = focusDao?.getFocusStatsByDates(dates)?.associate { it.date to it } ?: emptyMap()
         return dates.map { dateStr ->
             val cal = Calendar.getInstance().apply { time = sdf.parse(dateStr)!! }
             val dayLabel = daySdf.format(cal.time)

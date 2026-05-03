@@ -54,9 +54,11 @@ fun StatsRibbonScreen(
     statsState: StatsState,
     tweaks: StatsTweaks,
     onOpenTweaks: () -> Unit,
-    onOpenWrapped: (() -> Unit)? = null,
-    range: StatsRange,
-    onRangeChange: (StatsRange) -> Unit,
+    onOpenRecap: (() -> Unit)? = null,
+    recapDayLabel: String = "Sun",
+    isRecapDay: Boolean = false,
+    range: StatsRange = StatsRange.MONTH,
+    onRangeChange: (StatsRange) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val dark = tweaks.theme == StatsTheme.DARK
@@ -103,17 +105,17 @@ fun StatsRibbonScreen(
                         letterSpacing = 0.6.sp,
                     )
                     Spacer(Modifier.width(10.dp))
-                    if (onOpenWrapped != null) {
+                    if (onOpenRecap != null) {
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(999.dp))
                                 .background(tile)
-                                .clickable { onOpenWrapped() }
+                                .clickable { onOpenRecap() }
                                 .padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
                             Text(
-                                "Wrapped",
-                                color = fg,
+                                "Recap · $recapDayLabel",
+                                color = if (isRecapDay) fg else fgMuted,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.2.sp,
@@ -164,44 +166,7 @@ fun StatsRibbonScreen(
             }
         }
 
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = pad, vertical = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                listOf(
-                    "7D" to StatsRange.WEEK,
-                    "30D" to StatsRange.MONTH,
-                    "90D" to StatsRange.YEAR,
-                    "YTD" to StatsRange.ALL,
-                ).forEach { (label, r) ->
-                    val active = r == range
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(if (active) fg else Color.Transparent)
-                            .border(
-                                width = 1.dp,
-                                color = if (active) fg else hair,
-                                shape = RoundedCornerShape(999.dp)
-                            )
-                            .clickable { onRangeChange(r) }
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                    ) {
-                        Text(
-                            label,
-                            color = if (active) surface else fg,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            fontFamily = FontFamily.Monospace,
-                            letterSpacing = 0.2.sp,
-                        )
-                    }
-                }
-            }
-        }
+
 
         item {
             SpineColumn(hair = hair, pad = pad, gap = gapChapter) {
@@ -280,7 +245,7 @@ fun StatsRibbonScreen(
                     onClick = openCat?.let { { it(StatsCategory.FOCUS) } }
                 ) {
                     ChapterFocus(
-                        pomodoros = pomodoroCount(statsState),
+                        sessions = focusSessionCount(statsState),
                         longest = longestSessionValue(statsState),
                         fg = fg, fgMuted = fgMuted, tile = tile
                     )
@@ -794,7 +759,7 @@ private fun ChapterTagList(
 
 @Composable
 private fun ChapterFocus(
-    pomodoros: Int,
+    sessions: Int,
     longest: String,
     fg: Color,
     fgMuted: Color,
@@ -818,7 +783,7 @@ private fun ChapterFocus(
             )
             Spacer(Modifier.height(8.dp))
             Text(
-                pomodoros.toString(),
+                sessions.toString(),
                 color = fg,
                 fontSize = 34.sp,
                 fontWeight = FontWeight.ExtraBold,

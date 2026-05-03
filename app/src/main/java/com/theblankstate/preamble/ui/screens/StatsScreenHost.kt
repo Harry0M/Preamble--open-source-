@@ -62,8 +62,8 @@ private fun loadTweaks(ctx: Context): StatsTweaks {
         .getOrElse { StatsTheme.LIGHT }
     val density = runCatching { StatsDensity.valueOf(p.getString(K_DENSITY, null) ?: "COMPACT") }
         .getOrElse { StatsDensity.COMPACT }
-    val variant = runCatching { StatsVariant.valueOf(p.getString(K_VARIANT, null) ?: "EDITORIAL") }
-        .getOrElse { StatsVariant.EDITORIAL }
+    val variant = runCatching { StatsVariant.valueOf(p.getString(K_VARIANT, null) ?: "RIBBON") }
+        .getOrElse { StatsVariant.RIBBON }
     return StatsTweaks(variant = variant, accent = accent, theme = theme, density = density)
 }
 
@@ -95,7 +95,7 @@ private val DeepDiveSaver: Saver<StatsCategory?, Any> = Saver(
 fun StatsScreenHost(
     statsState: com.theblankstate.preamble.viewmodel.StatsState,
     onRefreshStats: (() -> Unit)? = null,
-    onOpenWrapped: (() -> Unit)? = null,
+    onOpenRecap: (() -> Unit)? = null,
     onFeatureLocked: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -129,6 +129,23 @@ fun StatsScreenHost(
 
     val surface = if (tweaks.theme == StatsTheme.DARK) Color(0xFF0E0E0E) else Color.White
 
+    // Recap day gating
+    val isRecapDay = remember { com.theblankstate.preamble.notification.RecapDayManager.isRecapDayToday(ctx) }
+    val effectiveDay = remember { com.theblankstate.preamble.notification.RecapDayManager.getEffectiveDay(ctx) }
+    val recapDayLabel = remember { com.theblankstate.preamble.notification.RecapDayManager.dayShortLabel(effectiveDay) }
+    val recapDayFullLabel = remember { com.theblankstate.preamble.notification.RecapDayManager.dayLabel(effectiveDay) }
+    var showRecapLockedMessage by remember { mutableStateOf(false) }
+
+    val gatedRecap: (() -> Unit)? = if (onOpenRecap != null) {
+        {
+            if (isRecapDay) {
+                onOpenRecap()
+            } else {
+                showRecapLockedMessage = true
+            }
+        }
+    } else null
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -143,7 +160,9 @@ fun StatsScreenHost(
                         showTweaks = true
                         onRefreshStats?.invoke()
                     },
-                    onOpenWrapped = onOpenWrapped,
+                    onOpenRecap = gatedRecap,
+                    recapDayLabel = recapDayLabel,
+                    isRecapDay = isRecapDay,
                     range = range,
                     onRangeChange = gatedRangeChange,
                     modifier = Modifier.fillMaxSize()
@@ -155,7 +174,9 @@ fun StatsScreenHost(
                         showTweaks = true
                         onRefreshStats?.invoke()
                     },
-                    onOpenWrapped = onOpenWrapped,
+                    onOpenRecap = gatedRecap,
+                    recapDayLabel = recapDayLabel,
+                    isRecapDay = isRecapDay,
                     range = range,
                     onRangeChange = gatedRangeChange,
                     modifier = Modifier.fillMaxSize()
@@ -167,11 +188,43 @@ fun StatsScreenHost(
                         showTweaks = true
                         onRefreshStats?.invoke()
                     },
-                    onOpenWrapped = onOpenWrapped,
+                    onOpenRecap = gatedRecap,
+                    recapDayLabel = recapDayLabel,
+                    isRecapDay = isRecapDay,
                     range = range,
                     onRangeChange = gatedRangeChange,
                     modifier = Modifier.fillMaxSize()
                 )
+            }
+        }
+
+        // Locked recap message
+        if (showRecapLockedMessage) {
+            val dark = tweaks.theme == StatsTheme.DARK
+            val msgBg = if (dark) Color(0xFF2A2A2A) else Color(0xFF333333)
+            androidx.compose.animation.AnimatedVisibility(
+                visible = true,
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(msgBg)
+                        .padding(horizontal = 20.dp, vertical = 12.dp)
+                ) {
+                    Text(
+                        "Weekly recap unlocks every $recapDayFullLabel",
+                        color = Color.White,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
+            LaunchedEffect(showRecapLockedMessage) {
+                kotlinx.coroutines.delay(2500)
+                showRecapLockedMessage = false
             }
         }
 
@@ -290,6 +343,60 @@ private fun TweaksPanel(
                 dark = dark,
                 fgMuted = fgMuted
             )
+        }
+
+        Spacer(Modifier.height(18.dp))
+
+        // Recap day picker
+        val ctx = LocalContext.current
+        var recapSelectedDay by remember {
+            mutableStateOf(com.theblankstate.preamble.notification.RecapDayManager.getSelectedDay(ctx))
+        }
+        val recapHasPending = remember {
+            com.theblankstate.preamble.notification.RecapDayManager.hasPendingChange(ctx)
+        }
+
+        TweakGroup(label = "Recap day", fg = fg, fgMuted = fgMuted) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(chipBg)
+                    .padding(3.dp)
+            ) {
+                com.theblankstate.preamble.notification.RecapDayManager.SELECTABLE_DAYS.forEach { day ->
+                    val active = day == recapSelectedDay
+                    val bg = if (active) (if (dark) Color.White else Color.Black) else Color.Transparent
+                    val fgColor = if (active) (if (dark) Color.Black else Color.White) else fgMuted
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(bg)
+                            .clickable {
+                                recapSelectedDay = day
+                                com.theblankstate.preamble.notification.RecapDayManager.setDay(ctx, day)
+                            }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            com.theblankstate.preamble.notification.RecapDayManager.dayShortLabel(day).first().toString(),
+                            color = fgColor,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
+            if (recapHasPending) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "Changes next week",
+                    color = fgMuted,
+                    fontSize = 11.sp,
+                )
+            }
         }
 
         Spacer(Modifier.height(24.dp))

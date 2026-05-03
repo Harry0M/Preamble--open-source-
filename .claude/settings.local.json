@@ -42,7 +42,8 @@
       "PowerShell(& \"C:\\\\Users\\\\palha\\\\AppData\\\\Local\\\\Google\\\\Cloud SDK\\\\google-cloud-sdk\\\\bin\\\\gcloud.cmd\" auth list 2>&1)",
       "PowerShell(& \"C:\\\\Users\\\\palha\\\\AppData\\\\Local\\\\Google\\\\Cloud SDK\\\\google-cloud-sdk\\\\bin\\\\gcloud.cmd\" scheduler jobs list --project=preambl-fbea6 --location=us-central1 2>&1)",
       "PowerShell(& \"C:\\\\Users\\\\palha\\\\AppData\\\\Local\\\\Google\\\\Cloud SDK\\\\google-cloud-sdk\\\\bin\\\\gcloud.cmd\" scheduler jobs delete firebase-schedule-tasksPeriodicSync-us-central1 --project=preambl-fbea6 --location=us-central1 --quiet 2>&1)",
-      "PowerShell(& \"C:\\\\Users\\\\palha\\\\AppData\\\\Local\\\\Google\\\\Cloud SDK\\\\google-cloud-sdk\\\\bin\\\\gcloud.cmd\" scheduler jobs delete firebase-schedule-calendarPeriodicSyncGuard-us-central1 --project=preambl-fbea6 --location=us-central1 --quiet 2>&1)"
+      "PowerShell(& \"C:\\\\Users\\\\palha\\\\AppData\\\\Local\\\\Google\\\\Cloud SDK\\\\google-cloud-sdk\\\\bin\\\\gcloud.cmd\" scheduler jobs delete firebase-schedule-calendarPeriodicSyncGuard-us-central1 --project=preambl-fbea6 --location=us-central1 --quiet 2>&1)",
+      "Bash(git mv *)"
     ]
   }
 }

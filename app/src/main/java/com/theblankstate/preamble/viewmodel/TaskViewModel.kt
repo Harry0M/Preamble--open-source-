@@ -48,9 +48,9 @@ data class StatsState(
     // Productivity Score
     val productivityScore: Int = 0,
     val productivityScoreTrend: Int = 0, // -1, 0, +1
-    // Pomodoro / Focus
+    // Focus Timer
     val todayFocusMinutes: Int = 0,
-    val todayPomodoroSessions: Int = 0,
+    val todayFocusSessions: Int = 0,
     val totalFocusHours: Float = 0f,
     val averageDailyFocusMinutes: Int = 0,
     val bestFocusDay: String? = null,
@@ -613,9 +613,9 @@ class TaskViewModel(
             val yesterdayDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getYesterdayStats() }
             val monthlyCompDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getMonthlyComparison() }
             val dailyWithDatesDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getDailyStatsWithFullDates(365) }
-            // Pomodoro stats
+            // Focus stats
             val todayFocusDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTodayFocusMinutes() }
-            val todayPomCountDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTodayPomodoroCount() }
+            val todayFocusCountDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTodayFocusCount() }
             val totalFocusDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTotalFocusHours() }
             val avgFocusDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getAverageDailyFocusMinutes() }
             val bestDayDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getBestFocusDayData() }
@@ -644,7 +644,7 @@ class TaskViewModel(
             val heatmap = heatmapDef.await()
             val yearlyHeatmap = yearlyHeatmapDef.await()
             val todayFocus = todayFocusDef.await()
-            val todayPomCount = todayPomCountDef.await()
+            val todayFocusCount = todayFocusCountDef.await()
             val totalFocus = totalFocusDef.await()
             val avgFocus = avgFocusDef.await()
             val bestDay = bestDayDef.await()
@@ -792,7 +792,7 @@ class TaskViewModel(
                     productivityScore = score,
                     productivityScoreTrend = trend,
                     todayFocusMinutes = todayFocus,
-                    todayPomodoroSessions = todayPomCount,
+                    todayFocusSessions = todayFocusCount,
                     totalFocusHours = totalFocus,
                     averageDailyFocusMinutes = avgFocus,
                     bestFocusDay = bestDayFormatted,

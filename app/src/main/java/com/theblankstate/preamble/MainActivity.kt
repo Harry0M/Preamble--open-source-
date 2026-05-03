@@ -56,20 +56,25 @@ class MainActivity : ComponentActivity() {
     /** Deep link target parsed from the incoming intent (preamble://…). */
     private val _deepLinkTarget = mutableStateOf<String?>(null)
 
-    /** Set true when the launch (or new) intent asks us to open Weekly Wrapped. */
-    private val _openWrapped = mutableStateOf(false)
+    /** Set true when the launch (or new) intent asks us to open the Weekly Recap. */
+    private val _openRecap = mutableStateOf(false)
+
+    private lateinit var inAppUpdateManager: com.theblankstate.preamble.util.InAppUpdateManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ThemePreferences.init(this)
         enableEdgeToEdge()
 
+        inAppUpdateManager = com.theblankstate.preamble.util.InAppUpdateManager(this)
+        inAppUpdateManager.checkForUpdate()
+
         // Parse deep link from launch intent
         _deepLinkTarget.value = parseDeepLink(intent)
 
-        // Weekly Wrapped deep-link from notification
-        if (intent.getBooleanExtra(com.theblankstate.preamble.notification.WeeklyWrappedReceiver.EXTRA_OPEN_WRAPPED, false)) {
-            _openWrapped.value = true
+        // Weekly Recap deep-link from notification
+        if (intent.getBooleanExtra(com.theblankstate.preamble.notification.WeeklyRecapReceiver.EXTRA_OPEN_RECAP, false)) {
+            _openRecap.value = true
         }
 
         // PostHog: Agar FCM notification se app khula hai, click track karo
@@ -101,11 +106,11 @@ class MainActivity : ComponentActivity() {
             }
         }
 
-        // Schedule Sunday 7pm Weekly Wrapped notification (reschedules itself after firing)
+        // Schedule Weekly Recap notification for the user's chosen day (reschedules itself after firing)
         try {
-            com.theblankstate.preamble.notification.WeeklyWrappedScheduler.schedule(this)
+            com.theblankstate.preamble.notification.WeeklyRecapScheduler.schedule(this)
         } catch (e: Exception) {
-            android.util.Log.e("MainActivity", "Failed to schedule weekly wrapped", e)
+            android.util.Log.e("MainActivity", "Failed to schedule weekly recap", e)
         }
 
         setContent {
@@ -145,7 +150,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    val openWrapped by _openWrapped
+                    val openRecap by _openRecap
                     androidx.compose.foundation.layout.Box(
                         modifier = androidx.compose.ui.Modifier.fillMaxSize()
                     ) {
@@ -153,13 +158,13 @@ class MainActivity : ComponentActivity() {
                             viewModel = viewModel,
                             deepLinkTarget = deepLinkTarget,
                             onDeepLinkConsumed = { _deepLinkTarget.value = null },
-                            onOpenWrapped = { _openWrapped.value = true },
+                            onOpenRecap = { _openRecap.value = true },
                         )
-                        if (openWrapped) {
+                        if (openRecap) {
                             val statsState = viewModel.statsState.collectAsState().value
-                            com.theblankstate.preamble.ui.screens.WrappedScreen(
+                            com.theblankstate.preamble.ui.screens.RecapScreen(
                                 statsState = statsState,
-                                onDismiss = { _openWrapped.value = false },
+                                onDismiss = { _openRecap.value = false },
                                 modifier = androidx.compose.ui.Modifier.fillMaxSize()
                             )
                         }
@@ -174,8 +179,8 @@ class MainActivity : ComponentActivity() {
         parseDeepLink(intent)?.let { target ->
             _deepLinkTarget.value = target
         }
-        if (intent.getBooleanExtra(com.theblankstate.preamble.notification.WeeklyWrappedReceiver.EXTRA_OPEN_WRAPPED, false)) {
-            _openWrapped.value = true
+        if (intent.getBooleanExtra(com.theblankstate.preamble.notification.WeeklyRecapReceiver.EXTRA_OPEN_RECAP, false)) {
+            _openRecap.value = true
         }
         // PostHog: Agar FCM notification se naya intent aaya, click track karo
         trackCampaignClickIfPresent(intent)
@@ -216,10 +221,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (::inAppUpdateManager.isInitialized) {
+            inAppUpdateManager.onResume()
+        }
         val prefs = getSharedPreferences("preamble_prefs", MODE_PRIVATE)
         if (prefs.getBoolean("onboarding_done", false)) {
             postNotification()
             autoSyncGoogleData()
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (::inAppUpdateManager.isInitialized) {
+            inAppUpdateManager.onDestroy()
         }
     }
 
@@ -292,7 +307,7 @@ fun PreambleApp(
     viewModel: TaskViewModel,
     deepLinkTarget: String? = null,
     onDeepLinkConsumed: () -> Unit = {},
-    onOpenWrapped: () -> Unit = {},
+    onOpenRecap: () -> Unit = {},
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var quickAddTrigger by remember { mutableIntStateOf(0) }
@@ -331,7 +346,7 @@ fun PreambleApp(
                     selectedTab = 0
                     quickAddTrigger += 1
                 }
-                deepLinkTarget == "wrapped" -> onOpenWrapped()
+                deepLinkTarget == "recap" -> onOpenRecap()
                 deepLinkTarget.startsWith("home") -> selectedTab = 0
                 deepLinkTarget.startsWith("stats") -> {
                     selectedTab = 1
@@ -432,7 +447,7 @@ fun PreambleApp(
             1 -> StatsScreenHost(
                 statsState = stats,
                 onRefreshStats = { viewModel.refreshStats() },
-                onOpenWrapped = onOpenWrapped,
+                onOpenRecap = onOpenRecap,
                 modifier = Modifier.padding(innerPadding)
             )
             2 -> {

@@ -89,7 +89,7 @@ fun TaskDetailSheet(
     onDismiss: () -> Unit,
     onUpdateTask: (newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int, newDescription: String?, newTags: String?, newRecurrenceType: String?, newRecurrenceInterval: Int, newRecurrenceDays: String?, newRecurrenceEndDate: String?) -> Unit,
     onDelete: () -> Unit,
-    onStartPomodoro: (() -> Unit)? = null,
+    onStartFocus: (() -> Unit)? = null,
     subtasks: List<Task> = emptyList(),
     onAddSubtask: ((String) -> Unit)? = null,
     onToggleSubtask: ((String, Boolean) -> Unit)? = null,
@@ -180,9 +180,9 @@ fun TaskDetailSheet(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (onStartPomodoro != null) {
+                    if (onStartFocus != null) {
                         IconButton(onClick = {
-                            onStartPomodoro()
+                            onStartFocus()
                             onDismiss()
                         }) {
                             Icon(

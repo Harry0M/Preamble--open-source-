@@ -6,6 +6,6 @@
     <string name="shortcut_add_long">Quick add task</string>
     <string name="shortcut_stats_short">Stats</string>
     <string name="shortcut_stats_long">View your stats</string>
-    <string name="shortcut_wrapped_short">Wrapped</string>
-    <string name="shortcut_wrapped_long">Your week, wrapped</string>
+    <string name="shortcut_recap_short">Recap</string>
+    <string name="shortcut_recap_long">Your weekly recap</string>
 </resources>

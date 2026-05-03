@@ -54,7 +54,9 @@ fun StatsCapsuleScreen(
     statsState: StatsState,
     tweaks: StatsTweaks,
     onOpenTweaks: () -> Unit,
-    onOpenWrapped: (() -> Unit)? = null,
+    onOpenRecap: (() -> Unit)? = null,
+    recapDayLabel: String = "Sun",
+    isRecapDay: Boolean = false,
     range: StatsRange,
     onRangeChange: (StatsRange) -> Unit,
     modifier: Modifier = Modifier,
@@ -110,17 +112,17 @@ fun StatsCapsuleScreen(
                     )
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (onOpenWrapped != null) {
+                    if (onOpenRecap != null) {
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(999.dp))
                                 .background(tile)
-                                .clickable { onOpenWrapped() }
+                                .clickable { onOpenRecap() }
                                 .padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
                             Text(
-                                "Wrapped",
-                                color = fg,
+                                "Recap · $recapDayLabel",
+                                color = if (isRecapDay) fg else fgMuted,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.2.sp,
@@ -191,7 +193,7 @@ fun StatsCapsuleScreen(
                     FocusDonutTile(
                         pct = focusCompletionPct(statsState),
                         hours = statsState.totalFocusHours,
-                        pomodoros = pomodoroCount(statsState),
+                        sessions = focusSessionCount(statsState),
                         fg = fg,
                         fgMuted = fgMuted,
                         tile = tile,
@@ -547,7 +549,7 @@ private fun WeekBarsTile(
 private fun FocusDonutTile(
     pct: Float,
     hours: Float,
-    pomodoros: Int,
+    sessions: Int,
     fg: Color,
     fgMuted: Color,
     tile: Color,
@@ -578,7 +580,7 @@ private fun FocusDonutTile(
                     letterSpacing = (-0.3).sp,
                 )
                 Text(
-                    "$pomodoros pomodoros",
+                    "$sessions sessions",
                     color = fgMuted,
                     fontSize = 10.sp,
                 )

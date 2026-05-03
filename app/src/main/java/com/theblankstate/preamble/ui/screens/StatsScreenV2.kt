@@ -49,7 +49,7 @@ enum class StatsTheme { LIGHT, DARK }
 enum class StatsVariant { EDITORIAL, CAPSULE, RIBBON }
 
 data class StatsTweaks(
-    val variant: StatsVariant = StatsVariant.EDITORIAL,
+    val variant: StatsVariant = StatsVariant.RIBBON,
     val accent: Color = AccentPalette[0].color,
     val theme: StatsTheme = StatsTheme.LIGHT,
     val density: StatsDensity = StatsDensity.COMPACT,
@@ -71,7 +71,9 @@ fun StatsEditorialScreen(
     statsState: StatsState,
     tweaks: StatsTweaks,
     onOpenTweaks: () -> Unit,
-    onOpenWrapped: (() -> Unit)? = null,
+    onOpenRecap: (() -> Unit)? = null,
+    recapDayLabel: String = "Sun",
+    isRecapDay: Boolean = false,
     range: StatsRange,
     onRangeChange: (StatsRange) -> Unit,
     modifier: Modifier = Modifier,
@@ -116,17 +118,17 @@ fun StatsEditorialScreen(
                     letterSpacing = (-0.2).sp,
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (onOpenWrapped != null) {
+                    if (onOpenRecap != null) {
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(999.dp))
                                 .background(chipBg)
-                                .clickable { onOpenWrapped() }
+                                .clickable { onOpenRecap() }
                                 .padding(horizontal = 12.dp, vertical = 8.dp)
                         ) {
                             Text(
-                                "Wrapped",
-                                color = fg,
+                                "Recap · $recapDayLabel",
+                                color = if (isRecapDay) fg else fgMuted,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.2.sp,
@@ -341,8 +343,8 @@ fun StatsEditorialScreen(
             SectionBlock(kicker = "Focus time", pad = pad, gap = gap, fgMuted = fgMuted, category = StatsCategory.FOCUS) {
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     FocusCard(
-                        kicker = "Pomodoros",
-                        value = pomodoroCount(statsState).toString(),
+                        kicker = "Sessions",
+                        value = focusSessionCount(statsState).toString(),
                         sub = "${focusHoursLabel(statsState.totalFocusHours)} focused",
                         fg = fg,
                         fgMuted = fgMuted,
@@ -1175,9 +1177,9 @@ internal fun focusHoursLabel(h: Float): String {
     return if (hh > 0) "${hh}h ${"%02d".format(mm)}m" else "${mm}m"
 }
 
-internal fun pomodoroCount(s: StatsState): Int {
+internal fun focusSessionCount(s: StatsState): Int {
     val fromFocus = (s.totalFocusHours * 60f / 25f).roundToInt()
-    return max(s.todayPomodoroSessions, fromFocus)
+    return max(s.todayFocusSessions, fromFocus)
 }
 
 internal fun longestSessionValue(s: StatsState): String {

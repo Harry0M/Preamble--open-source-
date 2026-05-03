@@ -28,14 +28,14 @@
     </shortcut>
 
     <shortcut
-        android:shortcutId="view_wrapped"
+        android:shortcutId="view_recap"
         android:enabled="true"
         android:icon="@drawable/ic_notification"
-        android:shortcutShortLabel="@string/shortcut_wrapped_short"
-        android:shortcutLongLabel="@string/shortcut_wrapped_long">
+        android:shortcutShortLabel="@string/shortcut_recap_short"
+        android:shortcutLongLabel="@string/shortcut_recap_long">
         <intent
             android:action="android.intent.action.VIEW"
-            android:data="preamble://wrapped"
+            android:data="preamble://recap"
             android:targetPackage="com.theblankstate.preamble"
             android:targetClass="com.theblankstate.preamble.MainActivity" />
     </shortcut>

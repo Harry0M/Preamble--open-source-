@@ -34,7 +34,7 @@ class PreambleApplication : Application() {
 
     val database by lazy { PreambleDatabase.getInstance(this) }
     val syncManager by lazy { FirebaseTaskSyncManager(this, database.taskDao()) }
-    val repository by lazy { TaskRepository(database.taskDao(), syncManager, database.pomodoroSessionDao()) }
+    val repository by lazy { TaskRepository(database.taskDao(), syncManager, database.focusSessionDao()) }
 
     override fun onCreate() {
         super.onCreate()

@@ -6,14 +6,14 @@ import androidx.room.PrimaryKey
 import java.util.UUID
 
 @Entity(
-    tableName = "pomodoro_sessions",
+    tableName = "focus_sessions",
     indices = [
         Index(value = ["taskId"]),
         Index(value = ["date"]),
         Index(value = ["startTimestamp"])
     ]
 )
-data class PomodoroSession(
+data class FocusSession(
     @PrimaryKey
     val id: String = UUID.randomUUID().toString(),
     val taskId: String? = null,

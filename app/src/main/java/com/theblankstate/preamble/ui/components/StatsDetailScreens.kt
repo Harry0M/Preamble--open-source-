@@ -1451,11 +1451,11 @@ fun TrendIntelligenceDetailSheet(stats: StatsState, onDismiss: () -> Unit) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// 8. Pomodoro Analytics Detail
+// 8. Focus Analytics Detail
 // ═══════════════════════════════════════════════════════════════════════════════
 
 @Composable
-fun PomodoroAnalyticsDetailSheet(stats: StatsState, onDismiss: () -> Unit) {
+fun FocusAnalyticsDetailSheet(stats: StatsState, onDismiss: () -> Unit) {
     var weekOffset by remember { mutableIntStateOf(0) }
     var showDatePicker by remember { mutableStateOf(false) }
     var customRange by remember { mutableStateOf<Pair<Long, Long>?>(null) }
@@ -1487,7 +1487,7 @@ fun PomodoroAnalyticsDetailSheet(stats: StatsState, onDismiss: () -> Unit) {
             item {
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     InfoCapsule("today", "${stats.todayFocusMinutes}m", MaterialTheme.colorScheme.primary, Modifier.weight(1f))
-                    InfoCapsule("sessions", "${stats.todayPomodoroSessions}", Color(0xFF2196F3), Modifier.weight(1f))
+                    InfoCapsule("sessions", "${stats.todayFocusSessions}", Color(0xFF2196F3), Modifier.weight(1f))
                     InfoCapsule("total", "${String.format("%.1f", stats.totalFocusHours)}h", Color(0xFF4CAF50), Modifier.weight(1f))
                 }
             }

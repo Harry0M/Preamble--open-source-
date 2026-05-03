@@ -10,26 +10,26 @@ import androidx.core.app.NotificationCompat
 import com.theblankstate.preamble.MainActivity
 import com.theblankstate.preamble.R
 
-class WeeklyWrappedReceiver : BroadcastReceiver() {
+class WeeklyRecapReceiver : BroadcastReceiver() {
 
     companion object {
-        const val ACTION_WEEKLY_WRAPPED = "com.theblankstate.preamble.ACTION_WEEKLY_WRAPPED"
-        const val EXTRA_OPEN_WRAPPED = "open_wrapped"
-        private const val CHANNEL_ID = "preamble_weekly_wrapped"
+        const val ACTION_WEEKLY_RECAP = "com.theblankstate.preamble.ACTION_WEEKLY_RECAP"
+        const val EXTRA_OPEN_RECAP = "open_recap"
+        private const val CHANNEL_ID = "preamble_weekly_recap"
         private const val NOTIFICATION_ID = 2100
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != ACTION_WEEKLY_WRAPPED) return
+        if (intent.action != ACTION_WEEKLY_RECAP) return
         ensureChannel(context)
         postNotification(context)
-        WeeklyWrappedScheduler.schedule(context)
+        WeeklyRecapScheduler.schedule(context)
     }
 
     private fun ensureChannel(context: Context) {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Weekly Wrapped",
+            "Weekly Recap",
             NotificationManager.IMPORTANCE_DEFAULT
         ).apply {
             description = "Your week-in-review recap"
@@ -41,7 +41,7 @@ class WeeklyWrappedReceiver : BroadcastReceiver() {
     private fun postNotification(context: Context) {
         val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            putExtra(EXTRA_OPEN_WRAPPED, true)
+            putExtra(EXTRA_OPEN_RECAP, true)
         }
         val pi = PendingIntent.getActivity(
             context,
@@ -52,7 +52,7 @@ class WeeklyWrappedReceiver : BroadcastReceiver() {
 
         val notif = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Your week, wrapped.")
+            .setContentTitle("Your weekly recap")
             .setContentText("Tap to see how this week went.")
             .setAutoCancel(true)
             .setContentIntent(pi)

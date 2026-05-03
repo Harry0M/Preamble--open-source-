@@ -105,7 +105,7 @@ class TaskListWidget : GlanceAppWidget() {
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "All done for today!",
+                        text = "You're all caught up",
                         style = TextStyle(
                             color = GlanceTheme.colors.onSurface,
                             fontSize = 14.sp

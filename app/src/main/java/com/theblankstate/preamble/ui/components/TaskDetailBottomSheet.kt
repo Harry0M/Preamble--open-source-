@@ -150,7 +150,7 @@ fun TaskDetailBottomSheet(
     onDismiss: () -> Unit,
     onEdit: (() -> Unit)? = null,
     onDelete: () -> Unit,
-    onStartPomodoro: (() -> Unit)? = null,
+    onStartFocus: (() -> Unit)? = null,
     subtasks: List<Task> = emptyList(),
     onAddSubtask: ((String) -> Unit)? = null,
     onToggleSubtask: ((String, Boolean) -> Unit)? = null,
@@ -229,9 +229,9 @@ fun TaskDetailBottomSheet(
 
                 // Action buttons
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    // Pomodoro timer (for non-info-only tasks)
-                    if (!task.isInfoOnly && onStartPomodoro != null) {
-                        IconButton(onClick = onStartPomodoro) {
+                    // Focus timer (for non-info-only tasks)
+                    if (!task.isInfoOnly && onStartFocus != null) {
+                        IconButton(onClick = onStartFocus) {
                             Icon(
                                 Icons.Default.Timer,
                                 contentDescription = "Start Focus Timer",

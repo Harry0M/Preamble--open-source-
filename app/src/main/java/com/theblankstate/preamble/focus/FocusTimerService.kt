@@ -1,4 +1,4 @@
-package com.theblankstate.preamble.pomodoro
+package com.theblankstate.preamble.focus
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -14,8 +14,8 @@ import androidx.core.app.ServiceCompat
 import com.theblankstate.preamble.MainActivity
 import com.theblankstate.preamble.R
 import com.theblankstate.preamble.analytics.AnalyticsManager
-import com.theblankstate.preamble.data.PomodoroSession
-import com.theblankstate.preamble.data.PomodoroSessionDao
+import com.theblankstate.preamble.data.FocusSession
+import com.theblankstate.preamble.data.FocusSessionDao
 import com.theblankstate.preamble.data.PreambleDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,11 +27,11 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class PomodoroTimerService : Service() {
+class FocusTimerService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var timerJob: Job? = null
-    private var pomodoroSessionDao: PomodoroSessionDao? = null
+    private var focusSessionDao: FocusSessionDao? = null
     private var workPhaseStartTimestamp: Long = 0L
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -39,7 +39,7 @@ class PomodoroTimerService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        pomodoroSessionDao = PreambleDatabase.getInstance(applicationContext).pomodoroSessionDao()
+        focusSessionDao = PreambleDatabase.getInstance(applicationContext).focusSessionDao()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -47,7 +47,7 @@ class PomodoroTimerService : Service() {
             ACTION_START -> {
                 val taskId = intent.getStringExtra(EXTRA_TASK_ID)
                 val taskTitle = intent.getStringExtra(EXTRA_TASK_TITLE)
-                startTimer(PomodoroDefaults.WORK_MINUTES * 60, taskId, taskTitle)
+                startTimer(FocusTimerDefaults.WORK_MINUTES * 60, taskId, taskTitle)
             }
             ACTION_PAUSE -> pauseTimer()
             ACTION_RESUME -> resumeTimer()
@@ -59,13 +59,13 @@ class PomodoroTimerService : Service() {
 
     private fun startTimer(durationSeconds: Int, taskId: String?, taskTitle: String?) {
         workPhaseStartTimestamp = System.currentTimeMillis()
-        _state.value = PomodoroState(
+        _state.value = FocusTimerState(
             isRunning = true,
             remainingSeconds = durationSeconds,
             totalSeconds = durationSeconds,
             taskId = taskId,
             taskTitle = taskTitle,
-            currentPhase = PomodoroPhase.WORK
+            currentPhase = FocusPhase.WORK
         )
         promoteToForeground()
         startCountdown()
@@ -98,39 +98,39 @@ class PomodoroTimerService : Service() {
     private fun onPhaseComplete() {
         val current = _state.value
         when (current.currentPhase) {
-            PomodoroPhase.WORK -> {
+            FocusPhase.WORK -> {
                 // Persist completed work session to DB
                 val now = System.currentTimeMillis()
                 val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-                val session = PomodoroSession(
+                val session = FocusSession(
                     taskId = current.taskId,
                     taskTitle = current.taskTitle,
                     startTimestamp = workPhaseStartTimestamp,
                     endTimestamp = now,
-                    durationSeconds = PomodoroDefaults.WORK_MINUTES * 60,
+                    durationSeconds = FocusTimerDefaults.WORK_MINUTES * 60,
                     date = sdf.format(java.util.Date(now))
                 )
                 serviceScope.launch(Dispatchers.IO) {
-                    try { pomodoroSessionDao?.insertSession(session) } catch (_: Exception) {}
+                    try { focusSessionDao?.insertSession(session) } catch (_: Exception) {}
                 }
 
                 // PostHog: Work phase poori hui — duration track karo
                 AnalyticsManager.trackFocusMode(
                     action = "finished",
-                    durationSeconds = PomodoroDefaults.WORK_MINUTES * 60,
+                    durationSeconds = FocusTimerDefaults.WORK_MINUTES * 60,
                     taskId = current.taskId
                 )
 
                 val newSessions = current.sessionsCompleted + 1
-                val nextPhase = if (newSessions % PomodoroDefaults.SESSIONS_BEFORE_LONG_BREAK == 0) {
-                    PomodoroPhase.LONG_BREAK
+                val nextPhase = if (newSessions % FocusTimerDefaults.SESSIONS_BEFORE_LONG_BREAK == 0) {
+                    FocusPhase.LONG_BREAK
                 } else {
-                    PomodoroPhase.SHORT_BREAK
+                    FocusPhase.SHORT_BREAK
                 }
-                val breakDuration = if (nextPhase == PomodoroPhase.LONG_BREAK) {
-                    PomodoroDefaults.LONG_BREAK_MINUTES * 60
+                val breakDuration = if (nextPhase == FocusPhase.LONG_BREAK) {
+                    FocusTimerDefaults.LONG_BREAK_MINUTES * 60
                 } else {
-                    PomodoroDefaults.SHORT_BREAK_MINUTES * 60
+                    FocusTimerDefaults.SHORT_BREAK_MINUTES * 60
                 }
                 _state.value = current.copy(
                     currentPhase = nextPhase,
@@ -140,11 +140,11 @@ class PomodoroTimerService : Service() {
                 )
                 startCountdown()
             }
-            PomodoroPhase.SHORT_BREAK, PomodoroPhase.LONG_BREAK -> {
+            FocusPhase.SHORT_BREAK, FocusPhase.LONG_BREAK -> {
                 workPhaseStartTimestamp = System.currentTimeMillis()
-                val workDuration = PomodoroDefaults.WORK_MINUTES * 60
+                val workDuration = FocusTimerDefaults.WORK_MINUTES * 60
                 _state.value = current.copy(
-                    currentPhase = PomodoroPhase.WORK,
+                    currentPhase = FocusPhase.WORK,
                     remainingSeconds = workDuration,
                     totalSeconds = workDuration
                 )
@@ -180,11 +180,12 @@ class PomodoroTimerService : Service() {
         val current = _state.value
         val elapsed = current.totalSeconds - current.remainingSeconds
 
-        // Save partial work session if stopped mid-WORK with any meaningful time elapsed
-        if (current.currentPhase == PomodoroPhase.WORK && elapsed >= 120) {
+        // Save partial work session only if elapsed time meets minimum trackable threshold
+        val minTrackableSeconds = FocusTimerDefaults.MIN_TRACKABLE_MINUTES * 60
+        if (current.currentPhase == FocusPhase.WORK && elapsed >= minTrackableSeconds) {
             val now = System.currentTimeMillis()
             val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-            val session = PomodoroSession(
+            val session = FocusSession(
                 taskId = current.taskId,
                 taskTitle = current.taskTitle,
                 startTimestamp = workPhaseStartTimestamp,
@@ -193,7 +194,7 @@ class PomodoroTimerService : Service() {
                 date = sdf.format(java.util.Date(now))
             )
             serviceScope.launch(Dispatchers.IO) {
-                try { pomodoroSessionDao?.insertSession(session) } catch (_: Exception) {}
+                try { focusSessionDao?.insertSession(session) } catch (_: Exception) {}
             }
         }
 
@@ -204,7 +205,7 @@ class PomodoroTimerService : Service() {
         )
 
         timerJob?.cancel()
-        _state.value = PomodoroState()
+        _state.value = FocusTimerState()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -239,12 +240,12 @@ class PomodoroTimerService : Service() {
         val timeText = String.format(java.util.Locale.US, "%02d:%02d", minutes, seconds)
 
         val phaseText = when (state.currentPhase) {
-            PomodoroPhase.WORK -> "Work"
-            PomodoroPhase.SHORT_BREAK -> "Short Break"
-            PomodoroPhase.LONG_BREAK -> "Long Break"
+            FocusPhase.WORK -> "Work"
+            FocusPhase.SHORT_BREAK -> "Short Break"
+            FocusPhase.LONG_BREAK -> "Long Break"
         }
 
-        val title = if (state.taskTitle != null) "Focus: ${state.taskTitle}" else "Pomodoro"
+        val title = if (state.taskTitle != null) "Focus: ${state.taskTitle}" else "Focus Timer"
         val contentText = "$phaseText — $timeText" + if (state.isPaused) " (Paused)" else ""
 
         val openIntent = PendingIntent.getActivity(
@@ -254,7 +255,7 @@ class PomodoroTimerService : Service() {
         )
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notif_timer)
             .setContentTitle(title)
             .setContentText(contentText)
             .setContentIntent(openIntent)
@@ -266,26 +267,26 @@ class PomodoroTimerService : Service() {
         if (state.isPaused) {
             val resumeIntent = PendingIntent.getBroadcast(
                 this, 1,
-                Intent(this, PomodoroReceiver::class.java).apply { action = ACTION_RESUME },
+                Intent(this, FocusTimerReceiver::class.java).apply { action = ACTION_RESUME },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            builder.addAction(0, "Resume", resumeIntent)
+            builder.addAction(R.drawable.ic_notif_play, "Resume", resumeIntent)
         } else {
             val pauseIntent = PendingIntent.getBroadcast(
                 this, 2,
-                Intent(this, PomodoroReceiver::class.java).apply { action = ACTION_PAUSE },
+                Intent(this, FocusTimerReceiver::class.java).apply { action = ACTION_PAUSE },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            builder.addAction(0, "Pause", pauseIntent)
+            builder.addAction(R.drawable.ic_notif_pause, "Pause", pauseIntent)
         }
 
         // Stop action
         val stopIntent = PendingIntent.getBroadcast(
             this, 3,
-            Intent(this, PomodoroReceiver::class.java).apply { action = ACTION_STOP },
+            Intent(this, FocusTimerReceiver::class.java).apply { action = ACTION_STOP },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        builder.addAction(0, "Stop", stopIntent)
+        builder.addAction(R.drawable.ic_notif_stop, "Stop", stopIntent)
 
         return builder.build()
     }
@@ -294,7 +295,7 @@ class PomodoroTimerService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Pomodoro Timer",
+                "Focus Timer",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Focus timer notifications"
@@ -311,21 +312,21 @@ class PomodoroTimerService : Service() {
     }
 
     companion object {
-        private const val CHANNEL_ID = "preamble_pomodoro"
+        private const val CHANNEL_ID = "preamble_focus_timer"
         const val NOTIFICATION_ID = 1002
-        const val ACTION_START = "com.theblankstate.preamble.POMODORO_START"
-        const val ACTION_PAUSE = "com.theblankstate.preamble.POMODORO_PAUSE"
-        const val ACTION_RESUME = "com.theblankstate.preamble.POMODORO_RESUME"
-        const val ACTION_STOP = "com.theblankstate.preamble.POMODORO_STOP"
-        const val ACTION_SKIP = "com.theblankstate.preamble.POMODORO_SKIP"
+        const val ACTION_START = "com.theblankstate.preamble.FOCUS_START"
+        const val ACTION_PAUSE = "com.theblankstate.preamble.FOCUS_PAUSE"
+        const val ACTION_RESUME = "com.theblankstate.preamble.FOCUS_RESUME"
+        const val ACTION_STOP = "com.theblankstate.preamble.FOCUS_STOP"
+        const val ACTION_SKIP = "com.theblankstate.preamble.FOCUS_SKIP"
         const val EXTRA_TASK_ID = "task_id"
         const val EXTRA_TASK_TITLE = "task_title"
 
-        private val _state = MutableStateFlow(PomodoroState())
-        val state: StateFlow<PomodoroState> = _state.asStateFlow()
+        private val _state = MutableStateFlow(FocusTimerState())
+        val state: StateFlow<FocusTimerState> = _state.asStateFlow()
 
         fun start(context: Context, taskId: String? = null, taskTitle: String? = null) {
-            val intent = Intent(context, PomodoroTimerService::class.java).apply {
+            val intent = Intent(context, FocusTimerService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_TASK_ID, taskId)
                 putExtra(EXTRA_TASK_TITLE, taskTitle)
@@ -338,19 +339,19 @@ class PomodoroTimerService : Service() {
         }
 
         fun pause(context: Context) {
-            context.startService(Intent(context, PomodoroTimerService::class.java).apply { action = ACTION_PAUSE })
+            context.startService(Intent(context, FocusTimerService::class.java).apply { action = ACTION_PAUSE })
         }
 
         fun resume(context: Context) {
-            context.startService(Intent(context, PomodoroTimerService::class.java).apply { action = ACTION_RESUME })
+            context.startService(Intent(context, FocusTimerService::class.java).apply { action = ACTION_RESUME })
         }
 
         fun stop(context: Context) {
-            context.startService(Intent(context, PomodoroTimerService::class.java).apply { action = ACTION_STOP })
+            context.startService(Intent(context, FocusTimerService::class.java).apply { action = ACTION_STOP })
         }
 
         fun skip(context: Context) {
-            context.startService(Intent(context, PomodoroTimerService::class.java).apply { action = ACTION_SKIP })
+            context.startService(Intent(context, FocusTimerService::class.java).apply { action = ACTION_SKIP })
         }
     }
 }

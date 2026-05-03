@@ -7,10 +7,10 @@ import android.content.Intent
 import android.os.Build
 import java.util.Calendar
 
-object WeeklyWrappedScheduler {
+object WeeklyRecapScheduler {
 
     private const val REQUEST_CODE = 2101
-    private const val PREFS = "preamble_weekly_wrapped"
+    private const val PREFS = "preamble_weekly_recap"
     private const val K_ENABLED = "enabled"
 
     fun isEnabled(context: Context): Boolean =
@@ -29,7 +29,7 @@ object WeeklyWrappedScheduler {
             return
         }
 
-        val triggerAt = nextSundayEveningMillis()
+        val triggerAt = nextRecapEveningMillis(appContext)
         val alarmManager = appContext.getSystemService(AlarmManager::class.java) ?: return
         val pi = buildPendingIntent(appContext, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE) ?: return
 
@@ -51,16 +51,17 @@ object WeeklyWrappedScheduler {
     }
 
     private fun buildPendingIntent(context: Context, flags: Int): PendingIntent? {
-        val intent = Intent(context, WeeklyWrappedReceiver::class.java).apply {
-            action = WeeklyWrappedReceiver.ACTION_WEEKLY_WRAPPED
+        val intent = Intent(context, WeeklyRecapReceiver::class.java).apply {
+            action = WeeklyRecapReceiver.ACTION_WEEKLY_RECAP
         }
         return PendingIntent.getBroadcast(context, REQUEST_CODE, intent, flags)
     }
 
-    private fun nextSundayEveningMillis(): Long {
+    private fun nextRecapEveningMillis(context: Context): Long {
+        val recapDay = RecapDayManager.getEffectiveDay(context)
         val now = Calendar.getInstance()
         val target = Calendar.getInstance().apply {
-            set(Calendar.DAY_OF_WEEK, Calendar.SUNDAY)
+            set(Calendar.DAY_OF_WEEK, recapDay)
             set(Calendar.HOUR_OF_DAY, 19)
             set(Calendar.MINUTE, 0)
             set(Calendar.SECOND, 0)

@@ -83,6 +83,7 @@ private enum class SettingsSubscreen {
     Ai,
     Personal,
     ReportProblem,
+    OssLicenses,
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -236,6 +237,7 @@ fun SettingsScreen(
                             SettingsSubscreen.Ai -> "Preamble AI"
                             SettingsSubscreen.Personal -> "Personal touches"
                             SettingsSubscreen.ReportProblem -> "Report a problem"
+                            SettingsSubscreen.OssLicenses -> "Open-source licenses"
                         },
                         style = MaterialTheme.typography.titleLarge,
                     )
@@ -275,6 +277,14 @@ fun SettingsScreen(
                         .fillMaxSize()
                         .padding(padding)
                         .padding(16.dp),
+                )
+                return@Scaffold
+            }
+            SettingsSubscreen.OssLicenses -> {
+                OssLicensesSubscreen(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(padding),
                 )
                 return@Scaffold
             }
@@ -1125,6 +1135,12 @@ fun SettingsScreen(
                         title = "Terms and Conditions",
                         subtitle = "Usage rules, AI limitations, ads and service availability",
                         onClick = { showTermsSheet = true },
+                    )
+                    HorizontalDivider()
+                    SettingsNavigationRow(
+                        title = "Open-source licenses",
+                        subtitle = "Attribution for libraries that power Preamble",
+                        onClick = { settingsSubscreen = SettingsSubscreen.OssLicenses },
                     )
                 }
             }

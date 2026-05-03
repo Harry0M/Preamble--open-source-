@@ -13,6 +13,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="com.google.android.gms.permission.AD_ID" />
 
     <application
         android:name=".PreambleApplication"
@@ -103,10 +104,10 @@
         </receiver>
 
         <receiver
-            android:name=".notification.WeeklyWrappedReceiver"
+            android:name=".notification.WeeklyRecapReceiver"
             android:exported="false">
             <intent-filter>
-                <action android:name="com.theblankstate.preamble.ACTION_WEEKLY_WRAPPED" />
+                <action android:name="com.theblankstate.preamble.ACTION_WEEKLY_RECAP" />
             </intent-filter>
         </receiver>
 
@@ -134,16 +135,16 @@
         </service>
 
         <service
-            android:name=".pomodoro.PomodoroTimerService"
+            android:name=".focus.FocusTimerService"
             android:exported="false"
             android:foregroundServiceType="specialUse">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Pomodoro focus timer" />
+                android:value="Focus timer" />
         </service>
 
         <receiver
-            android:name=".pomodoro.PomodoroReceiver"
+            android:name=".focus.FocusTimerReceiver"
             android:exported="false" />
 
         <!-- FCM push notification service -->
@@ -168,10 +169,9 @@
         </receiver>
 
         <!-- Google AdMob — required for rewarded ads (AI credits) -->
-        <!-- TODO: Replace with your real AdMob app ID for production -->
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
-            android:value="ca-app-pub-3940256099942544~3347511713" />
+            android:value="ca-app-pub-1118281305976257~7602726915" />
 
     </application>
 

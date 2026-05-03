@@ -180,7 +180,7 @@ object AnalyticsManager {
     // ═══════════════════════════════════════════════════
 
     /**
-     * Focus mode (Pomodoro) ki har action ko track karta hai.
+     * Focus mode ki har action ko track karta hai.
      *
      * @param action "started", "paused", "resumed", "finished", "cancelled"
      * @param durationSeconds Kitne seconds tak focus tha (finish/cancel pe)

@@ -103,7 +103,7 @@ fun TaskItem(
     onDelete: () -> Unit,
     onEdit: (() -> Unit)? = null,
     onDetail: (() -> Unit)? = null,
-    onStartPomodoro: (() -> Unit)? = null,
+    onStartFocus: (() -> Unit)? = null,
     onRetrySync: (() -> Unit)? = null,
     isEditable: Boolean = true,
     subtaskCount: Pair<Int, Int>? = null,
@@ -762,7 +762,7 @@ fun TaskItem(
                             }
                         )
                     }
-                    if (onStartPomodoro != null) {
+                    if (onStartFocus != null) {
                         DropdownMenuItem(
                             text = {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -777,7 +777,7 @@ fun TaskItem(
                             },
                             onClick = {
                                 showMenu = false
-                                onStartPomodoro()
+                                onStartFocus()
                             }
                         )
                     }
@@ -804,7 +804,7 @@ fun SwipeableTaskItem(
     onDelete: () -> Unit,
     onEdit: (() -> Unit)? = null,
     onDetail: (() -> Unit)? = null,
-    onStartPomodoro: (() -> Unit)? = null,
+    onStartFocus: (() -> Unit)? = null,
     onRetrySync: (() -> Unit)? = null,
     isEditable: Boolean = true,
     subtaskCount: Pair<Int, Int>? = null,
@@ -831,7 +831,7 @@ fun SwipeableTaskItem(
             onDelete = onDelete,
             onEdit = onEdit,
             onDetail = onDetail,
-            onStartPomodoro = onStartPomodoro,
+            onStartFocus = onStartFocus,
             onRetrySync = onRetrySync,
             isEditable = false,
             subtaskCount = subtaskCount,
@@ -890,7 +890,7 @@ fun SwipeableTaskItem(
             onDelete = onDelete,
             onEdit = onEdit,
             onDetail = onDetail,
-            onStartPomodoro = onStartPomodoro,
+            onStartFocus = onStartFocus,
             onRetrySync = onRetrySync,
             isEditable = true,
             subtaskCount = subtaskCount,

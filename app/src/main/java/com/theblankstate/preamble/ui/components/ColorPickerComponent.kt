@@ -120,13 +120,13 @@ fun ColorPickerComponent() {
                             Spacer(Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    "Material You",
+                                    "Wallpaper colors",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,
                                     color = if (materialYou) Color.White else Color.Black
                                 )
                                 Text(
-                                    "Use your wallpaper colors",
+                                    "Pull palette from your wallpaper",
                                     fontSize = 12.sp,
                                     color = if (materialYou) Color.White.copy(alpha = 0.7f) else Color.Gray
                                 )

@@ -112,8 +112,8 @@ import com.theblankstate.preamble.ui.components.EisenhowerGrid
 import com.theblankstate.preamble.ui.components.SubtaskList
 import com.theblankstate.preamble.ui.components.SwipeableTaskItem
 import com.theblankstate.preamble.ui.components.TaskItem
-import com.theblankstate.preamble.ui.components.PomodoroSheet
-import com.theblankstate.preamble.pomodoro.PomodoroTimerService
+import com.theblankstate.preamble.ui.components.FocusTimerSheet
+import com.theblankstate.preamble.focus.FocusTimerService
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -204,9 +204,9 @@ fun HomeScreen(
     var adminTaskToShow by remember { mutableStateOf<AdminTask?>(null) }
     var showAlarmSheet by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
-    var showPomodoroSheet by remember { mutableStateOf(false) }
-    var pomodoroTaskId by remember { mutableStateOf<String?>(null) }
-    var pomodoroTaskTitle by remember { mutableStateOf<String?>(null) }
+    var showFocusSheet by remember { mutableStateOf(false) }
+    var focusTaskId by remember { mutableStateOf<String?>(null) }
+    var focusTaskTitle by remember { mutableStateOf<String?>(null) }
     var isVoiceListening by remember { mutableStateOf(false) }
     var voiceText by remember { mutableStateOf("") }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
@@ -221,11 +221,11 @@ fun HomeScreen(
     // Background full sync flag — only shown in UI on very first sync (no prior data)
     val isBgSyncing by com.theblankstate.preamble.sync.GoogleCalendarManager.isBgSyncing.collectAsState()
     val lastCalSyncTime by com.theblankstate.preamble.sync.GoogleCalendarManager.lastSyncTime.collectAsState()
-    // Theme + pomodoro state hoisted here so they're collected once, not buried inside nested lambdas
+    // Theme + focus timer state hoisted here so they're collected once, not buried inside nested lambdas
     val themeMode by ThemePreferences.themeMode.collectAsState()
     val colorfulCards by ThemePreferences.colorfulCards.collectAsState()
     val isTimelineEnabled by ThemePreferences.timelineUi.collectAsState()
-    val pomodoroState by PomodoroTimerService.state.collectAsState()
+    val focusState by FocusTimerService.state.collectAsState()
 
     // Personal Mode prefs
     val personalMode    by ThemePreferences.personalMode.collectAsState()
@@ -663,27 +663,27 @@ fun HomeScreen(
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Pomodoro FAB
+                    // Focus timer FAB
                     FloatingActionButton(
                         onClick = {
-                            pomodoroTaskId = null
-                            pomodoroTaskTitle = null
-                            showPomodoroSheet = true
+                            focusTaskId = null
+                            focusTaskTitle = null
+                            showFocusSheet = true
                         },
                         shape = CircleShape,
-                        containerColor = if (pomodoroState.isRunning)
+                        containerColor = if (focusState.isRunning)
                             MaterialTheme.colorScheme.tertiary
                         else MaterialTheme.colorScheme.secondaryContainer
                     ) {
-                        if (pomodoroState.isRunning) {
-                            val mins = pomodoroState.remainingSeconds / 60
-                            val secs = pomodoroState.remainingSeconds % 60
+                        if (focusState.isRunning) {
+                            val mins = focusState.remainingSeconds / 60
+                            val secs = focusState.remainingSeconds % 60
                             Text(
                                 String.format(Locale.US, "%02d:%02d", mins, secs),
                                 style = MaterialTheme.typography.labelSmall
                             )
                         } else {
-                            Icon(Icons.Default.Timer, contentDescription = "Pomodoro")
+                            Icon(Icons.Default.Timer, contentDescription = "Focus timer")
                         }
                     }
 
@@ -950,10 +950,10 @@ fun HomeScreen(
                                     { taskToEdit = task }
                                 } else null,
                                 onDetail = { taskToShowDetail = task },
-                                onStartPomodoro = {
-                                    pomodoroTaskId = task.id
-                                    pomodoroTaskTitle = task.title
-                                    showPomodoroSheet = true
+                                onStartFocus = {
+                                    focusTaskId = task.id
+                                    focusTaskTitle = task.title
+                                    showFocusSheet = true
                                 },
                                 onRetrySync = onRetrySync?.let { retry -> { retry(task) } },
                                 isEditable = true,
@@ -1224,10 +1224,10 @@ fun HomeScreen(
                                                         onDelete = { taskToDelete = task },
                                                         onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
                                                         onDetail = { taskToShowDetail = task },
-                                                        onStartPomodoro = {
-                                                            pomodoroTaskId = task.id
-                                                            pomodoroTaskTitle = task.title
-                                                            showPomodoroSheet = true
+                                                        onStartFocus = {
+                                                            focusTaskId = task.id
+                                                            focusTaskTitle = task.title
+                                                            showFocusSheet = true
                                                         },
                                                         onRetrySync = onRetrySync?.let { retry -> { retry(task) } },
                                                         isEditable = true,
@@ -1264,10 +1264,10 @@ fun HomeScreen(
                                     onDelete = { taskToDelete = task },
                                     onEdit = if (onEditTask != null) {{ taskToEdit = task }} else null,
                                     onDetail = { taskToShowDetail = task },
-                                    onStartPomodoro = {
-                                        pomodoroTaskId = task.id
-                                        pomodoroTaskTitle = task.title
-                                        showPomodoroSheet = true
+                                    onStartFocus = {
+                                        focusTaskId = task.id
+                                        focusTaskTitle = task.title
+                                        showFocusSheet = true
                                     },
                                     onRetrySync = onRetrySync?.let { retry -> { retry(task) } },
                                     isEditable = true,
@@ -1914,11 +1914,11 @@ fun HomeScreen(
                 taskToDelete = task
                 taskToShowDetail = null
             },
-            onStartPomodoro = if (task.isInfoOnly) null else {{
-                pomodoroTaskId = task.id
-                pomodoroTaskTitle = task.title
+            onStartFocus = if (task.isInfoOnly) null else {{
+                focusTaskId = task.id
+                focusTaskTitle = task.title
                 taskToShowDetail = null
-                showPomodoroSheet = true
+                showFocusSheet = true
             }},
             subtasks = subtasks,
             onAddSubtask = if (!isPast) {{ title -> onAddSubtask?.invoke(task.id, title) }} else null,
@@ -1967,11 +1967,11 @@ fun HomeScreen(
                 taskToDelete = taskToEdit
                 taskToEdit = null
             },
-            onStartPomodoro = {
-                pomodoroTaskId = taskToEdit!!.id
-                pomodoroTaskTitle = taskToEdit!!.title
+            onStartFocus = {
+                focusTaskId = taskToEdit!!.id
+                focusTaskTitle = taskToEdit!!.title
                 taskToEdit = null
-                showPomodoroSheet = true
+                showFocusSheet = true
             },
             subtasks = subtasks,
             onAddSubtask = { title -> onAddSubtask?.invoke(taskToEdit!!.id, title) },
@@ -1987,11 +1987,11 @@ fun HomeScreen(
         )
     }
 
-    if (showPomodoroSheet) {
-        PomodoroSheet(
-            onDismiss = { showPomodoroSheet = false },
-            taskId = pomodoroTaskId,
-            taskTitle = pomodoroTaskTitle
+    if (showFocusSheet) {
+        FocusTimerSheet(
+            onDismiss = { showFocusSheet = false },
+            taskId = focusTaskId,
+            taskTitle = focusTaskTitle
         )
     }
 

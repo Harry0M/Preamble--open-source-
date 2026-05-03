@@ -8,14 +8,14 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Task::class, TaskTagOverride::class, PomodoroSession::class, AiMemoryEntity::class, AiProcessLogEntity::class, ChatMessageEntity::class],
-    version = 23,
+    entities = [Task::class, TaskTagOverride::class, FocusSession::class, AiMemoryEntity::class, AiProcessLogEntity::class, ChatMessageEntity::class],
+    version = 24,
     exportSchema = false
 )
 abstract class PreambleDatabase : RoomDatabase() {
 
     abstract fun taskDao(): TaskDao
-    abstract fun pomodoroSessionDao(): PomodoroSessionDao
+    abstract fun focusSessionDao(): FocusSessionDao
     abstract fun aiMemoryDao(): AiMemoryDao
     abstract fun aiProcessLogDao(): AiProcessLogDao
     abstract fun chatMessageDao(): ChatMessageDao
@@ -31,7 +31,7 @@ abstract class PreambleDatabase : RoomDatabase() {
                     PreambleDatabase::class.java,
                     "preamble_db"
                 )
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -233,6 +233,18 @@ abstract class PreambleDatabase : RoomDatabase() {
         private val MIGRATION_22_23 = object : Migration(22, 23) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `ai_chat_message` ADD COLUMN `renderBlocksJson` TEXT")
+            }
+        }
+
+        private val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `pomodoro_sessions` RENAME TO `focus_sessions`")
+                db.execSQL("DROP INDEX IF EXISTS `index_pomodoro_sessions_taskId`")
+                db.execSQL("DROP INDEX IF EXISTS `index_pomodoro_sessions_date`")
+                db.execSQL("DROP INDEX IF EXISTS `index_pomodoro_sessions_startTimestamp`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_focus_sessions_taskId` ON `focus_sessions` (`taskId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_focus_sessions_date` ON `focus_sessions` (`date`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_focus_sessions_startTimestamp` ON `focus_sessions` (`startTimestamp`)")
             }
         }
 

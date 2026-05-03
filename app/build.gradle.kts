@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
     alias(libs.plugins.google.gms.google.services)
+    alias(libs.plugins.google.firebase.crashlytics)
 }
 
 val localProperties = Properties()
@@ -25,8 +26,8 @@ android {
         applicationId = "com.theblankstate.preamble"
         minSdk = 24
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.3"
+        versionCode = 7
+        versionName = "1.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -108,6 +109,7 @@ dependencies {
     implementation(libs.firebase.messaging)
     implementation(libs.firebase.storage)
     implementation(libs.firebase.config)
+    implementation(libs.firebase.crashlytics)
     implementation(libs.kotlinx.coroutines.play.services)
     implementation(libs.androidx.work.runtime.ktx)
     implementation(libs.androidx.credentials)
@@ -152,6 +154,9 @@ dependencies {
 
     // Konfetti — confetti celebration animations
     implementation("nl.dionsegijn:konfetti-compose:2.0.5")
+    // Play In-App Updates
+    implementation(libs.play.app.update)
+    implementation(libs.play.app.update.ktx)
 
     constraints {
         implementation("io.grpc:grpc-api:1.62.2") {

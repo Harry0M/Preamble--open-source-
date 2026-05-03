@@ -378,7 +378,7 @@ private fun compareForCategory(c: StatsCategory, s: StatsState): Comparison? = w
     StatsCategory.FOCUS -> {
         val hrs = focusHoursLabel(s.totalFocusHours)
         Comparison(
-            "Total focus", hrs, "${pomodoroCount(s)} pomodoros",
+            "Total focus", hrs, "${focusSessionCount(s)} sessions",
             "Avg per day", "${s.averageDailyFocusMinutes}m", "rolling",
             ""
         )
@@ -657,7 +657,7 @@ private fun FocusPanel(
                 .background(tile).padding(16.dp)
         ) {
             if (s.topFocusedTasks.isEmpty()) {
-                Text("Start a pomodoro to build this list.", color = fgMuted, fontSize = 13.sp)
+                Text("Start a focus session to build this list.", color = fgMuted, fontSize = 13.sp)
             } else {
                 s.topFocusedTasks.take(6).forEachIndexed { i, t ->
                     Row(
@@ -1214,7 +1214,7 @@ private fun formulaForCategory(c: StatsCategory): Pair<String, String> = when (c
     StatsCategory.TAGS -> "How this is calculated" to
         "Each completed task contributes 1 to every tag it carries. Percentages are share of total completions in the lifetime window."
     StatsCategory.FOCUS -> "How this is calculated" to
-        "Total focus = sum of all pomodoro session minutes (completed only). Averages are over the rolling 7-day window. Per-task rank sums minutes per taskId."
+        "Total focus = sum of all focus session minutes (completed only). Averages are over the rolling 7-day window. Per-task rank sums minutes per taskId."
     StatsCategory.BESTS -> "How this is calculated" to
         "All-time peaks across the whole task history. Longest streak, single-day task max, best focus-day, highest karma and current grade."
     StatsCategory.WEEKLY -> "How this is calculated" to

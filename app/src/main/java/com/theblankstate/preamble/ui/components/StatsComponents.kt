@@ -326,7 +326,7 @@ fun YearHeatmapCalendar(
 }
 
 /**
- * Focus bar chart for weekly pomodoro data — powered by Vico.
+ * Focus bar chart for weekly focus session data — powered by Vico.
  */
 @Composable
 fun FocusBarChart(

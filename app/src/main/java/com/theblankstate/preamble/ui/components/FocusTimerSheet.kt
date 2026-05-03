@@ -11,11 +11,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -24,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -33,8 +36,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.theblankstate.preamble.pomodoro.PomodoroPhase
-import com.theblankstate.preamble.pomodoro.PomodoroTimerService
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import com.theblankstate.preamble.focus.FocusPhase
+import com.theblankstate.preamble.focus.FocusTimerDefaults
+import com.theblankstate.preamble.focus.FocusTimerService
 import java.util.Locale
 import androidx.graphics.shapes.RoundedPolygon
 import androidx.graphics.shapes.star
@@ -55,12 +63,12 @@ import androidx.compose.runtime.remember
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PomodoroSheet(
+fun FocusTimerSheet(
     onDismiss: () -> Unit,
     taskId: String? = null,
     taskTitle: String? = null
 ) {
-    val pomodoroState by PomodoroTimerService.state.collectAsState()
+    val focusState by FocusTimerService.state.collectAsState()
     val context = LocalContext.current
 
     ModalBottomSheet(
@@ -76,21 +84,21 @@ fun PomodoroSheet(
         ) {
             // Title
             Text(
-                text = if (pomodoroState.isRunning && pomodoroState.taskTitle != null)
-                    "Focus: ${pomodoroState.taskTitle}"
+                text = if (focusState.isRunning && focusState.taskTitle != null)
+                    "Focus: ${focusState.taskTitle}"
                 else if (taskTitle != null)
                     "Focus: $taskTitle"
-                else "Pomodoro Timer",
+                else "Focus Timer",
                 style = MaterialTheme.typography.titleLarge,
                 modifier = Modifier.padding(bottom = 8.dp)
             )
 
             // Phase indicator
             Text(
-                text = when (pomodoroState.currentPhase) {
-                    PomodoroPhase.WORK -> "Work Session"
-                    PomodoroPhase.SHORT_BREAK -> "Short Break"
-                    PomodoroPhase.LONG_BREAK -> "Long Break"
+                text = when (focusState.currentPhase) {
+                    FocusPhase.WORK -> "Work Session"
+                    FocusPhase.SHORT_BREAK -> "Short Break"
+                    FocusPhase.LONG_BREAK -> "Long Break"
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary
@@ -101,25 +109,63 @@ fun PomodoroSheet(
             // Circular progress + time display
             Box(contentAlignment = Alignment.Center) {
                 DynamicShapeProgress(
-                    progress = if (pomodoroState.totalSeconds > 0)
-                        pomodoroState.remainingSeconds.toFloat() / pomodoroState.totalSeconds
+                    progress = if (focusState.totalSeconds > 0)
+                        focusState.remainingSeconds.toFloat() / focusState.totalSeconds
                     else 0f,
-                    isRunning = pomodoroState.isRunning && !pomodoroState.isPaused,
+                    isRunning = focusState.isRunning && !focusState.isPaused,
                     modifier = Modifier.size(200.dp)
                 )
                 Text(
-                    text = formatTime(pomodoroState.remainingSeconds),
+                    text = formatTime(focusState.remainingSeconds),
                     style = MaterialTheme.typography.displayMedium
                 )
             }
 
             // Sessions completed indicator
             Text(
-                text = "${pomodoroState.sessionsCompleted} sessions completed",
+                text = "${focusState.sessionsCompleted} sessions completed",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 16.dp)
             )
+
+            // Stats eligibility hint — shown only during active work phase when under threshold
+            val elapsedSeconds = if (focusState.isRunning) focusState.totalSeconds - focusState.remainingSeconds else 0
+            val minTrackableSeconds = FocusTimerDefaults.MIN_TRACKABLE_MINUTES * 60
+            val isBelowThreshold = focusState.isRunning && focusState.currentPhase == FocusPhase.WORK && elapsedSeconds < minTrackableSeconds
+
+            AnimatedVisibility(
+                visible = isBelowThreshold,
+                enter = fadeIn() + slideInVertically { it / 2 },
+                exit = fadeOut()
+            ) {
+                val minutesLeft = ((minTrackableSeconds - elapsedSeconds) / 60) + 1
+                Surface(
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+                    ) {
+                        Icon(
+                            Icons.Outlined.Info,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            text = "Counts in stats in $minutesLeft min",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
 
@@ -127,10 +173,10 @@ fun PomodoroSheet(
             Row(
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                if (!pomodoroState.isRunning) {
+                if (!focusState.isRunning) {
                     Button(
                         onClick = {
-                            PomodoroTimerService.start(context, taskId, taskTitle)
+                            FocusTimerService.start(context, taskId, taskTitle)
                         },
                         shape = CircleShape
                     ) {
@@ -142,25 +188,25 @@ fun PomodoroSheet(
                     // Pause/Resume
                     OutlinedButton(
                         onClick = {
-                            if (pomodoroState.isPaused)
-                                PomodoroTimerService.resume(context)
+                            if (focusState.isPaused)
+                                FocusTimerService.resume(context)
                             else
-                                PomodoroTimerService.pause(context)
+                                FocusTimerService.pause(context)
                         },
                         shape = CircleShape
                     ) {
                         Icon(
-                            if (pomodoroState.isPaused) Icons.Default.PlayArrow
+                            if (focusState.isPaused) Icons.Default.PlayArrow
                             else Icons.Default.Pause,
                             contentDescription = null
                         )
                         Spacer(Modifier.width(4.dp))
-                        Text(if (pomodoroState.isPaused) "Resume" else "Pause")
+                        Text(if (focusState.isPaused) "Resume" else "Pause")
                     }
 
                     // Skip
                     OutlinedButton(
-                        onClick = { PomodoroTimerService.skip(context) },
+                        onClick = { FocusTimerService.skip(context) },
                         shape = CircleShape
                     ) {
                         Icon(Icons.Default.SkipNext, contentDescription = null)
@@ -168,7 +214,7 @@ fun PomodoroSheet(
 
                     // Stop
                     Button(
-                        onClick = { PomodoroTimerService.stop(context) },
+                        onClick = { FocusTimerService.stop(context) },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.error
                         ),

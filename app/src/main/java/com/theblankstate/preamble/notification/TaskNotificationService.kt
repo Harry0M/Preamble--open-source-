@@ -328,7 +328,7 @@ class TaskNotificationService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         )
         val addAction = NotificationCompat.Action.Builder(
-            R.drawable.ic_launcher_foreground, "Quick Add", addIntent
+            R.drawable.ic_notif_add, "Quick Add", addIntent
         ).addRemoteInput(remoteInput).build()
 
         // Voice
@@ -338,12 +338,12 @@ class TaskNotificationService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val voiceAction = NotificationCompat.Action.Builder(
-            R.drawable.ic_launcher_foreground, "\uD83C\uDF99 Voice", voiceIntent
+            R.drawable.ic_notif_mic, "Voice", voiceIntent
         ).build()
 
         val contentText = if (pendingCount > 0)
             "$pendingCount task${if (pendingCount > 1) "s" else ""} pending"
-        else "All done for today!"
+        else "You're all caught up"
 
         // ── Collapsed custom view ──
         val collapsedView = RemoteViews(packageName, R.layout.notification_collapsed)
@@ -383,7 +383,7 @@ class TaskNotificationService : Service() {
         // Task count
         val countText = if (pendingCount > 0)
             "$pendingCount task${if (pendingCount > 1) "s" else ""}"
-        else "All done!"
+        else "All caught up"
         collapsedView.setTextViewText(R.id.notif_task_count, countText)
 
         // ── Expanded custom view with 2-column task grid ──

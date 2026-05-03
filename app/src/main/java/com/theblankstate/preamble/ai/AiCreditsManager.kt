@@ -31,8 +31,8 @@ import kotlinx.coroutines.withContext
 object AiCreditsManager {
     private const val TAG = "AiCreditsManager"
 
-    // TODO: Replace with your actual AdMob rewarded ad unit ID
-    private const val AD_UNIT_ID = "ca-app-pub-3940256099942544/5224354917" // Test ID — replace for production
+    // Production AdMob rewarded ad unit ID
+    private const val AD_UNIT_ID = "ca-app-pub-1118281305976257/4246436187"
 
     private const val SUCCESS_COOLDOWN_MS = 5 * 60 * 1000L // 5 min after successful ad (mirrors server)
 

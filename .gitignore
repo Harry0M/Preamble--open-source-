@@ -30,3 +30,10 @@ graphify-out/
 # Cloud Functions
 functions/.env
 functions/lib/
+
+# Design refs and dev artifacts (must not ship)
+.tmp-design/
+screenshots/
+build_output.txt
+compile_error*.txt
+tmpclaude-*
