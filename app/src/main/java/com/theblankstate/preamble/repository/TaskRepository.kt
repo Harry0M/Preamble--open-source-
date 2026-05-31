@@ -135,11 +135,22 @@ class TaskRepository(
             }
 
             // ── Normal tasks (local, Google Calendar, Google Tasks) ──
-            val taskDay = try {
-                val d = sdf.parse(task.createdDate); val c = Calendar.getInstance(); c.time = d!!
-                if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month) c.get(Calendar.DAY_OF_MONTH) else null
-            } catch (_: Exception) { null }
-            if (taskDay != null) tasksByDay.getOrPut(taskDay) { mutableListOf() }.add(task)
+            if (task.isMultiDay) {
+                // Multi-day task: spread across all days in range within this month
+                for (day in 1..maxDay) {
+                    calendar.set(year, month, day)
+                    val dayStr = sdf.format(calendar.time)
+                    if (dayStr >= task.createdDate && dayStr <= task.effectiveEndDate) {
+                        tasksByDay.getOrPut(day) { mutableListOf() }.add(task)
+                    }
+                }
+            } else {
+                val taskDay = try {
+                    val d = sdf.parse(task.createdDate); val c = Calendar.getInstance(); c.time = d!!
+                    if (c.get(Calendar.YEAR) == year && c.get(Calendar.MONTH) == month) c.get(Calendar.DAY_OF_MONTH) else null
+                } catch (_: Exception) { null }
+                if (taskDay != null) tasksByDay.getOrPut(taskDay) { mutableListOf() }.add(task)
+            }
         }
 
         // ── Compute virtual recurrence instances + heatMap in same loop ──
@@ -184,7 +195,7 @@ class TaskRepository(
 
     fun getTotalCount(): Flow<Int> = dao.getTotalTasksCount()
 
-    suspend fun addTask(title: String, date: String? = null, deadlineTime: String? = null, priority: Int = 0, description: String? = null, tags: String? = null): Task? {
+    suspend fun addTask(title: String, date: String? = null, deadlineTime: String? = null, priority: Int = 0, description: String? = null, tags: String? = null, endDate: String? = null, endTime: String? = null): Task? {
         val normalizedTitle = TaskInputValidator.normalizeTitle(title)
         val normalizedDescription = TaskInputValidator.normalizeDescription(description)
         if (!TaskInputValidator.isValidTitle(normalizedTitle) || !TaskInputValidator.isValidDescription(normalizedDescription)) {
@@ -200,7 +211,9 @@ class TaskRepository(
             updatedTimestamp = now,
             priority = priority,
             description = normalizedDescription,
-            tags = tags
+            tags = tags,
+            endDate = endDate,
+            endTime = endTime
         )
         dao.insertTask(task)
         syncManager?.pushTask(task)

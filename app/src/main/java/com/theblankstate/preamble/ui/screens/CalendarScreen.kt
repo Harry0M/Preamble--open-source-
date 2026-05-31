@@ -468,9 +468,25 @@ private fun GoogleMonthGrid(
                                 color = when { isToday -> onPrimary; !isInMonth -> dimColor; isSelected -> primary; else -> onSurface })
                         }
                         if (isInMonth) {
+                            val tertiary = MaterialTheme.colorScheme.tertiary
                             tasks.take(3).forEach { task ->
                                 val tc = when { task.priority == 3 -> PriorityHigh; task.priority == 2 -> PriorityMedium; task.priority == 1 -> PriorityLow; task.isCalendarEvent || task.isGoogleTask -> TaskTeal; else -> primary }
-                                Text(task.title.removePrefix("📅 ").trim(), style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp, lineHeight = 12.sp),
+                                val displayTitle = task.title.removePrefix("📅 ").trim()
+                                val prefix = when {
+                                    task.isHabit -> "● "
+                                    task.isMultiDay -> "↔ "
+                                    else -> ""
+                                }
+                                val annotatedTitle = androidx.compose.ui.text.buildAnnotatedString {
+                                    if (prefix.isNotEmpty()) {
+                                        val prefixColor = if (task.isHabit) tertiary else tc
+                                        pushStyle(androidx.compose.ui.text.SpanStyle(color = prefixColor, fontWeight = FontWeight.Bold))
+                                        append(prefix)
+                                        pop()
+                                    }
+                                    append(displayTitle)
+                                }
+                                Text(annotatedTitle, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp, lineHeight = 12.sp),
                                     color = tc, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.fillMaxWidth().padding(vertical = 0.5.dp).clip(RoundedCornerShape(6.dp)).background(tc.copy(alpha = 0.12f)).padding(horizontal = 4.dp, vertical = 1.5.dp))
                             }

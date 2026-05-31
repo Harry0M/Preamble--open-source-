@@ -11,6 +11,7 @@ import com.theblankstate.preamble.notification.NotificationKeepAliveWorker
 import com.theblankstate.preamble.notification.TaskNotificationManager
 import com.theblankstate.preamble.notification.TaskNotificationService
 import com.theblankstate.preamble.repository.TaskRepository
+import com.theblankstate.preamble.repository.HabitRepository
 import com.theblankstate.preamble.sync.FirebaseTaskSyncManager
 import com.theblankstate.preamble.sync.GoogleCalendarManager
 import com.theblankstate.preamble.sync.GoogleTasksManager
@@ -35,6 +36,7 @@ class PreambleApplication : Application() {
     val database by lazy { PreambleDatabase.getInstance(this) }
     val syncManager by lazy { FirebaseTaskSyncManager(this, database.taskDao()) }
     val repository by lazy { TaskRepository(database.taskDao(), syncManager, database.focusSessionDao()) }
+    val habitRepository by lazy { HabitRepository(database.habitEntryDao(), database.taskDao()) }
 
     override fun onCreate() {
         super.onCreate()

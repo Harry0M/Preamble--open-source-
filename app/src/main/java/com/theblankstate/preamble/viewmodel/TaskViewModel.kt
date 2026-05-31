@@ -849,7 +849,7 @@ class TaskViewModel(
         }
     }
 
-    fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false, syncToCalendar: Boolean = false, priority: Int = 0, description: String? = null, tags: String? = null, subtasks: List<String> = emptyList()) {
+    fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false, syncToCalendar: Boolean = false, priority: Int = 0, description: String? = null, tags: String? = null, subtasks: List<String> = emptyList(), endDate: String? = null, endTime: String? = null) {
         val normalizedTitle = TaskInputValidator.normalizeTitle(title)
         val normalizedDescription = TaskInputValidator.normalizeDescription(description)
         if (!TaskInputValidator.isValidTitle(normalizedTitle) || !TaskInputValidator.isValidDescription(normalizedDescription)) return
@@ -871,7 +871,9 @@ class TaskViewModel(
                     priority = priority,
                     description = normalizedDescription,
                     tags = tags,
-                    googleCalendarId = "primary"
+                    googleCalendarId = "primary",
+                    endDate = endDate,
+                    endTime = endTime
                 )
                 repository.insertTask(task)
                 finalTask = task
@@ -896,7 +898,9 @@ class TaskViewModel(
                     isSyncing = true,
                     priority = priority,
                     description = normalizedDescription,
-                    tags = tags
+                    tags = tags,
+                    endDate = endDate,
+                    endTime = endTime
                 )
                 repository.insertTask(task)
                 finalTask = task
@@ -909,7 +913,7 @@ class TaskViewModel(
                 androidx.work.WorkManager.getInstance(appContext).enqueue(req)
 
             } else {
-                finalTask = repository.addTask(normalizedTitle, date, deadlineTime, priority, normalizedDescription, tags)
+                finalTask = repository.addTask(normalizedTitle, date, deadlineTime, priority, normalizedDescription, tags, endDate, endTime)
                     ?: return@launch
             }
             if (subtasks.isNotEmpty()) {
@@ -1198,7 +1202,7 @@ class TaskViewModel(
         }
     }
 
-    fun updateTask(task: Task, newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int = task.priority, newDescription: String? = task.description, newTags: String? = task.tags, newRecurrenceType: String? = task.recurrenceType, newRecurrenceInterval: Int = task.recurrenceInterval ?: 1, newRecurrenceDays: String? = task.recurrenceDays, newRecurrenceEndDate: String? = task.recurrenceEndDate) {
+    fun updateTask(task: Task, newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int = task.priority, newDescription: String? = task.description, newTags: String? = task.tags, newRecurrenceType: String? = task.recurrenceType, newRecurrenceInterval: Int = task.recurrenceInterval ?: 1, newRecurrenceDays: String? = task.recurrenceDays, newRecurrenceEndDate: String? = task.recurrenceEndDate, newEndDate: String? = task.endDate, newEndTime: String? = task.endTime) {
         val normalizedTitle = TaskInputValidator.normalizeTitle(newTitle)
         val normalizedDescription = TaskInputValidator.normalizeDescription(newDescription)
         if (!TaskInputValidator.isValidTitle(normalizedTitle) || !TaskInputValidator.isValidDescription(normalizedDescription)) return
@@ -1220,7 +1224,9 @@ class TaskViewModel(
                 recurrenceType = newRecurrenceType,
                 recurrenceInterval = if (newRecurrenceType != null) newRecurrenceInterval else null,
                 recurrenceDays = if (newRecurrenceType != null) newRecurrenceDays else null,
-                recurrenceEndDate = if (newRecurrenceType != null) newRecurrenceEndDate else null
+                recurrenceEndDate = if (newRecurrenceType != null) newRecurrenceEndDate else null,
+                endDate = newEndDate,
+                endTime = newEndTime
             )
             // Optimistic: update locally FIRST
             repository.updateTask(updated)
@@ -1257,6 +1263,8 @@ class TaskViewModel(
                     .putString("title", normalizedTitle)
                     .putString("date", newDate ?: task.createdDate)
                 if (newDeadlineTime != null) dataBuilder.putString("deadlineTime", newDeadlineTime)
+                if (newEndDate != null) dataBuilder.putString("endDate", newEndDate)
+                if (newEndTime != null) dataBuilder.putString("endTime", newEndTime)
                 if (normalizedDescription != null) dataBuilder.putString("description", normalizedDescription)
                 if (newRecurrenceType != null) {
                     dataBuilder.putString("recurrenceType", newRecurrenceType)
@@ -1645,6 +1653,113 @@ class TaskViewModel(
                     .build()
                 androidx.work.WorkManager.getInstance(appContext).enqueue(req)
             }
+        }
+    }
+
+    // ── Habit Feature ──
+
+    private val _habitRepository by lazy {
+        val app = appContext.applicationContext as com.theblankstate.preamble.PreambleApplication
+        app.habitRepository
+    }
+
+    val activeHabits: StateFlow<List<com.theblankstate.preamble.data.Task>> = run {
+        val app = appContext.applicationContext as com.theblankstate.preamble.PreambleApplication
+        app.habitRepository.getAllHabits()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
+
+    val todayHabitStatus: StateFlow<List<com.theblankstate.preamble.repository.HabitWithStatus>> = run {
+        val app = appContext.applicationContext as com.theblankstate.preamble.PreambleApplication
+        app.habitRepository.getTodayHabitsWithStatus()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
+
+    private val _habitStats = MutableStateFlow<Map<String, com.theblankstate.preamble.repository.HabitStats>>(emptyMap())
+    val habitStats: StateFlow<Map<String, com.theblankstate.preamble.repository.HabitStats>> = _habitStats.asStateFlow()
+
+    fun addHabit(
+        title: String,
+        frequency: String,
+        targetDays: String? = null,
+        type: String = "continuous",
+        deadlineDate: String? = null,
+        reminderTime: String? = null,
+        description: String? = null,
+        tags: String? = null,
+        interval: Int = 1,
+        timesPerWeek: Int? = null
+    ) {
+        viewModelScope.launch {
+            val habit = _habitRepository.createHabit(
+                title = title,
+                frequency = frequency,
+                targetDays = targetDays,
+                type = type,
+                deadlineDate = deadlineDate,
+                reminderTime = reminderTime,
+                description = description,
+                tags = tags,
+                interval = interval,
+                timesPerWeek = timesPerWeek
+            )
+            // Schedule reminder alarm if time set
+            if (reminderTime != null) {
+                scheduleOrCancelAlarm(habit)
+            }
+            refreshStats()
+            invalidateAllCalendarCaches()
+        }
+    }
+
+    fun toggleHabitForToday(habitId: String) {
+        viewModelScope.launch {
+            val today = TaskRepository.todayString()
+            _habitRepository.toggleHabitForDate(habitId, today)
+            // Refresh habit stats after toggle
+            loadHabitStats(habitId)
+        }
+    }
+
+    fun toggleHabitForDate(habitId: String, date: String) {
+        viewModelScope.launch {
+            _habitRepository.toggleHabitForDate(habitId, date)
+            loadHabitStats(habitId)
+        }
+    }
+
+    fun deleteHabit(habitId: String) {
+        viewModelScope.launch {
+            com.theblankstate.preamble.notification.TaskAlarmManager.cancelAllReminders(appContext, habitId)
+            _habitRepository.deleteHabit(habitId)
+            _habitStats.update { it - habitId }
+            refreshStats()
+            invalidateAllCalendarCaches()
+        }
+    }
+
+    fun loadHabitStats(habitId: String) {
+        viewModelScope.launch {
+            val stats = _habitRepository.getHabitStats(habitId)
+            _habitStats.update { it + (habitId to stats) }
+        }
+    }
+
+    fun loadAllHabitStats() {
+        viewModelScope.launch {
+            val habits = _habitRepository.getAllHabits().let { flow ->
+                var result: List<com.theblankstate.preamble.data.Task> = emptyList()
+                flow.collect { result = it; return@collect }
+                result
+            }
+            // Actually we need a sync version. Let's use the DAO directly.
+            val app = appContext.applicationContext as com.theblankstate.preamble.PreambleApplication
+            val allHabits = app.database.taskDao().getAllHabitsSync()
+            val statsMap = mutableMapOf<String, com.theblankstate.preamble.repository.HabitStats>()
+            for (habit in allHabits) {
+                statsMap[habit.id] = _habitRepository.getHabitStats(habit.id)
+            }
+            _habitStats.value = statsMap
         }
     }
 

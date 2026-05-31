@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -52,7 +53,7 @@ import java.util.Locale
 fun EditTaskSheet(
     task: Task,
     onDismiss: () -> Unit,
-    onUpdateTask: (newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int, newDescription: String?, newTags: String?) -> Unit
+    onUpdateTask: (newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int, newDescription: String?, newTags: String?, newEndDate: String?, newEndTime: String?) -> Unit
 ) {
     var taskTitle by remember { mutableStateOf(task.title) }
     var taskDescription by remember { mutableStateOf(task.description ?: "") }
@@ -68,6 +69,9 @@ fun EditTaskSheet(
     var recurrenceEndDate by remember { mutableStateOf(task.recurrenceEndDate) }
     var showTimePicker by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var selectedEndDate by remember { mutableStateOf(task.endDate) }
+    var selectedEndTime by remember { mutableStateOf(task.endTime) }
+    var showEndDatePicker by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
 
     ModalBottomSheet(
@@ -123,6 +127,16 @@ fun EditTaskSheet(
                     Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.padding(end = 4.dp))
                     Text(selectedDate ?: "Set Date")
                 }
+            }
+
+            // End Date
+            OutlinedButton(
+                onClick = { showEndDatePicker = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(if (selectedEndDate != null) "End: ${formatEditShortDate(selectedEndDate!!)}" else "+ End Date")
             }
 
             // Clear time button
@@ -200,7 +214,9 @@ fun EditTaskSheet(
                             selectedTime,
                             selectedPriority,
                             taskDescription.trim().ifBlank { null },
-                            if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null
+                            if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null,
+                            selectedEndDate,
+                            selectedEndTime
                         )
                     }
                 },
@@ -276,7 +292,46 @@ fun EditTaskSheet(
         }
     }
 
+    // End Date Picker
+    if (showEndDatePicker) {
+        val endDateState = rememberDatePickerState(
+            initialSelectedDateMillis = selectedEndDate?.let {
+                try { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(it)?.time?.plus(12 * 60 * 60 * 1000) }
+                catch (_: Exception) { null }
+            } ?: System.currentTimeMillis()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showEndDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    endDateState.selectedDateMillis?.let { millis ->
+                        selectedEndDate = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(millis))
+                    }
+                    showEndDatePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    selectedEndDate = null
+                    showEndDatePicker = false
+                }) { Text("Clear") }
+            }
+        ) {
+            DatePicker(state = endDateState)
+        }
+    }
+
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
+    }
+}
+
+private fun formatEditShortDate(dateStr: String): String {
+    return try {
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val displaySdf = java.text.SimpleDateFormat("EEE, MMM d", java.util.Locale.US)
+        displaySdf.format(sdf.parse(dateStr)!!)
+    } catch (_: Exception) {
+        dateStr
     }
 }

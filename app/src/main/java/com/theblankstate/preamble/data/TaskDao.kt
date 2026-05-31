@@ -23,16 +23,16 @@ data class SubtaskStats(
 @Dao
 interface TaskDao {
 
-    @Query("SELECT * FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND createdDate = :date) OR (recurrenceType = 'rollover' AND isCompleted = 0 AND createdDate <= :date) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate = :date) ) AND parentTaskId IS NULL ORDER BY isCompleted ASC, CASE WHEN recurrenceType = 'rollover' AND isCompleted = 0 THEN 0 ELSE 1 END ASC, priority DESC, createdTimestamp DESC")
+    @Query("SELECT * FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND taskCategory = 'task' AND ((endDate IS NULL AND createdDate = :date) OR (endDate IS NOT NULL AND createdDate <= :date AND endDate >= :date))) OR (recurrenceType = 'rollover' AND isCompleted = 0 AND createdDate <= :date) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate = :date) ) AND parentTaskId IS NULL ORDER BY isCompleted ASC, CASE WHEN recurrenceType = 'rollover' AND isCompleted = 0 THEN 0 ELSE 1 END ASC, priority DESC, createdTimestamp DESC")
     fun getTasksByDate(date: String): Flow<List<Task>>
 
-    @Query("SELECT * FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND createdDate = :date) OR (recurrenceType = 'rollover' AND isCompleted = 0 AND createdDate <= :date) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate = :date) ) AND parentTaskId IS NULL ORDER BY isCompleted ASC, CASE WHEN recurrenceType = 'rollover' AND isCompleted = 0 THEN 0 ELSE 1 END ASC, priority DESC, createdTimestamp DESC")
+    @Query("SELECT * FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND taskCategory = 'task' AND ((endDate IS NULL AND createdDate = :date) OR (endDate IS NOT NULL AND createdDate <= :date AND endDate >= :date))) OR (recurrenceType = 'rollover' AND isCompleted = 0 AND createdDate <= :date) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate = :date) ) AND parentTaskId IS NULL ORDER BY isCompleted ASC, CASE WHEN recurrenceType = 'rollover' AND isCompleted = 0 THEN 0 ELSE 1 END ASC, priority DESC, createdTimestamp DESC")
     suspend fun getTasksByDateSync(date: String): List<Task>
 
-    @Query("SELECT * FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND createdDate IN (:dates)) OR (recurrenceType = 'rollover' AND isCompleted = 0 AND createdDate <= :maxDate) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate IN (:dates)) ) AND parentTaskId IS NULL ORDER BY createdDate DESC, isCompleted ASC, priority DESC, createdTimestamp DESC")
+    @Query("SELECT * FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND taskCategory = 'task' AND ((endDate IS NULL AND createdDate IN (:dates)) OR (endDate IS NOT NULL AND createdDate <= :maxDate))) OR (recurrenceType = 'rollover' AND isCompleted = 0 AND createdDate <= :maxDate) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate IN (:dates)) ) AND parentTaskId IS NULL ORDER BY createdDate DESC, isCompleted ASC, priority DESC, createdTimestamp DESC")
     fun getTasksForDates(dates: List<String>, maxDate: String): Flow<List<Task>>
 
-    @Query("SELECT * FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND createdDate IN (:dates)) OR (recurrenceType = 'rollover' AND isCompleted = 0 AND createdDate <= :maxDate) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate IN (:dates)) ) AND parentTaskId IS NULL ORDER BY isCompleted ASC, priority DESC, createdTimestamp DESC")
+    @Query("SELECT * FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND taskCategory = 'task' AND ((endDate IS NULL AND createdDate IN (:dates)) OR (endDate IS NOT NULL AND createdDate <= :maxDate))) OR (recurrenceType = 'rollover' AND isCompleted = 0 AND createdDate <= :maxDate) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate IN (:dates)) ) AND parentTaskId IS NULL ORDER BY isCompleted ASC, priority DESC, createdTimestamp DESC")
     suspend fun getTasksForDatesSync(dates: List<String>, maxDate: String): List<Task>
 
     @Query("SELECT COUNT(*) FROM tasks WHERE isCompleted = 1")
@@ -239,6 +239,20 @@ interface TaskDao {
     /** Get pending tasks and their ages */
     @Query("SELECT createdDate FROM tasks WHERE isCompleted = 0 AND parentTaskId IS NULL")
     suspend fun getPendingTaskDates(): List<String>
+
+    // ── Habit queries ──
+
+    @Query("SELECT * FROM tasks WHERE taskCategory = 'habit' AND parentTaskId IS NULL ORDER BY createdTimestamp ASC")
+    fun getAllHabits(): Flow<List<Task>>
+
+    @Query("SELECT * FROM tasks WHERE taskCategory = 'habit' AND parentTaskId IS NULL ORDER BY createdTimestamp ASC")
+    suspend fun getAllHabitsSync(): List<Task>
+
+    @Query("SELECT * FROM tasks WHERE taskCategory = 'habit' AND id = :habitId LIMIT 1")
+    suspend fun getHabitById(habitId: String): Task?
+
+    @Query("SELECT COUNT(*) FROM tasks WHERE taskCategory = 'habit' AND parentTaskId IS NULL")
+    suspend fun getHabitCount(): Int
 }
 
 data class PriorityCount(

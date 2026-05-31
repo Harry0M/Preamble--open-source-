@@ -87,7 +87,7 @@ private val GoogleGreen = Color(0xFF34A853)
 fun TaskDetailSheet(
     task: Task,
     onDismiss: () -> Unit,
-    onUpdateTask: (newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int, newDescription: String?, newTags: String?, newRecurrenceType: String?, newRecurrenceInterval: Int, newRecurrenceDays: String?, newRecurrenceEndDate: String?) -> Unit,
+    onUpdateTask: (newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int, newDescription: String?, newTags: String?, newRecurrenceType: String?, newRecurrenceInterval: Int, newRecurrenceDays: String?, newRecurrenceEndDate: String?, newEndDate: String?, newEndTime: String?) -> Unit,
     onDelete: () -> Unit,
     onStartFocus: (() -> Unit)? = null,
     subtasks: List<Task> = emptyList(),
@@ -106,6 +106,10 @@ fun TaskDetailSheet(
     var selectedTags by remember { mutableStateOf(task.tagList.toSet()) }
     var showTimePicker by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var selectedEndDate by remember { mutableStateOf(task.endDate) }
+    var selectedEndTime by remember { mutableStateOf(task.endTime) }
+    var showEndDateDialog by remember { mutableStateOf(false) }
+    var showEndTimeDialog by remember { mutableStateOf(false) }
 
     // Recurrence state
     var recurrenceType by remember { mutableStateOf(task.recurrenceType) }
@@ -115,7 +119,7 @@ fun TaskDetailSheet(
     ) }
     var recurrenceEndDate by remember { mutableStateOf(task.recurrenceEndDate) }
 
-    val hasChanges = remember(taskTitle, taskDescription, selectedTime, selectedDate, selectedPriority, selectedTags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate) {
+    val hasChanges = remember(taskTitle, taskDescription, selectedTime, selectedDate, selectedPriority, selectedTags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, selectedEndDate, selectedEndTime) {
         taskTitle != task.title ||
                 taskDescription != (task.description ?: "") ||
                 selectedTime != task.deadlineTime ||
@@ -125,7 +129,9 @@ fun TaskDetailSheet(
                 recurrenceType != task.recurrenceType ||
                 recurrenceInterval != (task.recurrenceInterval ?: 1) ||
                 recurrenceDays != (task.recurrenceDays?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.toSet() ?: emptySet<Int>()) ||
-                recurrenceEndDate != task.recurrenceEndDate
+                recurrenceEndDate != task.recurrenceEndDate ||
+                selectedEndDate != task.endDate ||
+                selectedEndTime != task.endTime
     }
 
     ModalBottomSheet(
@@ -141,7 +147,9 @@ fun TaskDetailSheet(
                     recurrenceType,
                     recurrenceInterval,
                     recurrenceDays.takeIf { it.isNotEmpty() }?.joinToString(","),
-                    recurrenceEndDate
+                    recurrenceEndDate,
+                    selectedEndDate,
+                    selectedEndTime
                 )
             }
             onDismiss()
@@ -516,6 +524,41 @@ fun TaskDetailSheet(
                             }
                         }
                     }
+
+                    // End Date
+                    Surface(
+                        onClick = { showEndDateDialog = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.CalendarToday,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = "End Date",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    text = if (selectedEndDate != null) formatShortDate(selectedEndDate!!) else "No end date",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (selectedEndDate != null) MaterialTheme.colorScheme.onSurface
+                                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                )
+                            }
+                        }
+                    }
                 }
 
                 // Clear time button
@@ -751,7 +794,9 @@ fun TaskDetailSheet(
                             recurrenceType,
                             recurrenceInterval,
                             recurrenceDays.takeIf { it.isNotEmpty() }?.joinToString(","),
-                            recurrenceEndDate
+                            recurrenceEndDate,
+                            selectedEndDate,
+                            selectedEndTime
                         )
                         onDismiss()
                     }
@@ -838,6 +883,69 @@ fun TaskDetailSheet(
             }
         ) {
             DatePicker(state = datePickerState)
+        }
+    }
+
+    // ── End Date Picker Dialog ──
+    if (showEndDateDialog) {
+        val endDateState = rememberDatePickerState(
+            initialSelectedDateMillis = selectedEndDate?.let {
+                try {
+                    java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(it)?.time?.plus(12 * 60 * 60 * 1000)
+                } catch (_: Exception) { null }
+            } ?: System.currentTimeMillis()
+        )
+        DatePickerDialog(
+            onDismissRequest = { showEndDateDialog = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    endDateState.selectedDateMillis?.let { millis ->
+                        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                        selectedEndDate = sdf.format(java.util.Date(millis))
+                    }
+                    showEndDateDialog = false
+                }) { Text("Set End Date") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        selectedEndDate = null
+                        selectedEndTime = null
+                        showEndDateDialog = false
+                    }) { Text("Clear") }
+                    TextButton(onClick = {
+                        showEndDateDialog = false
+                        showEndTimeDialog = true
+                    }) { Text("Set End Time") }
+                }
+            }
+        ) {
+            DatePicker(state = endDateState)
+        }
+    }
+
+    if (showEndTimeDialog) {
+        val endTimeState = rememberTimePickerState(
+            initialHour = selectedEndTime?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 17,
+            initialMinute = selectedEndTime?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0,
+            is24Hour = true
+        )
+        DatePickerDialog(
+            onDismissRequest = { showEndTimeDialog = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    selectedEndTime = String.format("%02d:%02d", endTimeState.hour, endTimeState.minute)
+                    showEndTimeDialog = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    selectedEndTime = null
+                    showEndTimeDialog = false
+                }) { Text("Clear") }
+            }
+        ) {
+            TimePicker(state = endTimeState)
         }
     }
 }

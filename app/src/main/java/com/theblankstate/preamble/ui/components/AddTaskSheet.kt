@@ -120,7 +120,7 @@ import kotlin.math.sin
 @Composable
 fun AddTaskSheet(
     onDismiss: () -> Unit,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>) -> Unit,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, endDate: String?, endTime: String?) -> Unit,
     onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?, subtasks: List<String>) -> Unit)? = null,
     aiChatViewModel: AiChatViewModel? = null
 ) {
@@ -145,6 +145,10 @@ fun AddTaskSheet(
     var pendingSubtaskTitle by remember { mutableStateOf("") }
     var selectedTime by remember { mutableStateOf<String?>(null) }
     var selectedDate by remember { mutableStateOf<String?>(null) }
+    var selectedEndDate by remember { mutableStateOf<String?>(null) }
+    var selectedEndTime by remember { mutableStateOf<String?>(null) }
+    var showEndDatePicker by remember { mutableStateOf(false) }
+    var showEndTimePicker by remember { mutableStateOf(false) }
     var selectedPriority by remember { mutableStateOf(0) }
     var selectedTags by remember { mutableStateOf<Set<String>>(emptySet()) }
     var syncToGoogle by remember { mutableStateOf(false) }
@@ -333,7 +337,9 @@ fun AddTaskSheet(
                     selectedPriority,
                     desc,
                     if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null,
-                    finalSubtasks
+                    finalSubtasks,
+                    selectedEndDate,
+                    selectedEndTime
                 )
             }
             // Haptic + toast confirmation
@@ -407,6 +413,20 @@ fun AddTaskSheet(
                             SuggestionChip(
                                 onClick = { showTagsDialog = true },
                                 label = { Text(if (selectedTags.size == 1) selectedTags.first() else "${selectedTags.size} Tags", style = MaterialTheme.typography.labelSmall) }
+                            )
+                        }
+                        // End Date toggle chip
+                        if (selectedDate != null) {
+                            SuggestionChip(
+                                onClick = { showEndDatePicker = true },
+                                label = {
+                                    Text(
+                                        if (selectedEndDate == null) "+ End Date"
+                                        else "→ ${formatAddTaskShortDate(selectedEndDate!!)}",
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                },
+                                icon = { Icon(Icons.Default.DateRange, contentDescription = null, modifier = Modifier.size(16.dp)) }
                             )
                         }
                     }
@@ -1081,6 +1101,74 @@ fun AddTaskSheet(
         }
     }
 
+    // ── End Date Picker Dialog ──
+    if (showEndDatePicker) {
+        val endDatePickerState = rememberDatePickerState(
+            initialSelectedDateMillis = selectedEndDate?.let {
+                try {
+                    java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(it)?.time?.plus(12 * 60 * 60 * 1000)
+                } catch (_: Exception) { null }
+            } ?: (selectedDate?.let {
+                try {
+                    java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(it)?.time?.plus(12 * 60 * 60 * 1000)
+                } catch (_: Exception) { null }
+            } ?: System.currentTimeMillis())
+        )
+        DatePickerDialog(
+            onDismissRequest = { showEndDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    endDatePickerState.selectedDateMillis?.let { millis ->
+                        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                        selectedEndDate = sdf.format(java.util.Date(millis))
+                    }
+                    showEndDatePicker = false
+                }) { Text("Set End Date") }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(onClick = {
+                        selectedEndDate = null
+                        selectedEndTime = null
+                        showEndDatePicker = false
+                    }) { Text("Clear") }
+                    TextButton(onClick = {
+                        showEndDatePicker = false
+                        showEndTimePicker = true
+                    }) { Text("Set End Time") }
+                }
+            }
+        ) {
+            DatePicker(state = endDatePickerState)
+        }
+    }
+
+    // ── End Time Picker Dialog ──
+    if (showEndTimePicker) {
+        val endTimeState = rememberTimePickerState(
+            initialHour = selectedEndTime?.split(":")?.getOrNull(0)?.toIntOrNull() ?: 17,
+            initialMinute = selectedEndTime?.split(":")?.getOrNull(1)?.toIntOrNull() ?: 0,
+            is24Hour = true
+        )
+        DatePickerDialog(
+            onDismissRequest = { showEndTimePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    selectedEndTime = String.format("%02d:%02d", endTimeState.hour, endTimeState.minute)
+                    showEndTimePicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    selectedEndTime = null
+                    showEndTimePicker = false
+                }) { Text("Clear") }
+            }
+        ) {
+            TimePicker(state = endTimeState)
+        }
+    }
+
     // Repeat Bottom Sheet
     if (showRepeatSheet) {
         ModalBottomSheet(
@@ -1318,4 +1406,14 @@ fun TaskTypeInfoDialog(onDismiss: () -> Unit) {
             }
         }
     )
+}
+
+private fun formatAddTaskShortDate(dateStr: String): String {
+    return try {
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val displaySdf = java.text.SimpleDateFormat("EEE, MMM d", java.util.Locale.US)
+        displaySdf.format(sdf.parse(dateStr)!!)
+    } catch (_: Exception) {
+        dateStr
+    }
 }
