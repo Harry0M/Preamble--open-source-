@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Task::class, TaskTagOverride::class, FocusSession::class, AiMemoryEntity::class, AiProcessLogEntity::class, ChatMessageEntity::class, HabitEntry::class],
-    version = 25,
+    entities = [Task::class, TaskTagOverride::class, FocusSession::class, AiMemoryEntity::class, AiProcessLogEntity::class, ChatMessageEntity::class],
+    version = 24,
     exportSchema = false
 )
 abstract class PreambleDatabase : RoomDatabase() {
@@ -19,7 +19,6 @@ abstract class PreambleDatabase : RoomDatabase() {
     abstract fun aiMemoryDao(): AiMemoryDao
     abstract fun aiProcessLogDao(): AiProcessLogDao
     abstract fun chatMessageDao(): ChatMessageDao
-    abstract fun habitEntryDao(): HabitEntryDao
 
     companion object {
         @Volatile
@@ -32,7 +31,7 @@ abstract class PreambleDatabase : RoomDatabase() {
                     PreambleDatabase::class.java,
                     "preamble_db"
                 )
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -246,38 +245,6 @@ abstract class PreambleDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_focus_sessions_taskId` ON `focus_sessions` (`taskId`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_focus_sessions_date` ON `focus_sessions` (`date`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_focus_sessions_startTimestamp` ON `focus_sessions` (`startTimestamp`)")
-            }
-        }
-
-        private val MIGRATION_24_25 = object : Migration(24, 25) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                // Phase 2: Start/End date support
-                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `endDate` TEXT")
-                // Phase 3: Habit feature
-                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `taskCategory` TEXT NOT NULL DEFAULT 'task'")
-                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `habitFrequency` TEXT")
-                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `habitTargetDays` TEXT")
-                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `habitType` TEXT")
-                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `habitTimesPerWeek` INTEGER")
-                // New indices
-                db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_endDate` ON `tasks` (`endDate`)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS `index_tasks_taskCategory` ON `tasks` (`taskCategory`)")
-                // Habit entries table
-                db.execSQL("""
-                    CREATE TABLE IF NOT EXISTS `habit_entries` (
-                        `id` TEXT NOT NULL,
-                        `habitId` TEXT NOT NULL,
-                        `date` TEXT NOT NULL,
-                        `isCompleted` INTEGER NOT NULL DEFAULT 0,
-                        `completedTimestamp` INTEGER,
-                        `value` REAL,
-                        `note` TEXT,
-                        PRIMARY KEY(`id`)
-                    )
-                """.trimIndent())
-                db.execSQL("CREATE INDEX IF NOT EXISTS `index_habit_entries_habitId` ON `habit_entries` (`habitId`)")
-                db.execSQL("CREATE INDEX IF NOT EXISTS `index_habit_entries_date` ON `habit_entries` (`date`)")
-                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_habit_entries_habitId_date` ON `habit_entries` (`habitId`, `date`)")
             }
         }
 

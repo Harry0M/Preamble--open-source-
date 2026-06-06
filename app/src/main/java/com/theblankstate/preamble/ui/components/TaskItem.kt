@@ -41,8 +41,6 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.FitnessCenter
-import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.Cancel
@@ -270,7 +268,6 @@ fun TaskItem(
                     // Determine task archetype for visual encoding
                     val isRollover = task.recurrenceType == "rollover"
                     val isRecurring = task.isRecurrenceTemplate || task.isRecurrenceInstance
-                    val isHabit = task.isHabit
 
                     val circleColor = when {
                         task.isCompleted -> MaterialTheme.colorScheme.primary
@@ -363,18 +360,6 @@ fun TaskItem(
                                 )
                                 sweepAccum += totalDash
                             }
-                        } else if (isHabit) {
-                            // Habit: filled circle with checkmark outline
-                            drawCircle(
-                                color = circleColor,
-                                radius = radius,
-                                style = androidx.compose.ui.graphics.drawscope.Fill
-                            )
-                            drawCircle(
-                                color = circleColor.copy(alpha = 0.3f),
-                                radius = radius + strokeWidthPx / 2,
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = strokeWidthPx)
-                            )
                         } else {
                             // Normal task: simple solid ring
                             drawCircle(
@@ -494,55 +479,6 @@ fun TaskItem(
                     )
                 }
             }
-
-                // Habit frequency label
-                if (task.isHabit) {
-                    val freqText = when (task.habitFrequency) {
-                        "daily" -> "Daily habit"
-                        "weekly" -> "Weekly habit"
-                        "custom" -> "Every ${task.recurrenceInterval ?: 2} days"
-                        "times_per_week" -> "${task.habitTimesPerWeek ?: 3}x per week"
-                        else -> "Habit"
-                    }
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 2.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.FitnessCenter,
-                            contentDescription = null,
-                            modifier = Modifier.size(12.dp),
-                            tint = MaterialTheme.colorScheme.tertiary
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            freqText,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.tertiary
-                        )
-                    }
-                }
-
-                // Multi-day task indicator
-                if (task.isMultiDay) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(top = 2.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.DateRange,
-                            contentDescription = null,
-                            modifier = Modifier.size(12.dp),
-                            tint = MaterialTheme.colorScheme.secondary
-                        )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            "${task.durationDays} days",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.secondary
-                        )
-                    }
-                }
 
             // Subtask count indicator
             if (subtaskCount != null && subtaskCount.second > 0) {

@@ -578,12 +578,6 @@ object GoogleCalendarManager {
             timeSdf.format(Date(event.end.dateTime.value))
         } else null
 
-        // Extract endDate for multi-day all-day events
-        val endDateStr: String? = event.end?.date?.let { endDateVal ->
-            val endDateFormatted = endDateVal.toString().take(10)  // yyyy-MM-dd
-            if (endDateFormatted != dateStr) endDateFormatted else null
-        }
-
         // ── Extract meeting link ──
         val meetLink: String? = event.conferenceData?.entryPoints
             ?.firstOrNull { it.entryPointType == "video" }?.uri
@@ -679,7 +673,6 @@ object GoogleCalendarManager {
             calendarName = calendarName,
             location = event.location,
             endTime = endTimeStr,
-            endDate = endDateStr,
             meetingLink = meetLink,
             // Extended Calendar metadata
             attendeesJson = attendeesJson,
@@ -901,9 +894,7 @@ object GoogleCalendarManager {
         recurrenceInterval: Int? = null,
         recurrenceDays: String? = null,
         recurrenceEndDate: String? = null,
-        tags: String? = null,
-        endDate: String? = null,
-        endTime: String? = null
+        tags: String? = null
     ): String? = withContext(Dispatchers.IO) {
         if (!_isLinked.value) return@withContext null
         try {
@@ -924,32 +915,15 @@ object GoogleCalendarManager {
                     val startDateTime = DateTime("${date}T${deadlineTime}:00${tzOffset}")
                     event.start = EventDateTime().setDateTime(startDateTime)
                         .setTimeZone(java.util.TimeZone.getDefault().id)
-                    // Calculate end time
-                    val endCal = java.util.Calendar.getInstance()
-                    if (endDate != null || endTime != null) {
-                        val eDateStr = endDate ?: date
-                        val eTimeStr = endTime ?: deadlineTime
-                        val endParsed = sdf.parse("${eDateStr}T${eTimeStr}:00")
-                        if (endParsed != null) {
-                            endCal.time = endParsed
-                        } else {
-                            endCal.time = cal.time
-                            endCal.add(java.util.Calendar.HOUR_OF_DAY, 1)
-                        }
-                    } else {
-                        endCal.time = cal.time
-                        endCal.add(java.util.Calendar.HOUR_OF_DAY, 1)
-                    }
-                    val endTzOffset = tzOffsetSdf.format(endCal.time)
-                    val endDateTime = DateTime(sdf.format(endCal.time) + endTzOffset)
+                    cal.add(java.util.Calendar.HOUR_OF_DAY, 1)
+                    val endDateTime = DateTime(sdf.format(cal.time) + tzOffset)
                     event.end = EventDateTime().setDateTime(endDateTime)
                         .setTimeZone(java.util.TimeZone.getDefault().id)
                 } else {
                     // All-day event: use date string directly to avoid timezone offset
                     val dateOnly = DateTime(date)
                     event.start = EventDateTime().setDate(dateOnly)
-                    val effectiveEndDate = endDate ?: date
-                    event.end = EventDateTime().setDate(DateTime(effectiveEndDate))
+                    event.end = EventDateTime().setDate(dateOnly)
                 }
 
                 // Set recurrence RRULE if provided
@@ -980,9 +954,7 @@ object GoogleCalendarManager {
         recurrenceInterval: Int? = null,
         recurrenceDays: String? = null,
         recurrenceEndDate: String? = null,
-        tags: String? = null,
-        endDate: String? = null,
-        endTime: String? = null
+        tags: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         if (!_isLinked.value) return@withContext false
         try {
@@ -1015,31 +987,14 @@ object GoogleCalendarManager {
                     val startDateTime = DateTime("${date}T${deadlineTime}:00${tzOffset}")
                     event.start = EventDateTime().setDateTime(startDateTime)
                         .setTimeZone(java.util.TimeZone.getDefault().id)
-                    // Calculate end time
-                    val endCal = java.util.Calendar.getInstance()
-                    if (endDate != null || endTime != null) {
-                        val eDateStr = endDate ?: date
-                        val eTimeStr = endTime ?: deadlineTime
-                        val endParsed = sdf.parse("${eDateStr}T${eTimeStr}:00")
-                        if (endParsed != null) {
-                            endCal.time = endParsed
-                        } else {
-                            endCal.time = cal.time
-                            endCal.add(java.util.Calendar.HOUR_OF_DAY, 1)
-                        }
-                    } else {
-                        endCal.time = cal.time
-                        endCal.add(java.util.Calendar.HOUR_OF_DAY, 1)
-                    }
-                    val endTzOffset = tzOffsetSdf.format(endCal.time)
-                    event.end = EventDateTime().setDateTime(DateTime(sdf.format(endCal.time) + endTzOffset))
+                    cal.add(java.util.Calendar.HOUR_OF_DAY, 1)
+                    event.end = EventDateTime().setDateTime(DateTime(sdf.format(cal.time) + tzOffset))
                         .setTimeZone(java.util.TimeZone.getDefault().id)
                 } else {
                     // All-day event: use date string directly to avoid timezone offset
                     val dateOnly = DateTime(date)
                     event.start = EventDateTime().setDate(dateOnly)
-                    val effectiveEndDate = endDate ?: date
-                    event.end = EventDateTime().setDate(DateTime(effectiveEndDate))
+                    event.end = EventDateTime().setDate(dateOnly)
                 }
 
                 // Update recurrence RRULE

@@ -36,7 +36,6 @@ import androidx.compose.material.icons.filled.HourglassTop
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Science
 import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -1103,63 +1102,6 @@ fun SettingsScreen(
                             .edit().putBoolean("haptic_feedback_enabled", enabled).apply()
                     }
                 )
-                HorizontalDivider()
-                // Default Deadline Setting
-                var showDeadlinePicker by remember { mutableStateOf(false) }
-                val deadlinePrefs = context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                var defaultDeadline by remember { mutableStateOf(deadlinePrefs.getString("default_deadline_time", "23:59") ?: "23:59") }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { showDeadlinePicker = true }
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Icon(
-                            Icons.Default.Schedule,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Column {
-                            Text("Default Deadline", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "Tasks without a time default to $defaultDeadline",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
-                        }
-                    }
-                    Text(defaultDeadline, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                }
-                if (showDeadlinePicker) {
-                    val parts = defaultDeadline.split(":")
-                    val initHour = parts.getOrNull(0)?.toIntOrNull() ?: 23
-                    val initMinute = parts.getOrNull(1)?.toIntOrNull() ?: 59
-                    LaunchedEffect(Unit) {
-                        android.app.TimePickerDialog(
-                            context,
-                            { _, hour, minute ->
-                                val newTime = String.format("%02d:%02d", hour, minute)
-                                defaultDeadline = newTime
-                                context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                    .edit().putString("default_deadline_time", newTime).apply()
-                                showDeadlinePicker = false
-                            },
-                            initHour,
-                            initMinute,
-                            true
-                        ).apply {
-                            setOnDismissListener { showDeadlinePicker = false }
-                            show()
-                        }
-                    }
-                }
             }
 
             SectionTitle("Support")

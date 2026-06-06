@@ -399,11 +399,11 @@ fun PreambleApp(
                 tasks = tasks,
                 pastTasks = pastTasks,
                 streak = stats.streak,
-                onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, endDate, endTime -> viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, endDate, endTime) },
+                onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks -> viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks) },
                 onToggleTask = { viewModel.toggleTask(it) },
                 onDeleteTask = { viewModel.deleteTask(it) },
-                onEditTask = { task, title, date, time, priority, description, tags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, endDate, endTime ->
-                    viewModel.updateTask(task, title, date, time, priority, description, tags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, endDate, endTime)
+                onEditTask = { task, title, date, time, priority, description, tags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate ->
+                    viewModel.updateTask(task, title, date, time, priority, description, tags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate)
                 },
                 onAddRecurringTask = { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks ->
                     viewModel.addRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks)
@@ -442,9 +442,6 @@ fun PreambleApp(
                 onDismissAdminTask = { viewModel.dismissAdminTask(it) },
                 onAdminTaskAction = { viewModel.adminTaskActioned(it) },
                 isSignedIn = AuthManager.isSignedIn(),
-                onAddHabit = { title, frequency, targetDays, type, deadlineDate, reminderTime, description, tags, interval, timesPerWeek ->
-                    viewModel.addHabit(title, frequency, targetDays, type, deadlineDate, reminderTime, description, tags, interval, timesPerWeek)
-                },
                 modifier = Modifier.padding(innerPadding)
             )
             1 -> StatsScreenHost(
@@ -498,7 +495,7 @@ fun PreambleApp(
                         onToggleRollover = if (!isPast && !task.isCompleted && task.source == "local" && !task.isRecurrenceTemplate && task.recurrenceParentId == null) {
                             {
                                 val newType = if (task.recurrenceType == "rollover") null else "rollover"
-                                viewModel.updateTask(task, task.title, task.createdDate, task.deadlineTime, task.priority, task.description, task.tags, newType, task.recurrenceInterval ?: 1, task.recurrenceDays, task.recurrenceEndDate, task.endDate, task.endTime)
+                                viewModel.updateTask(task, task.title, task.createdDate, task.deadlineTime, task.priority, task.description, task.tags, newType, task.recurrenceInterval ?: 1, task.recurrenceDays, task.recurrenceEndDate)
                             }
                         } else null,
                         isPastTask = isPast
@@ -510,8 +507,8 @@ fun PreambleApp(
                     com.theblankstate.preamble.ui.components.EditTaskSheet(
                         task = calendarEditTask!!,
                         onDismiss = { calendarEditTask = null },
-                        onUpdateTask = { title, date, time, priority, description, tags, endDate, endTime ->
-                            viewModel.updateTask(calendarEditTask!!, title, date, time, priority, description, tags, null, 0, null, null, endDate, endTime)
+                        onUpdateTask = { title, date, time, priority, description, tags ->
+                            viewModel.updateTask(calendarEditTask!!, title, date, time, priority, description, tags, null, 0, null, null)
                             calendarEditTask = null
                         }
                     )
@@ -521,8 +518,8 @@ fun PreambleApp(
                 if (showCalendarAddSheet) {
                     com.theblankstate.preamble.ui.components.AddTaskSheet(
                         onDismiss = { showCalendarAddSheet = false },
-                        onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, endDate, endTime ->
-                            viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, endDate, endTime)
+                        onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks ->
+                            viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks)
                             showCalendarAddSheet = false
                         },
                         onAddRecurringTask = { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks ->

@@ -34,9 +34,7 @@ class GoogleCalendarCreationWorker(
                 task.recurrenceInterval ?: 1,
                 task.recurrenceDays,
                 task.recurrenceEndDate,
-                tags = task.tags,
-                endDate = task.endDate,
-                endTime = task.endTime
+                tags = task.tags
             )
 
             if (eventId != null) {

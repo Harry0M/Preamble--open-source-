@@ -30,8 +30,6 @@ class GoogleCalendarUpdateWorker(
         val recurrenceDays = inputData.getString("recurrenceDays")
         val recurrenceEndDate = inputData.getString("recurrenceEndDate")
         val tags = inputData.getString("tags")
-        val endDate = inputData.getString("endDate")
-        val endTime = inputData.getString("endTime")
 
         if (!GoogleCalendarManager.isLinked.value) {
             val task = app.repository.getTaskById(taskId)
@@ -49,9 +47,7 @@ class GoogleCalendarUpdateWorker(
                 if (recurrenceType != null) recurrenceInterval else null,
                 if (recurrenceType != null) recurrenceDays else null,
                 if (recurrenceType != null) recurrenceEndDate else null,
-                tags = tags,
-                endDate = endDate,
-                endTime = endTime
+                tags = tags
             )
             if (success) {
                 val task = app.repository.getTaskById(taskId)

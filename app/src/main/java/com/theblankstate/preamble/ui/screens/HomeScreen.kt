@@ -52,7 +52,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
@@ -151,10 +150,10 @@ fun HomeScreen(
     tasks: List<Task>,
     pastTasks: Map<String, List<Task>> = emptyMap(),
     streak: Int,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, endDate: String?, endTime: String?) -> Unit,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>) -> Unit,
     onToggleTask: (Task) -> Unit,
     onDeleteTask: (Task) -> Unit,
-    onEditTask: ((Task, String, String?, String?, Int, String?, String?, String?, Int, String?, String?, String?, String?) -> Unit)? = null,
+    onEditTask: ((Task, String, String?, String?, Int, String?, String?, String?, Int, String?, String?) -> Unit)? = null,
     onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?, subtasks: List<String>) -> Unit)? = null,
     onSyncGoogle: (() -> Unit)? = null,
     isRefreshing: Boolean = false,
@@ -190,11 +189,9 @@ fun HomeScreen(
     onDismissAdminTask: ((String) -> Unit)? = null,
     onAdminTaskAction: ((String) -> Unit)? = null,
     isSignedIn: Boolean = true,
-    onAddHabit: ((title: String, frequency: String, targetDays: String?, type: String, deadlineDate: String?, reminderTime: String?, description: String?, tags: String?, interval: Int, timesPerWeek: Int?) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
-    var showAddHabitSheet by remember { mutableStateOf(false) }
     androidx.compose.runtime.LaunchedEffect(openAddTrigger) {
         if (openAddTrigger > 0) showAddSheet = true
     }
@@ -376,7 +373,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList(), null, null)
+                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList())
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -425,7 +422,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList(), null, null)
+                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList())
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -719,17 +716,6 @@ fun HomeScreen(
                             contentDescription = if (isVoiceListening) "Stop" else "Voice Input"
                         )
                     }
-                    }
-
-                    // Add habit FAB
-                    if (onAddHabit != null) {
-                        FloatingActionButton(
-                            onClick = { showAddHabitSheet = true },
-                            shape = CircleShape,
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer
-                        ) {
-                            Icon(Icons.Default.FitnessCenter, contentDescription = "Add habit")
-                        }
                     }
 
                     // Add task FAB
@@ -1544,8 +1530,8 @@ fun HomeScreen(
     if (showAddSheet) {
         AddTaskSheet(
             onDismiss = { showAddSheet = false },
-            onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, endDate, endTime ->
-                onAddTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, endDate, endTime)
+            onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks ->
+                onAddTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks)
                 showAddSheet = false
             },
             onAddRecurringTask = if (onAddRecurringTask != null) { { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks ->
@@ -1553,16 +1539,6 @@ fun HomeScreen(
                 showAddSheet = false
             } } else null,
             aiChatViewModel = aiChatViewModel
-        )
-    }
-
-    if (showAddHabitSheet) {
-        com.theblankstate.preamble.ui.components.AddHabitSheet(
-            onDismiss = { showAddHabitSheet = false },
-            onAddHabit = { title, frequency, targetDays, type, deadlineDate, reminderTime, description, tags, interval, timesPerWeek ->
-                onAddHabit?.invoke(title, frequency, targetDays, type, deadlineDate, reminderTime, description, tags, interval, timesPerWeek)
-                showAddHabitSheet = false
-            }
         )
     }
 
@@ -1970,7 +1946,7 @@ fun HomeScreen(
                 && (task.recurrenceType == null || task.recurrenceType == "rollover")) {
                 {
                     val newType = if (task.recurrenceType == "rollover") null else "rollover"
-                    onEditTask(task, task.title, task.createdDate, task.deadlineTime, task.priority, task.description, task.tags, newType, task.recurrenceInterval ?: 1, task.recurrenceDays, task.recurrenceEndDate, task.endDate, task.endTime)
+                    onEditTask(task, task.title, task.createdDate, task.deadlineTime, task.priority, task.description, task.tags, newType, task.recurrenceInterval ?: 1, task.recurrenceDays, task.recurrenceEndDate)
                 }
             } else null,
             isPastTask = isPast
@@ -1983,8 +1959,8 @@ fun HomeScreen(
         TaskDetailSheet(
             task = taskToEdit!!,
             onDismiss = { taskToEdit = null },
-            onUpdateTask = { newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags, newRecurrenceType, newRecurrenceInterval, newRecurrenceDays, newRecurrenceEndDate, newEndDate, newEndTime ->
-                onEditTask(taskToEdit!!, newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags, newRecurrenceType, newRecurrenceInterval, newRecurrenceDays, newRecurrenceEndDate, newEndDate, newEndTime)
+            onUpdateTask = { newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags, newRecurrenceType, newRecurrenceInterval, newRecurrenceDays, newRecurrenceEndDate ->
+                onEditTask(taskToEdit!!, newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags, newRecurrenceType, newRecurrenceInterval, newRecurrenceDays, newRecurrenceEndDate)
                 taskToEdit = null
             },
             onDelete = {

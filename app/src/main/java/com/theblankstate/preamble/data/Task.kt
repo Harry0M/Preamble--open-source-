@@ -108,9 +108,7 @@ data class Reminder(
         Index(value = ["recurrenceType", "recurrenceParentId"]),
         Index(value = ["recurrenceParentId", "createdDate"]),
         Index(value = ["isCompleted", "createdDate"]),
-        Index(value = ["source"]),
-        Index(value = ["endDate"]),
-        Index(value = ["taskCategory"])
+        Index(value = ["source"])
     ]
 )
 data class Task(
@@ -164,13 +162,7 @@ data class Task(
     val linksJson: String? = null,                 // JSON: List<Link>
     val subtasksJson: String? = null,              // JSON: List<Subtask>
     val syncMetadataJson: String? = null,          // JSON: Map<String, Any> for future sync
-    val snoozedUntil: Long? = null,                 // Epoch millis: hide rollover task until this time
-    val endDate: String? = null,                  // "yyyy-MM-dd" — end date for multi-day tasks (null = same-day)
-    val taskCategory: String = "task",             // "task" or "habit"
-    val habitFrequency: String? = null,            // "daily", "weekly", "custom"
-    val habitTargetDays: String? = null,           // Comma-separated day numbers for weekly habits (e.g., "2,4,6")
-    val habitType: String? = null,                 // "continuous" or "deadline"
-    val habitTimesPerWeek: Int? = null              // For "X times per week" habits (e.g., 3 = exercise 3x/week)
+    val snoozedUntil: Long? = null                 // Epoch millis: hide rollover task until this time
 ) {
     val isCalendarEvent: Boolean get() = source == "google_calendar"
     val isGoogleTask: Boolean get() = source == "google_tasks"
@@ -193,30 +185,6 @@ data class Task(
     val syncMetadata: Map<String, Any>? by lazy { syncMetadataJson?.let { Gson().fromJson(it, object : TypeToken<Map<String, Any>>() {}.type) } }
     val localReminders: List<Reminder> by lazy { Reminder.fromJson(remindersJson) }
 
-    // ── End date helpers ──
-    val effectiveEndDate: String get() = endDate ?: createdDate
-    val isMultiDay: Boolean get() = endDate != null && endDate != createdDate
-    val durationDays: Int get() {
-        if (!isMultiDay) return 1
-        return try {
-            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-            val start = sdf.parse(createdDate) ?: return 1
-            val end = sdf.parse(endDate!!) ?: return 1
-            ((end.time - start.time) / (24 * 60 * 60 * 1000)).toInt() + 1
-        } catch (_: Exception) { 1 }
-    }
-
-    // ── Deadline time helpers ──
-    val effectiveDeadlineTime: String get() = deadlineTime ?: "23:59"
-    val isAllDay: Boolean get() = deadlineTime == null
-
-    // ── Habit helpers ──
-    val isHabit: Boolean get() = taskCategory == "habit"
-    val isContinuousHabit: Boolean get() = isHabit && habitType == "continuous"
-    val isDeadlineHabit: Boolean get() = isHabit && habitType == "deadline"
-    val habitEndDate: String? get() = if (isHabit) recurrenceEndDate else null
-    val habitTargetDaysList: List<Int> by lazy { habitTargetDays?.split(",")?.mapNotNull { it.trim().toIntOrNull() } ?: emptyList() }
-
     /**
      * Compute trigger times in epoch millis for each reminder.
      * Returns list of (reminderIndex, triggerMs) pairs.
@@ -226,10 +194,12 @@ data class Task(
         if (reminders.isEmpty()) return emptyList()
 
         // Base time: task's deadline time on its date
-        val baseMs = try {
-            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
-            sdf.parse("$createdDate $effectiveDeadlineTime")?.time
-        } catch (_: Exception) { null }
+        val baseMs = if (deadlineTime != null) {
+            try {
+                val sdf = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                sdf.parse("$createdDate $deadlineTime")?.time
+            } catch (_: Exception) { null }
+        } else null
 
         return reminders.mapIndexedNotNull { index, reminder ->
             val triggerMs = when (reminder.type) {

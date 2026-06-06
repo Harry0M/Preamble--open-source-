@@ -56,7 +56,6 @@ import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.WbSunny
-import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
@@ -332,47 +331,6 @@ fun TaskDetailBottomSheet(
                     }
                 }
 
-                // End Date (for multi-day tasks)
-                if (task.endDate != null) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    DetailRow(
-                        icon = Icons.Default.DateRange,
-                        iconColor = MaterialTheme.colorScheme.secondary
-                    ) {
-                        val dateText = buildString {
-                            append("Ends: ")
-                            append(formatDisplayDate(task.endDate!!))
-                            if (task.isMultiDay) {
-                                append(" (${task.durationDays} days)")
-                            }
-                        }
-                        Text(
-                            text = dateText,
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                    }
-                }
-
-                // Habit info
-                if (task.isHabit) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    DetailRow(
-                        icon = Icons.Default.FitnessCenter,
-                        iconColor = MaterialTheme.colorScheme.tertiary
-                    ) {
-                        val freqText = when (task.habitFrequency) {
-                            "daily" -> "Daily habit"
-                            "weekly" -> "Weekly habit"
-                            "custom" -> "Every ${task.recurrenceInterval ?: 2} days"
-                            "times_per_week" -> "${task.habitTimesPerWeek ?: 3}x per week"
-                            else -> "Habit"
-                        }
-                        Text(
-                            text = freqText,
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                    }
-                }
 
             }
 
