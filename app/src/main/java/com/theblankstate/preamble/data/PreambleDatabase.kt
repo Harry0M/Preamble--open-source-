@@ -8,8 +8,8 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Task::class, TaskTagOverride::class, FocusSession::class, AiMemoryEntity::class, AiProcessLogEntity::class, ChatMessageEntity::class],
-    version = 24,
+    entities = [Task::class, TaskTagOverride::class, FocusSession::class, AiMemoryEntity::class, AiProcessLogEntity::class, ChatMessageEntity::class, SyncMutation::class],
+    version = 25,
     exportSchema = false
 )
 abstract class PreambleDatabase : RoomDatabase() {
@@ -19,6 +19,7 @@ abstract class PreambleDatabase : RoomDatabase() {
     abstract fun aiMemoryDao(): AiMemoryDao
     abstract fun aiProcessLogDao(): AiProcessLogDao
     abstract fun chatMessageDao(): ChatMessageDao
+    abstract fun syncMutationDao(): SyncMutationDao
 
     companion object {
         @Volatile
@@ -31,7 +32,7 @@ abstract class PreambleDatabase : RoomDatabase() {
                     PreambleDatabase::class.java,
                     "preamble_db"
                 )
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -330,6 +331,22 @@ abstract class PreambleDatabase : RoomDatabase() {
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_pomodoro_sessions_taskId` ON `pomodoro_sessions` (`taskId`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_pomodoro_sessions_date` ON `pomodoro_sessions` (`date`)")
                 db.execSQL("CREATE INDEX IF NOT EXISTS `index_pomodoro_sessions_startTimestamp` ON `pomodoro_sessions` (`startTimestamp`)")
+            }
+        }
+
+        private val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("""
+                    CREATE TABLE IF NOT EXISTS `sync_mutations` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `taskId` TEXT NOT NULL,
+                        `provider` TEXT NOT NULL,
+                        `actionType` TEXT NOT NULL,
+                        `payloadJson` TEXT NOT NULL,
+                        `timestamp` INTEGER NOT NULL,
+                        `attemptCount` INTEGER NOT NULL
+                    )
+                """.trimIndent())
             }
         }
     }

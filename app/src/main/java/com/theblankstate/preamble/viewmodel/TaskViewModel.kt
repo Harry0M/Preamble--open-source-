@@ -118,6 +118,9 @@ class TaskViewModel(
     private val appContext: Context
 ) : ViewModel() {
 
+    private val database = (appContext.applicationContext as com.theblankstate.preamble.PreambleApplication).database
+    private val syncMutationDao = database.syncMutationDao()
+
     private val today = TaskRepository.todayString()
 
     // ── Admin Tasks (broadcasts) ──
@@ -141,11 +144,6 @@ class TaskViewModel(
     fun adminTaskActioned(taskId: String) {
         adminTaskRepo.markInteracted(taskId)
     }
-
-    // Shared constraint: only run sync workers when network is available
-    private val networkConstraints = androidx.work.Constraints.Builder()
-        .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
-        .build()
 
     // Tag filter
     private val _selectedTagFilter = MutableStateFlow<String?>(null)
@@ -877,11 +875,14 @@ class TaskViewModel(
                 finalTask = task
                 if (!tags.isNullOrBlank()) repository.saveTagOverride(task.id, tags)
                 
-                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarCreationWorker>()
-                    .setInputData(androidx.work.Data.Builder().putString("localTaskId", tempId).build())
-                    .setConstraints(networkConstraints)
-                    .build()
-                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+                val mutation = com.theblankstate.preamble.data.SyncMutation(
+                    taskId = tempId,
+                    provider = "GOOGLE_CALENDAR",
+                    actionType = "CREATE",
+                    payloadJson = com.google.gson.Gson().toJson(task)
+                )
+                syncMutationDao.insert(mutation)
+                com.theblankstate.preamble.sync.GoogleSyncQueueWorker.enqueue(appContext)
                 
             } else if (syncToGoogle && GoogleTasksManager.isLinked.value) {
                 val tempId = java.util.UUID.randomUUID().toString()
@@ -902,11 +903,14 @@ class TaskViewModel(
                 finalTask = task
                 if (!tags.isNullOrBlank()) repository.saveTagOverride(task.id, tags)
 
-                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleTaskCreationWorker>()
-                    .setInputData(androidx.work.Data.Builder().putString("localTaskId", tempId).build())
-                    .setConstraints(networkConstraints)
-                    .build()
-                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+                val mutation = com.theblankstate.preamble.data.SyncMutation(
+                    taskId = tempId,
+                    provider = "GOOGLE_TASKS",
+                    actionType = "CREATE",
+                    payloadJson = com.google.gson.Gson().toJson(task)
+                )
+                syncMutationDao.insert(mutation)
+                com.theblankstate.preamble.sync.GoogleSyncQueueWorker.enqueue(appContext)
 
             } else {
                 finalTask = repository.addTask(normalizedTitle, date, deadlineTime, priority, normalizedDescription, tags)
@@ -1027,37 +1031,30 @@ class TaskViewModel(
                 if (updatedTask != null) scheduleOrCancelAlarm(updatedTask)
             }
             if (task.source == "google_tasks" && task.id.startsWith("gtask_")) {
-                val googleId = task.id.removePrefix("gtask_")
-                // Mark as syncing optimistically
                 repository.getTaskById(task.id)?.let {
                     repository.updateTask(it.copy(isSyncing = true))
                 }
-                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleTaskCompletionWorker>()
-                    .setInputData(androidx.work.Data.Builder()
-                        .putString("taskId", task.id)
-                        .putString("googleTaskId", googleId)
-                        .putBoolean("completed", newCompleted)
-                        .build())
-                    .setConstraints(networkConstraints)
-                    .build()
-                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+                val mutation = com.theblankstate.preamble.data.SyncMutation(
+                    taskId = task.id,
+                    provider = "GOOGLE_TASKS",
+                    actionType = "TOGGLE_COMPLETE",
+                    payloadJson = ""
+                )
+                syncMutationDao.insert(mutation)
+                com.theblankstate.preamble.sync.GoogleSyncQueueWorker.enqueue(appContext)
             }
             if (task.source == "google_calendar" && task.id.startsWith("gcal_")) {
-                val eventId = task.id.removePrefix("gcal_")
-                val calendarId = task.googleCalendarId ?: "primary"
                 repository.getTaskById(task.id)?.let {
                     repository.updateTask(it.copy(isSyncing = true))
                 }
-                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarCompletionWorker>()
-                    .setInputData(androidx.work.Data.Builder()
-                        .putString("taskId", task.id)
-                        .putString("eventId", eventId)
-                        .putString("calendarId", calendarId)
-                        .putBoolean("completed", newCompleted)
-                        .build())
-                    .setConstraints(networkConstraints)
-                    .build()
-                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+                val mutation = com.theblankstate.preamble.data.SyncMutation(
+                    taskId = task.id,
+                    provider = "GOOGLE_CALENDAR",
+                    actionType = "TOGGLE_COMPLETE",
+                    payloadJson = ""
+                )
+                syncMutationDao.insert(mutation)
+                com.theblankstate.preamble.sync.GoogleSyncQueueWorker.enqueue(appContext)
             }
         }
     }
@@ -1109,28 +1106,24 @@ class TaskViewModel(
         viewModelScope.launch {
             val taskJson = com.google.gson.Gson().toJson(task)
             if (task.source == "google_tasks" && task.id.startsWith("gtask_")) {
-                val googleId = task.id.removePrefix("gtask_")
-                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleTaskDeletionWorker>()
-                    .setInputData(androidx.work.Data.Builder()
-                        .putString("googleTaskId", googleId)
-                        .putString("taskJson", taskJson)
-                        .build())
-                    .addTag("background_deletion")
-                    .build()
-                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+                val mutation = com.theblankstate.preamble.data.SyncMutation(
+                    taskId = task.id,
+                    provider = "GOOGLE_TASKS",
+                    actionType = "DELETE",
+                    payloadJson = taskJson
+                )
+                syncMutationDao.insert(mutation)
+                com.theblankstate.preamble.sync.GoogleSyncQueueWorker.enqueue(appContext)
             }
             if (task.source == "google_calendar" && task.id.startsWith("gcal_")) {
-                val eventId = task.id.removePrefix("gcal_")
-                val calendarId = task.googleCalendarId ?: "primary"
-                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarDeletionWorker>()
-                    .setInputData(androidx.work.Data.Builder()
-                        .putString("eventId", eventId)
-                        .putString("calendarId", calendarId)
-                        .putString("taskJson", taskJson)
-                        .build())
-                    .addTag("background_deletion")
-                    .build()
-                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+                val mutation = com.theblankstate.preamble.data.SyncMutation(
+                    taskId = task.id,
+                    provider = "GOOGLE_CALENDAR",
+                    actionType = "DELETE",
+                    payloadJson = taskJson
+                )
+                syncMutationDao.insert(mutation)
+                com.theblankstate.preamble.sync.GoogleSyncQueueWorker.enqueue(appContext)
             }
 
             // Clear the deleted marker after a delay (sync window)
@@ -1233,43 +1226,26 @@ class TaskViewModel(
 
             // Then sync to Google in background via WorkManager
             if (task.source == "google_tasks" && task.id.startsWith("gtask_")) {
-                val googleId = task.id.removePrefix("gtask_")
                 repository.updateTask(updated.copy(isSyncing = true))
-                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleTaskUpdateWorker>()
-                    .setInputData(androidx.work.Data.Builder()
-                        .putString("taskId", task.id)
-                        .putString("googleTaskId", googleId)
-                        .putString("title", normalizedTitle)
-                        .putString("date", newDate ?: task.createdDate)
-                        .build())
-                    .setConstraints(networkConstraints)
-                    .build()
-                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+                val mutation = com.theblankstate.preamble.data.SyncMutation(
+                    taskId = task.id,
+                    provider = "GOOGLE_TASKS",
+                    actionType = "UPDATE",
+                    payloadJson = ""
+                )
+                syncMutationDao.insert(mutation)
+                com.theblankstate.preamble.sync.GoogleSyncQueueWorker.enqueue(appContext)
             }
             if (task.source == "google_calendar" && task.id.startsWith("gcal_")) {
-                val eventId = task.id.removePrefix("gcal_")
-                val calendarId = task.googleCalendarId ?: "primary"
                 repository.updateTask(updated.copy(isSyncing = true))
-                val dataBuilder = androidx.work.Data.Builder()
-                    .putString("taskId", task.id)
-                    .putString("eventId", eventId)
-                    .putString("calendarId", calendarId)
-                    .putString("title", normalizedTitle)
-                    .putString("date", newDate ?: task.createdDate)
-                if (newDeadlineTime != null) dataBuilder.putString("deadlineTime", newDeadlineTime)
-                if (normalizedDescription != null) dataBuilder.putString("description", normalizedDescription)
-                if (newRecurrenceType != null) {
-                    dataBuilder.putString("recurrenceType", newRecurrenceType)
-                    dataBuilder.putInt("recurrenceInterval", newRecurrenceInterval)
-                    if (newRecurrenceDays != null) dataBuilder.putString("recurrenceDays", newRecurrenceDays)
-                    if (newRecurrenceEndDate != null) dataBuilder.putString("recurrenceEndDate", newRecurrenceEndDate)
-                }
-                if (newTags != null) dataBuilder.putString("tags", newTags)
-                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarUpdateWorker>()
-                    .setInputData(dataBuilder.build())
-                    .setConstraints(networkConstraints)
-                    .build()
-                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+                val mutation = com.theblankstate.preamble.data.SyncMutation(
+                    taskId = task.id,
+                    provider = "GOOGLE_CALENDAR",
+                    actionType = "UPDATE",
+                    payloadJson = ""
+                )
+                syncMutationDao.insert(mutation)
+                com.theblankstate.preamble.sync.GoogleSyncQueueWorker.enqueue(appContext)
             }
         }
     }
@@ -1407,10 +1383,14 @@ class TaskViewModel(
                 repository.insertTask(task)
                 if (!tags.isNullOrBlank()) repository.saveTagOverride(task.id, tags)
 
-                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarCreationWorker>()
-                    .setInputData(androidx.work.Data.Builder().putString("localTaskId", tempId).build())
-                    .build()
-                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+                val mutation = com.theblankstate.preamble.data.SyncMutation(
+                    taskId = tempId,
+                    provider = "GOOGLE_CALENDAR",
+                    actionType = "CREATE",
+                    payloadJson = com.google.gson.Gson().toJson(task)
+                )
+                syncMutationDao.insert(mutation)
+                com.theblankstate.preamble.sync.GoogleSyncQueueWorker.enqueue(appContext)
 
             } else {
                 val finalTask = repository.addRecurringTask(
@@ -1585,20 +1565,26 @@ class TaskViewModel(
 
             // Sync to Google Calendar if needed
             if (syncToCalendar) {
-                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarCreationWorker>()
-                    .setInputData(androidx.work.Data.Builder().putString("localTaskId", newId).build())
-                    .setConstraints(networkConstraints)
-                    .build()
-                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+                val mutation = com.theblankstate.preamble.data.SyncMutation(
+                    taskId = newId,
+                    provider = "GOOGLE_CALENDAR",
+                    actionType = "CREATE",
+                    payloadJson = com.google.gson.Gson().toJson(newTask)
+                )
+                syncMutationDao.insert(mutation)
+                com.theblankstate.preamble.sync.GoogleSyncQueueWorker.enqueue(appContext)
             }
 
             // Sync to Google Tasks if needed
             if (syncToGoogleTasks) {
-                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleTaskCreationWorker>()
-                    .setInputData(androidx.work.Data.Builder().putString("localTaskId", newId).build())
-                    .setConstraints(networkConstraints)
-                    .build()
-                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+                val mutation = com.theblankstate.preamble.data.SyncMutation(
+                    taskId = newId,
+                    provider = "GOOGLE_TASKS",
+                    actionType = "CREATE",
+                    payloadJson = com.google.gson.Gson().toJson(newTask)
+                )
+                syncMutationDao.insert(mutation)
+                com.theblankstate.preamble.sync.GoogleSyncQueueWorker.enqueue(appContext)
             }
 
             scheduleOrCancelAlarm(newTask)
@@ -1619,31 +1605,24 @@ class TaskViewModel(
         viewModelScope.launch {
             repository.updateTask(task.copy(syncFailed = false, isSyncing = true))
             if (task.source == "google_tasks" && task.id.startsWith("gtask_")) {
-                val googleId = task.id.removePrefix("gtask_")
-                // Re-enqueue a completion sync (most common failure case)
-                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleTaskCompletionWorker>()
-                    .setInputData(androidx.work.Data.Builder()
-                        .putString("taskId", task.id)
-                        .putString("googleTaskId", googleId)
-                        .putBoolean("completed", task.isCompleted)
-                        .build())
-                    .setConstraints(networkConstraints)
-                    .build()
-                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+                val mutation = com.theblankstate.preamble.data.SyncMutation(
+                    taskId = task.id,
+                    provider = "GOOGLE_TASKS",
+                    actionType = "TOGGLE_COMPLETE",
+                    payloadJson = ""
+                )
+                syncMutationDao.insert(mutation)
+                com.theblankstate.preamble.sync.GoogleSyncQueueWorker.enqueue(appContext)
             }
             if (task.source == "google_calendar" && task.id.startsWith("gcal_")) {
-                val eventId = task.id.removePrefix("gcal_")
-                val calendarId = task.googleCalendarId ?: "primary"
-                val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.sync.GoogleCalendarCompletionWorker>()
-                    .setInputData(androidx.work.Data.Builder()
-                        .putString("taskId", task.id)
-                        .putString("eventId", eventId)
-                        .putString("calendarId", calendarId)
-                        .putBoolean("completed", task.isCompleted)
-                        .build())
-                    .setConstraints(networkConstraints)
-                    .build()
-                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+                val mutation = com.theblankstate.preamble.data.SyncMutation(
+                    taskId = task.id,
+                    provider = "GOOGLE_CALENDAR",
+                    actionType = "TOGGLE_COMPLETE",
+                    payloadJson = ""
+                )
+                syncMutationDao.insert(mutation)
+                com.theblankstate.preamble.sync.GoogleSyncQueueWorker.enqueue(appContext)
             }
         }
     }

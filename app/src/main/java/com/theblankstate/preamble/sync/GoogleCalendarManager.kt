@@ -938,7 +938,7 @@ object GoogleCalendarManager {
             }
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to create calendar event", e)
-            null
+            throw e
         }
     }
 
@@ -1012,7 +1012,7 @@ object GoogleCalendarManager {
             true
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to update calendar event $eventId", e)
-            false
+            throw e
         }
     }
 
@@ -1053,7 +1053,7 @@ object GoogleCalendarManager {
             true
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to update completion for calendar event $eventId", e)
-            false
+            throw e
         }
     }
 
@@ -1081,7 +1081,7 @@ object GoogleCalendarManager {
             true
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to delete calendar event $eventId", e)
-            false
+            throw e
         }
     }
 }

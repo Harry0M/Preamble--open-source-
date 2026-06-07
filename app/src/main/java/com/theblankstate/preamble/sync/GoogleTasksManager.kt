@@ -411,15 +411,10 @@ object GoogleTasksManager {
             }
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to create Google Task after retries", e)
-            null
+            throw e
         }
     }
 
-    /**
-     * Update completion status of a Google Task.
-     * @param googleTaskId The raw Google Task ID (without "gtask_" prefix)
-     * @param completed Whether the task is completed
-     */
     /**
      * Delete a Google Task by its raw Google Task ID.
      * @param googleTaskId The raw Google Task ID (without "gtask_" prefix)
@@ -439,7 +434,7 @@ object GoogleTasksManager {
             true
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to delete Google Task $googleTaskId after retries", e)
-            false
+            throw e
         }
     }
 
@@ -478,7 +473,7 @@ object GoogleTasksManager {
             true
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to update Google Task $googleTaskId after retries", e)
-            false
+            throw e
         }
     }
 
@@ -504,7 +499,7 @@ object GoogleTasksManager {
             true
         } catch (e: Throwable) {
             Log.e(TAG, "Failed to update Google Task $googleTaskId after retries", e)
-            false
+            throw e
         }
     }
 }
