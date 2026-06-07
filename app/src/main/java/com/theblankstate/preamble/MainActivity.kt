@@ -399,14 +399,17 @@ fun PreambleApp(
                 tasks = tasks,
                 pastTasks = pastTasks,
                 streak = stats.streak,
-                onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks -> viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks) },
+                onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor -> 
+                    viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor) 
+                },
                 onToggleTask = { viewModel.toggleTask(it) },
                 onDeleteTask = { viewModel.deleteTask(it) },
-                onEditTask = { task, title, date, time, priority, description, tags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate ->
-                    viewModel.updateTask(task, title, date, time, priority, description, tags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate)
+                onToggleHabit = { viewModel.toggleHabit(it) },
+                onEditTask = { task, title, date, time, priority, description, tags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, isEvent, eventIcon, eventColor ->
+                    viewModel.updateTask(task, title, date, time, priority, description, tags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, isEvent, eventIcon, eventColor)
                 },
-                onAddRecurringTask = { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks ->
-                    viewModel.addRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks)
+                onAddRecurringTask = { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks, isHabit, isEvent, eventIcon, eventColor ->
+                    viewModel.addRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks, isHabit, isEvent, eventIcon, eventColor)
                 },
                 onSyncGoogle = { viewModel.syncGoogleData() },
                 isRefreshing = viewModel.isRefreshing.collectAsState().value,
@@ -442,6 +445,7 @@ fun PreambleApp(
                 onDismissAdminTask = { viewModel.dismissAdminTask(it) },
                 onAdminTaskAction = { viewModel.adminTaskActioned(it) },
                 isSignedIn = AuthManager.isSignedIn(),
+                habitStreaks = viewModel.habitStreaks.collectAsState().value,
                 modifier = Modifier.padding(innerPadding)
             )
             1 -> StatsScreenHost(
@@ -507,10 +511,11 @@ fun PreambleApp(
                     com.theblankstate.preamble.ui.components.EditTaskSheet(
                         task = calendarEditTask!!,
                         onDismiss = { calendarEditTask = null },
-                        onUpdateTask = { title, date, time, priority, description, tags ->
-                            viewModel.updateTask(calendarEditTask!!, title, date, time, priority, description, tags, null, 0, null, null)
+                        onUpdateTask = { title, date, time, priority, description, tags, isEvent, eventIcon, eventColor ->
+                            viewModel.updateTask(calendarEditTask!!, title, date, time, priority, description, tags, null, 0, null, null, isEvent, eventIcon, eventColor)
                             calendarEditTask = null
-                        }
+                        },
+                        onToggleHabit = { viewModel.toggleHabit(it) }
                     )
                 }
 
@@ -518,12 +523,12 @@ fun PreambleApp(
                 if (showCalendarAddSheet) {
                     com.theblankstate.preamble.ui.components.AddTaskSheet(
                         onDismiss = { showCalendarAddSheet = false },
-                        onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks ->
-                            viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks)
+                        onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor ->
+                            viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor)
                             showCalendarAddSheet = false
                         },
-                        onAddRecurringTask = { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks ->
-                            viewModel.addRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks)
+                        onAddRecurringTask = { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks, isHabit, isEvent, eventIcon, eventColor ->
+                            viewModel.addRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks, isHabit, isEvent, eventIcon, eventColor)
                             showCalendarAddSheet = false
                         },
                         aiChatViewModel = aiChatViewModel

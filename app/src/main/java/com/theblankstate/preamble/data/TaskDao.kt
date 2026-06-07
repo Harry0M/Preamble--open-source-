@@ -239,6 +239,20 @@ interface TaskDao {
     /** Get pending tasks and their ages */
     @Query("SELECT createdDate FROM tasks WHERE isCompleted = 0 AND parentTaskId IS NULL")
     suspend fun getPendingTaskDates(): List<String>
+
+    // ── Habit tracking ──
+    data class HabitDayStatus(val createdDate: String, val isCompleted: Boolean)
+
+    @Query("""
+        SELECT createdDate, isCompleted FROM tasks 
+        WHERE (id = :taskId OR recurrenceParentId = :taskId)
+        AND parentTaskId IS NULL
+        ORDER BY createdDate ASC
+    """)
+    suspend fun getHabitCompletionHistory(taskId: String): List<HabitDayStatus>
+
+    @Query("SELECT * FROM tasks WHERE isHabit = 1 AND parentTaskId IS NULL")
+    suspend fun getAllHabitTasks(): List<Task>
 }
 
 data class PriorityCount(

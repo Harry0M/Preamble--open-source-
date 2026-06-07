@@ -34,6 +34,7 @@ import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.TaskAlt
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.DatePicker
@@ -71,6 +72,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.theblankstate.preamble.data.PredefinedTags
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.border
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.lazy.LazyRow
+import com.theblankstate.preamble.util.EventIconHelper
+import androidx.compose.ui.unit.sp
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.automirrored.filled.EventNote
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.TaskInputValidator
 import java.text.SimpleDateFormat
@@ -87,7 +96,7 @@ private val GoogleGreen = Color(0xFF34A853)
 fun TaskDetailSheet(
     task: Task,
     onDismiss: () -> Unit,
-    onUpdateTask: (newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int, newDescription: String?, newTags: String?, newRecurrenceType: String?, newRecurrenceInterval: Int, newRecurrenceDays: String?, newRecurrenceEndDate: String?) -> Unit,
+    onUpdateTask: (newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int, newDescription: String?, newTags: String?, newRecurrenceType: String?, newRecurrenceInterval: Int, newRecurrenceDays: String?, newRecurrenceEndDate: String?, newIsEvent: Boolean, newEventIcon: String?, newEventColor: String?) -> Unit,
     onDelete: () -> Unit,
     onStartFocus: (() -> Unit)? = null,
     subtasks: List<Task> = emptyList(),
@@ -96,7 +105,8 @@ fun TaskDetailSheet(
     onDeleteSubtask: ((String) -> Unit)? = null,
     onCompleteAllSubtasks: (() -> Unit)? = null,
     onSnooze: ((Long) -> Unit)? = null,
-    onUnsnooze: (() -> Unit)? = null
+    onUnsnooze: (() -> Unit)? = null,
+    onToggleHabit: ((Task) -> Unit)? = null
 ) {
     var taskTitle by remember { mutableStateOf(task.title) }
     var taskDescription by remember { mutableStateOf(task.description ?: "") }
@@ -114,8 +124,13 @@ fun TaskDetailSheet(
         task.recurrenceDays?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.toSet() ?: emptySet()
     ) }
     var recurrenceEndDate by remember { mutableStateOf(task.recurrenceEndDate) }
+    var isHabit by remember { mutableStateOf(task.isHabit) }
+    var isEvent by remember { mutableStateOf(task.isEvent) }
+    var eventIcon by remember { mutableStateOf(task.eventIcon) }
+    var eventColor by remember { mutableStateOf(task.eventColor) }
+    var showEventDialog by remember { mutableStateOf(false) }
 
-    val hasChanges = remember(taskTitle, taskDescription, selectedTime, selectedDate, selectedPriority, selectedTags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate) {
+    val hasChanges = remember(taskTitle, taskDescription, selectedTime, selectedDate, selectedPriority, selectedTags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, isEvent, eventIcon, eventColor) {
         taskTitle != task.title ||
                 taskDescription != (task.description ?: "") ||
                 selectedTime != task.deadlineTime ||
@@ -125,7 +140,10 @@ fun TaskDetailSheet(
                 recurrenceType != task.recurrenceType ||
                 recurrenceInterval != (task.recurrenceInterval ?: 1) ||
                 recurrenceDays != (task.recurrenceDays?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.toSet() ?: emptySet<Int>()) ||
-                recurrenceEndDate != task.recurrenceEndDate
+                recurrenceEndDate != task.recurrenceEndDate ||
+                isEvent != task.isEvent ||
+                eventIcon != task.eventIcon ||
+                eventColor != task.eventColor
     }
 
     ModalBottomSheet(
@@ -141,7 +159,10 @@ fun TaskDetailSheet(
                     recurrenceType,
                     recurrenceInterval,
                     recurrenceDays.takeIf { it.isNotEmpty() }?.joinToString(","),
-                    recurrenceEndDate
+                    recurrenceEndDate,
+                    isEvent,
+                    eventIcon,
+                    eventColor
                 )
             }
             onDismiss()
@@ -678,6 +699,138 @@ fun TaskDetailSheet(
                 }
             }
 
+            // Event toggle section (can be any type of task)
+            Spacer(modifier = Modifier.height(20.dp))
+            EditSection(title = "Custom Event", icon = Icons.AutoMirrored.Filled.EventNote) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = if (isEvent) "Event mode active" else "Designate as event",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        androidx.compose.material3.Switch(
+                            checked = isEvent,
+                            onCheckedChange = {
+                                isEvent = it
+                                if (isEvent) {
+                                    val colors = listOf(
+                                        "#D500F9", "#00E676", "#E91E63", "#FF3D00", "#FFEA00",
+                                        "#FF6D00", "#00E5FF", "#FF007F", "#2979FF", "#00C853", "#FF1744"
+                                    )
+                                    eventColor = colors.random()
+                                    eventIcon = "event"
+                                }
+                            }
+                        )
+                    }
+                    AnimatedVisibility(visible = isEvent) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Event Icon",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            val eventIconsList = listOf(
+                                "event", "festival", "cake", "flight", "restaurant", "local_bar",
+                                "fitness_center", "directions_run", "directions_car", "work", "school",
+                                "celebration", "lightbulb", "shopping_cart", "favorite", "medical_services",
+                                "sports_esports", "music_note"
+                            )
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                items(eventIconsList.size) { index ->
+                                    val iconName = eventIconsList[index]
+                                    val iconVector = EventIconHelper.getIconByName(iconName)
+                                    val isSelected = eventIcon == iconName
+                                    val selectedColor = try { Color(android.graphics.Color.parseColor(eventColor ?: "#2979FF")) } catch(_: Exception) { MaterialTheme.colorScheme.primary }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isSelected) selectedColor.copy(alpha = 0.15f) else Color.Transparent)
+                                            .clickable { eventIcon = iconName },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = iconVector,
+                                            contentDescription = iconName,
+                                            tint = if (isSelected) selectedColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Text(
+                                text = "Event Color",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            val colors = listOf(
+                                "#D500F9", "#00E676", "#E91E63", "#FF3D00", "#FFEA00",
+                                "#FF6D00", "#00E5FF", "#FF007F", "#2979FF", "#00C853", "#FF1744"
+                            )
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            ) {
+                                items(colors.size) { index ->
+                                    val colHex = colors[index]
+                                    val col = try { Color(android.graphics.Color.parseColor(colHex)) } catch(_: Exception) { Color.Gray }
+                                    val isSelected = eventColor == colHex
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(col)
+                                            .border(
+                                                width = if (isSelected) 3.dp else 1.dp,
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                                shape = CircleShape
+                                            )
+                                            .clickable { eventColor = colHex }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Habit toggle (local recurring/rollover tasks only)
+            if (recurrenceType != null && task.source == "local" && onToggleHabit != null) {
+                Spacer(modifier = Modifier.height(20.dp))
+                EditSection(title = "Habit", icon = Icons.Default.LocalFireDepartment) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = if (isHabit) "🔥 Habit mode active" else "Track as a habit",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        androidx.compose.material3.Switch(
+                            checked = isHabit,
+                            onCheckedChange = {
+                                isHabit = it
+                                onToggleHabit(task)
+                            }
+                        )
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(20.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(modifier = Modifier.height(12.dp))
@@ -751,7 +904,10 @@ fun TaskDetailSheet(
                             recurrenceType,
                             recurrenceInterval,
                             recurrenceDays.takeIf { it.isNotEmpty() }?.joinToString(","),
-                            recurrenceEndDate
+                            recurrenceEndDate,
+                            isEvent,
+                            eventIcon,
+                            eventColor
                         )
                         onDismiss()
                     }
@@ -840,6 +996,8 @@ fun TaskDetailSheet(
             DatePicker(state = datePickerState)
         }
     }
+
+
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

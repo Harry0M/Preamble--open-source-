@@ -14,6 +14,7 @@ object ThemePreferences {
     private const val KEY_COLORFUL_CARDS = "colorful_cards"
     private const val KEY_TIMELINE_UI = "timeline_ui"
     private const val KEY_SHOW_RECURRENCE_LABEL = "show_recurrence_label"
+    private const val KEY_SHOW_CATEGORY_TAGS = "show_category_tags"
 
     // Personal Mode keys
     private const val KEY_PERSONAL_MODE       = "pm_enabled"
@@ -50,6 +51,9 @@ object ThemePreferences {
 
     private val _showRecurrenceLabel = MutableStateFlow(false)
     val showRecurrenceLabel: StateFlow<Boolean> = _showRecurrenceLabel.asStateFlow()
+
+    private val _showCategoryTags = MutableStateFlow(true)
+    val showCategoryTags: StateFlow<Boolean> = _showCategoryTags.asStateFlow()
 
     // Personal Mode flows
     private val _personalMode     = MutableStateFlow(false)
@@ -144,6 +148,7 @@ object ThemePreferences {
             _colorfulCards.value       = false
             _timelineUi.value          = false
             _showRecurrenceLabel.value = false
+            _showCategoryTags.value    = true
 
             prefs.edit()
                 .putBoolean(KEY_PERSONAL_MODE, true)
@@ -164,6 +169,7 @@ object ThemePreferences {
                 .putBoolean(KEY_COLORFUL_CARDS, false)
                 .putBoolean(KEY_TIMELINE_UI, false)
                 .putBoolean(KEY_SHOW_RECURRENCE_LABEL, false)
+                .putBoolean(KEY_SHOW_CATEGORY_TAGS, true)
                 .apply()
 
             android.util.Log.d("ThemePreferences", "First init — all features ON, greeting A/B=${greeting}")
@@ -172,6 +178,7 @@ object ThemePreferences {
             _colorfulCards.value = prefs.getBoolean(KEY_COLORFUL_CARDS, false)
             _timelineUi.value = prefs.getBoolean(KEY_TIMELINE_UI, true)
             _showRecurrenceLabel.value = prefs.getBoolean(KEY_SHOW_RECURRENCE_LABEL, false)
+            _showCategoryTags.value = prefs.getBoolean(KEY_SHOW_CATEGORY_TAGS, true)
             _personalMode.value    = prefs.getBoolean(KEY_PERSONAL_MODE, false)
             _pmGreeting.value      = prefs.getBoolean(KEY_PM_GREETING, true)
             _pmSmartProgress.value = prefs.getBoolean(KEY_PM_SMART_PROGRESS, true)
@@ -251,6 +258,15 @@ object ThemePreferences {
             .putBoolean(KEY_SHOW_RECURRENCE_LABEL, enabled)
             .apply()
         trackFeatureToggle("recurrence_label", enabled)
+    }
+
+    fun setShowCategoryTags(context: Context, enabled: Boolean) {
+        _showCategoryTags.value = enabled
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY_SHOW_CATEGORY_TAGS, enabled)
+            .apply()
+        trackFeatureToggle("show_category_tags", enabled)
     }
 
     // Personal Mode setters — har toggle PostHog mein track hoga

@@ -155,6 +155,7 @@ fun SettingsScreen(
     val pmEasterEgg      by ThemePreferences.pmEasterEgg.collectAsState()
     val pmVariableRewards by ThemePreferences.pmVariableRewards.collectAsState()
     val colorfulCards    by ThemePreferences.colorfulCards.collectAsState()
+    val showCategoryTags by ThemePreferences.showCategoryTags.collectAsState()
     val googleSignInLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -501,6 +502,13 @@ fun SettingsScreen(
                         subtitle = "Give each task card a unique color tint",
                         checked = colorfulCards,
                         onToggle = { v -> ThemePreferences.setColorfulCards(context, v) }
+                    )
+                    HorizontalDivider()
+                    SettingsToggleRow(
+                        title = "Show Category Tags",
+                        subtitle = "Display category tags below task title",
+                        checked = showCategoryTags,
+                        onToggle = { v -> ThemePreferences.setShowCategoryTags(context, v) }
                     )
                 }
             }

@@ -85,6 +85,42 @@ object GoogleCalendarManager {
      */
     private val syncMutex = Mutex()
 
+    val googleColorMap = mapOf(
+        "1" to "#D500F9",
+        "2" to "#00E676",
+        "3" to "#E91E63",
+        "4" to "#FF3D00",
+        "5" to "#FFEA00",
+        "6" to "#FF6D00",
+        "7" to "#00E5FF",
+        "8" to "#FF007F",
+        "9" to "#2979FF",
+        "10" to "#00C853",
+        "11" to "#FF1744"
+    )
+
+    fun getHexFromColorId(colorId: String?): String? {
+        if (colorId == null) return null
+        return googleColorMap[colorId]
+    }
+
+    fun getColorIdFromHex(hex: String?): String? {
+        if (hex == null) return null
+        val cleanHex = hex.uppercase(Locale.US).trim()
+        return googleColorMap.entries.find { 
+            it.value.equals(cleanHex, ignoreCase = true) 
+        }?.key
+    }
+
+    fun stripEmojiPrefix(title: String, emoji: String?): String {
+        if (emoji.isNullOrEmpty()) return title
+        if (title.startsWith(emoji)) {
+            val stripped = title.substring(emoji.length)
+            return if (stripped.startsWith(" ")) stripped.substring(1) else stripped
+        }
+        return title
+    }
+
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         _isLinked.value = prefs.getBoolean(KEY_LINKED, false)
@@ -648,9 +684,31 @@ object GoogleCalendarManager {
         val parsedCompletedTime = completedTimestampStr?.toLongOrNull()
         val preambleTags = event.extendedProperties?.private?.get("preamble_tags")
 
+        val isPropEvent = event.extendedProperties?.private?.get("preamble_is_event") == "true"
+        val extIcon = event.extendedProperties?.private?.get("preamble_event_icon")
+        
+        var eventIcon = extIcon
+        var cleanTitle = title
+        if (isPropEvent || eventIcon != null) {
+            if (eventIcon == null) {
+                for (emoji in com.theblankstate.preamble.util.EventIconHelper.emojiToIconMap.keys) {
+                    if (title.startsWith(emoji)) {
+                        eventIcon = com.theblankstate.preamble.util.EventIconHelper.getIconForEmoji(emoji)
+                        cleanTitle = stripEmojiPrefix(title, emoji)
+                        break
+                    }
+                }
+            } else {
+                val emoji = com.theblankstate.preamble.util.EventIconHelper.getEmojiForIcon(eventIcon)
+                cleanTitle = stripEmojiPrefix(title, emoji)
+            }
+        }
+
+        val mappedEventColor = getHexFromColorId(event.colorId)
+
         return Task(
             id = stableId,
-            title = title,
+            title = cleanTitle,
             isCompleted = isPropCompleted,
             createdDate = dateStr,
             createdTimestamp = startDate.time,
@@ -681,7 +739,10 @@ object GoogleCalendarManager {
             organizerJson = organizerJson,
             visibility = visibility,
             attachmentsJson = attachmentsJson,
-            conferencePhone = conferencePhone
+            conferencePhone = conferencePhone,
+            isEvent = isPropEvent,
+            eventIcon = eventIcon,
+            eventColor = mappedEventColor
         )
     }
 
@@ -894,16 +955,34 @@ object GoogleCalendarManager {
         recurrenceInterval: Int? = null,
         recurrenceDays: String? = null,
         recurrenceEndDate: String? = null,
-        tags: String? = null
+        tags: String? = null,
+        isEvent: Boolean = false,
+        eventIcon: String? = null,
+        eventColor: String? = null
     ): String? = withContext(Dispatchers.IO) {
         if (!_isLinked.value) return@withContext null
         try {
             retryOnFailure {
                 val service = buildCalendarService(context) ?: error("No Calendar service")
-                val event = Event().setSummary(title)
+                val emojiPrefix = if (isEvent && eventIcon != null) com.theblankstate.preamble.util.EventIconHelper.getEmojiForIcon(eventIcon) else null
+                val displayTitle = if (emojiPrefix != null) "$emojiPrefix $title" else title
+                val event = Event().setSummary(displayTitle)
                 if (description != null) event.description = description
+                
+                val privateProps = mutableMapOf<String, String>()
                 if (!tags.isNullOrBlank()) {
-                    event.extendedProperties = Event.ExtendedProperties().setPrivate(mapOf("preamble_tags" to tags))
+                    privateProps["preamble_tags"] = tags
+                }
+                if (isEvent) {
+                    privateProps["preamble_is_event"] = "true"
+                    if (eventIcon != null) privateProps["preamble_event_icon"] = eventIcon
+                    if (eventColor != null) privateProps["preamble_event_color"] = eventColor
+                }
+                event.extendedProperties = Event.ExtendedProperties().setPrivate(privateProps)
+
+                val colorId = getColorIdFromHex(eventColor)
+                if (colorId != null) {
+                    event.colorId = colorId
                 }
 
                 if (deadlineTime != null) {
@@ -954,29 +1033,46 @@ object GoogleCalendarManager {
         recurrenceInterval: Int? = null,
         recurrenceDays: String? = null,
         recurrenceEndDate: String? = null,
-        tags: String? = null
+        tags: String? = null,
+        isEvent: Boolean = false,
+        eventIcon: String? = null,
+        eventColor: String? = null
     ): Boolean = withContext(Dispatchers.IO) {
         if (!_isLinked.value) return@withContext false
         try {
             retryOnFailure {
-                val service = buildCalendarService(context) ?: error("No Calendar service")
-                val event = service.events().get(calendarId, eventId).execute()
-                event.summary = title
+                 val service = buildCalendarService(context) ?: error("No Calendar service")
+                 val event = service.events().get(calendarId, eventId).execute()
+                 val emojiPrefix = if (isEvent && eventIcon != null) com.theblankstate.preamble.util.EventIconHelper.getEmojiForIcon(eventIcon) else null
+                 val displayTitle = if (emojiPrefix != null) "$emojiPrefix $title" else title
+                 event.summary = displayTitle
                 if (description != null) event.description = description
                 
+                val currentPrivate = event.extendedProperties?.private ?: emptyMap()
+                val newPrivate = currentPrivate.toMutableMap()
                 if (tags != null) {
-                    val currentPrivate = event.extendedProperties?.private ?: emptyMap()
-                    val newPrivate = currentPrivate.toMutableMap()
                     if (tags.isBlank()) {
                         newPrivate.remove("preamble_tags")
                     } else {
                         newPrivate["preamble_tags"] = tags
                     }
-                    if (event.extendedProperties == null) {
-                        event.extendedProperties = Event.ExtendedProperties()
-                    }
-                    event.extendedProperties.setPrivate(newPrivate)
                 }
+                if (isEvent) {
+                    newPrivate["preamble_is_event"] = "true"
+                    if (eventIcon != null) newPrivate["preamble_event_icon"] = eventIcon else newPrivate.remove("preamble_event_icon")
+                    if (eventColor != null) newPrivate["preamble_event_color"] = eventColor else newPrivate.remove("preamble_event_color")
+                } else {
+                    newPrivate.remove("preamble_is_event")
+                    newPrivate.remove("preamble_event_icon")
+                    newPrivate.remove("preamble_event_color")
+                }
+                if (event.extendedProperties == null) {
+                    event.extendedProperties = Event.ExtendedProperties()
+                }
+                event.extendedProperties.setPrivate(newPrivate)
+
+                val colorId = getColorIdFromHex(eventColor)
+                event.colorId = colorId
 
                 if (deadlineTime != null) {
                     val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)

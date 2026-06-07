@@ -263,6 +263,20 @@ object GoogleTasksManager {
         val title = gTask.title
         if (title.isNullOrBlank()) return null
 
+        var eventIcon: String? = null
+        var isEvent = false
+        var cleanTitle = title
+        
+        for (emoji in com.theblankstate.preamble.util.EventIconHelper.emojiToIconMap.keys) {
+            if (title.startsWith(emoji)) {
+                eventIcon = com.theblankstate.preamble.util.EventIconHelper.getIconForEmoji(emoji)
+                isEvent = true
+                val stripped = title.substring(emoji.length)
+                cleanTitle = if (stripped.startsWith(" ")) stripped.substring(1) else stripped
+                break
+            }
+        }
+
         val updatedAt = parseRfc3339Millis(gTask.updated) ?: System.currentTimeMillis()
         val isCompleted = gTask.status == "completed"
         val completedAt = if (isCompleted) {
@@ -294,7 +308,7 @@ object GoogleTasksManager {
 
         return Task(
             id = "gtask_${gTask.id}",
-            title = title,
+            title = cleanTitle,
             isCompleted = isCompleted,
             createdDate = taskDate,
             createdTimestamp = updatedAt,
@@ -315,7 +329,9 @@ object GoogleTasksManager {
                     "description" to (link.description ?: ""),
                     "link" to (link.link ?: "")
                 )
-            }?.let { Gson().toJson(it) }
+            }?.let { Gson().toJson(it) } ,
+            isEvent = isEvent,
+            eventIcon = eventIcon
         )
     }
 

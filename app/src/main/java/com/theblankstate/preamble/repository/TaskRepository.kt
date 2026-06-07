@@ -184,7 +184,17 @@ class TaskRepository(
 
     fun getTotalCount(): Flow<Int> = dao.getTotalTasksCount()
 
-    suspend fun addTask(title: String, date: String? = null, deadlineTime: String? = null, priority: Int = 0, description: String? = null, tags: String? = null): Task? {
+    suspend fun addTask(
+        title: String,
+        date: String? = null,
+        deadlineTime: String? = null,
+        priority: Int = 0,
+        description: String? = null,
+        tags: String? = null,
+        isEvent: Boolean = false,
+        eventIcon: String? = null,
+        eventColor: String? = null
+    ): Task? {
         val normalizedTitle = TaskInputValidator.normalizeTitle(title)
         val normalizedDescription = TaskInputValidator.normalizeDescription(description)
         if (!TaskInputValidator.isValidTitle(normalizedTitle) || !TaskInputValidator.isValidDescription(normalizedDescription)) {
@@ -200,7 +210,10 @@ class TaskRepository(
             updatedTimestamp = now,
             priority = priority,
             description = normalizedDescription,
-            tags = tags
+            tags = tags,
+            isEvent = isEvent,
+            eventIcon = eventIcon,
+            eventColor = eventColor
         )
         dao.insertTask(task)
         syncManager?.pushTask(task)
@@ -412,7 +425,10 @@ class TaskRepository(
         recurrenceInterval: Int = 1,
         recurrenceDays: String? = null,
         recurrenceEndDate: String? = null,
-        tags: String? = null
+        tags: String? = null,
+        isEvent: Boolean = false,
+        eventIcon: String? = null,
+        eventColor: String? = null
     ): Task? {
         val normalizedTitle = TaskInputValidator.normalizeTitle(title)
         val normalizedDescription = TaskInputValidator.normalizeDescription(description)
@@ -433,7 +449,10 @@ class TaskRepository(
             recurrenceInterval = recurrenceInterval,
             recurrenceDays = recurrenceDays,
             recurrenceEndDate = recurrenceEndDate,
-            tags = tags
+            tags = tags,
+            isEvent = isEvent,
+            eventIcon = eventIcon,
+            eventColor = eventColor
         )
         dao.insertTask(template)
         syncManager?.pushTask(template)
@@ -1554,6 +1573,81 @@ class TaskRepository(
         val wdAvg = if (weekdayDays > 0) weekdayTotal.toFloat() / weekdayDays else 0f
         val weAvg = if (weekendDays > 0) weekendTotal.toFloat() / weekendDays else 0f
         return wdAvg to weAvg
+    }
+
+    // ── Habit tracking ──
+
+    data class HabitStreakData(
+        val currentStreak: Int,
+        val superStreakCount: Int,
+        val completionHistory: Map<String, Boolean>
+    )
+
+    suspend fun toggleHabit(taskId: String, isHabit: Boolean) {
+        val task = dao.getTaskById(taskId) ?: return
+        val updated = task.copy(
+            isHabit = isHabit,
+            updatedTimestamp = System.currentTimeMillis()
+        )
+        dao.updateTask(updated)
+        syncManager?.pushTask(updated)
+    }
+
+    suspend fun getHabitStreakData(task: Task): HabitStreakData {
+        val history = dao.getHabitCompletionHistory(task.id)
+        val historyMap = history.associate { it.createdDate to it.isCompleted }
+
+        // Walk backwards from today counting consecutive completed days
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val calendar = Calendar.getInstance()
+        var streak = 0
+
+        // For rollover tasks, check completedDate instead
+        if (task.recurrenceType == "rollover") {
+            // Rollover: a single task, streak = consecutive days it was completed
+            // We need to check completedDate history differently
+            val today = todayString()
+            if (task.isCompleted && task.completedDate == today) {
+                streak = 1
+            }
+            // Rollover tasks don't have multi-day completion history in the same way
+            // For rollover habits, streak tracks days the task existed and was managed
+        } else {
+            // Recurring: check each day backwards
+            for (i in 0 until 21) {
+                val dateStr = sdf.format(calendar.time)
+                val completed = historyMap[dateStr]
+                if (completed == true) {
+                    streak++
+                    calendar.add(Calendar.DAY_OF_YEAR, -1)
+                } else if (completed == null && dateStr > (history.firstOrNull()?.createdDate ?: dateStr)) {
+                    // Day with no instance and before template creation — skip
+                    calendar.add(Calendar.DAY_OF_YEAR, -1)
+                } else {
+                    break
+                }
+            }
+        }
+
+        return HabitStreakData(
+            currentStreak = streak.coerceAtMost(21),
+            superStreakCount = task.habitSuperStreakCount,
+            completionHistory = historyMap
+        )
+    }
+
+    suspend fun incrementSuperStreak(taskId: String) {
+        val task = dao.getTaskById(taskId) ?: return
+        val updated = task.copy(
+            habitSuperStreakCount = task.habitSuperStreakCount + 1,
+            updatedTimestamp = System.currentTimeMillis()
+        )
+        dao.updateTask(updated)
+        syncManager?.pushTask(updated)
+    }
+
+    suspend fun getAllHabitTasks(): List<Task> {
+        return dao.getAllHabitTasks()
     }
 }
 

@@ -150,11 +150,12 @@ fun HomeScreen(
     tasks: List<Task>,
     pastTasks: Map<String, List<Task>> = emptyMap(),
     streak: Int,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>) -> Unit,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?) -> Unit,
     onToggleTask: (Task) -> Unit,
     onDeleteTask: (Task) -> Unit,
-    onEditTask: ((Task, String, String?, String?, Int, String?, String?, String?, Int, String?, String?) -> Unit)? = null,
-    onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?, subtasks: List<String>) -> Unit)? = null,
+    onToggleHabit: ((Task) -> Unit)? = null,
+    onEditTask: ((Task, String, String?, String?, Int, String?, String?, String?, Int, String?, String?, Boolean, String?, String?) -> Unit)? = null,
+    onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?) -> Unit)? = null,
     onSyncGoogle: (() -> Unit)? = null,
     isRefreshing: Boolean = false,
     isBackgroundDeleting: Boolean = false,
@@ -189,6 +190,7 @@ fun HomeScreen(
     onDismissAdminTask: ((String) -> Unit)? = null,
     onAdminTaskAction: ((String) -> Unit)? = null,
     isSignedIn: Boolean = true,
+    habitStreaks: Map<String, com.theblankstate.preamble.repository.TaskRepository.HabitStreakData> = emptyMap(),
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
@@ -373,7 +375,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList())
+                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList(), false, false, null, null)
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -422,7 +424,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList())
+                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList(), false, false, null, null)
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -959,7 +961,8 @@ fun HomeScreen(
                                 isEditable = true,
                                 subtaskCount = subtaskCounts[task.id],
                                 isExpanded = expandedTasks.contains(task.id),
-                                onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } }
+                                onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } },
+                                habitStreakData = habitStreaks[task.id]
                             )
                             // Show subtasks when expanded
                             if (expandedTasks.contains(task.id) && subtasksProvider != null) {
@@ -1233,7 +1236,8 @@ fun HomeScreen(
                                                         isEditable = true,
                                                         subtaskCount = subtaskCounts[task.id],
                                                         isExpanded = expandedTasks.contains(task.id),
-                                                        onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } }
+                                                        onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } },
+                                                        habitStreakData = habitStreaks[task.id]
                                                     )
                                                     // Show subtasks when expanded
                                                     if (expandedTasks.contains(task.id) && subtasksProvider != null) {
@@ -1274,7 +1278,8 @@ fun HomeScreen(
                                     modifier = Modifier.animateItem(),
                                     subtaskCount = subtaskCounts[task.id],
                                     isExpanded = expandedTasks.contains(task.id),
-                                    onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } }
+                                    onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } },
+                                    habitStreakData = habitStreaks[task.id]
                                 )
                                 // Show subtasks when expanded
                                 if (expandedTasks.contains(task.id) && subtasksProvider != null) {
@@ -1530,12 +1535,12 @@ fun HomeScreen(
     if (showAddSheet) {
         AddTaskSheet(
             onDismiss = { showAddSheet = false },
-            onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks ->
-                onAddTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks)
+            onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor ->
+                onAddTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor)
                 showAddSheet = false
             },
-            onAddRecurringTask = if (onAddRecurringTask != null) { { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks ->
-                onAddRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks)
+            onAddRecurringTask = if (onAddRecurringTask != null) { { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks, isHabit, isEvent, eventIcon, eventColor ->
+                onAddRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks, isHabit, isEvent, eventIcon, eventColor)
                 showAddSheet = false
             } } else null,
             aiChatViewModel = aiChatViewModel
@@ -1946,10 +1951,11 @@ fun HomeScreen(
                 && (task.recurrenceType == null || task.recurrenceType == "rollover")) {
                 {
                     val newType = if (task.recurrenceType == "rollover") null else "rollover"
-                    onEditTask(task, task.title, task.createdDate, task.deadlineTime, task.priority, task.description, task.tags, newType, task.recurrenceInterval ?: 1, task.recurrenceDays, task.recurrenceEndDate)
+                    onEditTask(task, task.title, task.createdDate, task.deadlineTime, task.priority, task.description, task.tags, newType, task.recurrenceInterval ?: 1, task.recurrenceDays, task.recurrenceEndDate, task.isEvent, task.eventIcon, task.eventColor)
                 }
             } else null,
-            isPastTask = isPast
+            isPastTask = isPast,
+            habitStreakData = habitStreaks[task.id]
         )
     }
 
@@ -1959,8 +1965,8 @@ fun HomeScreen(
         TaskDetailSheet(
             task = taskToEdit!!,
             onDismiss = { taskToEdit = null },
-            onUpdateTask = { newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags, newRecurrenceType, newRecurrenceInterval, newRecurrenceDays, newRecurrenceEndDate ->
-                onEditTask(taskToEdit!!, newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags, newRecurrenceType, newRecurrenceInterval, newRecurrenceDays, newRecurrenceEndDate)
+            onUpdateTask = { newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags, newRecurrenceType, newRecurrenceInterval, newRecurrenceDays, newRecurrenceEndDate, newIsEvent, newEventIcon, newEventColor ->
+                onEditTask(taskToEdit!!, newTitle, newDate, newDeadlineTime, newPriority, newDescription, newTags, newRecurrenceType, newRecurrenceInterval, newRecurrenceDays, newRecurrenceEndDate, newIsEvent, newEventIcon, newEventColor)
                 taskToEdit = null
             },
             onDelete = {
@@ -1983,7 +1989,8 @@ fun HomeScreen(
             } else null,
             onUnsnooze = if (onUnsnoozeTask != null && taskToEdit?.snoozedUntil != null && taskToEdit!!.snoozedUntil!! > System.currentTimeMillis()) {
                 { onUnsnoozeTask(taskToEdit!!.id) }
-            } else null
+            } else null,
+            onToggleHabit = onToggleHabit
         )
     }
 

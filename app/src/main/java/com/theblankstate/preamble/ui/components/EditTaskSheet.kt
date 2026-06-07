@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -40,6 +42,22 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.lazy.LazyRow
+import com.theblankstate.preamble.util.EventIconHelper
+import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.layout.Box
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.automirrored.filled.EventNote
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.TaskInputValidator
 import java.text.SimpleDateFormat
@@ -52,7 +70,8 @@ import java.util.Locale
 fun EditTaskSheet(
     task: Task,
     onDismiss: () -> Unit,
-    onUpdateTask: (newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int, newDescription: String?, newTags: String?) -> Unit
+    onUpdateTask: (newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int, newDescription: String?, newTags: String?, newIsEvent: Boolean, newEventIcon: String?, newEventColor: String?) -> Unit,
+    onToggleHabit: ((Task) -> Unit)? = null
 ) {
     var taskTitle by remember { mutableStateOf(task.title) }
     var taskDescription by remember { mutableStateOf(task.description ?: "") }
@@ -66,6 +85,11 @@ fun EditTaskSheet(
         task.recurrenceDays?.split(",")?.mapNotNull { it.trim().toIntOrNull() }?.toSet() ?: emptySet()
     ) }
     var recurrenceEndDate by remember { mutableStateOf(task.recurrenceEndDate) }
+    var isHabit by remember { mutableStateOf(task.isHabit) }
+    var isEvent by remember { mutableStateOf(task.isEvent) }
+    var eventIcon by remember { mutableStateOf(task.eventIcon) }
+    var eventColor by remember { mutableStateOf(task.eventColor) }
+    var showEventDialog by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
@@ -191,6 +215,220 @@ fun EditTaskSheet(
                 )
             }
 
+            // Event toggle section
+            Spacer(modifier = Modifier.height(8.dp))
+            val eventBorderColor = try {
+                if (isEvent && !eventColor.isNullOrBlank()) Color(android.graphics.Color.parseColor(eventColor))
+                else Color.Transparent
+            } catch (_: Exception) { Color.Transparent }
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = if (isEvent) {
+                    try { Color(android.graphics.Color.parseColor(eventColor ?: "#2979FF")).copy(alpha = 0.10f) }
+                    catch (_: Exception) { MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) }
+                } else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth().border(
+                    width = if (isEvent) 1.dp else 0.dp,
+                    color = eventBorderColor,
+                    shape = RoundedCornerShape(12.dp)
+                )
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                if (!isEvent) {
+                                    isEvent = true
+                                    val colors = listOf(
+                                        "#D500F9", "#00E676", "#E91E63", "#FF3D00", "#FFEA00",
+                                        "#FF6D00", "#00E5FF", "#FF007F", "#2979FF", "#00C853", "#FF1744"
+                                    )
+                                    eventColor = colors.random()
+                                    eventIcon = "event"
+                                } else {
+                                    isEvent = false
+                                }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.EventNote,
+                            contentDescription = "Mark as custom event",
+                            tint = if (isEvent) {
+                                try { Color(android.graphics.Color.parseColor(eventColor ?: "#2979FF")) }
+                                catch (_: Exception) { MaterialTheme.colorScheme.primary }
+                            } else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = if (isEvent) "Event mode active" else "Track as an event",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (isEvent) {
+                                    try { Color(android.graphics.Color.parseColor(eventColor ?: "#2979FF")) }
+                                    catch (_: Exception) { MaterialTheme.colorScheme.primary }
+                                } else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    AnimatedVisibility(visible = isEvent) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "Event Icon",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            val eventIconsList = listOf(
+                                "event", "festival", "cake", "flight", "restaurant", "local_bar",
+                                "fitness_center", "directions_run", "directions_car", "work", "school",
+                                "celebration", "lightbulb", "shopping_cart", "favorite", "medical_services",
+                                "sports_esports", "music_note"
+                            )
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                items(eventIconsList.size) { index ->
+                                    val iconName = eventIconsList[index]
+                                    val iconVector = EventIconHelper.getIconByName(iconName)
+                                    val isSelected = eventIcon == iconName
+                                    val selectedColor = try { Color(android.graphics.Color.parseColor(eventColor ?: "#2979FF")) } catch(_: Exception) { MaterialTheme.colorScheme.primary }
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(if (isSelected) selectedColor.copy(alpha = 0.15f) else Color.Transparent)
+                                            .clickable { eventIcon = iconName },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = iconVector,
+                                            contentDescription = iconName,
+                                            tint = if (isSelected) selectedColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Text(
+                                text = "Event Color",
+                                style = MaterialTheme.typography.titleSmall
+                            )
+                            val colors = listOf(
+                                "#D500F9", "#00E676", "#E91E63", "#FF3D00", "#FFEA00",
+                                "#FF6D00", "#00E5FF", "#FF007F", "#2979FF", "#00C853", "#FF1744"
+                            )
+                            LazyRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                            ) {
+                                items(colors.size) { index ->
+                                    val colHex = colors[index]
+                                    val col = try { Color(android.graphics.Color.parseColor(colHex)) } catch(_: Exception) { Color.Gray }
+                                    val isSelected = eventColor == colHex
+                                    Box(
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(col)
+                                            .border(
+                                                width = if (isSelected) 3.dp else 1.dp,
+                                                color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                                shape = CircleShape
+                                            )
+                                            .clickable { eventColor = colHex }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Habit toggle section
+            if (task.canBeHabit && onToggleHabit != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (isHabit) Color(0xFFFF6D00).copy(alpha = 0.10f)
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = {
+                                isHabit = !isHabit
+                                onToggleHabit(task)
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                if (isHabit) Icons.Default.LocalFireDepartment
+                                else Icons.Outlined.LocalFireDepartment,
+                                contentDescription = "Track as habit",
+                                tint = if (isHabit) Color(0xFFFF6D00)
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (isHabit) "\uD83D\uDD25 Habit mode \u2014 your streak data stays in Preamble"
+                            else "Track as a habit",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isHabit) Color(0xFFFF6D00)
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else if (task.recurrenceType != null && task.source != "local") {
+                // Friendly message for Google-synced recurring tasks
+                Spacer(modifier = Modifier.height(8.dp))
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Outlined.LocalFireDepartment,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "To track this as a habit, create it as a local task \u2014 habits aren\u2019t synced to Google yet \uD83D\uDD25",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+            }
+
             Button(
                 onClick = {
                     if (taskTitle.trim().isNotBlank()) {
@@ -200,7 +438,10 @@ fun EditTaskSheet(
                             selectedTime,
                             selectedPriority,
                             taskDescription.trim().ifBlank { null },
-                            if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null
+                            if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null,
+                            isEvent,
+                            eventIcon,
+                            eventColor
                         )
                     }
                 },
@@ -275,6 +516,8 @@ fun EditTaskSheet(
             DatePicker(state = datePickerState)
         }
     }
+
+
 
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()

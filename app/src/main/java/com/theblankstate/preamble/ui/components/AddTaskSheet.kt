@@ -55,6 +55,8 @@ import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Flag
 import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.LocalFireDepartment
+import androidx.compose.material.icons.outlined.LocalFireDepartment
 import androidx.compose.material.icons.outlined.Circle
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.material3.Button
@@ -105,7 +107,13 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.sp
 import com.theblankstate.preamble.data.TaskInputValidator
+import androidx.compose.foundation.lazy.LazyRow
+import com.theblankstate.preamble.util.EventIconHelper
+import androidx.compose.foundation.border
+import androidx.compose.material.icons.automirrored.filled.EventNote
 import com.theblankstate.preamble.ai.AiChatViewModel
 import com.theblankstate.preamble.sync.GoogleCalendarManager
 import com.theblankstate.preamble.sync.GoogleTasksManager
@@ -120,8 +128,8 @@ import kotlin.math.sin
 @Composable
 fun AddTaskSheet(
     onDismiss: () -> Unit,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>) -> Unit,
-    onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?, subtasks: List<String>) -> Unit)? = null,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?) -> Unit,
+    onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?) -> Unit)? = null,
     aiChatViewModel: AiChatViewModel? = null
 ) {
     val context = LocalContext.current
@@ -153,6 +161,11 @@ fun AddTaskSheet(
     var recurrenceInterval by remember { mutableStateOf(1) }
     var recurrenceDays by remember { mutableStateOf<Set<Int>>(emptySet()) }
     var recurrenceEndDate by remember { mutableStateOf<String?>(null) }
+    var isHabit by remember { mutableStateOf(false) }
+    var isEvent by remember { mutableStateOf(false) }
+    var eventIcon by remember { mutableStateOf<String?>(null) }
+    var eventColor by remember { mutableStateOf<String?>(null) }
+    var showEventDialog by remember { mutableStateOf(false) }
     val googleLinked = GoogleTasksManager.isLinked.collectAsState().value
     val calendarLinked = GoogleCalendarManager.isLinked.collectAsState().value
     var isListening by remember { mutableStateOf(false) }
@@ -321,7 +334,11 @@ fun AddTaskSheet(
                     recurrenceEndDate,
                     syncToCalendar,
                     if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null,
-                    finalSubtasks
+                    finalSubtasks,
+                    isHabit,
+                    isEvent,
+                    eventIcon,
+                    eventColor
                 )
             } else {
                 onAddTask(
@@ -333,7 +350,11 @@ fun AddTaskSheet(
                     selectedPriority,
                     desc,
                     if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null,
-                    finalSubtasks
+                    finalSubtasks,
+                    isHabit,
+                    isEvent,
+                    eventIcon,
+                    eventColor
                 )
             }
             // Haptic + toast confirmation
@@ -350,6 +371,8 @@ fun AddTaskSheet(
             android.widget.Toast.makeText(context, "Task added ✓", android.widget.Toast.LENGTH_SHORT).show()
         }
     }
+
+
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -592,6 +615,7 @@ fun AddTaskSheet(
                             indication = null
                         ) {
                             recurrenceType = null
+                            isHabit = false
                         }
                         .then(
                             if (isNormal) Modifier.background(surfVariant, CircleShape).padding(horizontal = 12.dp)
@@ -811,6 +835,124 @@ fun AddTaskSheet(
                                     selectedPriority = value
                                     showPriorityDialog = false
                                 }
+                            )
+                        }
+                    }
+                }
+
+                // Habit toggle — only for local recurring/rollover tasks, not Google-synced
+                if (recurrenceType != null && !syncToGoogle && !syncToCalendar) {
+                    IconButton(onClick = { isHabit = !isHabit }) {
+                        Icon(
+                            if (isHabit) Icons.Default.LocalFireDepartment
+                            else Icons.Outlined.LocalFireDepartment,
+                            contentDescription = "Track as habit",
+                            tint = if (isHabit) Color(0xFFFF6D00)
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Event toggle - can be any type of task
+                IconButton(onClick = {
+                    if (!isEvent) {
+                        isEvent = true
+                        val colors = listOf(
+                            "#D500F9", "#00E676", "#E91E63", "#FF3D00", "#FFEA00",
+                            "#FF6D00", "#00E5FF", "#FF007F", "#2979FF", "#00C853", "#FF1744"
+                        )
+                        eventColor = colors.random()
+                        eventIcon = "event"
+                    } else {
+                        isEvent = false
+                    }
+                }) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.EventNote,
+                        contentDescription = "Mark as custom event",
+                        tint = if (isEvent) {
+                            try { Color(android.graphics.Color.parseColor(eventColor ?: "#2979FF")) }
+                            catch (_: Exception) { MaterialTheme.colorScheme.primary }
+                        } else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            // Event options inline picker
+            AnimatedVisibility(visible = isEvent) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Event Icon",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
+                    val eventIconsList = listOf(
+                        "event", "festival", "cake", "flight", "restaurant", "local_bar",
+                        "fitness_center", "directions_run", "directions_car", "work", "school",
+                        "celebration", "lightbulb", "shopping_cart", "favorite", "medical_services",
+                        "sports_esports", "music_note"
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        items(eventIconsList.size) { index ->
+                            val iconName = eventIconsList[index]
+                            val iconVector = EventIconHelper.getIconByName(iconName)
+                            val isSelected = eventIcon == iconName
+                            val selectedColor = try { Color(android.graphics.Color.parseColor(eventColor ?: "#2979FF")) } catch(_: Exception) { MaterialTheme.colorScheme.primary }
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isSelected) selectedColor.copy(alpha = 0.15f) else Color.Transparent)
+                                    .clickable { eventIcon = iconName },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = iconVector,
+                                    contentDescription = iconName,
+                                    tint = if (isSelected) selectedColor else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Text(
+                        text = "Event Color",
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
+                    val colors = listOf(
+                        "#D500F9", "#00E676", "#E91E63", "#FF3D00", "#FFEA00",
+                        "#FF6D00", "#00E5FF", "#FF007F", "#2979FF", "#00C853", "#FF1744"
+                    )
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    ) {
+                        items(colors.size) { index ->
+                            val colHex = colors[index]
+                            val col = try { Color(android.graphics.Color.parseColor(colHex)) } catch(_: Exception) { Color.Gray }
+                            val isSelected = eventColor == colHex
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(col)
+                                    .border(
+                                        width = if (isSelected) 3.dp else 1.dp,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                        shape = CircleShape
+                                    )
+                                    .clickable { eventColor = colHex }
                             )
                         }
                     }

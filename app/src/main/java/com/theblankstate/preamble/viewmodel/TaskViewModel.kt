@@ -171,6 +171,10 @@ class TaskViewModel(
     private val _subtaskCounts = MutableStateFlow<Map<String, Pair<Int, Int>>>(emptyMap())
     val subtaskCounts: StateFlow<Map<String, Pair<Int, Int>>> = _subtaskCounts.asStateFlow()
 
+    // Habit streak cache: taskId → HabitStreakData
+    private val _habitStreaks = MutableStateFlow<Map<String, TaskRepository.HabitStreakData>>(emptyMap())
+    val habitStreaks: StateFlow<Map<String, TaskRepository.HabitStreakData>> = _habitStreaks.asStateFlow()
+
     private val _expandedTasks = MutableStateFlow<Set<String>>(emptySet())
     val expandedTasks: StateFlow<Set<String>> = _expandedTasks.asStateFlow()
 
@@ -847,7 +851,7 @@ class TaskViewModel(
         }
     }
 
-    fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false, syncToCalendar: Boolean = false, priority: Int = 0, description: String? = null, tags: String? = null, subtasks: List<String> = emptyList()) {
+    fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false, syncToCalendar: Boolean = false, priority: Int = 0, description: String? = null, tags: String? = null, subtasks: List<String> = emptyList(), isHabit: Boolean = false, isEvent: Boolean = false, eventIcon: String? = null, eventColor: String? = null) {
         val normalizedTitle = TaskInputValidator.normalizeTitle(title)
         val normalizedDescription = TaskInputValidator.normalizeDescription(description)
         if (!TaskInputValidator.isValidTitle(normalizedTitle) || !TaskInputValidator.isValidDescription(normalizedDescription)) return
@@ -869,7 +873,10 @@ class TaskViewModel(
                     priority = priority,
                     description = normalizedDescription,
                     tags = tags,
-                    googleCalendarId = "primary"
+                    googleCalendarId = "primary",
+                    isEvent = isEvent,
+                    eventIcon = eventIcon,
+                    eventColor = eventColor
                 )
                 repository.insertTask(task)
                 finalTask = task
@@ -897,7 +904,10 @@ class TaskViewModel(
                     isSyncing = true,
                     priority = priority,
                     description = normalizedDescription,
-                    tags = tags
+                    tags = tags,
+                    isEvent = isEvent,
+                    eventIcon = eventIcon,
+                    eventColor = eventColor
                 )
                 repository.insertTask(task)
                 finalTask = task
@@ -913,7 +923,7 @@ class TaskViewModel(
                 com.theblankstate.preamble.sync.GoogleSyncQueueWorker.enqueue(appContext)
 
             } else {
-                finalTask = repository.addTask(normalizedTitle, date, deadlineTime, priority, normalizedDescription, tags)
+                finalTask = repository.addTask(normalizedTitle, date, deadlineTime, priority, normalizedDescription, tags, isEvent = isEvent, eventIcon = eventIcon, eventColor = eventColor)
                     ?: return@launch
             }
             if (subtasks.isNotEmpty()) {
@@ -940,6 +950,10 @@ class TaskViewModel(
                 } else finalTask
             } else finalTask
             scheduleOrCancelAlarm(taskWithReminder)
+            if (isHabit) {
+                repository.toggleHabit(finalTask.id, true)
+                refreshHabitStreaks()
+            }
             refreshStats()
             invalidateCalendarForDate(taskDate)
 
@@ -1005,6 +1019,9 @@ class TaskViewModel(
         viewModelScope.launch {
             // Optimistic: toggle locally FIRST
             repository.toggleTask(task)
+            if (task.isHabit) {
+                refreshHabitStreaks()
+            }
             refreshStats()
             refreshCalendarDate()
 
@@ -1055,6 +1072,28 @@ class TaskViewModel(
                 )
                 syncMutationDao.insert(mutation)
                 com.theblankstate.preamble.sync.GoogleSyncQueueWorker.enqueue(appContext)
+            }
+        }
+    }
+
+    fun toggleHabit(task: com.theblankstate.preamble.data.Task) {
+        viewModelScope.launch {
+            repository.toggleHabit(task.id, !task.isHabit)
+            refreshHabitStreaks()
+        }
+    }
+
+    fun refreshHabitStreaks() {
+        viewModelScope.launch {
+            try {
+                val habitTasks = repository.getAllHabitTasks()
+                val streaks = mutableMapOf<String, TaskRepository.HabitStreakData>()
+                for (task in habitTasks) {
+                    streaks[task.id] = repository.getHabitStreakData(task)
+                }
+                _habitStreaks.value = streaks
+            } catch (e: Exception) {
+                android.util.Log.e("TaskViewModel", "Failed to refresh habit streaks", e)
             }
         }
     }
@@ -1191,7 +1230,7 @@ class TaskViewModel(
         }
     }
 
-    fun updateTask(task: Task, newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int = task.priority, newDescription: String? = task.description, newTags: String? = task.tags, newRecurrenceType: String? = task.recurrenceType, newRecurrenceInterval: Int = task.recurrenceInterval ?: 1, newRecurrenceDays: String? = task.recurrenceDays, newRecurrenceEndDate: String? = task.recurrenceEndDate) {
+    fun updateTask(task: Task, newTitle: String, newDate: String?, newDeadlineTime: String?, newPriority: Int = task.priority, newDescription: String? = task.description, newTags: String? = task.tags, newRecurrenceType: String? = task.recurrenceType, newRecurrenceInterval: Int = task.recurrenceInterval ?: 1, newRecurrenceDays: String? = task.recurrenceDays, newRecurrenceEndDate: String? = task.recurrenceEndDate, newIsEvent: Boolean = task.isEvent, newEventIcon: String? = task.eventIcon, newEventColor: String? = task.eventColor) {
         val normalizedTitle = TaskInputValidator.normalizeTitle(newTitle)
         val normalizedDescription = TaskInputValidator.normalizeDescription(newDescription)
         if (!TaskInputValidator.isValidTitle(normalizedTitle) || !TaskInputValidator.isValidDescription(normalizedDescription)) return
@@ -1213,7 +1252,10 @@ class TaskViewModel(
                 recurrenceType = newRecurrenceType,
                 recurrenceInterval = if (newRecurrenceType != null) newRecurrenceInterval else null,
                 recurrenceDays = if (newRecurrenceType != null) newRecurrenceDays else null,
-                recurrenceEndDate = if (newRecurrenceType != null) newRecurrenceEndDate else null
+                recurrenceEndDate = if (newRecurrenceType != null) newRecurrenceEndDate else null,
+                isEvent = newIsEvent,
+                eventIcon = newEventIcon,
+                eventColor = newEventColor
             )
             // Optimistic: update locally FIRST
             repository.updateTask(updated)
@@ -1352,7 +1394,11 @@ class TaskViewModel(
         recurrenceEndDate: String? = null,
         syncToCalendar: Boolean = false,
         tags: String? = null,
-        subtasks: List<String> = emptyList()
+        subtasks: List<String> = emptyList(),
+        isHabit: Boolean = false,
+        isEvent: Boolean = false,
+        eventIcon: String? = null,
+        eventColor: String? = null
     ) {
         val normalizedTitle = TaskInputValidator.normalizeTitle(title)
         val normalizedDescription = TaskInputValidator.normalizeDescription(description)
@@ -1360,8 +1406,10 @@ class TaskViewModel(
         viewModelScope.launch {
             val taskDate = date ?: TaskRepository.todayString()
             val now = System.currentTimeMillis()
+            var createdTaskId: String? = null
             if (syncToCalendar && GoogleCalendarManager.isLinked.value) {
                 val tempId = java.util.UUID.randomUUID().toString()
+                createdTaskId = tempId
                 val task = com.theblankstate.preamble.data.Task(
                     id = tempId,
                     title = normalizedTitle,
@@ -1378,7 +1426,10 @@ class TaskViewModel(
                     recurrenceType = recurrenceType,
                     recurrenceInterval = recurrenceInterval,
                     recurrenceDays = recurrenceDays,
-                    recurrenceEndDate = recurrenceEndDate
+                    recurrenceEndDate = recurrenceEndDate,
+                    isEvent = isEvent,
+                    eventIcon = eventIcon,
+                    eventColor = eventColor
                 )
                 repository.insertTask(task)
                 if (!tags.isNullOrBlank()) repository.saveTagOverride(task.id, tags)
@@ -1396,9 +1447,13 @@ class TaskViewModel(
                 val finalTask = repository.addRecurringTask(
                     normalizedTitle, date, deadlineTime, priority, normalizedDescription,
                     recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate,
-                    tags = tags
+                    tags = tags,
+                    isEvent = isEvent,
+                    eventIcon = eventIcon,
+                    eventColor = eventColor
                 )
                 if (finalTask == null) return@launch
+                createdTaskId = finalTask.id
                 if (subtasks.isNotEmpty()) {
                     repository.addSubtasks(finalTask.id, subtasks)
                     // Optimistic update
@@ -1406,6 +1461,10 @@ class TaskViewModel(
                         current + (finalTask.id to Pair(0, subtasks.size))
                     }
                 }
+            }
+            if (isHabit && createdTaskId != null) {
+                repository.toggleHabit(createdTaskId, true)
+                refreshHabitStreaks()
             }
             triggerRecurrenceGeneration()
             refreshStats()

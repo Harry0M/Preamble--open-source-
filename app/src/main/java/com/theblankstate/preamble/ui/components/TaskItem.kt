@@ -1,6 +1,7 @@
 package com.theblankstate.preamble.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -85,11 +86,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.theblankstate.preamble.data.PredefinedTags
+import com.theblankstate.preamble.util.EventIconHelper
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.ui.theme.ThemePreferences
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.theblankstate.preamble.repository.TaskRepository
 
 // Haptic config provided once at the screen level, read by every TaskItem without extra lookups
 data class HapticConfig(val enabled: Boolean, val vibrator: android.os.Vibrator?)
@@ -109,12 +112,22 @@ fun TaskItem(
     subtaskCount: Pair<Int, Int>? = null,
     isExpanded: Boolean = false,
     onToggleExpand: (() -> Unit)? = null,
+    habitStreakData: TaskRepository.HabitStreakData? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val hapticConfig = LocalHapticConfig.current
     val hapticEnabled = hapticConfig.enabled
     val vibrator = hapticConfig.vibrator
+    val showCategoryTags by ThemePreferences.showCategoryTags.collectAsState()
+    val parsedColor = remember(task.eventColor) {
+        try {
+            if (!task.eventColor.isNullOrBlank()) Color(android.graphics.Color.parseColor(task.eventColor))
+            else Color(0xFF2979FF)
+        } catch (_: Exception) {
+            Color(0xFF2979FF)
+        }
+    }
     val isSnoozed = remember(task.snoozedUntil) {
         task.snoozedUntil != null && task.snoozedUntil > System.currentTimeMillis()
     }
@@ -216,28 +229,41 @@ fun TaskItem(
     ) {
         // For info-only events (holidays, birthdays, etc.) show a styled material icon instead of checkbox
         if (task.isInfoOnly) {
-            val icon = when (task.eventType) {
-                "holiday" -> Icons.Default.Festival
-                "birthday" -> Icons.Default.Cake
-                "focusTime" -> Icons.Default.CenterFocusStrong
-                "outOfOffice" -> Icons.Default.Flight
-                else -> Icons.AutoMirrored.Filled.EventNote
+            if (task.isEvent) {
+                val icon = EventIconHelper.getIconByName(task.eventIcon)
+                Icon(
+                    imageVector = icon,
+                    contentDescription = "Event",
+                    tint = parsedColor,
+                    modifier = Modifier
+                        .padding(end = 4.dp)
+                        .size(24.dp)
+                        .padding(2.dp)
+                )
+            } else {
+                val icon = when (task.eventType) {
+                    "holiday" -> Icons.Default.Festival
+                    "birthday" -> Icons.Default.Cake
+                    "focusTime" -> Icons.Default.CenterFocusStrong
+                    "outOfOffice" -> Icons.Default.Flight
+                    else -> Icons.AutoMirrored.Filled.EventNote
+                }
+                val tintColor = when (task.eventType) {
+                    "holiday" -> Color(0xFFE91E63) // Pink/Magenta for festivals
+                    "birthday" -> Color(0xFFFF9800) // Orange for cake
+                    "focusTime" -> Color(0xFF9C27B0) // Purple for focus
+                    else -> MaterialTheme.colorScheme.primary
+                }
+                Icon(
+                    imageVector = icon,
+                    contentDescription = task.eventType ?: "Event",
+                    tint = tintColor,
+                    modifier = Modifier
+                        .padding(end = 4.dp)
+                        .size(24.dp)
+                        .padding(2.dp) // slight padding to make it match Checkbox visual weight
+                )
             }
-            val tintColor = when (task.eventType) {
-                "holiday" -> Color(0xFFE91E63) // Pink/Magenta for festivals
-                "birthday" -> Color(0xFFFF9800) // Orange for cake
-                "focusTime" -> Color(0xFF9C27B0) // Purple for focus
-                else -> MaterialTheme.colorScheme.primary
-            }
-            Icon(
-                imageVector = icon,
-                contentDescription = task.eventType ?: "Event",
-                tint = tintColor,
-                modifier = Modifier
-                    .padding(end = 4.dp)
-                    .size(24.dp)
-                    .padding(2.dp) // slight padding to make it match Checkbox visual weight
-            )
         } else {
             IconButton(
                 onClick = {
@@ -271,6 +297,14 @@ fun TaskItem(
 
                     val circleColor = when {
                         task.isCompleted -> MaterialTheme.colorScheme.primary
+                        task.priority > 0 -> {
+                            when (task.priority) {
+                                3 -> Color(0xFFEF4444) // Red - High
+                                2 -> Color(0xFFF97316) // Orange - Medium
+                                1 -> Color(0xFF3B82F6) // Blue - Low
+                                else -> MaterialTheme.colorScheme.onSurfaceVariant
+                            }
+                        }
                         isPastDayUncompleted -> MaterialTheme.colorScheme.error
                         isRollover -> MaterialTheme.colorScheme.tertiary
                         isRecurring -> MaterialTheme.colorScheme.secondary
@@ -375,22 +409,7 @@ fun TaskItem(
             }
         }
         
-        // Priority dot
-        if (task.priority > 0) {
-            val priorityColor = when (task.priority) {
-                3 -> Color(0xFFEF4444) // Red - High
-                2 -> Color(0xFFF97316) // Orange - Medium
-                1 -> Color(0xFF3B82F6) // Blue - Low
-                else -> Color.Transparent
-            }
-            Box(
-                modifier = Modifier
-                    .padding(end = 6.dp)
-                    .size(8.dp)
-                    .clip(FoundationCircleShape)
-                    .background(priorityColor)
-            )
-        }
+        // Priority indicator is now encoded in the checkbox circle itself
 
         Column(modifier = Modifier.weight(1f)) {
             // Strip legacy emoji prefixes for backward compatibility
@@ -555,9 +574,9 @@ fun TaskItem(
                     else -> MaterialTheme.colorScheme.onTertiaryContainer
                 }
                 Surface(
-                    shape = RoundedCornerShape(4.dp),
+                    shape = RoundedCornerShape(999.dp),
                     color = chipColor,
-                    modifier = Modifier.padding(top = 4.dp, bottom = if (task.tags.isNullOrBlank()) 0.dp else 4.dp)
+                    modifier = Modifier.padding(top = 4.dp, bottom = if (showCategoryTags && !task.tags.isNullOrBlank()) 4.dp else 0.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) {
                         Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(12.dp), tint = chipTextColor)
@@ -572,7 +591,7 @@ fun TaskItem(
             }
 
             // Tag chips
-            if (!task.tags.isNullOrBlank()) {
+            if (showCategoryTags && !task.tags.isNullOrBlank()) {
                 Row(
                     modifier = Modifier.padding(top = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -596,6 +615,66 @@ fun TaskItem(
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                    }
+                }
+            }
+
+            // Habit streak progress bar
+            if (task.isHabit && habitStreakData != null) {
+                val streakColor = remember(habitStreakData.superStreakCount) {
+                    when {
+                        habitStreakData.superStreakCount >= 4 -> Color(0xFFFF5722) // Deep orange
+                        habitStreakData.superStreakCount == 3 -> Color(0xFFFF9800) // Gold
+                        habitStreakData.superStreakCount == 2 -> Color(0xFF9C27B0) // Purple
+                        habitStreakData.superStreakCount == 1 -> Color(0xFF2196F3) // Blue
+                        else -> Color(0xFF4CAF50) // Green
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(6.dp),
+                    color = streakColor.copy(alpha = 0.10f),
+                    modifier = Modifier.padding(top = 6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Segmented streak bar (21 dots)
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            repeat(21) { index ->
+                                val isFilled = index < habitStreakData.currentStreak
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(
+                                            if (isFilled) streakColor
+                                            else streakColor.copy(alpha = 0.15f)
+                                        )
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "${habitStreakData.currentStreak}/21",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
+                            color = streakColor
+                        )
+                        if (habitStreakData.superStreakCount > 0) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = "🔥×${habitStreakData.superStreakCount}",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                color = streakColor
+                            )
+                        }
                     }
                 }
             }
@@ -810,6 +889,7 @@ fun SwipeableTaskItem(
     subtaskCount: Pair<Int, Int>? = null,
     isExpanded: Boolean = false,
     onToggleExpand: (() -> Unit)? = null,
+    habitStreakData: TaskRepository.HabitStreakData? = null,
     modifier: Modifier = Modifier
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
@@ -837,6 +917,7 @@ fun SwipeableTaskItem(
             subtaskCount = subtaskCount,
             isExpanded = isExpanded,
             onToggleExpand = onToggleExpand,
+            habitStreakData = habitStreakData,
             modifier = modifier
         )
         return
@@ -895,7 +976,8 @@ fun SwipeableTaskItem(
             isEditable = true,
             subtaskCount = subtaskCount,
             isExpanded = isExpanded,
-            onToggleExpand = onToggleExpand
+            onToggleExpand = onToggleExpand,
+            habitStreakData = habitStreakData
         )
     }
 }

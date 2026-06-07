@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.EventRepeat
 import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.LocationOn
@@ -162,7 +163,8 @@ fun TaskDetailBottomSheet(
     onAddReminder: ((com.theblankstate.preamble.data.Reminder) -> Unit)? = null,
     onRemoveReminder: ((Int) -> Unit)? = null,
     onToggleRollover: (() -> Unit)? = null,
-    isPastTask: Boolean = false
+    isPastTask: Boolean = false,
+    habitStreakData: com.theblankstate.preamble.repository.TaskRepository.HabitStreakData? = null
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -865,6 +867,205 @@ fun TaskDetailBottomSheet(
                             )
                         }
                     )
+                }
+            }
+
+            // ═══════════════════════════════════════════════════════════════
+            // HABIT TRACKER
+            // ═══════════════════════════════════════════════════════════════
+            if (task.isHabit && habitStreakData != null) {
+                Spacer(modifier = Modifier.height(16.dp))
+
+                val streakColor = remember(habitStreakData.superStreakCount) {
+                    when {
+                        habitStreakData.superStreakCount >= 4 -> androidx.compose.ui.graphics.Color(0xFFFF5722)
+                        habitStreakData.superStreakCount == 3 -> androidx.compose.ui.graphics.Color(0xFFFF9800)
+                        habitStreakData.superStreakCount == 2 -> androidx.compose.ui.graphics.Color(0xFF9C27B0)
+                        habitStreakData.superStreakCount == 1 -> androidx.compose.ui.graphics.Color(0xFF2196F3)
+                        else -> androidx.compose.ui.graphics.Color(0xFF4CAF50)
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = streakColor.copy(alpha = 0.06f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        // Header
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    Icons.Default.LocalFireDepartment,
+                                    contentDescription = null,
+                                    tint = streakColor,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    "Habit Tracker",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                    color = streakColor
+                                )
+                            }
+                            if (habitStreakData.superStreakCount > 0) {
+                                Text(
+                                    "\uD83D\uDD25\u00D7${habitStreakData.superStreakCount}",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = streakColor
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // 3x7 Activity Grid (last 21 days)
+                        val todayStr = remember {
+                            java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                        }
+                        val dayLabels = listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly
+                        ) {
+                            dayLabels.forEach { label ->
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.width(32.dp),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        val sdf = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US) }
+                        val days = remember(todayStr, habitStreakData) {
+                            val cal = java.util.Calendar.getInstance()
+                            cal.add(java.util.Calendar.DAY_OF_YEAR, -20)
+                            (0 until 21).map {
+                                val dateStr = sdf.format(cal.time)
+                                cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
+                                dateStr
+                            }
+                        }
+
+                        for (week in 0 until 3) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceEvenly
+                            ) {
+                                for (day in 0 until 7) {
+                                    val idx = week * 7 + day
+                                    val dateStr = days[idx]
+                                    val isToday = dateStr == todayStr
+                                    val isFuture = dateStr > todayStr
+                                    val completed = habitStreakData.completionHistory[dateStr]
+
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(
+                                                when {
+                                                    isToday -> streakColor.copy(alpha = 0.2f)
+                                                    completed == true -> streakColor.copy(alpha = 0.15f)
+                                                    completed == false -> androidx.compose.ui.graphics.Color(0xFFEF4444).copy(alpha = 0.10f)
+                                                    else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f)
+                                                }
+                                            )
+                                            .then(
+                                                if (isToday) Modifier.border(1.5.dp, streakColor, RoundedCornerShape(6.dp))
+                                                else Modifier
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = when {
+                                                isFuture -> "\u00B7"
+                                                isToday -> "\u25AA"
+                                                completed == true -> "\u2713"
+                                                completed == false -> "\u2717"
+                                                else -> "\u00B7"
+                                            },
+                                            style = MaterialTheme.typography.labelSmall,
+                                            fontWeight = if (isToday) androidx.compose.ui.text.font.FontWeight.Bold else null,
+                                            color = when {
+                                                isToday -> streakColor
+                                                completed == true -> streakColor
+                                                completed == false -> androidx.compose.ui.graphics.Color(0xFFEF4444)
+                                                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Streak progress bar
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(1.5.dp)
+                            ) {
+                                repeat(21) { index ->
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(6.dp)
+                                            .clip(RoundedCornerShape(3.dp))
+                                            .background(
+                                                if (index < habitStreakData.currentStreak) streakColor
+                                                else streakColor.copy(alpha = 0.12f)
+                                            )
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                "${habitStreakData.currentStreak}/21",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                color = streakColor
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                "Current streak: ${habitStreakData.currentStreak} days",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (habitStreakData.superStreakCount > 0) {
+                                Text(
+                                    "Super streaks: ${"\uD83D\uDD25".repeat(habitStreakData.superStreakCount.coerceAtMost(5))} (${habitStreakData.superStreakCount})",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = streakColor
+                                )
+                            }
+                        }
+                    }
                 }
             }
 

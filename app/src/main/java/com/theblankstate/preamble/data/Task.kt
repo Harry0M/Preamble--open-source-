@@ -162,17 +162,23 @@ data class Task(
     val linksJson: String? = null,                 // JSON: List<Link>
     val subtasksJson: String? = null,              // JSON: List<Subtask>
     val syncMetadataJson: String? = null,          // JSON: Map<String, Any> for future sync
-    val snoozedUntil: Long? = null                 // Epoch millis: hide rollover task until this time
+    val snoozedUntil: Long? = null,                 // Epoch millis: hide rollover task until this time
+    val isHabit: Boolean = false,                  // Whether this recurring/rollover task is tracked as a habit
+    val habitSuperStreakCount: Int = 0,             // Number of completed 21-day cycles
+    val isEvent: Boolean = false,                  // Whether this task is tracked as an event (hides checkbox)
+    val eventIcon: String? = null,                 // Custom emoji icon representing the event
+    val eventColor: String? = null                 // Hex color code for event tinting
 ) {
     val isCalendarEvent: Boolean get() = source == "google_calendar"
     val isGoogleTask: Boolean get() = source == "google_tasks"
     val isRecurrenceTemplate: Boolean get() = recurrenceType != null && recurrenceParentId == null
     val isRecurrenceInstance: Boolean get() = recurrenceParentId != null
+    val canBeHabit: Boolean get() = recurrenceType != null && parentTaskId == null && source == "local"
     val isSubtask: Boolean get() = parentTaskId != null
     // Calendar event type helpers
     val isHoliday: Boolean get() = eventType == "holiday"
     val isBirthday: Boolean get() = eventType == "birthday"
-    val isInfoOnly: Boolean get() = eventType in listOf("holiday", "birthday", "focusTime", "outOfOffice")
+    val isInfoOnly: Boolean get() = isEvent || eventType in listOf("holiday", "birthday", "focusTime", "outOfOffice")
     // Extended metadata helpers
     val hasAttendees: Boolean get() = !attendeesJson.isNullOrBlank()
     val hasReminders: Boolean get() = !remindersJson.isNullOrBlank()

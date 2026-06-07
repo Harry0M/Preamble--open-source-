@@ -91,7 +91,10 @@ class GoogleSyncQueueWorker(
                                 task.recurrenceInterval ?: 1,
                                 task.recurrenceDays,
                                 task.recurrenceEndDate,
-                                tags = task.tags
+                                tags = task.tags,
+                                isEvent = task.isEvent,
+                                eventIcon = task.eventIcon,
+                                eventColor = task.eventColor
                             )
                             if (eventId != null) {
                                 val finalTask = task.copy(
@@ -117,9 +120,11 @@ class GoogleSyncQueueWorker(
                                 dao.delete(mutation)
                                 continue
                             }
+                            val emojiPrefix = if (task.isEvent && task.eventIcon != null) com.theblankstate.preamble.util.EventIconHelper.getEmojiForIcon(task.eventIcon) else null
+                            val taskTitle = if (emojiPrefix != null) "$emojiPrefix ${task.title}" else task.title
                             val googleId = GoogleTasksManager.createGoogleTask(
                                 applicationContext,
-                                task.title,
+                                taskTitle,
                                 task.createdDate
                             )
                             if (googleId != null) {
@@ -193,7 +198,10 @@ class GoogleSyncQueueWorker(
                                 if (task.recurrenceType != null) task.recurrenceInterval ?: 1 else null,
                                 if (task.recurrenceType != null) task.recurrenceDays else null,
                                 if (task.recurrenceType != null) task.recurrenceEndDate else null,
-                                tags = task.tags
+                                tags = task.tags,
+                                isEvent = task.isEvent,
+                                eventIcon = task.eventIcon,
+                                eventColor = task.eventColor
                             )
                             taskDao.updateTask(task.copy(isSyncing = false, syncFailed = false))
                             GoogleSyncWorker.enqueueImmediate(applicationContext, forceFull = false, reason = "queue_calendar_update")
@@ -204,7 +212,9 @@ class GoogleSyncQueueWorker(
                                 continue
                             }
                             val googleId = mutation.taskId.removePrefix("gtask_")
-                            GoogleTasksManager.updateGoogleTask(applicationContext, googleId, task.title, task.createdDate)
+                            val emojiPrefix = if (task.isEvent && task.eventIcon != null) com.theblankstate.preamble.util.EventIconHelper.getEmojiForIcon(task.eventIcon) else null
+                            val taskTitle = if (emojiPrefix != null) "$emojiPrefix ${task.title}" else task.title
+                            GoogleTasksManager.updateGoogleTask(applicationContext, googleId, taskTitle, task.createdDate)
                             taskDao.updateTask(task.copy(isSyncing = false, syncFailed = false))
                             GoogleSyncWorker.enqueueImmediate(applicationContext, forceFull = false, reason = "queue_task_update")
                         }

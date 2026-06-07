@@ -614,7 +614,12 @@ data class RemoteTask(
     var snoozedUntil: Long? = null,
     var mediaJson: String? = null,
     var linksJson: String? = null,
-    var remindersJson: String? = null
+    var remindersJson: String? = null,
+    var isHabit: Boolean = false,
+    var habitSuperStreakCount: Int = 0,
+    var isEvent: Boolean = false,
+    var eventIcon: String? = null,
+    var eventColor: String? = null
 ) {
     fun toLocal(fallbackId: String): Task? {
         val resolvedId = id.ifBlank { fallbackId }
@@ -651,7 +656,12 @@ data class RemoteTask(
             snoozedUntil = snoozedUntil,
             mediaJson = mediaJson,
             linksJson = linksJson,
-            remindersJson = remindersJson
+            remindersJson = remindersJson,
+            isHabit = isHabit,
+            habitSuperStreakCount = habitSuperStreakCount,
+            isEvent = isEvent,
+            eventIcon = eventIcon,
+            eventColor = eventColor
         )
     }
 
@@ -686,7 +696,12 @@ data class RemoteTask(
                 snoozedUntil = task.snoozedUntil,
                 mediaJson = task.mediaJson,
                 linksJson = task.linksJson,
-                remindersJson = task.remindersJson
+                remindersJson = task.remindersJson,
+                isHabit = task.isHabit,
+                habitSuperStreakCount = task.habitSuperStreakCount,
+                isEvent = task.isEvent,
+                eventIcon = task.eventIcon,
+                eventColor = task.eventColor
             )
         }
     }
