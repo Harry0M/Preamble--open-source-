@@ -2228,7 +2228,6 @@ private fun ThemePickerCard(context: Context) {
     val currentMode by ThemePreferences.themeMode.collectAsState()
     val currentColor by ThemePreferences.themeColor.collectAsState()
     val materialYou by ThemePreferences.materialYou.collectAsState()
-    var expanded by remember { mutableStateOf(false) }
 
     val palePresets = listOf(
         Color(0xFFF5EBE0), Color(0xFFE8EDDF), Color(0xFFFCE4E4),
@@ -2282,7 +2281,6 @@ private fun ThemePickerCard(context: Context) {
                         .clickable {
                             ThemePreferences.setMaterialYou(context, false)
                             ThemePreferences.setThemeMode(context, mode)
-                            expanded = true
                         }
                         .padding(vertical = 10.dp),
                     contentAlignment = Alignment.Center
@@ -2317,7 +2315,6 @@ private fun ThemePickerCard(context: Context) {
                         .clickable {
                             ThemePreferences.setMaterialYou(context, true)
                             ThemePreferences.setColor(context, null)
-                            expanded = false
                         }
                         .padding(vertical = 10.dp),
                     contentAlignment = Alignment.Center
@@ -2331,7 +2328,7 @@ private fun ThemePickerCard(context: Context) {
 
         // Expandable color panel with spring animation
         AnimatedVisibility(
-            visible = expanded && !materialYou,
+            visible = !materialYou,
             enter = androidx.compose.animation.expandVertically(
                 animationSpec = androidx.compose.animation.core.spring(
                     dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
@@ -2432,12 +2429,6 @@ private fun ThemePickerCard(context: Context) {
                 }
                 Spacer(Modifier.height(4.dp))
             }
-        }
-
-        if (!expanded && !materialYou) {
-            Spacer(Modifier.height(8.dp))
-            Text("Tap a mode to pick color", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f))
         }
     }
 }
