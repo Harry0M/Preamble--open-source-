@@ -94,6 +94,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -123,6 +127,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlin.math.sin
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -176,6 +181,18 @@ fun AddTaskSheet(
     var showTagsDialog by remember { mutableStateOf(false) }
     var showPriorityDialog by remember { mutableStateOf(false) }
     var showTaskTypeInfo by remember { mutableStateOf(false) }
+    var showTaskOptionsInfo by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+    val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
+    val isKeyboardVisible = WindowInsets.ime.getBottom(density) > 0
+    var isExpandingByEventClick by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isKeyboardVisible) {
+        if (!isKeyboardVisible && !isExpandingByEventClick) {
+            sheetState.partialExpand()
+        }
+    }
     val todayStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date()) }
     val isToday = selectedDate == null || selectedDate == todayStr
 
@@ -376,7 +393,7 @@ fun AddTaskSheet(
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        sheetState = rememberModalBottomSheetState()
+        sheetState = sheetState
     ) {
         Column(
             modifier = Modifier
@@ -842,38 +859,109 @@ fun AddTaskSheet(
 
                 // Habit toggle — only for local recurring/rollover tasks, not Google-synced
                 if (recurrenceType != null && !syncToGoogle && !syncToCalendar) {
-                    IconButton(onClick = { isHabit = !isHabit }) {
+                    Row(
+                        modifier = Modifier
+                            .height(40.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (isHabit) Color(0xFFFF6D00).copy(alpha = 0.12f)
+                                else Color.Transparent
+                            )
+                            .clickable {
+                                isHabit = !isHabit
+                                if (isHabit) {
+                                    isEvent = false
+                                }
+                            }
+                            .padding(horizontal = if (isHabit) 12.dp else 8.dp)
+                            .animateContentSize(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
                         Icon(
-                            if (isHabit) Icons.Default.LocalFireDepartment
+                            imageVector = if (isHabit) Icons.Default.LocalFireDepartment
                             else Icons.Outlined.LocalFireDepartment,
                             contentDescription = "Track as habit",
                             tint = if (isHabit) Color(0xFFFF6D00)
-                            else MaterialTheme.colorScheme.onSurfaceVariant
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
                         )
+                        if (isHabit) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Habit",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = Color(0xFFFF6D00)
+                            )
+                        }
                     }
                 }
 
                 // Event toggle - can be any type of task
-                IconButton(onClick = {
-                    if (!isEvent) {
-                        isEvent = true
-                        val colors = listOf(
-                            "#D500F9", "#00E676", "#E91E63", "#FF3D00", "#FFEA00",
-                            "#FF6D00", "#00E5FF", "#FF007F", "#2979FF", "#00C853", "#FF1744"
+                val eventColorParsed = try { Color(android.graphics.Color.parseColor(eventColor ?: "#2979FF")) }
+                catch (_: Exception) { MaterialTheme.colorScheme.primary }
+
+                Row(
+                    modifier = Modifier
+                        .height(40.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isEvent) eventColorParsed.copy(alpha = 0.12f)
+                            else Color.Transparent
                         )
-                        eventColor = colors.random()
-                        eventIcon = "event"
-                    } else {
-                        isEvent = false
-                    }
-                }) {
+                        .clickable {
+                            if (!isEvent) {
+                                isEvent = true
+                                isHabit = false
+                                val colors = listOf(
+                                    "#D500F9", "#00E676", "#E91E63", "#FF3D00", "#FFEA00",
+                                    "#FF6D00", "#00E5FF", "#FF007F", "#2979FF", "#00C853", "#FF1744"
+                                )
+                                eventColor = colors.random()
+                                eventIcon = "event"
+                                scope.launch {
+                                    isExpandingByEventClick = true
+                                    sheetState.expand()
+                                    kotlinx.coroutines.delay(500)
+                                    isExpandingByEventClick = false
+                                }
+                            } else {
+                                isEvent = false
+                            }
+                        }
+                        .padding(horizontal = if (isEvent) 12.dp else 8.dp)
+                        .animateContentSize(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.EventNote,
                         contentDescription = "Mark as custom event",
-                        tint = if (isEvent) {
-                            try { Color(android.graphics.Color.parseColor(eventColor ?: "#2979FF")) }
-                            catch (_: Exception) { MaterialTheme.colorScheme.primary }
-                        } else MaterialTheme.colorScheme.onSurfaceVariant
+                        tint = if (isEvent) eventColorParsed else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    if (isEvent) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Event",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = eventColorParsed
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                // Info button for options (habit, event, flag, tag)
+                IconButton(
+                    onClick = { showTaskOptionsInfo = true },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Info,
+                        contentDescription = "Task options info",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier.size(18.dp)
                     )
                 }
             }
@@ -1259,6 +1347,11 @@ fun AddTaskSheet(
         TaskTypeInfoDialog(onDismiss = { showTaskTypeInfo = false })
     }
 
+    // Task options info dialog (explaining Habit, Event, Flag, Tag)
+    if (showTaskOptionsInfo) {
+        TaskOptionsInfoDialog(onDismiss = { showTaskOptionsInfo = false })
+    }
+
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
     }
@@ -1455,6 +1548,78 @@ fun TaskTypeInfoDialog(onDismiss: () -> Unit) {
                     Column {
                         Text("Recurring Task", style = MaterialTheme.typography.titleSmall)
                         Text("Repeats on a schedule \u2014 daily, weekly, or custom. Each occurrence is independent.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    )
+}
+
+@Composable
+fun TaskOptionsInfoDialog(onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Got it") }
+        },
+        title = { Text("Task Options", style = MaterialTheme.typography.titleLarge) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                Text(
+                    "Customize how you track your task:",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                // 1. Habit (fire icon)
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.LocalFireDepartment,
+                        contentDescription = "Habit",
+                        tint = Color(0xFFFF6D00),
+                        modifier = Modifier.size(22.dp).padding(top = 2.dp)
+                    )
+                    Column {
+                        Text("Habit", style = MaterialTheme.typography.titleSmall)
+                        Text("Track consecutive daily completions to build your streak. Only available for repeating tasks.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                // 2. Event (event note icon)
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.EventNote,
+                        contentDescription = "Event",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp).padding(top = 2.dp)
+                    )
+                    Column {
+                        Text("Event", style = MaterialTheme.typography.titleSmall)
+                        Text("Mark this task as a special event with a custom icon and color to stand out on your list.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                // 3. Flag (priority flag icon)
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Flag,
+                        contentDescription = "Priority",
+                        tint = Color(0xFFF44336),
+                        modifier = Modifier.size(22.dp).padding(top = 2.dp)
+                    )
+                    Column {
+                        Text("Priority Flag", style = MaterialTheme.typography.titleSmall)
+                        Text("Assign a priority level (Low, Medium, High) to color-code your task and highlight urgent to-dos.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                // 4. Tag (label icon)
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Label,
+                        contentDescription = "Tag",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(22.dp).padding(top = 2.dp)
+                    )
+                    Column {
+                        Text("Tag", style = MaterialTheme.typography.titleSmall)
+                        Text("Apply category tags to group similar tasks together and filter your list easily.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }

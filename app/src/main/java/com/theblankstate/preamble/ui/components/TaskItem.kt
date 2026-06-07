@@ -631,14 +631,14 @@ fun TaskItem(
                     }
                 }
                 Surface(
-                    shape = RoundedCornerShape(6.dp),
+                    shape = RoundedCornerShape(999.dp),
                     color = streakColor.copy(alpha = 0.10f),
                     modifier = Modifier.padding(top = 6.dp)
                 ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp, vertical = 5.dp),
+                            .padding(horizontal = 10.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         // Segmented streak bar (21 dots)
@@ -661,17 +661,11 @@ fun TaskItem(
                                 )
                             }
                         }
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "${habitStreakData.currentStreak}/21",
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
-                            color = streakColor
-                        )
                         if (habitStreakData.superStreakCount > 0) {
-                            Spacer(modifier = Modifier.width(4.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "🔥×${habitStreakData.superStreakCount}",
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.SemiBold),
                                 color = streakColor
                             )
                         }

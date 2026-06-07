@@ -129,6 +129,7 @@ class TaskViewModel(
 
     init {
         refreshAdminTasks()
+        refreshHabitStreaks()
     }
 
     fun refreshAdminTasks() {

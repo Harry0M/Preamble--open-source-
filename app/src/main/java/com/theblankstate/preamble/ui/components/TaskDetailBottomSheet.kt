@@ -27,6 +27,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Attachment
 import androidx.compose.material.icons.filled.Cake
@@ -924,24 +926,79 @@ fun TaskDetailBottomSheet(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        // 3x7 Activity Grid (last 21 days)
+                        var currentMonthCal by remember(task.id) {
+                            mutableStateOf(java.util.Calendar.getInstance().apply {
+                                set(java.util.Calendar.DAY_OF_MONTH, 1)
+                            })
+                        }
                         val todayStr = remember {
                             java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
                         }
-                        val dayLabels = listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
 
+                        // Swipable Month Selector Header
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(
+                                onClick = {
+                                    val prev = (currentMonthCal.clone() as java.util.Calendar).apply {
+                                        add(java.util.Calendar.MONTH, -1)
+                                    }
+                                    currentMonthCal = prev
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                                    contentDescription = "Previous Month",
+                                    tint = streakColor
+                                )
+                            }
+
+                            val monthYearLabel = remember(currentMonthCal) {
+                                java.text.SimpleDateFormat("MMMM yyyy", java.util.Locale.US).format(currentMonthCal.time)
+                            }
+                            Text(
+                                text = monthYearLabel,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+
+                            IconButton(
+                                onClick = {
+                                    val next = (currentMonthCal.clone() as java.util.Calendar).apply {
+                                        add(java.util.Calendar.MONTH, 1)
+                                    }
+                                    currentMonthCal = next
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                    contentDescription = "Next Month",
+                                    tint = streakColor
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Week Days Header
+                        val dayLabels = listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                             horizontalArrangement = Arrangement.SpaceEvenly
                         ) {
                             dayLabels.forEach { label ->
                                 Text(
                                     text = label,
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.width(32.dp),
+                                    modifier = Modifier.weight(1f),
                                     textAlign = androidx.compose.ui.text.style.TextAlign.Center
                                 )
                             }
@@ -949,64 +1006,84 @@ fun TaskDetailBottomSheet(
 
                         Spacer(modifier = Modifier.height(4.dp))
 
+                        // Days of Month Grid
                         val sdf = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US) }
-                        val days = remember(todayStr, habitStreakData) {
-                            val cal = java.util.Calendar.getInstance()
-                            cal.add(java.util.Calendar.DAY_OF_YEAR, -20)
-                            (0 until 21).map {
-                                val dateStr = sdf.format(cal.time)
-                                cal.add(java.util.Calendar.DAY_OF_YEAR, 1)
-                                dateStr
+                        val weeks = remember(currentMonthCal, habitStreakData) {
+                            val daysInMonth = currentMonthCal.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+                            val firstDayOfWeek = (currentMonthCal.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7
+                            
+                            val totalDaysList = mutableListOf<String?>()
+                            repeat(firstDayOfWeek) {
+                                totalDaysList.add(null)
                             }
+                            
+                            val monthCal = currentMonthCal.clone() as java.util.Calendar
+                            for (d in 1..daysInMonth) {
+                                monthCal.set(java.util.Calendar.DAY_OF_MONTH, d)
+                                totalDaysList.add(sdf.format(monthCal.time))
+                            }
+                            
+                            val remaining = totalDaysList.size % 7
+                            if (remaining > 0) {
+                                repeat(7 - remaining) {
+                                    totalDaysList.add(null)
+                                }
+                            }
+                            
+                            totalDaysList.chunked(7)
                         }
 
-                        for (week in 0 until 3) {
+                        weeks.forEach { weekDays ->
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                                 horizontalArrangement = Arrangement.SpaceEvenly
                             ) {
-                                for (day in 0 until 7) {
-                                    val idx = week * 7 + day
-                                    val dateStr = days[idx]
-                                    val isToday = dateStr == todayStr
-                                    val isFuture = dateStr > todayStr
-                                    val completed = habitStreakData.completionHistory[dateStr]
+                                weekDays.forEach { dateStr ->
+                                    if (dateStr == null) {
+                                        Spacer(modifier = Modifier.weight(1f).height(28.dp))
+                                    } else {
+                                        val dayNum = dateStr.substring(8).toInt().toString()
+                                        val isToday = dateStr == todayStr
+                                        val isFuture = dateStr > todayStr
+                                        val completed = habitStreakData.completionHistory[dateStr]
 
-                                    Box(
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .clip(RoundedCornerShape(6.dp))
-                                            .background(
-                                                when {
-                                                    isToday -> streakColor.copy(alpha = 0.2f)
-                                                    completed == true -> streakColor.copy(alpha = 0.15f)
-                                                    completed == false -> androidx.compose.ui.graphics.Color(0xFFEF4444).copy(alpha = 0.10f)
-                                                    else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.03f)
-                                                }
-                                            )
-                                            .then(
-                                                if (isToday) Modifier.border(1.5.dp, streakColor, RoundedCornerShape(6.dp))
-                                                else Modifier
-                                            ),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = when {
-                                                isFuture -> "\u00B7"
-                                                isToday -> "\u25AA"
-                                                completed == true -> "\u2713"
-                                                completed == false -> "\u2717"
-                                                else -> "\u00B7"
-                                            },
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = if (isToday) androidx.compose.ui.text.font.FontWeight.Bold else null,
-                                            color = when {
-                                                isToday -> streakColor
-                                                completed == true -> streakColor
-                                                completed == false -> androidx.compose.ui.graphics.Color(0xFFEF4444)
-                                                else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(28.dp),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(26.dp)
+                                                    .clip(CircleShape)
+                                                    .background(
+                                                        when {
+                                                            completed == true -> streakColor
+                                                            completed == false -> androidx.compose.ui.graphics.Color(0xFFEF5350)
+                                                            isToday -> streakColor.copy(alpha = 0.15f)
+                                                            else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f)
+                                                        }
+                                                    )
+                                                    .then(
+                                                        if (isToday) Modifier.border(1.5.dp, streakColor, CircleShape)
+                                                        else Modifier
+                                                    ),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = dayNum,
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                                    fontWeight = if (isToday) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal,
+                                                    color = when {
+                                                        completed == true || completed == false -> androidx.compose.ui.graphics.Color.White
+                                                        isToday -> streakColor
+                                                        isFuture -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                                    }
+                                                )
                                             }
-                                        )
+                                        }
                                     }
                                 }
                             }
