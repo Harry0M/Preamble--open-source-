@@ -1200,10 +1200,9 @@ fun SettingsScreen(
                                 showReviewSheet = false
                                 context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
                                     .edit().putBoolean("has_reviewed", true).apply()
-                                try {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=${context.packageName}")))
-                                } catch (_: Exception) {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=${context.packageName}")))
+                                activity?.let { act ->
+                                    val reviewManager = com.theblankstate.preamble.util.InAppReviewManager(act)
+                                    reviewManager.launchReviewFlow(forceFake = false)
                                 }
                             },
                             modifier = Modifier.weight(1f),

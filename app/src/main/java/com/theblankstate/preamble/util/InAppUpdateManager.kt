@@ -2,28 +2,40 @@ package com.theblankstate.preamble.util
 
 import android.app.Activity
 import android.util.Log
+import android.widget.Toast
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.appupdate.AppUpdateOptions
+import com.google.android.play.core.appupdate.testing.FakeAppUpdateManager
 import com.google.android.play.core.install.InstallStateUpdatedListener
 import com.google.android.play.core.install.model.AppUpdateType
 import com.google.android.play.core.install.model.InstallStatus
 import com.google.android.play.core.install.model.UpdateAvailability
+import com.theblankstate.preamble.BuildConfig
 
 /**
  * Handles checking for updates via Google Play and triggering Flexible updates.
  */
 class InAppUpdateManager(private val activity: Activity) {
 
-    private val appUpdateManager: AppUpdateManager = AppUpdateManagerFactory.create(activity)
+    val appUpdateManager: AppUpdateManager = if (BuildConfig.DEBUG) {
+        FakeAppUpdateManager(activity).apply {
+            // By default, no update is available.
+            setUpdateNotAvailable()
+        }
+    } else {
+        AppUpdateManagerFactory.create(activity)
+    }
+
     private val UPDATE_REQUEST_CODE = 1001
 
     private val installStateUpdatedListener = InstallStateUpdatedListener { state ->
+        Log.d("InAppUpdate", "InstallStateUpdatedListener status: ${state.installStatus()}")
         if (state.installStatus() == InstallStatus.DOWNLOADED) {
-            // After the update is downloaded, show a notification
-            // or a snackbar, and request user confirmation to restart the app.
-            // For now, we'll just log and silently complete, or you can implement a snackbar in Compose.
             Log.d("InAppUpdate", "An update has been downloaded. Completing update...")
+            activity.runOnUiThread {
+                Toast.makeText(activity, "Update downloaded! Restarting to install...", Toast.LENGTH_LONG).show()
+            }
             appUpdateManager.completeUpdate()
         }
     }
@@ -33,6 +45,7 @@ class InAppUpdateManager(private val activity: Activity) {
 
         val appUpdateInfoTask = appUpdateManager.appUpdateInfo
         appUpdateInfoTask.addOnSuccessListener { appUpdateInfo ->
+            Log.d("InAppUpdate", "Check for update success. Availability: ${appUpdateInfo.updateAvailability()}")
             if (appUpdateInfo.updateAvailability() == UpdateAvailability.UPDATE_AVAILABLE
                 && appUpdateInfo.isUpdateTypeAllowed(AppUpdateType.FLEXIBLE)
             ) {

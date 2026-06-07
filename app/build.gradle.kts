@@ -158,6 +158,10 @@ dependencies {
     implementation(libs.play.app.update)
     implementation(libs.play.app.update.ktx)
 
+    // Play In-App Reviews
+    implementation(libs.play.review)
+    implementation(libs.play.review.ktx)
+
     constraints {
         implementation("io.grpc:grpc-api:1.62.2") {
             version { strictly("1.62.2") }
