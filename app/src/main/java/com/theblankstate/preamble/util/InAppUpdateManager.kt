@@ -6,27 +6,17 @@ import android.widget.Toast
 import com.google.android.play.core.appupdate.AppUpdateManager
 import com.google.android.play.core.appupdate.AppUpdateManagerFactory
 import com.google.android.play.core.appupdate.AppUpdateOptions
-import com.google.android.play.core.appupdate.testing.FakeAppUpdateManager
 import com.google.android.play.core.install.InstallStateUpdatedListener
 import com.google.android.play.core.install.model.AppUpdateType
 import com.google.android.play.core.install.model.InstallStatus
 import com.google.android.play.core.install.model.UpdateAvailability
-import com.theblankstate.preamble.BuildConfig
 
 /**
  * Handles checking for updates via Google Play and triggering Flexible updates.
  */
 class InAppUpdateManager(private val activity: Activity) {
 
-    val appUpdateManager: AppUpdateManager = if (BuildConfig.DEBUG) {
-        FakeAppUpdateManager(activity).apply {
-            // By default, no update is available.
-            setUpdateNotAvailable()
-        }
-    } else {
-        AppUpdateManagerFactory.create(activity)
-    }
-
+    private val appUpdateManager: AppUpdateManager = AppUpdateManagerFactory.create(activity)
     private val UPDATE_REQUEST_CODE = 1001
 
     private val installStateUpdatedListener = InstallStateUpdatedListener { state ->

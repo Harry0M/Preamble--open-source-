@@ -52,7 +52,7 @@ object ThemePreferences {
     private val _showRecurrenceLabel = MutableStateFlow(false)
     val showRecurrenceLabel: StateFlow<Boolean> = _showRecurrenceLabel.asStateFlow()
 
-    private val _showCategoryTags = MutableStateFlow(true)
+    private val _showCategoryTags = MutableStateFlow(false)
     val showCategoryTags: StateFlow<Boolean> = _showCategoryTags.asStateFlow()
 
     // Personal Mode flows
@@ -148,7 +148,7 @@ object ThemePreferences {
             _colorfulCards.value       = false
             _timelineUi.value          = false
             _showRecurrenceLabel.value = false
-            _showCategoryTags.value    = true
+            _showCategoryTags.value    = false
 
             prefs.edit()
                 .putBoolean(KEY_PERSONAL_MODE, true)
@@ -169,7 +169,7 @@ object ThemePreferences {
                 .putBoolean(KEY_COLORFUL_CARDS, false)
                 .putBoolean(KEY_TIMELINE_UI, false)
                 .putBoolean(KEY_SHOW_RECURRENCE_LABEL, false)
-                .putBoolean(KEY_SHOW_CATEGORY_TAGS, true)
+                .putBoolean(KEY_SHOW_CATEGORY_TAGS, false)
                 .apply()
 
             android.util.Log.d("ThemePreferences", "First init — all features ON, greeting A/B=${greeting}")
@@ -178,7 +178,7 @@ object ThemePreferences {
             _colorfulCards.value = prefs.getBoolean(KEY_COLORFUL_CARDS, false)
             _timelineUi.value = prefs.getBoolean(KEY_TIMELINE_UI, true)
             _showRecurrenceLabel.value = prefs.getBoolean(KEY_SHOW_RECURRENCE_LABEL, false)
-            _showCategoryTags.value = prefs.getBoolean(KEY_SHOW_CATEGORY_TAGS, true)
+            _showCategoryTags.value = prefs.getBoolean(KEY_SHOW_CATEGORY_TAGS, false)
             _personalMode.value    = prefs.getBoolean(KEY_PERSONAL_MODE, false)
             _pmGreeting.value      = prefs.getBoolean(KEY_PM_GREETING, true)
             _pmSmartProgress.value = prefs.getBoolean(KEY_PM_SMART_PROGRESS, true)

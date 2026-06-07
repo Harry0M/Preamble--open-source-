@@ -11,11 +11,7 @@ import com.theblankstate.preamble.BuildConfig
 class InAppReviewManager(private val activity: Activity) {
 
     private val manager: ReviewManager by lazy {
-        if (BuildConfig.DEBUG) {
-            FakeReviewManager(activity)
-        } else {
-            ReviewManagerFactory.create(activity)
-        }
+        ReviewManagerFactory.create(activity)
     }
 
     fun launchReviewFlow(forceFake: Boolean = false, onComplete: (() -> Unit)? = null) {
