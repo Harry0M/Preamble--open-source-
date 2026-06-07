@@ -253,6 +253,15 @@ interface TaskDao {
 
     @Query("SELECT * FROM tasks WHERE isHabit = 1 AND parentTaskId IS NULL")
     suspend fun getAllHabitTasks(): List<Task>
+
+    @Query("""
+        SELECT * FROM tasks 
+        WHERE parentTaskId IS NULL 
+          AND source != 'google_calendar'
+          AND isEvent = 0 
+          AND (eventType IS NULL OR eventType NOT IN ('holiday', 'birthday', 'focusTime', 'outOfOffice'))
+    """)
+    suspend fun getAllTasksForStreak(): List<Task>
 }
 
 data class PriorityCount(

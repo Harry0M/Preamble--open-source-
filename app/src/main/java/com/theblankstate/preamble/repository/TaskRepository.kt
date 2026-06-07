@@ -489,13 +489,76 @@ class TaskRepository(
         dao.clearAllTasks()
     }
 
+    private suspend fun getDailyCompletionStates(dates: List<String>): Map<String, Boolean?> {
+        val allTasks = dao.getAllTasksForStreak().filter {
+            !it.isInfoOnly && it.source != "google_calendar"
+        }
+
+        // Group physical tasks by createdDate
+        val physicalTasksByDate = allTasks.groupBy { it.createdDate }
+
+        // Group physical recurring instances by parent ID and date
+        val physicalInstancesByParentAndDate = allTasks
+            .filter { it.recurrenceParentId != null }
+            .associateBy { it.recurrenceParentId!! to it.createdDate }
+
+        // Find all local recurrence templates
+        val templates = allTasks.filter { it.recurrenceType != null && it.recurrenceParentId == null }
+
+        // We want to return a map of date -> isPerfect (true: perfect, false: imperfect, null: empty)
+        val result = mutableMapOf<String, Boolean?>()
+
+        for (dateStr in dates) {
+            var totalCount = 0
+            var completedCount = 0
+
+            // 1. Physical non-rollover tasks for this date
+            val physicalTasks = physicalTasksByDate[dateStr] ?: emptyList()
+            for (task in physicalTasks) {
+                if (task.recurrenceType != "rollover") {
+                    totalCount++
+                    if (task.isCompleted) {
+                        completedCount++
+                    }
+                }
+            }
+
+            // 2. Rollover tasks active on this date
+            val rolloverTasks = allTasks.filter { it.recurrenceType == "rollover" }
+            for (task in rolloverTasks) {
+                if (task.createdDate <= dateStr && (task.completedDate == null || task.completedDate!! >= dateStr)) {
+                    totalCount++
+                    if (task.isCompleted && task.completedDate == dateStr) {
+                        completedCount++
+                    }
+                }
+            }
+
+            // 3. Virtual recurring tasks due on this date
+            for (template in templates) {
+                if (dateStr > template.createdDate && RecurrenceGenerator.isDueOnDate(template, dateStr)) {
+                    val hasPhysical = physicalInstancesByParentAndDate.containsKey(template.id to dateStr)
+                    if (!hasPhysical) {
+                        totalCount++
+                    }
+                }
+            }
+
+            if (totalCount > 0) {
+                result[dateStr] = (completedCount == totalCount)
+            } else {
+                result[dateStr] = null
+            }
+        }
+
+        return result
+    }
+
     /**
-     * Optimized streak calculation using batch query.
-     * Fetches stats for all dates in a single SQL query instead of 2 queries per day.
+     * Optimized streak calculation using in-memory state evaluation.
      */
     suspend fun calculateStreak(): Int {
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        val calendar = Calendar.getInstance()
 
         // Generate all dates we might need (up to 365 days back)
         val dates = mutableListOf<String>()
@@ -505,14 +568,17 @@ class TaskRepository(
             tempCal.add(Calendar.DAY_OF_YEAR, -1)
         }
 
-        // Single batch query for all dates
-        val statsMap = dao.getStatsForDates(dates).associate { it.createdDate to it }
+        // Get daily states
+        val dailyStates = getDailyCompletionStates(dates)
 
         var streak = 0
         val today = todayString()
-        val todayStats = statsMap[today]
 
-        if (todayStats != null && todayStats.total > 0 && todayStats.total == todayStats.completed) {
+        // Today is at dates[0]. Let's check today first
+        val todayState = dailyStates[today]
+        val calendar = Calendar.getInstance()
+
+        if (todayState == true) {
             streak = 1
             calendar.add(Calendar.DAY_OF_YEAR, -1)
         } else {
@@ -521,15 +587,16 @@ class TaskRepository(
 
         for (i in 0 until 365) {
             val dateStr = sdf.format(calendar.time)
-            val stats = statsMap[dateStr]
+            val state = dailyStates[dateStr]
 
-            if (stats != null && stats.total > 0 && stats.total == stats.completed) {
+            if (state == true) {
                 streak++
                 calendar.add(Calendar.DAY_OF_YEAR, -1)
-            } else if (stats == null) {
-                // No tasks on this day — skip
+            } else if (state == null) {
+                // Empty day — skip
                 calendar.add(Calendar.DAY_OF_YEAR, -1)
             } else {
+                // Incomplete day — break (streak is broken)
                 break
             }
         }
@@ -847,22 +914,38 @@ class TaskRepository(
     // ── Advanced Stats Methods ──
 
     suspend fun calculateLongestStreak(): Int {
-        val perfectDates = dao.getAllPerfectDates()
-        if (perfectDates.isEmpty()) return 0
         val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-        var longest = 1
-        var current = 1
-        for (i in 1 until perfectDates.size) {
-            val prev = sdf.parse(perfectDates[i - 1]) ?: continue
-            val curr = sdf.parse(perfectDates[i]) ?: continue
-            val diffDays = ((prev.time - curr.time) / (1000 * 60 * 60 * 24)).toInt()
-            if (diffDays == 1) {
+
+        // Generate all dates in chronological order (oldest to newest)
+        val dates = mutableListOf<String>()
+        val tempCal = Calendar.getInstance()
+        tempCal.add(Calendar.DAY_OF_YEAR, -365)
+        for (i in 0..365) {
+            dates.add(sdf.format(tempCal.time))
+            tempCal.add(Calendar.DAY_OF_YEAR, 1)
+        }
+
+        // Get daily states
+        val dailyStates = getDailyCompletionStates(dates)
+
+        var longest = 0
+        var current = 0
+
+        for (dateStr in dates) {
+            val state = dailyStates[dateStr]
+            if (state == true) {
                 current++
-                if (current > longest) longest = current
+                if (current > longest) {
+                    longest = current
+                }
+            } else if (state == null) {
+                // Empty day — skip, do not break or reset
             } else {
-                current = 1
+                // Incomplete day — reset current streak
+                current = 0
             }
         }
+
         return longest
     }
 
