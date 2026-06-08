@@ -1130,6 +1130,21 @@ fun SettingsScreen(
                 }
             }
 
+            SectionTitle("About")
+            var showChangelogSheetManual by remember { mutableStateOf(false) }
+            if (showChangelogSheetManual) {
+                com.theblankstate.preamble.ui.components.ChangelogSheet(
+                    onDismissRequest = { showChangelogSheetManual = false }
+                )
+            }
+            SettingsCard {
+                SettingsNavigationRow(
+                    title = "What's New in v1.6",
+                    subtitle = "Habits, events, and smarter AI",
+                    onClick = { showChangelogSheetManual = true },
+                )
+            }
+
             SectionTitle("Legal")
             SettingsCard {
                 Column {

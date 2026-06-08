@@ -86,6 +86,7 @@ object CloudAiService {
             if (!userMessageId.isNullOrBlank()) put("userMessageId", userMessageId)
             if (!assistantMessageId.isNullOrBlank()) put("assistantMessageId", assistantMessageId)
             if (!model.isNullOrBlank()) put("model", model)
+            put("appVersionCode", com.theblankstate.preamble.BuildConfig.VERSION_CODE)
         }
 
         val request = Request.Builder()
@@ -173,6 +174,7 @@ object CloudAiService {
             put("mode", mode)
             if (!assistantMessageId.isNullOrBlank()) put("assistantMessageId", assistantMessageId)
             if (!model.isNullOrBlank()) put("model", model)
+            put("appVersionCode", com.theblankstate.preamble.BuildConfig.VERSION_CODE)
         }
 
         val request = Request.Builder()
@@ -276,6 +278,7 @@ object CloudAiService {
             put("text", rawText)
             put("subtaskIntensity", subtaskIntensity)
             put("isNotificationEdit", isNotificationEdit)
+            put("appVersionCode", com.theblankstate.preamble.BuildConfig.VERSION_CODE)
         }
 
         val request = Request.Builder()

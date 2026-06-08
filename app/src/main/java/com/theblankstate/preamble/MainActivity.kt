@@ -151,6 +151,10 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val openRecap by _openRecap
+                    var showChangelog by remember { 
+                        mutableStateOf(prefs.getInt("last_changelog_version", 0) < BuildConfig.VERSION_CODE) 
+                    }
+
                     androidx.compose.foundation.layout.Box(
                         modifier = androidx.compose.ui.Modifier.fillMaxSize()
                     ) {
@@ -166,6 +170,14 @@ class MainActivity : ComponentActivity() {
                                 statsState = statsState,
                                 onDismiss = { _openRecap.value = false },
                                 modifier = androidx.compose.ui.Modifier.fillMaxSize()
+                            )
+                        }
+                        if (showChangelog) {
+                            com.theblankstate.preamble.ui.components.ChangelogSheet(
+                                onDismissRequest = {
+                                    showChangelog = false
+                                    prefs.edit().putInt("last_changelog_version", BuildConfig.VERSION_CODE).apply()
+                                }
                             )
                         }
                     }

@@ -15,7 +15,7 @@ import { GoogleGenAI } from "@google/genai";
 import { getFirestore } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import { buildSystemPrompt, TaskSnapshot, MemoryFact } from "./prompt-builder";
-import { TASK_TOOLS, toGeminiFunctionDeclarations } from "./tools-schema";
+import { TASK_TOOLS, TASK_TOOLS_V2, toGeminiFunctionDeclarations } from "./tools-schema";
 import { getAiConfig } from "./ai-config";
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
@@ -45,7 +45,7 @@ export const aiParseTask = onRequest(
       return;
     }
 
-    const { text, subtaskIntensity = 0, isNotificationEdit = false } = req.body;
+    const { text, subtaskIntensity = 0, isNotificationEdit = false, appVersionCode = 0 } = req.body;
     if (!text || typeof text !== "string") {
       res.status(400).json({ error: "text required" });
       return;
@@ -85,6 +85,7 @@ export const aiParseTask = onRequest(
         subtaskIntensity,
         isNotificationEdit,
         forceToolCall: true, // parse path: must produce a tool call
+        appVersionCode,
       });
 
       // Call AI with tools
@@ -102,7 +103,7 @@ export const aiParseTask = onRequest(
             { role: "system", content: systemPrompt },
             { role: "user", content: text },
           ],
-          tools: TASK_TOOLS.map(t => ({
+          tools: (appVersionCode >= 8 ? TASK_TOOLS_V2 : TASK_TOOLS).map(t => ({
             type: "function",
             function: { name: t.name, description: t.description, parameters: t.parameters },
           })),
@@ -146,7 +147,7 @@ export const aiParseTask = onRequest(
           contents: [{ role: "user", parts: [{ text }] }],
           config: {
             systemInstruction: systemPrompt,
-            tools: [{ functionDeclarations: toGeminiFunctionDeclarations() }] as any,
+            tools: [{ functionDeclarations: toGeminiFunctionDeclarations(appVersionCode) }] as any,
           },
         });
 

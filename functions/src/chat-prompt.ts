@@ -162,20 +162,31 @@ export function buildChatSystemPrompt(opts: {
   memoryContext?: string;
   taskContext?: string;
   conversationSummary?: string;
+  appVersionCode?: number;
 }): string {
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
   const time = now.toTimeString().slice(0, 5);
 
-  const lines: string[] = [
-    `You are a helpful AI assistant. Today is ${today}, current time is ${time}.`,
-  ];
+  const isV2 = (opts.appVersionCode || 0) >= 8;
+  const lines: string[] = [];
+
+  if (isV2) {
+    lines.push(`You are a helpful AI assistant. Today is ${today}, current time is ${time}. You MUST natively understand and respond in the EXACT SAME LANGUAGE AND SCRIPT that the user uses (e.g., Hinglish, Devanagari Hindi, Chinese, Japanese).`);
+  } else {
+    lines.push(`You are a helpful AI assistant. Today is ${today}, current time is ${time}.`);
+  }
 
   if (opts.taskToolsEnabled) {
     lines.push(
       "You have access to task management tools. Use them only when the user explicitly asks to add, list, modify, delete, complete, or schedule tasks and reminders.",
       "When adding tasks: keep titles concise, dates as YYYY-MM-DD, times as HH:mm.",
     );
+    if (isV2) {
+      lines.push(
+        "For add_task, infer habits and events. If user wants to build a streak/habit: is_habit=true (NO rollover). If it is an occasion/meeting/show: is_event=true, and provide an emoji event_icon and vibrant hex event_color."
+      );
+    }
   }
 
   lines.push(

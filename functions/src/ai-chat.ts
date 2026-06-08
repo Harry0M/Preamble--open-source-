@@ -16,7 +16,7 @@ import { onRequest } from "firebase-functions/v2/https";
 import { GoogleGenAI } from "@google/genai";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
-import { TASK_TOOLS, toGeminiFunctionDeclarations, shouldUseTaskTools } from "./tools-schema";
+import { TASK_TOOLS, TASK_TOOLS_V2, toGeminiFunctionDeclarations, shouldUseTaskTools } from "./tools-schema";
 import {
   DEFAULT_MODEL,
   DEFAULT_MODE,
@@ -158,6 +158,7 @@ export const aiChat = onRequest(
     const mode: string = req.body.mode || DEFAULT_MODE;
     const smartMode: boolean = req.body.smartMode !== false;
     const conversationId: string = req.body.conversationId || "default";
+    const appVersionCode: number = req.body.appVersionCode || 0;
     const userMessageId = safeClientMessageId(req.body.userMessageId);
     const assistantMessageId = safeClientMessageId(req.body.assistantMessageId);
     const message: string | null = req.body.message ?? null;
@@ -293,6 +294,7 @@ export const aiChat = onRequest(
         memoryContext,
         taskContext,
         conversationSummary,
+        appVersionCode,
       });
 
       // --- Build messages ---
@@ -335,12 +337,13 @@ export const aiChat = onRequest(
       let inputTokens = 0;
       let outputTokens = 0;
 
+
       if (isMistralModel(model)) {
         const mistralMessages: any[] = [{ role: "system", content: systemPrompt }];
         for (const c of contents) {
           mistralMessages.push({ role: c.role === "model" ? "assistant" : c.role, content: c.parts[0].text });
         }
-        const mistralTools = taskToolsEnabled ? TASK_TOOLS.map(t => ({
+        const mistralTools = taskToolsEnabled ? (appVersionCode >= 8 ? TASK_TOOLS_V2 : TASK_TOOLS).map(t => ({
           type: "function" as const,
           function: { name: t.name, description: t.description, parameters: t.parameters },
         })) : undefined;
@@ -406,7 +409,7 @@ export const aiChat = onRequest(
         }
       } else {
         const ai = new GoogleGenAI({ apiKey: GEMINI_KEY });
-        const tools: any = taskToolsEnabled ? [{ functionDeclarations: toGeminiFunctionDeclarations() }] : undefined;
+        const tools: any = taskToolsEnabled ? [{ functionDeclarations: toGeminiFunctionDeclarations(appVersionCode) }] : undefined;
         const geminiModel = model.startsWith("gemini") ? model : DEFAULT_MODEL;
         const response = await ai.models.generateContentStream({
           model: geminiModel,
@@ -574,6 +577,7 @@ export const aiChatContinue = onRequest(
     const model: string = requestedModel || config.chatModel || DEFAULT_MODEL;
     const mode: string = req.body.mode || DEFAULT_MODE;
     const conversationId: string = req.body.conversationId || "default";
+    const appVersionCode: number = req.body.appVersionCode || 0;
     const assistantMessageId = safeClientMessageId(req.body.assistantMessageId);
     const toolResults: Array<{ name: string; result: string }> = req.body.toolResults;
 
@@ -623,6 +627,7 @@ export const aiChatContinue = onRequest(
       const styleSystem = buildChatSystemPrompt({
         conciseMode: mode === "concise",
         taskToolsEnabled: false,
+        appVersionCode,
       });
 
       let fullText = "";

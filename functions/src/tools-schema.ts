@@ -100,9 +100,29 @@ export const TASK_TOOLS: ToolDef[] = [
   },
 ];
 
+export const TASK_TOOLS_V2: ToolDef[] = TASK_TOOLS.map(t => {
+  if (t.name === "add_task") {
+    return {
+      ...t,
+      parameters: {
+        ...t.parameters,
+        properties: {
+          ...t.parameters.properties,
+          is_habit: { type: "string", description: "true if user wants to build a habit/streak. false otherwise." },
+          is_event: { type: "string", description: "true if this is a time-bound occasion/event to attend, not actionable work. false otherwise." },
+          event_icon: { type: "string", description: "If is_event=true, an emoji representing the event. Otherwise omit." },
+          event_color: { type: "string", description: "If is_event=true, a hex color code representing the event's vibe. Otherwise omit." },
+        }
+      }
+    };
+  }
+  return t;
+});
+
 /** Convert our tool format to Gemini's function declaration format */
-export function toGeminiFunctionDeclarations() {
-  return TASK_TOOLS.map(t => ({
+export function toGeminiFunctionDeclarations(versionCode: number = 0) {
+  const tools = versionCode >= 8 ? TASK_TOOLS_V2 : TASK_TOOLS;
+  return tools.map(t => ({
     name: t.name,
     description: t.description,
     parameters: {

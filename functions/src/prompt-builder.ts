@@ -33,6 +33,7 @@ export function buildSystemPrompt(opts: {
   /** True for parse-task path (voice / notification edit) — forces tool call.
    *  False for chat — allows free conversation. */
   forceToolCall?: boolean;
+  appVersionCode?: number;
 }): string {
   const now = new Date();
   const today = now.toISOString().slice(0, 10);
@@ -113,13 +114,29 @@ export function buildSystemPrompt(opts: {
   sb.push("");
 
   // RULE 2 — Language
-  sb.push("RULE 2 — UNIVERSAL LANGUAGE:");
-  sb.push("Understand ANY language natively — Hindi, Hinglish, English, Spanish, etc.");
-  sb.push(`HINGLISH TEMPORAL: aaj=${today}, kal/cal=tomorrow, parso/parson=day after tomorrow.`);
-  sb.push("TIME WORDS: subah=07:00-09:00, dopahar=12:00-14:00, shaam=17:00-19:00, raat=21:00-22:00.");
-  sb.push("Convert times to 24h HH:mm: '5pm'→'17:00', '3:30 baje'→'15:30'.");
-  sb.push("VOICE-TO-TEXT NOISE: input often has misspellings, missing punctuation, wrong word breaks, broken grammar. Interpret by MEANING, not literal spelling. Phonetic variants = same word (jaana/jana, gym/jim, shaam/sham/saam, kharidna/karidna). Fix silently; don't echo errors into title.");
-  sb.push("");
+  const isV2 = (opts.appVersionCode || 0) >= 8;
+  if (isV2) {
+    sb.push("RULE 2 — UNIVERSAL LANGUAGE & SCRIPT AWARENESS:");
+    sb.push("Understand ANY language natively. You MUST generate the title, description, and subtasks in the EXACT SAME LANGUAGE and SCRIPT that the user used. Examples:");
+    sb.push("  - If user types in Hinglish ('kya haal hai'), respond in Hinglish.");
+    sb.push("  - If user types in Devanagari Hindi ('कैसे हो'), respond in Devanagari Hindi.");
+    sb.push("  - If user types in Chinese characters ('買菜'), respond using Chinese characters.");
+    sb.push("  - If user types in Japanese ('買い物'), respond in Japanese script.");
+    sb.push("  - If user explicitly says 'reply in X language', obey immediately.");
+    sb.push(`HINGLISH TEMPORAL: aaj=${today}, kal/cal=tomorrow, parso/parson=day after tomorrow.`);
+    sb.push("TIME WORDS: subah=07:00-09:00, dopahar=12:00-14:00, shaam=17:00-19:00, raat=21:00-22:00.");
+    sb.push("Convert times to 24h HH:mm: '5pm'→'17:00', '3:30 baje'→'15:30'.");
+    sb.push("VOICE-TO-TEXT NOISE: input often has misspellings. Interpret by MEANING. Fix silently; don't echo errors.");
+    sb.push("");
+  } else {
+    sb.push("RULE 2 — UNIVERSAL LANGUAGE:");
+    sb.push("Understand ANY language natively — Hindi, Hinglish, English, Spanish, etc.");
+    sb.push(`HINGLISH TEMPORAL: aaj=${today}, kal/cal=tomorrow, parso/parson=day after tomorrow.`);
+    sb.push("TIME WORDS: subah=07:00-09:00, dopahar=12:00-14:00, shaam=17:00-19:00, raat=21:00-22:00.");
+    sb.push("Convert times to 24h HH:mm: '5pm'→'17:00', '3:30 baje'→'15:30'.");
+    sb.push("VOICE-TO-TEXT NOISE: input often has misspellings, missing punctuation, wrong word breaks, broken grammar. Interpret by MEANING, not literal spelling. Phonetic variants = same word (jaana/jana, gym/jim, shaam/sham/saam, kharidna/karidna). Fix silently; don't echo errors into title.");
+    sb.push("");
+  }
 
   // RULE 3 — Tags
   sb.push("RULE 3 — MANDATORY TAGS (MOST IMPORTANT):");
@@ -248,6 +265,16 @@ export function buildSystemPrompt(opts: {
   sb.push("  'doctor appointment at 5pm' → description='Regular health checkup appointment'");
   sb.push("  'presentation ready karna boss ke liye' → description='Boss ke liye project presentation slides aur data tayyar karna'");
   sb.push("");
+
+  if (isV2) {
+    // Habit and Event Inference
+    sb.push("RULE 11 — HABIT AND EVENT INFERENCE:");
+    sb.push("Automatically detect if a task is a habit or an event and set the respective parameters (is_habit, is_event, event_icon, event_color):");
+    sb.push("  - HABIT (is_habit=true): User wants to build a routine or track a streak. Examples: 'I want to start reading every day', 'Track my gym habit', 'Daily meditation'. NOTE: Habits MUST NOT be rollover. If user doesn't specify recurrence, leave recurrence blank (the app defaults it to daily).");
+    sb.push("  - EVENT (is_event=true): A specific occasion, meeting, party, show, or appointment that is NOT actionable work (e.g., 'Doctor appointment at 5pm', 'Birthday party tonight', 'Flight to Delhi'). Events do not recur unless explicitly requested.");
+    sb.push("  - EVENT STYLING: If is_event=true, ALWAYS guess an appropriate emoji for event_icon (e.g., 🎂, ✈️, 🎬) and a vibrant hex color for event_color (e.g., #FF6D00, #2196F3).");
+    sb.push("");
+  }
 
   // RULE 9 — Intent detection
   sb.push("RULE 9 — INTENT DETECTION (CRITICAL):");

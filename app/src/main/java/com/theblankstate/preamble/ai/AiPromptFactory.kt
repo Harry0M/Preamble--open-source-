@@ -92,12 +92,17 @@ object AiPromptFactory {
         sb.appendLine()
 
         // Language
-        sb.appendLine("RULE 2 — UNIVERSAL LANGUAGE:")
-        sb.appendLine("Understand ANY language natively — Hindi, Hinglish, English, Spanish, etc.")
+        sb.appendLine("RULE 2 — UNIVERSAL LANGUAGE & SCRIPT AWARENESS:")
+        sb.appendLine("Understand ANY language natively. You MUST generate the title, description, and subtasks in the EXACT SAME LANGUAGE and SCRIPT that the user used. Examples:")
+        sb.appendLine("  - If user types in Hinglish ('kya haal hai'), respond in Hinglish.")
+        sb.appendLine("  - If user types in Devanagari Hindi ('कैसे हो'), respond in Devanagari Hindi.")
+        sb.appendLine("  - If user types in Chinese characters ('買菜'), respond using Chinese characters.")
+        sb.appendLine("  - If user types in Japanese ('買い物'), respond in Japanese script.")
+        sb.appendLine("  - If user explicitly says 'reply in X language', obey immediately.")
         sb.appendLine("HINGLISH TEMPORAL: aaj=$today, kal/cal=tomorrow, parso/parson=day after tomorrow.")
         sb.appendLine("TIME WORDS: subah=07:00-09:00, dopahar=12:00-14:00, shaam=17:00-19:00, raat=21:00-22:00.")
         sb.appendLine("Convert times to 24h HH:mm: '5pm'→'17:00', '3:30 baje'→'15:30'.")
-        sb.appendLine("VOICE-TO-TEXT NOISE: input often has misspellings, missing punctuation, wrong word breaks, broken grammar. Interpret by MEANING, not literal spelling. Phonetic variants = same word (jaana/jana, gym/jim, shaam/sham/saam, kharidna/karidna). Fix silently; don't echo errors into title.")
+        sb.appendLine("VOICE-TO-TEXT NOISE: input often has misspellings. Interpret by MEANING. Fix silently; don't echo errors.")
         sb.appendLine()
 
         // Tags — MANDATORY
@@ -229,6 +234,14 @@ object AiPromptFactory {
         sb.appendLine("  'trip pe jaana with camping items' → description='Camping trip ke liye saaman pack karna hai'")
         sb.appendLine("  'doctor appointment at 5pm' → description='Regular health checkup appointment'")
         sb.appendLine("  'presentation ready karna boss ke liye' → description='Boss ke liye project presentation slides aur data tayyar karna'")
+        sb.appendLine()
+
+        // Habit and Event Inference
+        sb.appendLine("RULE 11 — HABIT AND EVENT INFERENCE:")
+        sb.appendLine("Automatically detect if a task is a habit or an event and set the respective parameters (is_habit, is_event, event_icon, event_color):")
+        sb.appendLine("  - HABIT (is_habit=true): User wants to build a routine or track a streak. Examples: 'I want to start reading every day', 'Track my gym habit', 'Daily meditation'. NOTE: Habits MUST NOT be rollover. If user doesn't specify recurrence, leave recurrence blank (the app defaults it to daily).")
+        sb.appendLine("  - EVENT (is_event=true): A specific occasion, meeting, party, show, or appointment that is NOT actionable work (e.g., 'Doctor appointment at 5pm', 'Birthday party tonight', 'Flight to Delhi'). Events do not recur unless explicitly requested.")
+        sb.appendLine("  - EVENT STYLING: If is_event=true, ALWAYS guess an appropriate emoji for event_icon (e.g., 🎂, ✈️, 🎬) and a vibrant hex color for event_color (e.g., #FF6D00, #2196F3).")
         sb.appendLine()
 
         // Intent detection + robustness

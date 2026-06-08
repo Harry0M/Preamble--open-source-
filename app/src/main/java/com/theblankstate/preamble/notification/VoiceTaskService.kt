@@ -448,7 +448,11 @@ class VoiceTaskService : Service() {
         tags: String?,
         priority: Int,
         recurrence: String? = null,
-        description: String? = null
+        description: String? = null,
+        isHabit: Boolean = false,
+        isEvent: Boolean = false,
+        eventIcon: String? = null,
+        eventColor: String? = null
     ) {
         val existing = app.repository.getTaskById(taskId) ?: return
         val today = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date())
@@ -461,6 +465,10 @@ class VoiceTaskService : Service() {
             priority = priority,
             description = description ?: existing.description,
             recurrenceType = validRecurrence ?: existing.recurrenceType,
+            isHabit = isHabit,
+            isEvent = isEvent,
+            eventIcon = eventIcon,
+            eventColor = eventColor,
             isSyncing = false,
             updatedTimestamp = System.currentTimeMillis()
         )
@@ -570,7 +578,11 @@ class VoiceTaskService : Service() {
         tags: String? = null,
         priority: Int = 0,
         recurrence: String? = null,
-        description: String? = null
+        description: String? = null,
+        isHabit: Boolean = false,
+        isEvent: Boolean = false,
+        eventIcon: String? = null,
+        eventColor: String? = null
     ): String? {
         var localTaskCreated = false
         var createdTaskId: String? = null
@@ -597,7 +609,11 @@ class VoiceTaskService : Service() {
                     source = "google_tasks",
                     tags = tags,
                     description = description,
-                    recurrenceType = validRecurrence
+                    recurrenceType = validRecurrence,
+                    isHabit = isHabit,
+                    isEvent = isEvent,
+                    eventIcon = eventIcon,
+                    eventColor = eventColor
                 )
                 app.repository.insertTask(localTask)
                 if (tags != null) {
@@ -622,7 +638,11 @@ class VoiceTaskService : Service() {
                 priority = priority,
                 tags = tags,
                 description = description,
-                recurrenceType = validRecurrence
+                recurrenceType = validRecurrence,
+                isHabit = isHabit,
+                isEvent = isEvent,
+                eventIcon = eventIcon,
+                eventColor = eventColor
             )
             app.repository.insertTask(localTask)
             if (tags != null) {

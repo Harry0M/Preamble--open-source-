@@ -106,7 +106,11 @@ object TaskTools {
                 ToolParam("recurrence", "string", "Recurrence pattern: daily, weekly, monthly, yearly. Only set if user explicitly requests repetition.", required = false),
                 ToolParam("rollover", "boolean", "True = task stays sticky day-to-day until completed. False = one-time task for that date only. Follow RULE 5B decision tree. If unsure, omit and let heuristic decide.", required = false),
                 ToolParam("subtasks", "string", "Comma-separated list of subtask items. Only when user mentions 3+ related items/steps. Example: 'Blue color,Yellow color,Pink color' or 'Lamp,Stove,Tent,Powerbank'. Do NOT create subtasks for simple single tasks.", required = false),
-                ToolParam("description", "string", "Brief 1-2 sentence description providing context about the task. Always generate this. Example: 'Bazaar se art supplies kharidne hain' or 'Regular health checkup appointment'. Use same language as user.", required = false)
+                ToolParam("description", "string", "Brief 1-2 sentence description providing context about the task. Always generate this. Example: 'Bazaar se art supplies kharidne hain' or 'Regular health checkup appointment'. Use same language as user.", required = false),
+                ToolParam("is_habit", "boolean", "True if user wants to build a habit/streak. False otherwise.", required = false),
+                ToolParam("is_event", "boolean", "True if this is a time-bound occasion/event to attend, not actionable work. False otherwise.", required = false),
+                ToolParam("event_icon", "string", "If is_event=true, an emoji representing the event. Otherwise omit.", required = false),
+                ToolParam("event_color", "string", "If is_event=true, a hex color code representing the event's vibe. Otherwise omit.", required = false)
             )
         ),
         AiTool(
@@ -168,7 +172,12 @@ object TaskTools {
                 val priority = call.arguments["priority"]?.toIntOrNull() ?: 0
                 val tags = call.arguments["tags"]
                 val description = call.arguments["description"]
-                val recurrence = call.arguments["recurrence"]?.takeIf { it.isNotBlank() }
+                val isHabit = call.arguments["is_habit"]?.lowercase()?.let { it == "true" || it == "1" } ?: false
+                val isEvent = call.arguments["is_event"]?.lowercase()?.let { it == "true" || it == "1" } ?: false
+                val eventIcon = call.arguments["event_icon"]
+                val eventColor = call.arguments["event_color"]
+                val recurrenceArg = call.arguments["recurrence"]?.takeIf { it.isNotBlank() }
+                val recurrence = if (isHabit && recurrenceArg == null) "daily" else recurrenceArg
                 val subtasksList = parseSubtasks(call.arguments["subtasks"])
                 if (date != null && !isValidDate(date)) return "Error: invalid date format '$date', expected YYYY-MM-DD"
                 if (deadlineTime != null && !isValidTime(deadlineTime)) return "Error: invalid time format '$deadlineTime', expected HH:mm"
@@ -192,7 +201,11 @@ object TaskTools {
                         description = description,
                         recurrenceType = recurrence,
                         tags = tags,
-                        subtasks = subtasksList
+                        subtasks = subtasksList,
+                        isHabit = isHabit,
+                        isEvent = isEvent,
+                        eventIcon = eventIcon,
+                        eventColor = eventColor
                     )
                 } else if (rollover) {
                     viewModel.addRecurringTask(
@@ -203,10 +216,14 @@ object TaskTools {
                         description = description,
                         recurrenceType = "rollover",
                         tags = tags,
-                        subtasks = subtasksList
+                        subtasks = subtasksList,
+                        isHabit = isHabit, // Just in case, though isHabit forces recurrence="daily" so this branch is rarely hit for habits
+                        isEvent = isEvent,
+                        eventIcon = eventIcon,
+                        eventColor = eventColor
                     )
                 } else {
-                    viewModel.addTask(title, date = date, deadlineTime = deadlineTime, priority = priority, tags = tags, description = description, subtasks = subtasksList)
+                    viewModel.addTask(title, date = date, deadlineTime = deadlineTime, priority = priority, tags = tags, description = description, subtasks = subtasksList, isHabit = isHabit, isEvent = isEvent, eventIcon = eventIcon, eventColor = eventColor)
                 }
                 "Task \"$title\" added successfully" +
                         (if (date != null) " for $date" else "") +
