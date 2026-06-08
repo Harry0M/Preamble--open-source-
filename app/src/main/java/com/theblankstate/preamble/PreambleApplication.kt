@@ -1,6 +1,7 @@
 package com.theblankstate.preamble
 
 import android.app.Application
+import android.content.Context
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -33,11 +34,27 @@ class PreambleApplication : Application() {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     val database by lazy { PreambleDatabase.getInstance(this) }
-    val syncManager by lazy { FirebaseTaskSyncManager(this, database.taskDao()) }
+    val syncManager: FirebaseTaskSyncManager? by lazy {
+        if (isMainProcess(this)) FirebaseTaskSyncManager(this, database.taskDao()) else null
+    }
     val repository by lazy { TaskRepository(database.taskDao(), syncManager, database.focusSessionDao()) }
 
     override fun onCreate() {
         super.onCreate()
+
+        // 1. Process Verification: Only initialize heavy SDKs and Firestore in the Main process.
+        // This prevents SQLiteDatabaseLockedException when OEM battery savers start background processes.
+        if (!isMainProcess(this)) {
+            android.util.Log.i("PreambleApp", "Secondary process started, skipping heavy initialization.")
+            // Do the bare minimum for notifications
+            TaskNotificationManager.createChannel(this)
+            com.theblankstate.preamble.notification.PreambleFcmService.createChannels(this)
+            return
+        }
+
+        // 2. Thread-Race Prevention: Enable offline persistence synchronously on the Main Thread FIRST
+        // before any Dispatchers.IO coroutines can attempt to initialize Firestore concurrently.
+        FirebaseTaskSyncManager.enableOfflinePersistence()
 
         // ── PostHog SDK initialization — full config ──
         // Yeh block PostHog ko configure karta hai with session replay,
@@ -74,8 +91,7 @@ class PreambleApplication : Application() {
         // Agar user already signed in hai, toh identify karo PostHog mein
         identifyCurrentUser()
 
-        FirebaseTaskSyncManager.enableOfflinePersistence()
-        syncManager.start()
+        syncManager?.start()
         TaskNotificationManager.createChannel(this)
         com.theblankstate.preamble.notification.PreambleFcmService.createChannels(this)
         persistFcmToken()
@@ -238,5 +254,20 @@ class PreambleApplication : Application() {
                 WidgetUpdater.refresh(this@PreambleApplication)
             }
         }
+    }
+
+    private fun isMainProcess(context: Context): Boolean {
+        try {
+            val pid = android.os.Process.myPid()
+            val manager = context.getSystemService(Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            for (processInfo in manager.runningAppProcesses ?: emptyList()) {
+                if (processInfo.pid == pid) {
+                    return processInfo.processName == context.packageName
+                }
+            }
+        } catch (e: Exception) {
+            // Ignore
+        }
+        return false
     }
 }
