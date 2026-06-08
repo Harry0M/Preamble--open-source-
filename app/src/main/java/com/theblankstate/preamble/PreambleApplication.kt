@@ -42,6 +42,35 @@ class PreambleApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // --- WORKAROUND FOR CURSOR WINDOW SIZE LIMIT ---
+        // Prevents "java.lang.IllegalStateException: Couldn't read row X, col Y from CursorWindow"
+        // when reading large JSON blobs (e.g., syncMetadataJson, large descriptions) by increasing the window size to 10MB.
+        try {
+            val field = android.database.CursorWindow::class.java.getDeclaredField("sCursorWindowSize")
+            field.isAccessible = true
+            field.set(null, 10 * 1024 * 1024) // 10MB
+        } catch (e: Exception) {
+            android.util.Log.w("PreambleApp", "Could not increase CursorWindow size", e)
+        }
+
+        // --- WORKAROUND FOR FIREBASE AUTH BACKGROUND CRASH ---
+        // Firebase Auth @@24.0.1 has a bug where an internal token refresh fails on a background thread
+        // with a FirebaseNetworkException, and it bubbles up and crashes the app.
+        // We catch it globally and ignore it if it's purely a network error from Firebase on a background thread.
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, exception ->
+            val isFirebaseNetworkError = exception.javaClass.name.contains("FirebaseNetworkException") ||
+                    exception.cause?.javaClass?.name?.contains("FirebaseNetworkException") == true ||
+                    (exception.message?.contains("A network error") == true && thread.name.contains("ThreadPool"))
+            
+            if (isFirebaseNetworkError) {
+                android.util.Log.e("PreambleApp", "Caught internal FirebaseNetworkException on thread ${thread.name}, preventing fatal crash.", exception)
+                return@setDefaultUncaughtExceptionHandler
+            }
+            // Otherwise, pass to default handler (Crashlytics, etc.)
+            defaultHandler?.uncaughtException(thread, exception)
+        }
+
         // 1. Process Verification: Only initialize heavy SDKs and Firestore in the Main process.
         // This prevents SQLiteDatabaseLockedException when OEM battery savers start background processes.
         if (!isMainProcess(this)) {
@@ -72,7 +101,7 @@ class PreambleApplication : Application() {
             // Session replay config — sensitive content mask karo by default
             sessionReplayConfig.maskAllTextInputs = true   // Saare text inputs mask honge
             sessionReplayConfig.maskAllImages = false       // Images dikhao (non-sensitive)
-            // Feature flags preload karo app start pe — A/B test flags turant available hongi
+            // Feature flags preload karo app start pe — A/B test flags turant available honge
             preloadFeatureFlags = true
             // Debug mode sirf debug builds mein (verbose logging)
             debug = BuildConfig.DEBUG

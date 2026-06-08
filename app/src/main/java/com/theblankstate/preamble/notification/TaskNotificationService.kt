@@ -47,7 +47,6 @@ import kotlinx.coroutines.launch
 class TaskNotificationService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private var isRunning = false
 
     // Cache the latest task data so we can rebuild the notification instantly
     private var lastPendingCount = 0
@@ -67,7 +66,7 @@ class TaskNotificationService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val action = intent?.action
-        Log.d(TAG, "onStartCommand action=$action isRunning=$isRunning")
+        Log.d(TAG, "onStartCommand action=$action isRunning=$isServiceRunning")
 
         // If user explicitly disabled notification in settings, stop ourselves
         if (!isNotificationPreferenceEnabled()) {
@@ -87,16 +86,21 @@ class TaskNotificationService : Service() {
         // Initial start and explicit re-show (after dismiss) bypass the RemoteInput grace.
         // Subsequent calls (e.g. KeepAlive ping while service alive) respect grace so they
         // don't kill an open Quick Add input.
-        val bypassGrace = !isRunning || action == ACTION_RESHOW || action == ACTION_QUICK_ADD_ACK
-        val forceStartForeground = !isRunning || action == ACTION_RESHOW
-        promoteToForeground(
+        val bypassGrace = !isServiceRunning || action == ACTION_RESHOW || action == ACTION_QUICK_ADD_ACK
+        val forceStartForeground = !isServiceRunning || action == ACTION_RESHOW
+        val success = promoteToForeground(
             buildNotification(lastPendingCount, lastPendingTasks),
             bypassGrace = bypassGrace,
             forceStartForeground = forceStartForeground
         )
 
-        if (!isRunning) {
-            isRunning = true
+        if (!success) {
+            Log.w(TAG, "Failed to start foreground properly, stopping service to prevent crash.")
+            return START_NOT_STICKY
+        }
+
+        if (!isServiceRunning) {
+            isServiceRunning = true
             startTaskObserver()
             Log.d(TAG, "Observers started")
         }
@@ -151,7 +155,7 @@ class TaskNotificationService : Service() {
         notification: Notification,
         bypassGrace: Boolean = false,
         forceStartForeground: Boolean = false
-    ) {
+    ): Boolean {
         // Single chokepoint: any non-bypass post during the RemoteInput grace window
         // is suppressed and a deferred rebuild is queued. Prevents the open Quick Add
         // input field from being closed mid-typing by spurious notification rebuilds.
@@ -160,11 +164,11 @@ class TaskNotificationService : Service() {
             if (timeSinceInput < REMOTE_INPUT_GRACE_PERIOD_MS) {
                 val remaining = REMOTE_INPUT_GRACE_PERIOD_MS - timeSinceInput
                 Log.d(TAG, "Suppressed rebuild — RemoteInput grace active (${remaining}ms left, no deferred repost)")
-                return
+                return true
             }
         }
         try {
-            val shouldStartForeground = forceStartForeground || !isRunning
+            val shouldStartForeground = forceStartForeground || !isServiceRunning
             if (shouldStartForeground && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
                 ServiceCompat.startForeground(
                     this,
@@ -178,8 +182,14 @@ class TaskNotificationService : Service() {
                 getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
             }
             Log.d(TAG, if (shouldStartForeground) "Foreground posted" else "Notification updated")
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "promoteToForeground failed", e)
+            val shouldStartForeground = forceStartForeground || !isServiceRunning
+            if (shouldStartForeground) {
+                stopSelf()
+            }
+            return false
         }
     }
 
@@ -332,9 +342,9 @@ class TaskNotificationService : Service() {
         ).addRemoteInput(remoteInput).build()
 
         // Voice
-        val voiceIntent = PendingIntent.getService(
+        val voiceIntent = PendingIntent.getActivity(
             this, 2,
-            Intent(this, VoiceTaskService::class.java),
+            Intent(this, VoiceEntryActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val voiceAction = NotificationCompat.Action.Builder(
@@ -468,7 +478,7 @@ class TaskNotificationService : Service() {
 
     override fun onDestroy() {
         Log.d(TAG, "onDestroy")
-        isRunning = false
+        isServiceRunning = false
         serviceScope.cancel()
         // Only auto-restart if user hasn't disabled notification
         if (isNotificationPreferenceEnabled()) {
@@ -502,6 +512,10 @@ class TaskNotificationService : Service() {
 
     companion object {
         private const val TAG = "TaskNotifService"
+        
+        @Volatile
+        var isServiceRunning = false
+        
         private const val CHANNEL_ID = "preamble_tasks_persistent"
         private const val PREFS_NAME = "preamble_prefs"
         private const val PREF_NOTIFICATION_ENABLED = "notification_enabled"
@@ -529,6 +543,7 @@ class TaskNotificationService : Service() {
         }
 
         fun start(context: Context) {
+            if (isServiceRunning) return
             val intent = Intent(context, TaskNotificationService::class.java)
             startServiceSafely(context, intent, "start()")
         }

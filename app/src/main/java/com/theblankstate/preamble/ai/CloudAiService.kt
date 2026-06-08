@@ -217,7 +217,7 @@ object CloudAiService {
 
     /** Get credit balance from server */
     suspend fun getBalance(): CreditBalance? = withContext(Dispatchers.IO) {
-        val token = getAuthToken() ?: return@withContext null
+        val token = runCatching { getAuthToken() }.getOrNull() ?: return@withContext null
         val request = Request.Builder()
             .url("$BASE_URL/aiCreditsBalance")
             .addHeader("Authorization", "Bearer $token")
@@ -239,7 +239,7 @@ object CloudAiService {
 
     /** Reward credits after ad watch */
     suspend fun rewardCredits(): RewardResult? = withContext(Dispatchers.IO) {
-        val token = getAuthToken() ?: return@withContext null
+        val token = runCatching { getAuthToken() }.getOrNull() ?: return@withContext null
         val request = Request.Builder()
             .url("$BASE_URL/aiCreditsReward")
             .addHeader("Authorization", "Bearer $token")
@@ -272,7 +272,7 @@ object CloudAiService {
         subtaskIntensity: Int = 0,
         isNotificationEdit: Boolean = false,
     ): ParseTaskResult? = withContext(Dispatchers.IO) {
-        val token = getAuthToken() ?: return@withContext null
+        val token = runCatching { getAuthToken() }.getOrNull() ?: return@withContext null
 
         val body = JSONObject().apply {
             put("text", rawText)

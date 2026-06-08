@@ -53,11 +53,11 @@ object NotificationKeepAliveScheduler {
             try {
                 alarmManager.setAlarmClock(info, firePendingIntent)
                 Log.d(TAG, "Vivo: keep-alive via setAlarmClock (guaranteed fire)")
-            } catch (e: SecurityException) {
+            } catch (e: Exception) {
                 // Some Vivo/Funtouch OS builds (especially Android 12) enforce
                 // SCHEDULE_EXACT_ALARM even for setAlarmClock — non-AOSP behaviour.
-                // Fall back to inexact alarm so the app doesn't crash on launch.
-                Log.w(TAG, "Vivo setAlarmClock SecurityException, falling back to inexact", e)
+                // Also catches IllegalStateException (Maximum 500 alarms limit).
+                Log.w(TAG, "Vivo setAlarmClock exception, falling back to inexact", e)
                 try {
                     alarmManager.setAndAllowWhileIdle(
                         AlarmManager.RTC_WAKEUP,
@@ -70,27 +70,31 @@ object NotificationKeepAliveScheduler {
             }
         } else {
             val triggerAt = SystemClock.elapsedRealtime() + intervalMs
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
-                alarmManager.setAndAllowWhileIdle(
-                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                    triggerAt,
-                    firePendingIntent
-                )
-                Log.w(TAG, "Exact alarms not allowed, using inexact keep-alive")
-            } else {
-                try {
-                    alarmManager.setExactAndAllowWhileIdle(
-                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
-                        triggerAt,
-                        firePendingIntent
-                    )
-                } catch (e: SecurityException) {
-                    Log.w(TAG, "setExactAndAllowWhileIdle SecurityException, using inexact", e)
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
                     alarmManager.setAndAllowWhileIdle(
                         AlarmManager.ELAPSED_REALTIME_WAKEUP,
                         triggerAt,
                         firePendingIntent
                     )
+                    Log.w(TAG, "Exact alarms not allowed, using inexact keep-alive")
+                } else {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                        triggerAt,
+                        firePendingIntent
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "setExact/setAndAllow exception (e.g., 500 limit), using inexact fallback", e)
+                try {
+                    alarmManager.setAndAllowWhileIdle(
+                        AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                        triggerAt,
+                        firePendingIntent
+                    )
+                } catch (e2: Exception) {
+                    Log.e(TAG, "All alarm methods failed", e2)
                 }
             }
         }

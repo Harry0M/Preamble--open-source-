@@ -49,16 +49,17 @@ class VoiceTaskService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        createVoiceChannel()
-        startForegroundService()
-        
         val textCommand = intent?.getStringExtra(EXTRA_TEXT_COMMAND)
         val existingTaskId = intent?.getStringExtra(EXTRA_TASK_ID)
         val isNotification = intent?.getBooleanExtra(EXTRA_IS_NOTIFICATION, false) ?: false
+        val isVoice = textCommand.isNullOrBlank()
 
-        if (!textCommand.isNullOrBlank()) {
+        createVoiceChannel()
+        startForegroundService(isVoice)
+        
+        if (!isVoice) {
             // Text command from notification or external source
-            saveTask(textCommand, existingTaskId, isNotification)
+            saveTask(textCommand!!, existingTaskId, isNotification)
         } else {
             // Voice mode: listen via microphone
             startListening()
@@ -79,21 +80,30 @@ class VoiceTaskService : Service() {
         manager.createNotificationChannel(channel)
     }
 
-    private fun startForegroundService() {
+    private fun startForegroundService(isVoice: Boolean) {
         val notification = NotificationCompat.Builder(this, VOICE_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Listening...")
-            .setContentText("Preamble is recording your voice task")
+            .setContentTitle(if (isVoice) "Listening..." else "Saving Task...")
+            .setContentText(if (isVoice) "Preamble is recording your voice task" else "Please wait")
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setSilent(true)
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(
-                VOICE_NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            )
+            val type = if (isVoice) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 2048 // FOREGROUND_SERVICE_TYPE_SHORT_SERVICE
+            try {
+                startForeground(VOICE_NOTIFICATION_ID, notification, type)
+            } catch (e: Exception) {
+                Log.w("VoiceTaskService", "startForeground with SHORT_SERVICE failed, trying SPECIAL_USE", e)
+                try {
+                    startForeground(VOICE_NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+                } catch (e2: Exception) {
+                    startForeground(VOICE_NOTIFICATION_ID, notification)
+                }
+            }
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val type = if (isVoice) ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE else 0
+            startForeground(VOICE_NOTIFICATION_ID, notification, type)
         } else {
             startForeground(VOICE_NOTIFICATION_ID, notification)
         }

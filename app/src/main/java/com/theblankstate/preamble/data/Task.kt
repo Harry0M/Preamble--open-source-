@@ -39,7 +39,7 @@ data class Subtask(
 data class Reminder(
     val minutesBefore: Int? = null,    // e.g. 10 = "10 min before"
     val epochMs: Long? = null,         // Exact trigger time (for calendar date reminders)
-    val type: String = "before"        // "before" or "exact"
+    val type: String? = "before"       // "before" or "exact"
 ) {
     companion object {
         const val MAX_REMINDERS = 5
@@ -86,17 +86,20 @@ data class Reminder(
     }
 
     /** Display text for the UI */
-    fun displayText(): String = when {
-        type == "exact" && epochMs != null -> {
-            val sdf = java.text.SimpleDateFormat("MMM dd, hh:mm a", java.util.Locale.getDefault())
-            sdf.format(java.util.Date(epochMs))
+    fun displayText(): String {
+        val safeType = type ?: "before"
+        return when {
+            safeType == "exact" && epochMs != null -> {
+                val sdf = java.text.SimpleDateFormat("MMM dd, hh:mm a", java.util.Locale.getDefault())
+                sdf.format(java.util.Date(epochMs))
+            }
+            minutesBefore != null -> when {
+                minutesBefore < 60 -> "$minutesBefore min before"
+                minutesBefore < 1440 -> "${minutesBefore / 60} hour${if (minutesBefore / 60 > 1) "s" else ""} before"
+                else -> "${minutesBefore / 1440} day${if (minutesBefore / 1440 > 1) "s" else ""} before"
+            }
+            else -> "Reminder"
         }
-        minutesBefore != null -> when {
-            minutesBefore < 60 -> "$minutesBefore min before"
-            minutesBefore < 1440 -> "${minutesBefore / 60} hour${if (minutesBefore / 60 > 1) "s" else ""} before"
-            else -> "${minutesBefore / 1440} day${if (minutesBefore / 1440 > 1) "s" else ""} before"
-        }
-        else -> "Reminder"
     }
 }
 
@@ -208,7 +211,9 @@ data class Task(
         } else null
 
         return reminders.mapIndexedNotNull { index, reminder ->
-            val triggerMs = when (reminder.type) {
+            if (reminder == null) return@mapIndexedNotNull null
+            val safeType = reminder.type ?: "before"
+            val triggerMs = when (safeType) {
                 "exact" -> reminder.epochMs
                 "before" -> {
                     if (baseMs != null && reminder.minutesBefore != null) {

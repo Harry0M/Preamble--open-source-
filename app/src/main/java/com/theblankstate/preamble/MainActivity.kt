@@ -59,6 +59,9 @@ class MainActivity : ComponentActivity() {
     /** Set true when the launch (or new) intent asks us to open the Weekly Recap. */
     private val _openRecap = mutableStateOf(false)
 
+    /** Set true when VoiceEntryActivity redirects here to ask for mic permission */
+    private val _requestMicPermission = mutableStateOf(false)
+
     private lateinit var inAppUpdateManager: com.theblankstate.preamble.util.InAppUpdateManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -75,6 +78,10 @@ class MainActivity : ComponentActivity() {
         // Weekly Recap deep-link from notification
         if (intent.getBooleanExtra(com.theblankstate.preamble.notification.WeeklyRecapReceiver.EXTRA_OPEN_RECAP, false)) {
             _openRecap.value = true
+        }
+
+        if (intent.action == "REQUEST_MIC_PERMISSION") {
+            _requestMicPermission.value = true
         }
 
         // PostHog: Agar FCM notification se app khula hai, click track karo
@@ -180,6 +187,31 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         }
+
+                        val requestMic by _requestMicPermission
+                        if (requestMic) {
+                            androidx.compose.material3.AlertDialog(
+                                onDismissRequest = { _requestMicPermission.value = false },
+                                title = { androidx.compose.material3.Text("Microphone Permission Required") },
+                                text = { androidx.compose.material3.Text("To use the voice task feature from the notification, please enable the microphone permission in app settings.") },
+                                confirmButton = {
+                                    androidx.compose.material3.TextButton(onClick = {
+                                        _requestMicPermission.value = false
+                                        val settingsIntent = Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                            data = android.net.Uri.fromParts("package", packageName, null)
+                                        }
+                                        startActivity(settingsIntent)
+                                    }) {
+                                        androidx.compose.material3.Text("Go to Settings")
+                                    }
+                                },
+                                dismissButton = {
+                                    androidx.compose.material3.TextButton(onClick = { _requestMicPermission.value = false }) {
+                                        androidx.compose.material3.Text("Cancel")
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -193,6 +225,9 @@ class MainActivity : ComponentActivity() {
         }
         if (intent.getBooleanExtra(com.theblankstate.preamble.notification.WeeklyRecapReceiver.EXTRA_OPEN_RECAP, false)) {
             _openRecap.value = true
+        }
+        if (intent.action == "REQUEST_MIC_PERMISSION") {
+            _requestMicPermission.value = true
         }
         // PostHog: Agar FCM notification se naya intent aaya, click track karo
         trackCampaignClickIfPresent(intent)

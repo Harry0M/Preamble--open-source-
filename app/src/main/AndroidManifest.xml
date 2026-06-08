@@ -51,6 +51,11 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
+        <activity
+            android:name=".notification.VoiceEntryActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <receiver
             android:name=".notification.NotificationReceiver"
             android:exported="true">
@@ -124,7 +129,7 @@
         <service
             android:name=".notification.VoiceTaskService"
             android:exported="false"
-            android:foregroundServiceType="microphone" />
+            android:foregroundServiceType="microphone|shortService|specialUse" />
 
         <service
             android:name=".notification.TaskNotificationService"
