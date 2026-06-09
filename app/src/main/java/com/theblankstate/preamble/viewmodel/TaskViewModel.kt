@@ -129,7 +129,19 @@ class TaskViewModel(
 
     init {
         refreshAdminTasks()
-        refreshHabitStreaks()
+        viewModelScope.launch {
+            repository.getAllHabitTasksFlow().collect { habitTasks ->
+                try {
+                    val streaks = mutableMapOf<String, TaskRepository.HabitStreakData>()
+                    for (task in habitTasks) {
+                        streaks[task.id] = repository.getHabitStreakData(task)
+                    }
+                    _habitStreaks.value = streaks
+                } catch (e: Exception) {
+                    android.util.Log.e("TaskViewModel", "Failed to update habit streaks reactively", e)
+                }
+            }
+        }
     }
 
     fun refreshAdminTasks() {

@@ -110,7 +110,9 @@ object TaskTools {
                 ToolParam("is_habit", "boolean", "True if user wants to build a habit/streak. False otherwise.", required = false),
                 ToolParam("is_event", "boolean", "True if this is a time-bound occasion/event to attend, not actionable work. False otherwise.", required = false),
                 ToolParam("event_icon", "string", "If is_event=true, an emoji representing the event. Otherwise omit.", required = false),
-                ToolParam("event_color", "string", "If is_event=true, a hex color code representing the event's vibe. Otherwise omit.", required = false)
+                ToolParam("event_color", "string", "If is_event=true, a hex color code representing the event's vibe. Otherwise omit.", required = false),
+                ToolParam("recurrence_interval", "integer", "Number of units between recurrences (e.g. 'every 2 days' -> interval=2, recurrence=daily). Default is 1.", required = false),
+                ToolParam("recurrence_days", "string", "Comma-separated list of day numbers (Sunday=1, Monday=2, ... Saturday=7) for weekly recurrence. E.g. '2,4' for Monday and Wednesday.", required = false)
             )
         ),
         AiTool(
@@ -164,6 +166,7 @@ object TaskTools {
         viewModel: TaskViewModel,
         todayTasks: List<Task>
     ): String {
+        android.util.Log.d("PreambleAI", "TaskTools.execute: name=${call.name}, args=${call.arguments}")
         return when (call.name) {
             "add_task" -> {
                 val title = call.arguments["title"] ?: return "Error: title is required"
@@ -178,6 +181,8 @@ object TaskTools {
                 val eventColor = call.arguments["event_color"]
                 val recurrenceArg = call.arguments["recurrence"]?.takeIf { it.isNotBlank() }
                 val recurrence = if (isHabit && recurrenceArg == null) "daily" else recurrenceArg
+                val recurrenceInterval = call.arguments["recurrence_interval"]?.toIntOrNull() ?: 1
+                val recurrenceDays = call.arguments["recurrence_days"]?.takeIf { it.isNotBlank() }
                 val subtasksList = parseSubtasks(call.arguments["subtasks"])
                 if (date != null && !isValidDate(date)) return "Error: invalid date format '$date', expected YYYY-MM-DD"
                 if (deadlineTime != null && !isValidTime(deadlineTime)) return "Error: invalid time format '$deadlineTime', expected HH:mm"
@@ -200,6 +205,8 @@ object TaskTools {
                         priority = priority,
                         description = description,
                         recurrenceType = recurrence,
+                        recurrenceInterval = recurrenceInterval,
+                        recurrenceDays = recurrenceDays,
                         tags = tags,
                         subtasks = subtasksList,
                         isHabit = isHabit,

@@ -177,6 +177,7 @@ class AiParsingWorker(
         args: Map<String, String>,
         today: String,
     ) {
+        Log.d(TAG, "applyParsedTask: taskId=$taskId, args=$args")
         val rawText = task.title
         val refinedTitle = args["title"] ?: rawText
         val date = args["date"]
@@ -186,16 +187,26 @@ class AiParsingWorker(
         val recurrence = args["recurrence"]
         val description = args["description"]
         val subtasksList = TaskTools.parseSubtasks(args["subtasks"])
+        val isHabit = args["is_habit"]?.lowercase()?.let { it == "true" || it == "1" } ?: false
+        val isEvent = args["is_event"]?.lowercase()?.let { it == "true" || it == "1" } ?: false
+        val eventIcon = args["event_icon"]
+        val eventColor = args["event_color"]
+        val recurrenceInterval = args["recurrence_interval"]?.toIntOrNull() ?: 1
+        val recurrenceDays = args["recurrence_days"]?.takeIf { it.isNotBlank() }
+
         val validRecurrence = recurrence?.takeIf { it in listOf("daily", "weekly", "monthly", "yearly") }
+        val effectiveRecurrenceCheck = if (isHabit && validRecurrence == null) "daily" else validRecurrence
+
         val rolloverDecision = TaskTools.decideRollover(
             rolloverArg = args["rollover"],
             title = refinedTitle,
             date = date,
             deadlineTime = time,
-            recurrence = validRecurrence,
+            recurrence = effectiveRecurrenceCheck,
             today = today
         )
-        val effectiveRecurrence = validRecurrence ?: if (rolloverDecision) "rollover" else task.recurrenceType
+        val effectiveRecurrence = effectiveRecurrenceCheck ?: if (rolloverDecision) "rollover" else task.recurrenceType
+        val finalIsHabit = isHabit && effectiveRecurrence != null && effectiveRecurrence != "rollover"
 
         var updated = task.copy(
             title = refinedTitle,
@@ -205,6 +216,12 @@ class AiParsingWorker(
             priority = priority,
             description = description ?: task.description,
             recurrenceType = effectiveRecurrence,
+            recurrenceInterval = if (effectiveRecurrence != null && effectiveRecurrence != "rollover") recurrenceInterval else null,
+            recurrenceDays = if (effectiveRecurrence != null && effectiveRecurrence != "rollover") recurrenceDays else null,
+            isHabit = finalIsHabit,
+            isEvent = isEvent,
+            eventIcon = eventIcon,
+            eventColor = eventColor,
             isSyncing = false,
             updatedTimestamp = System.currentTimeMillis()
         )

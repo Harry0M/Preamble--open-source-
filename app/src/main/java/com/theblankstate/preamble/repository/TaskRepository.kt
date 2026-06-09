@@ -225,7 +225,8 @@ class TaskRepository(
         // Always fetch from DB to preserve all fields (recurrenceType etc.) that display
         // copies may have stripped for UI presentation in getTasksForDateWithRecurrence.
         // Without this, toggling a calendar display-copy writes recurrenceType=null to DB.
-        val dbTask = dao.getTaskById(task.id) ?: task
+        val isNew = dao.getTaskById(task.id) == null
+        val dbTask = if (isNew) task else dao.getTaskById(task.id)!!
         val isBecomingCompleted = !dbTask.isCompleted
         val updatedSubtasks = if (isBecomingCompleted) {
             dbTask.subtasks.map { it.copy(isCompleted = true) }
@@ -242,7 +243,11 @@ class TaskRepository(
             // Clear snooze when completing a snoozed task
             snoozedUntil = if (isBecomingCompleted) null else dbTask.snoozedUntil
         )
-        dao.updateTask(updated)
+        if (isNew) {
+            dao.insertTask(updated)
+        } else {
+            dao.updateTask(updated)
+        }
         syncManager?.pushTask(updated)
 
         // When completing a parent task, also complete all child subtask rows
@@ -1668,6 +1673,18 @@ class TaskRepository(
 
     suspend fun toggleHabit(taskId: String, isHabit: Boolean) {
         val task = dao.getTaskById(taskId) ?: return
+        val parentId = task.recurrenceParentId
+        if (parentId != null) {
+            val parentTask = dao.getTaskById(parentId)
+            if (parentTask != null) {
+                val updatedParent = parentTask.copy(
+                    isHabit = isHabit,
+                    updatedTimestamp = System.currentTimeMillis()
+                )
+                dao.updateTask(updatedParent)
+                syncManager?.pushTask(updatedParent)
+            }
+        }
         val updated = task.copy(
             isHabit = isHabit,
             updatedTimestamp = System.currentTimeMillis()
@@ -1731,6 +1748,10 @@ class TaskRepository(
 
     suspend fun getAllHabitTasks(): List<Task> {
         return dao.getAllHabitTasks()
+    }
+
+    fun getAllHabitTasksFlow(): Flow<List<Task>> {
+        return dao.getAllHabitTasksFlow()
     }
 }
 

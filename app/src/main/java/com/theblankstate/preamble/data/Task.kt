@@ -176,7 +176,7 @@ data class Task(
     val isGoogleTask: Boolean get() = source == "google_tasks"
     val isRecurrenceTemplate: Boolean get() = recurrenceType != null && recurrenceParentId == null
     val isRecurrenceInstance: Boolean get() = recurrenceParentId != null
-    val canBeHabit: Boolean get() = recurrenceType != null && parentTaskId == null && source == "local"
+    val canBeHabit: Boolean get() = recurrenceType != null && recurrenceType != "rollover" && parentTaskId == null && source == "local"
     val isSubtask: Boolean get() = parentTaskId != null
     // Calendar event type helpers
     val isHoliday: Boolean get() = eventType == "holiday"

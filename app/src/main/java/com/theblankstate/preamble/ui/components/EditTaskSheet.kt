@@ -208,7 +208,7 @@ fun EditTaskSheet(
                     recurrenceInterval = recurrenceInterval,
                     recurrenceDays = recurrenceDays,
                     recurrenceEndDate = recurrenceEndDate,
-                    onRecurrenceTypeChanged = { recurrenceType = it; if (it == null) { recurrenceInterval = 1; recurrenceDays = emptySet(); recurrenceEndDate = null } },
+                    onRecurrenceTypeChanged = { recurrenceType = it; if (it == null) { recurrenceInterval = 1; recurrenceDays = emptySet(); recurrenceEndDate = null; isHabit = false } },
                     onIntervalChanged = { recurrenceInterval = it },
                     onDaysChanged = { recurrenceDays = it },
                     onEndDateChanged = { recurrenceEndDate = it }
@@ -360,7 +360,7 @@ fun EditTaskSheet(
             }
 
             // Habit toggle section
-            if (task.canBeHabit && onToggleHabit != null) {
+            if (recurrenceType != null && recurrenceType != "rollover" && task.parentTaskId == null && task.source == "local" && onToggleHabit != null) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Surface(
                     shape = RoundedCornerShape(12.dp),

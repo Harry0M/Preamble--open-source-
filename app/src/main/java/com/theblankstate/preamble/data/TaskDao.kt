@@ -251,8 +251,11 @@ interface TaskDao {
     """)
     suspend fun getHabitCompletionHistory(taskId: String): List<HabitDayStatus>
 
-    @Query("SELECT * FROM tasks WHERE isHabit = 1 AND parentTaskId IS NULL")
+    @Query("SELECT * FROM tasks WHERE isHabit = 1 AND parentTaskId IS NULL AND recurrenceParentId IS NULL")
     suspend fun getAllHabitTasks(): List<Task>
+
+    @Query("SELECT * FROM tasks WHERE isHabit = 1 AND parentTaskId IS NULL AND recurrenceParentId IS NULL")
+    fun getAllHabitTasksFlow(): Flow<List<Task>>
 
     @Query("""
         SELECT * FROM tasks 

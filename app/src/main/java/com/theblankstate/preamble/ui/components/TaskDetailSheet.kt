@@ -669,6 +669,7 @@ fun TaskDetailSheet(
                             checked = recurrenceType == "rollover",
                             onCheckedChange = {
                                 recurrenceType = if (it) "rollover" else null
+                                isHabit = false
                             }
                         )
                     }
@@ -690,6 +691,7 @@ fun TaskDetailSheet(
                                 recurrenceInterval = 1
                                 recurrenceDays = emptySet()
                                 recurrenceEndDate = null
+                                isHabit = false
                             }
                         },
                         onIntervalChanged = { recurrenceInterval = it },
@@ -808,7 +810,7 @@ fun TaskDetailSheet(
             }
 
             // Habit toggle (local recurring/rollover tasks only)
-            if (recurrenceType != null && task.source == "local" && onToggleHabit != null) {
+            if (recurrenceType != null && recurrenceType != "rollover" && task.source == "local" && onToggleHabit != null) {
                 Spacer(modifier = Modifier.height(20.dp))
                 EditSection(title = "Habit", icon = Icons.Default.LocalFireDepartment) {
                     Row(

@@ -112,6 +112,8 @@ export const TASK_TOOLS_V2: ToolDef[] = TASK_TOOLS.map(t => {
           is_event: { type: "string", description: "true if this is a time-bound occasion/event to attend, not actionable work. false otherwise." },
           event_icon: { type: "string", description: "If is_event=true, an emoji representing the event. Otherwise omit." },
           event_color: { type: "string", description: "If is_event=true, a hex color code representing the event's vibe. Otherwise omit." },
+          recurrence_interval: { type: "string", description: "Number of units between recurrences (e.g. for 'every 2 days' or 'every after one day', set recurrence=daily and recurrence_interval=2). Default is 1." },
+          recurrence_days: { type: "string", description: "For weekly recurrence only. Comma-separated day numbers (Sunday=1, Monday=2, Tuesday=3, Wednesday=4, Thursday=5, Friday=6, Saturday=7). E.g. '2,4' for Mon and Wed. If user says 'twice a week' without specifying days, guess 2 logical days separated by 3-4 days (e.g. Monday and Thursday: '2,5')." },
         }
       }
     };

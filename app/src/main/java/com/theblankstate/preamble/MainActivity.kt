@@ -369,6 +369,7 @@ fun PreambleApp(
     val tasks by viewModel.todayTasks.collectAsState()
     val pastTasks by viewModel.pastTasks.collectAsState()
     val stats by viewModel.statsState.collectAsState()
+    val habitStreaks by viewModel.habitStreaks.collectAsState()
     val density = LocalDensity.current
     val isImeVisible = WindowInsets.ime.getBottom(density) > 0
     val showBottomBar = !(selectedTab == 3 && isImeVisible)
@@ -492,7 +493,7 @@ fun PreambleApp(
                 onDismissAdminTask = { viewModel.dismissAdminTask(it) },
                 onAdminTaskAction = { viewModel.adminTaskActioned(it) },
                 isSignedIn = AuthManager.isSignedIn(),
-                habitStreaks = viewModel.habitStreaks.collectAsState().value,
+                habitStreaks = habitStreaks,
                 modifier = Modifier.padding(innerPadding)
             )
             1 -> StatsScreenHost(
@@ -549,7 +550,8 @@ fun PreambleApp(
                                 viewModel.updateTask(task, task.title, task.createdDate, task.deadlineTime, task.priority, task.description, task.tags, newType, task.recurrenceInterval ?: 1, task.recurrenceDays, task.recurrenceEndDate)
                             }
                         } else null,
-                        isPastTask = isPast
+                        isPastTask = isPast,
+                        habitStreakData = habitStreaks[task.recurrenceParentId ?: task.id]
                     )
                 }
 

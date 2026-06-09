@@ -44,7 +44,7 @@ class RecurrenceWorker(
                 val exists = dao.instanceExistsForDate(template.id, date)
                 if (exists == 0) {
                     val instance = template.copy(
-                        id = UUID.randomUUID().toString(),
+                        id = RecurrenceGenerator.virtualInstanceId(template.id, date),
                         createdDate = date,
                         isCompleted = false,
                         completedTimestamp = null,
@@ -58,6 +58,7 @@ class RecurrenceWorker(
                         // remindersJson is inherited from template via copy()
                     )
                     dao.insertTask(instance)
+                    app.syncManager?.pushTask(instance)
                     // Schedule all reminders for this instance
                     if (instance.deadlineTime != null && !instance.isAlarmPaused) {
                         com.theblankstate.preamble.notification.TaskAlarmManager.scheduleReminders(

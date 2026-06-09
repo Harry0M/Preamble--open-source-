@@ -245,22 +245,32 @@ class VoiceTaskService : Service() {
                                     val recurrence = call.arguments["recurrence"]
                                     val description = call.arguments["description"]
                                     val subtasksList = com.theblankstate.preamble.ai.TaskTools.parseSubtasks(call.arguments["subtasks"])
+                                    
+                                    val isHabit = call.arguments["is_habit"]?.lowercase()?.let { it == "true" || it == "1" } ?: false
+                                    val isEvent = call.arguments["is_event"]?.lowercase()?.let { it == "true" || it == "1" } ?: false
+                                    val eventIcon = call.arguments["event_icon"]
+                                    val eventColor = call.arguments["event_color"]
+                                    val recurrenceInterval = call.arguments["recurrence_interval"]?.toIntOrNull() ?: 1
+                                    val recurrenceDays = call.arguments["recurrence_days"]?.takeIf { it.isNotBlank() }
 
                                     // Unified rollover decision (same as in-app path)
                                     val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date())
                                     val validRecurrenceCheck = recurrence?.takeIf { it in listOf("daily", "weekly", "monthly", "yearly") }
+                                    val effectiveRecurrenceCheck = if (isHabit && validRecurrenceCheck == null) "daily" else validRecurrenceCheck
+                                    
                                     val rolloverDecision = call.name == "add_task" && com.theblankstate.preamble.ai.TaskTools.decideRollover(
                                         rolloverArg = call.arguments["rollover"],
                                         title = taskTitle,
                                         date = date,
                                         deadlineTime = time,
-                                        recurrence = validRecurrenceCheck,
+                                        recurrence = effectiveRecurrenceCheck,
                                         today = todayStr
                                     )
                                     // Effective recurrenceType sent to DB: real recurrence wins, else "rollover" sentinel, else null
-                                    val effectiveRecurrence = validRecurrenceCheck ?: if (rolloverDecision) "rollover" else null
+                                    val effectiveRecurrence = effectiveRecurrenceCheck ?: if (rolloverDecision) "rollover" else null
+                                    val finalIsHabit = isHabit && effectiveRecurrence != null && effectiveRecurrence != "rollover"
 
-                                    Log.d("PreambleAI", "  Parsed: title='$taskTitle', date=$date, time=$time, tags=$tags, pri=$priority, desc=${description?.take(50)}, subtasks=${subtasksList.size}, rollover=$rolloverDecision, effRec=$effectiveRecurrence")
+                                    Log.d("PreambleAI", "  Parsed: title='$taskTitle', date=$date, time=$time, tags=$tags, pri=$priority, desc=${description?.take(50)}, subtasks=${subtasksList.size}, rollover=$rolloverDecision, effRec=$effectiveRecurrence, isHabit=$finalIsHabit, isEvent=$isEvent, interval=$recurrenceInterval, days=$recurrenceDays")
 
                                     // set_reminder from notification (only when feature is ON):
                                     // if an existing task matches the title, add the alarm to THAT task.
@@ -292,12 +302,12 @@ class VoiceTaskService : Service() {
 
                                     if (!handledAsReminderOnExisting) {
                                         if (existingTaskId != null) {
-                                            updateExistingTask(app, existingTaskId, taskTitle, date, time, tags, priority, effectiveRecurrence, description)
+                                            updateExistingTask(app, existingTaskId, taskTitle, date, time, tags, priority, effectiveRecurrence, description, isHabit = finalIsHabit, isEvent = isEvent, eventIcon = eventIcon, eventColor = eventColor, recurrenceInterval = recurrenceInterval, recurrenceDays = recurrenceDays)
                                             if (subtasksList.isNotEmpty()) {
                                                 app.repository.addSubtasks(existingTaskId, subtasksList)
                                             }
                                         } else {
-                                            val savedTaskId = saveInterpretedTask(app, taskTitle, date, time, tags, priority, effectiveRecurrence, description)
+                                            val savedTaskId = saveInterpretedTask(app, taskTitle, date, time, tags, priority, effectiveRecurrence, description, isHabit = finalIsHabit, isEvent = isEvent, eventIcon = eventIcon, eventColor = eventColor, recurrenceInterval = recurrenceInterval, recurrenceDays = recurrenceDays)
                                             if (savedTaskId != null && subtasksList.isNotEmpty()) {
                                                 app.repository.addSubtasks(savedTaskId, subtasksList)
                                             }
@@ -462,7 +472,9 @@ class VoiceTaskService : Service() {
         isHabit: Boolean = false,
         isEvent: Boolean = false,
         eventIcon: String? = null,
-        eventColor: String? = null
+        eventColor: String? = null,
+        recurrenceInterval: Int? = null,
+        recurrenceDays: String? = null
     ) {
         val existing = app.repository.getTaskById(taskId) ?: return
         val today = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(java.util.Date())
@@ -475,6 +487,8 @@ class VoiceTaskService : Service() {
             priority = priority,
             description = description ?: existing.description,
             recurrenceType = validRecurrence ?: existing.recurrenceType,
+            recurrenceInterval = if (validRecurrence != null && validRecurrence != "rollover") recurrenceInterval ?: existing.recurrenceInterval else null,
+            recurrenceDays = if (validRecurrence != null && validRecurrence != "rollover") recurrenceDays ?: existing.recurrenceDays else null,
             isHabit = isHabit,
             isEvent = isEvent,
             eventIcon = eventIcon,
@@ -592,7 +606,9 @@ class VoiceTaskService : Service() {
         isHabit: Boolean = false,
         isEvent: Boolean = false,
         eventIcon: String? = null,
-        eventColor: String? = null
+        eventColor: String? = null,
+        recurrenceInterval: Int? = null,
+        recurrenceDays: String? = null
     ): String? {
         var localTaskCreated = false
         var createdTaskId: String? = null
@@ -620,6 +636,8 @@ class VoiceTaskService : Service() {
                     tags = tags,
                     description = description,
                     recurrenceType = validRecurrence,
+                    recurrenceInterval = if (validRecurrence != null && validRecurrence != "rollover") recurrenceInterval else null,
+                    recurrenceDays = if (validRecurrence != null && validRecurrence != "rollover") recurrenceDays else null,
                     isHabit = isHabit,
                     isEvent = isEvent,
                     eventIcon = eventIcon,
@@ -649,6 +667,8 @@ class VoiceTaskService : Service() {
                 tags = tags,
                 description = description,
                 recurrenceType = validRecurrence,
+                recurrenceInterval = if (validRecurrence != null && validRecurrence != "rollover") recurrenceInterval else null,
+                recurrenceDays = if (validRecurrence != null && validRecurrence != "rollover") recurrenceDays else null,
                 isHabit = isHabit,
                 isEvent = isEvent,
                 eventIcon = eventIcon,

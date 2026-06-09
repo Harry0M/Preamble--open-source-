@@ -962,7 +962,7 @@ fun HomeScreen(
                                 subtaskCount = subtaskCounts[task.id],
                                 isExpanded = expandedTasks.contains(task.id),
                                 onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } },
-                                habitStreakData = habitStreaks[task.id]
+                                habitStreakData = habitStreaks[task.recurrenceParentId ?: task.id]
                             )
                             // Show subtasks when expanded
                             if (expandedTasks.contains(task.id) && subtasksProvider != null) {
@@ -1237,7 +1237,7 @@ fun HomeScreen(
                                                         subtaskCount = subtaskCounts[task.id],
                                                         isExpanded = expandedTasks.contains(task.id),
                                                         onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } },
-                                                        habitStreakData = habitStreaks[task.id]
+                                                        habitStreakData = habitStreaks[task.recurrenceParentId ?: task.id]
                                                     )
                                                     // Show subtasks when expanded
                                                     if (expandedTasks.contains(task.id) && subtasksProvider != null) {
@@ -1279,7 +1279,7 @@ fun HomeScreen(
                                     subtaskCount = subtaskCounts[task.id],
                                     isExpanded = expandedTasks.contains(task.id),
                                     onToggleExpand = onToggleTaskExpanded?.let { { it(task.id) } },
-                                    habitStreakData = habitStreaks[task.id]
+                                    habitStreakData = habitStreaks[task.recurrenceParentId ?: task.id]
                                 )
                                 // Show subtasks when expanded
                                 if (expandedTasks.contains(task.id) && subtasksProvider != null) {
@@ -1955,7 +1955,7 @@ fun HomeScreen(
                 }
             } else null,
             isPastTask = isPast,
-            habitStreakData = habitStreaks[task.id]
+            habitStreakData = habitStreaks[task.recurrenceParentId ?: task.id]
         )
     }
 

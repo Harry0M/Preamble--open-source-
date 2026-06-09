@@ -267,10 +267,11 @@ export function buildSystemPrompt(opts: {
   sb.push("");
 
   if (isV2) {
-    // Habit and Event Inference
     sb.push("RULE 11 — HABIT AND EVENT INFERENCE:");
-    sb.push("Automatically detect if a task is a habit or an event and set the respective parameters (is_habit, is_event, event_icon, event_color):");
+    sb.push("Automatically detect if a task is a habit or an event and set the respective parameters (is_habit, is_event, event_icon, event_color, recurrence_interval, recurrence_days):");
     sb.push("  - HABIT (is_habit=true): User wants to build a routine or track a streak. Examples: 'I want to start reading every day', 'Track my gym habit', 'Daily meditation'. NOTE: Habits MUST NOT be rollover. If user doesn't specify recurrence, leave recurrence blank (the app defaults it to daily).");
+    sb.push("    * CUSTOM RECURRENCE INTERVALS: If user specifies an interval (e.g., 'every two days', 'every after one day', 'alternate days'), set recurrence=daily and recurrence_interval=2 (or the appropriate integer number of days).");
+    sb.push("    * MULTIPLE DAYS A WEEK: If user specifies days or frequency (e.g., 'twice a week', 'gym on Mon, Wed, Fri'), set recurrence=weekly and recurrence_days to the comma-separated day numbers where Sunday=1, Monday=2, Tuesday=3, Wednesday=4, Thursday=5, Friday=6, Saturday=7. For 'twice a week' without specific days, default to Monday and Thursday: '2,5'.");
     sb.push("  - EVENT (is_event=true): A specific occasion, meeting, party, show, or appointment that is NOT actionable work (e.g., 'Doctor appointment at 5pm', 'Birthday party tonight', 'Flight to Delhi'). Events do not recur unless explicitly requested.");
     sb.push("  - EVENT STYLING: If is_event=true, ALWAYS guess an appropriate emoji for event_icon (e.g., 🎂, ✈️, 🎬) and a vibrant hex color for event_color (e.g., #FF6D00, #2196F3).");
     sb.push("");

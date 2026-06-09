@@ -248,6 +248,36 @@ fun AddTaskSheet(
                     else -> {}
                 }
             }
+
+            val aiRecurrenceInterval = result["recurrence_interval"]?.toIntOrNull()
+            if (aiRecurrenceInterval != null) {
+                recurrenceInterval = aiRecurrenceInterval
+            }
+            val aiRecurrenceDays = result["recurrence_days"]?.takeIf { it.isNotBlank() }
+            if (aiRecurrenceDays != null) {
+                recurrenceDays = aiRecurrenceDays.split(",")
+                    .mapNotNull { it.trim().toIntOrNull() }
+                    .toSet()
+            }
+
+            val aiIsHabit = result["is_habit"]?.lowercase()?.let { it == "true" || it == "1" } ?: false
+            val aiIsEvent = result["is_event"]?.lowercase()?.let { it == "true" || it == "1" } ?: false
+            val aiEventIcon = result["event_icon"]?.takeIf { it.isNotBlank() }
+            val aiEventColor = result["event_color"]?.takeIf { it.isNotBlank() }
+
+            if (!isHabit && aiIsHabit) {
+                isHabit = true
+                isEvent = false
+                if (recurrenceType !in listOf("daily", "weekly", "monthly", "yearly")) {
+                    recurrenceType = "daily"
+                }
+            }
+            if (!isEvent && aiIsEvent) {
+                isEvent = true
+                isHabit = false
+                if (eventIcon.isNullOrBlank()) eventIcon = aiEventIcon
+                if (eventColor.isNullOrBlank()) eventColor = aiEventColor
+            }
         } else {
             aiLastParsed = input
         }
@@ -660,6 +690,7 @@ fun AddTaskSheet(
                                 indication = null
                             ) {
                                 recurrenceType = "rollover"
+                                isHabit = false
                             }
                             .then(
                                 if (isRollover) Modifier.background(surfVariant, CircleShape).padding(horizontal = 12.dp)
@@ -693,6 +724,7 @@ fun AddTaskSheet(
                                     recurrenceInterval = 1
                                     recurrenceDays = emptySet()
                                     recurrenceEndDate = null
+                                    isHabit = false
                                 } else {
                                     showRepeatSheet = true
                                 }
@@ -857,8 +889,8 @@ fun AddTaskSheet(
                     }
                 }
 
-                // Habit toggle — only for local recurring/rollover tasks, not Google-synced
-                if (recurrenceType != null && !syncToGoogle && !syncToCalendar) {
+                // Habit toggle — only for local tasks, not Google-synced
+                if (!syncToGoogle && !syncToCalendar) {
                     Row(
                         modifier = Modifier
                             .height(40.dp)
@@ -871,6 +903,10 @@ fun AddTaskSheet(
                                 isHabit = !isHabit
                                 if (isHabit) {
                                     isEvent = false
+                                    if (recurrenceType !in listOf("daily", "weekly", "monthly", "yearly")) {
+                                        recurrenceType = "daily"
+                                        showRepeatSheet = true
+                                    }
                                 }
                             }
                             .padding(horizontal = if (isHabit) 12.dp else 8.dp)
@@ -1333,7 +1369,7 @@ fun AddTaskSheet(
                     recurrenceInterval = recurrenceInterval,
                     recurrenceDays = recurrenceDays,
                     recurrenceEndDate = recurrenceEndDate,
-                    onRecurrenceTypeChanged = { recurrenceType = it; if (it == null) { recurrenceInterval = 1; recurrenceDays = emptySet(); recurrenceEndDate = null } },
+                    onRecurrenceTypeChanged = { recurrenceType = it; if (it == null) { recurrenceInterval = 1; recurrenceDays = emptySet(); recurrenceEndDate = null; isHabit = false } },
                     onIntervalChanged = { recurrenceInterval = it },
                     onDaysChanged = { recurrenceDays = it },
                     onEndDateChanged = { recurrenceEndDate = it }
