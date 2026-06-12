@@ -25,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -134,7 +135,7 @@ class MainActivity : ComponentActivity() {
                             postNotification()
 
                             // PostHog: Onboarding complete event track karo
-                            AnalyticsManager.trackOnboardingComplete()
+                            AnalyticsManager.trackOnboardingComplete(AuthManager.isSignedIn())
                         }
                     )
                 } else {
@@ -359,11 +360,58 @@ fun PreambleApp(
     var selectedTab by remember { mutableIntStateOf(0) }
     var quickAddTrigger by remember { mutableIntStateOf(0) }
 
+    var lastTab by remember { mutableIntStateOf(selectedTab) }
+    var lastTabStartTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
     // PostHog: Har tab change pe screen view track karo
     // Compose mein traditional Activity nahi hota, toh manually track karna padta hai
     val screenNames = remember { listOf("HomeScreen", "StatsScreen", "CalendarScreen", "AiChatScreen", "SettingsScreen") }
     androidx.compose.runtime.LaunchedEffect(selectedTab) {
+        val now = System.currentTimeMillis()
+        val elapsedSec = (now - lastTabStartTime) / 1000.0
+        
+        if (elapsedSec > 0.1) {
+            if (lastTab == 1) { // StatsScreen
+                AnalyticsManager.trackScreenClosed("stats_screen", elapsedSec)
+            } else if (lastTab == 3) { // AiChatScreen
+                AnalyticsManager.trackScreenClosed("ai_chat_screen", elapsedSec)
+            }
+        }
+        
         AnalyticsManager.trackScreenView(screenNames[selectedTab])
+        if (selectedTab == 1) {
+            AnalyticsManager.trackScreenOpened("stats_screen")
+        } else if (selectedTab == 3) {
+            AnalyticsManager.trackScreenOpened("ai_chat_screen")
+        }
+        
+        lastTab = selectedTab
+        lastTabStartTime = now
+    }
+
+    val tabLifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    androidx.compose.runtime.DisposableEffect(tabLifecycleOwner, selectedTab) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_PAUSE) {
+                val elapsedSec = (System.currentTimeMillis() - lastTabStartTime) / 1000.0
+                if (selectedTab == 1) {
+                    AnalyticsManager.trackScreenClosed("stats_screen", elapsedSec)
+                } else if (selectedTab == 3) {
+                    AnalyticsManager.trackScreenClosed("ai_chat_screen", elapsedSec)
+                }
+            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                lastTabStartTime = System.currentTimeMillis()
+                if (selectedTab == 1) {
+                    AnalyticsManager.trackScreenOpened("stats_screen")
+                } else if (selectedTab == 3) {
+                    AnalyticsManager.trackScreenOpened("ai_chat_screen")
+                }
+            }
+        }
+        tabLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            tabLifecycleOwner.lifecycle.removeObserver(observer)
+        }
     }
 
     val tasks by viewModel.todayTasks.collectAsState()

@@ -7,6 +7,7 @@ import com.theblankstate.preamble.data.AdminTask
 import com.theblankstate.preamble.analytics.AnalyticsManager
 import com.theblankstate.preamble.notification.TaskNotificationService
 import com.theblankstate.preamble.sync.GoogleCalendarManager
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -90,11 +91,18 @@ class AdminTaskRepository(private val appContext: Context) {
             val featureTasks = generateFeatureDiscoveryTasks()
             val dismissed = getDismissedIds()
             val now = System.currentTimeMillis()
+            val uid = FirebaseAuth.getInstance().currentUser?.uid
 
             val combined = (remoteTasks + featureTasks)
                 .filter { it.active }
                 .filter { it.id !in dismissed }
                 .filter { it.expiresAt == null || it.expiresAt > now }
+                .filter { msg ->
+                    // Client-side targeted broadcast filtering
+                    msg.targetType == "all" || 
+                    (msg.targetType == "single" && uid != null && msg.targetUids?.contains(uid) == true) ||
+                    (msg.targetType == "group" && uid != null && msg.targetUids?.contains(uid) == true)
+                }
                 .filter { !shouldHideFeatureTask(it) }
                 .sortedByDescending { it.priority }
 

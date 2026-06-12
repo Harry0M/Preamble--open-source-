@@ -1482,6 +1482,14 @@ class TaskViewModel(
             triggerRecurrenceGeneration()
             refreshStats()
             invalidateCalendarForDate(taskDate)
+
+            // PostHog: Task create event track karo
+            AnalyticsManager.trackTaskCreated(
+                category = tags ?: "uncategorized",
+                isPriority = priority > 0,
+                hasDeadline = deadlineTime != null,
+                isRecurring = true
+            )
         }
     }
 

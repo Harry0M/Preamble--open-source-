@@ -18,3 +18,6 @@ export { aiCreditsReward, aiCreditsBalance } from "./ai-credits";
 
 // User problem reports
 export { submitProblemReport } from "./problem-reports";
+
+// Database task counter triggers
+export { onTaskCreated, onTaskDeleted } from "./counters";

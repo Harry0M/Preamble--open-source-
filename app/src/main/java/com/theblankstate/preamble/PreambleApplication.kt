@@ -42,6 +42,9 @@ class PreambleApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
+        // Initialize Google Analytics (Firebase Analytics)
+        AnalyticsManager.initialize(this)
+
         // --- WORKAROUND FOR CURSOR WINDOW SIZE LIMIT ---
         // Prevents "java.lang.IllegalStateException: Couldn't read row X, col Y from CursorWindow"
         // when reading large JSON blobs (e.g., syncMetadataJson, large descriptions) by increasing the window size to 10MB.

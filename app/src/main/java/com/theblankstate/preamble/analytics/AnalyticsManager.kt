@@ -2,6 +2,8 @@ package com.theblankstate.preamble.analytics
 
 import android.util.Log
 import com.posthog.PostHog
+import android.content.Context
+import com.google.firebase.analytics.FirebaseAnalytics
 
 /**
  * AnalyticsManager — Singleton utility for PostHog custom event tracking.
@@ -15,6 +17,17 @@ import com.posthog.PostHog
 object AnalyticsManager {
 
     private const val TAG = "AnalyticsManager"
+
+    private var firebaseAnalytics: FirebaseAnalytics? = null
+
+    fun initialize(context: Context) {
+        try {
+            firebaseAnalytics = FirebaseAnalytics.getInstance(context.applicationContext)
+            Log.d(TAG, "Google Analytics (Firebase) initialized successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "Google Analytics initialization failed", e)
+        }
+    }
 
     // ═══════════════════════════════════════════════════
     //  USER IDENTIFICATION — Firebase UID link karna
@@ -50,6 +63,15 @@ object AnalyticsManager {
         } catch (e: Exception) {
             Log.e(TAG, "User identify fail hua", e)
         }
+
+        try {
+            firebaseAnalytics?.setUserId(firebaseUid)
+            displayName?.let { firebaseAnalytics?.setUserProperty("name", it) }
+            email?.let { firebaseAnalytics?.setUserProperty("email", it) }
+            Log.d(TAG, "Firebase User identified: $firebaseUid")
+        } catch (e: Exception) {
+            Log.e(TAG, "Firebase User identify fail hua", e)
+        }
     }
 
     /**
@@ -62,6 +84,13 @@ object AnalyticsManager {
             Log.d(TAG, "User session reset ho gaya")
         } catch (e: Exception) {
             Log.e(TAG, "Reset fail hua", e)
+        }
+
+        try {
+            firebaseAnalytics?.setUserId(null)
+            Log.d(TAG, "Firebase User session reset")
+        } catch (e: Exception) {
+            Log.e(TAG, "Firebase Reset fail hua", e)
         }
     }
 
@@ -303,6 +332,16 @@ object AnalyticsManager {
             screenTitle = screenName,
             properties = mapOf("source" to "compose_navigation")
         )
+        try {
+            val bundle = android.os.Bundle().apply {
+                putString(FirebaseAnalytics.Param.SCREEN_NAME, screenName)
+                putString(FirebaseAnalytics.Param.SCREEN_CLASS, "MainActivity")
+            }
+            firebaseAnalytics?.logEvent(FirebaseAnalytics.Event.SCREEN_VIEW, bundle)
+            Log.d(TAG, "Screen view tracked (Firebase): $screenName")
+        } catch (e: Exception) {
+            Log.e(TAG, "Firebase screen view track fail hua: $screenName", e)
+        }
     }
 
     // ═══════════════════════════════════════════════════
@@ -383,6 +422,53 @@ object AnalyticsManager {
      */
     fun trackOnboardingComplete() {
         captureEvent(event = "onboarding_completed")
+    }
+
+    fun trackOnboardingComplete(hasAccount: Boolean) {
+        captureEvent(
+            event = "onboarding_completed",
+            properties = mapOf("has_account" to hasAccount)
+        )
+    }
+
+    fun trackOnboardingStarted() {
+        captureEvent(event = "onboarding_started")
+    }
+
+    fun trackOnboardingChoice(hasAccount: Boolean) {
+        captureEvent(
+            event = "user_onboarding_signup",
+            properties = mapOf("has_account" to hasAccount)
+        )
+    }
+
+    fun trackAiParserUsed(inputType: String) {
+        captureEvent(
+            event = "ai_parser_used",
+            properties = mapOf("input_type" to inputType)
+        )
+    }
+
+    fun trackNotificationAction(type: String) {
+        captureEvent(
+            event = "notification_action_taken",
+            properties = mapOf("type" to type)
+        )
+    }
+
+    fun trackScreenOpened(screenName: String) {
+        captureEvent(event = "${screenName}_opened")
+    }
+
+    fun trackScreenClosed(screenName: String, timeSpentSec: Double) {
+        captureEvent(
+            event = "${screenName}_closed",
+            properties = mapOf("time_spent_sec" to timeSpentSec)
+        )
+    }
+
+    fun trackAiChatMessageSent() {
+        captureEvent(event = "ai_chat_message_sent")
     }
 
     /**
@@ -472,6 +558,26 @@ object AnalyticsManager {
             Log.d(TAG, "Event captured: $event → $properties")
         } catch (e: Exception) {
             Log.e(TAG, "Event capture fail hua: $event", e)
+        }
+
+        try {
+            val bundle = android.os.Bundle().apply {
+                properties.forEach { (key, value) ->
+                    when (value) {
+                        is String -> putString(key, value)
+                        is Boolean -> putBoolean(key, value)
+                        is Int -> putInt(key, value)
+                        is Long -> putLong(key, value)
+                        is Double -> putDouble(key, value)
+                        is Float -> putFloat(key, value)
+                        else -> putString(key, value.toString())
+                    }
+                }
+            }
+            firebaseAnalytics?.logEvent(event, bundle)
+            Log.d(TAG, "Event captured (Firebase): $event → $properties")
+        } catch (e: Exception) {
+            Log.e(TAG, "Event capture (Firebase) fail hua: $event", e)
         }
     }
 }

@@ -102,6 +102,7 @@ class AiChatScreenViewModel(
 
     fun send(text: String) {
         if (text.isBlank() || _isSending.value) return
+        com.theblankstate.preamble.analytics.AnalyticsManager.trackAiChatMessageSent()
         _error.value = null
         val modelOverride = _chatModelOverride.value.takeIf { it.isNotBlank() }
         val concise = _conciseMode.value
@@ -123,6 +124,7 @@ class AiChatScreenViewModel(
 
     fun editAndResend(messageId: String, text: String) {
         if (messageId.isBlank() || text.isBlank() || _isSending.value) return
+        com.theblankstate.preamble.analytics.AnalyticsManager.trackAiChatMessageSent()
         _error.value = null
         val cid = _currentConversationId.value
         val modelOverride = _chatModelOverride.value.takeIf { it.isNotBlank() }

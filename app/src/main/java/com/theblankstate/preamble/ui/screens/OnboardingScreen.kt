@@ -46,6 +46,7 @@ import coil.compose.AsyncImage
 import coil.decode.SvgDecoder
 import coil.request.ImageRequest
 import com.theblankstate.preamble.R
+import com.theblankstate.preamble.analytics.AnalyticsManager
 import com.theblankstate.preamble.auth.AuthManager
 import com.theblankstate.preamble.data.PrimaryGoal
 import com.theblankstate.preamble.data.TasksPerDay
@@ -82,6 +83,10 @@ fun OnboardingScreen(onComplete: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val pagerState = rememberPagerState(pageCount = { ONBOARDING_PAGES })
+
+    LaunchedEffect(Unit) {
+        AnalyticsManager.trackOnboardingStarted()
+    }
 
     val hasAudioPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
     val hasNotifPerm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -167,6 +172,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                             imageLoader = imageLoader,
                             onLoginResult = { signInResult ->
                                 if (signInResult != null) {
+                                    AnalyticsManager.trackOnboardingChoice(hasAccount = true)
                                     isExistingUser = !signInResult.isNewUser
                                     loginUserName = signInResult.user.displayName
                                     if (!signInResult.isNewUser) {
@@ -180,6 +186,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                             },
                             onSkip = {
                                 // Skip login → new user flow
+                                AnalyticsManager.trackOnboardingChoice(hasAccount = false)
                                 isExistingUser = false
                                 scope.launch { pagerState.animateScrollToPage(PAGE_NAME) }
                             }

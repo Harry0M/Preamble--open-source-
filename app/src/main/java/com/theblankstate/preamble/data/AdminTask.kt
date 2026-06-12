@@ -46,7 +46,9 @@ data class AdminTask(
     val active: Boolean = true,
     // Feature discovery fields
     val featureKey: String? = null,        // e.g. "theme_custom", "calendar_link"
-    val dismissible: Boolean = true        // Whether user can close/dismiss
+    val dismissible: Boolean = true,       // Whether user can close/dismiss
+    val targetType: String = "all",        // all, single, group
+    val targetUids: List<String>? = null
 ) {
     companion object {
         // ── Feature keys (used by admin to target specific features) ──
@@ -84,7 +86,9 @@ data class AdminTask(
                 expiresAt = (map["expiresAt"] as? Number)?.toLong(),
                 active = map["active"] as? Boolean ?: true,
                 featureKey = map["featureKey"] as? String,
-                dismissible = map["dismissible"] as? Boolean ?: true
+                dismissible = map["dismissible"] as? Boolean ?: true,
+                targetType = map["targetType"] as? String ?: "all",
+                targetUids = (map["targetUids"] as? List<*>)?.mapNotNull { it as? String }
             )
         }
     }

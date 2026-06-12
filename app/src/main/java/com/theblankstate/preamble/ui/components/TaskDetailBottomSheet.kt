@@ -171,6 +171,15 @@ fun TaskDetailBottomSheet(
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        val start = System.currentTimeMillis()
+        com.theblankstate.preamble.analytics.AnalyticsManager.trackScreenOpened("task_detail_sheet")
+        onDispose {
+            val elapsedSec = (System.currentTimeMillis() - start) / 1000.0
+            com.theblankstate.preamble.analytics.AnalyticsManager.trackScreenClosed("task_detail_sheet", elapsedSec)
+        }
+    }
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,

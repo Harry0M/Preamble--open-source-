@@ -502,7 +502,9 @@ class FirebaseTaskSyncManager(
         val profile = mutableMapOf<String, Any>(
             "uid" to uid,
             "lastSeenAt" to now,
-            "updatedTimestamp" to now
+            "updatedTimestamp" to now,
+            "appVersionCode" to com.theblankstate.preamble.BuildConfig.VERSION_CODE,
+            "appVersionName" to com.theblankstate.preamble.BuildConfig.VERSION_NAME
         )
         user?.email?.takeIf { it.isNotBlank() }?.let { profile["email"] = it }
 

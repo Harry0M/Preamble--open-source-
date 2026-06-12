@@ -1,31 +1,35 @@
-require('dotenv').config();
-const express = require('express');
-const session = require('express-session');
-const cookieParser = require('cookie-parser');
-const path = require('path');
-const admin = require('firebase-admin');
-const { GoogleGenAI } = require('@google/genai');
-const NodeCache = require('node-cache');
+import dotenv from 'dotenv';
+dotenv.config();
+
+import express from 'express';
+import session from 'express-session';
+import cookieParser from 'cookie-parser';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
+import admin from 'firebase-admin';
+import { Firestore } from '@google-cloud/firestore';
+import { GoogleGenAI } from '@google/genai';
+import NodeCache from 'node-cache';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const cache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
 
-// Initialize Gemini (Will use process.env.GEMINI_API_KEY)
-let ai;
-try {
-  ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-} catch (e) {
-  console.warn('Gemini API not initialized (missing API key)');
-}
+// Load Firebase Service Account in ES Modules
+const serviceAccount = JSON.parse(
+  fs.readFileSync(new URL('./serviceAccountKey.json', import.meta.url))
+);
 
 // Initialize Firebase Admin SDK
-const serviceAccount = require('./serviceAccountKey.json');
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
   databaseURL: 'https://preambl-fbea6-default-rtdb.firebaseio.com',
   storageBucket: 'preambl-fbea6.firebasestorage.app'
 });
 
-// Use the "preamble" database (not default)
-const { Firestore } = require('@google-cloud/firestore');
+// Configure separate "preamble" database in Firestore
 const firestoreDb = new Firestore({
   projectId: 'preambl-fbea6',
   credentials: {
@@ -35,6 +39,18 @@ const firestoreDb = new Firestore({
   databaseId: 'preamble'
 });
 
+// Initialize Gemini (Will use process.env.GEMINI_API_KEY)
+let ai = null;
+try {
+  if (process.env.GEMINI_API_KEY) {
+    ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  } else {
+    console.warn('Gemini API key not found in environment');
+  }
+} catch (e) {
+  console.warn('Gemini API not initialized:', e.message);
+}
+
 const ADMIN_EMAIL = 'palhariom698@gmail.com';
 const PORT = process.env.PORT || 3000;
 
@@ -43,17 +59,22 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+
+// Persistent-ready session configuration
+const sessionSecret = process.env.SESSION_SECRET || 'preamble-admin-secret-key-2026';
 app.use(session({
-  secret: 'preamble-admin-secret-key-2026',
+  secret: sessionSecret,
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false, maxAge: 24 * 60 * 60 * 1000 }
+  cookie: { secure: false, maxAge: 24 * 60 * 60 * 1000 } // 24 hours
 }));
-app.use(express.static(path.join(__dirname, 'public')));
 
-// Auth middleware
+// Serve static React production bundle from 'dist'
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// Middleware to secure admin endpoints
 function requireAuth(req, res, next) {
-  if (req.session && req.session.user && req.session.user.email === ADMIN_EMAIL) {
+  if (req.session && req.session.user && (req.session.user.role === 'admin' || req.session.user.email === ADMIN_EMAIL)) {
     return next();
   }
   if (req.xhr || req.headers.accept?.includes('application/json')) {
@@ -62,7 +83,7 @@ function requireAuth(req, res, next) {
   return res.redirect('/');
 }
 
-// ─── Auth Routes ───
+// ─── AUTHENTICATION ROUTES ───
 
 app.post('/api/auth/login', async (req, res) => {
   try {
@@ -70,21 +91,27 @@ app.post('/api/auth/login', async (req, res) => {
     if (!idToken) return res.status(400).json({ error: 'Missing ID token' });
 
     const decoded = await admin.auth().verifyIdToken(idToken);
-    if (decoded.email !== ADMIN_EMAIL) {
-      return res.status(403).json({ error: 'Access denied. Only admin can login.' });
+    
+    // Check if UID exists in Firestore 'admins' collection or is the fail-safe ADMIN_EMAIL
+    const adminDoc = await firestoreDb.collection('admins').doc(decoded.uid).get();
+    const isSuperAdmin = decoded.email === ADMIN_EMAIL;
+
+    if (!adminDoc.exists && !isSuperAdmin) {
+      return res.status(403).json({ error: 'Access denied. You are not registered as an admin.' });
     }
 
     req.session.user = {
       uid: decoded.uid,
       email: decoded.email,
       name: decoded.name || decoded.email,
-      picture: decoded.picture || null
+      picture: decoded.picture || null,
+      role: isSuperAdmin ? 'super_admin' : (adminDoc.data()?.role || 'admin')
     };
 
     res.json({ success: true, user: req.session.user });
   } catch (err) {
     console.error('Login error:', err);
-    res.status(401).json({ error: 'Invalid token' });
+    res.status(401).json({ error: 'Invalid authentication token' });
   }
 });
 
@@ -100,38 +127,70 @@ app.get('/api/auth/me', (req, res) => {
   res.status(401).json({ error: 'Not authenticated' });
 });
 
-// ─── Users Routes ───
+// ─── USER DIRECTORY ROUTES ───
 
+// Get paginated users
 app.get('/api/users', requireAuth, async (req, res) => {
   try {
-    const cachedUsers = cache.get('all_users');
-    if (cachedUsers) return res.json({ users: cachedUsers });
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const startAfterId = req.query.startAfter;
 
-    const usersSnap = await firestoreDb.collection('users').get();
-    const users = [];
-    for (const doc of usersSnap.docs) {
+    let query = firestoreDb.collection('users').orderBy('lastSeenAt', 'desc');
+
+    if (startAfterId) {
+      const startAfterDoc = await firestoreDb.collection('users').doc(startAfterId).get();
+      if (startAfterDoc.exists) {
+        query = query.startAfter(startAfterDoc);
+      }
+    }
+
+    const usersSnap = await query.limit(limit).get();
+
+    const usersPromises = usersSnap.docs.map(async (doc) => {
       const data = doc.data();
-      // Count tasks for this user
-      const tasksSnap = await firestoreDb.collection('tasks').where('uid', '==', doc.id).get();
-      users.push({
+      let taskCount = data.taskCount;
+
+      // Self-healing: if taskCount is not set/not a number, count tasks and cache it
+      if (typeof taskCount !== 'number') {
+        try {
+          const countSnap = await firestoreDb.collection('tasks').where('uid', '==', doc.id).count().get();
+          taskCount = countSnap.data().count || 0;
+          // Update the user document asynchronously so it's cached next time
+          firestoreDb.collection('users').doc(doc.id).update({ taskCount }).catch(() => {});
+        } catch (countErr) {
+          console.error(`Failed to calculate taskCount for ${doc.id}:`, countErr);
+          taskCount = 0;
+        }
+      }
+
+      return {
         uid: doc.id,
         email: data.email || 'N/A',
+        displayName: data.displayName || 'N/A',
         lastSeenAt: data.lastSeenAt || null,
         updatedTimestamp: data.updatedTimestamp || null,
         blocked: data.blocked || false,
         gender: data.gender || null,
         age: data.age || null,
-        taskCount: tasksSnap.size
-      });
-    }
-    cache.set('all_users', users);
-    res.json({ users });
+        appVersionCode: data.appVersionCode || 0,
+        appVersionName: data.appVersionName || 'N/A',
+        taskCount
+      };
+    });
+
+    const users = await Promise.all(usersPromises);
+
+    res.json({ 
+      users, 
+      nextOffsetId: users.length === limit ? users[users.length - 1].uid : null
+    });
   } catch (err) {
     console.error('Error fetching users:', err);
     res.status(500).json({ error: 'Failed to fetch users' });
   }
 });
 
+// Get user profile details & recent tasks
 app.get('/api/users/:uid', requireAuth, async (req, res) => {
   try {
     const { uid } = req.params;
@@ -141,20 +200,20 @@ app.get('/api/users/:uid', requireAuth, async (req, res) => {
     }
     const userData = userDoc.data();
 
-    // Get Firebase Auth user info
     let authUser = null;
     try {
       authUser = await admin.auth().getUser(uid);
-    } catch (e) { /* user might not exist in auth */ }
+    } catch (e) { /* user not in firebase auth list */ }
 
-    // Get all tasks
-    const tasksSnap = await firestoreDb.collection('tasks').where('uid', '==', uid).get();
-    const tasks = tasksSnap.docs.map(doc => {
-      const data = doc.data();
-      return { docId: doc.id, ...data };
-    });
+    // Fetch at most 100 recent tasks to prevent large payload server freezes
+    const tasksSnap = await firestoreDb.collection('tasks')
+      .where('uid', '==', uid)
+      .orderBy('createdTimestamp', 'desc')
+      .limit(100)
+      .get();
 
-    // Get tag overrides
+    const tasks = tasksSnap.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
+
     const tagSnap = await firestoreDb.collection('tagOverrides').where('uid', '==', uid).get();
     const tagOverrides = tagSnap.docs.map(doc => ({ docId: doc.id, ...doc.data() }));
 
@@ -169,13 +228,9 @@ app.get('/api/users/:uid', requireAuth, async (req, res) => {
         blocked: userData.blocked || false,
         gender: userData.gender || null,
         age: userData.age || null,
-        name: userData.name || null,
-        role: userData.role || null,
-        goal: userData.goal || null,
-        goals: userData.goals || null,
-        baselineScore: userData.baselineScore || null,
-        discountEligible: userData.discountEligible || false,
-        entitlement_tier: userData.entitlement_tier || null,
+        appVersionCode: userData.appVersionCode || 0,
+        appVersionName: userData.appVersionName || 'N/A',
+        entitlement_tier: userData.entitlement_tier || 'FREE_TIER',
         entitlement_expires_at: userData.entitlement_expires_at || 0,
         entitlement_student_expires_at: userData.entitlement_student_expires_at || 0,
         entitlement_youngster_expires_at: userData.entitlement_youngster_expires_at || 0,
@@ -188,29 +243,20 @@ app.get('/api/users/:uid', requireAuth, async (req, res) => {
       tagOverrides
     });
   } catch (err) {
-    console.error('Error fetching user:', err);
+    console.error('Error fetching user detail:', err);
     res.status(500).json({ error: 'Failed to fetch user details' });
   }
 });
 
-// Entitlement: set tier + expiries (Firebase-side source of truth, anti-mod).
-const VALID_TIERS = [
-  'FREE_TIER', 'UNPREMIUM', 'PROMOTIONAL',
-  'PREMIUM', 'PREMIUM_STUDENT', 'PREMIUM_YOUNGSTER'
-];
-
+// Update entitlements
+const VALID_TIERS = ['FREE_TIER', 'UNPREMIUM', 'PROMOTIONAL', 'PREMIUM', 'PREMIUM_STUDENT', 'PREMIUM_YOUNGSTER'];
 app.post('/api/users/:uid/entitlement', requireAuth, async (req, res) => {
   try {
     const { uid } = req.params;
-    const {
-      tier,
-      expiresAtMs,
-      studentValidityExpiresAtMs,
-      youngsterValidityExpiresAtMs,
-    } = req.body;
+    const { tier, expiresAtMs, studentValidityExpiresAtMs, youngsterValidityExpiresAtMs } = req.body;
 
     if (!tier || !VALID_TIERS.includes(tier)) {
-      return res.status(400).json({ error: 'Invalid tier', validTiers: VALID_TIERS });
+      return res.status(400).json({ error: 'Invalid entitlement tier' });
     }
 
     const now = Date.now();
@@ -232,55 +278,53 @@ app.post('/api/users/:uid/entitlement', requireAuth, async (req, res) => {
     await userRef.set(payload, { merge: true });
     res.json({ success: true, entitlement: payload });
   } catch (err) {
-    console.error('Error updating entitlement:', err);
+    console.error('Error saving entitlement:', err);
     res.status(500).json({ error: 'Failed to update entitlement' });
   }
 });
 
-// Block / Unblock user
+// Block/unblock user accounts
 app.post('/api/users/:uid/block', requireAuth, async (req, res) => {
   try {
     const { uid } = req.params;
     const { blocked } = req.body;
 
-    // Update Firestore user doc
     await firestoreDb.collection('users').doc(uid).update({ blocked: !!blocked });
-
-    // Disable/enable in Firebase Auth
     await admin.auth().updateUser(uid, { disabled: !!blocked });
 
     res.json({ success: true, blocked: !!blocked });
   } catch (err) {
     console.error('Error blocking user:', err);
-    res.status(500).json({ error: 'Failed to update user status' });
+    res.status(500).json({ error: 'Failed to update user block status' });
   }
 });
 
-// ─── Tasks Routes ───
+// ─── TASK MANAGEMENT ROUTES (VERSION CODE COMPATIBLE) ───
 
 // Helper: encode/decode Firestore doc IDs (same as Android app)
 function encodeDocId(raw) { return raw.replace(/\//g, '%2F'); }
-function decodeDocId(encoded) { return encoded.replace(/%2F/g, '/'); }
 
-// Get single task
-app.get('/api/tasks/:docId', requireAuth, async (req, res) => {
-  try {
-    const doc = await firestoreDb.collection('tasks').doc(req.params.docId).get();
-    if (!doc.exists) return res.status(404).json({ error: 'Task not found' });
-    res.json({ docId: doc.id, ...doc.data() });
-  } catch (err) {
-    console.error('Error fetching task:', err);
-    res.status(500).json({ error: 'Failed to fetch task' });
-  }
-});
-
-// Create task for a user
+// Create task with version guard
 app.post('/api/users/:uid/tasks', requireAuth, async (req, res) => {
   try {
     const { uid } = req.params;
     const taskId = req.body.id || generateId();
     const now = Date.now();
     const today = new Date().toISOString().split('T')[0];
+
+    // Fetch user device version code
+    const userDoc = await firestoreDb.collection('users').doc(uid).get();
+    const appVersionCode = userDoc.exists ? (userDoc.data().appVersionCode || 0) : 0;
+
+    const isHabit = !!req.body.isHabit;
+    const isEvent = !!req.body.isEvent;
+
+    // Version Guard: Prevent creating habit/event configurations if client is running legacy v1–v7 (< 8)
+    if (appVersionCode < 8 && (isHabit || isEvent || req.body.recurrenceInterval || req.body.recurrenceDays)) {
+      return res.status(400).json({ 
+        error: `Legacy client warning: User is running app version code ${appVersionCode}. This version does not support habits, events, or custom recurrence settings.` 
+      });
+    }
 
     const task = {
       uid,
@@ -302,12 +346,21 @@ app.post('/api/users/:uid/tasks', requireAuth, async (req, res) => {
       recurrenceParentId: req.body.recurrenceParentId || null,
       parentTaskId: req.body.parentTaskId || null,
       tags: req.body.tags || null,
-      googleCalendarId: req.body.googleCalendarId || null,
-      googleRecurrenceInfo: req.body.googleRecurrenceInfo || null
+      isHabit: isHabit,
+      habitSuperStreakCount: req.body.habitSuperStreakCount || 0,
+      isEvent: isEvent,
+      eventColor: req.body.eventColor || null,
+      eventIcon: req.body.eventIcon || null
     };
 
     const docId = encodeDocId(`${uid}::${taskId}`);
     await firestoreDb.collection('tasks').doc(docId).set(task);
+
+    // Increment user task counter locally as fallback (Cloud Function handles this on sync anyway)
+    await firestoreDb.collection('users').doc(uid).update({
+      taskCount: admin.firestore.FieldValue.increment(1)
+    }).catch(() => {});
+
     res.json({ success: true, docId, task });
   } catch (err) {
     console.error('Error creating task:', err);
@@ -320,7 +373,7 @@ app.put('/api/tasks/:docId', requireAuth, async (req, res) => {
   try {
     const { docId } = req.params;
     const updates = { ...req.body, updatedTimestamp: Date.now() };
-    delete updates.docId; // don't store docId as field
+    delete updates.docId;
 
     await firestoreDb.collection('tasks').doc(docId).update(updates);
     res.json({ success: true });
@@ -333,7 +386,20 @@ app.put('/api/tasks/:docId', requireAuth, async (req, res) => {
 // Delete task
 app.delete('/api/tasks/:docId', requireAuth, async (req, res) => {
   try {
-    await firestoreDb.collection('tasks').doc(req.params.docId).delete();
+    const { docId } = req.params;
+    
+    // Resolve user UID to decrement task counter
+    const taskDoc = await firestoreDb.collection('tasks').doc(docId).get();
+    if (taskDoc.exists) {
+      const uid = taskDoc.data().uid;
+      if (uid) {
+        await firestoreDb.collection('users').doc(uid).update({
+          taskCount: admin.firestore.FieldValue.increment(-1)
+        }).catch(() => {});
+      }
+    }
+
+    await firestoreDb.collection('tasks').doc(docId).delete();
     res.json({ success: true });
   } catch (err) {
     console.error('Error deleting task:', err);
@@ -341,7 +407,7 @@ app.delete('/api/tasks/:docId', requireAuth, async (req, res) => {
   }
 });
 
-// Mass Delete Tasks
+// Mass task deletion
 app.post('/api/tasks/mass_delete', requireAuth, async (req, res) => {
   try {
     const { status, beforeDate } = req.body;
@@ -354,7 +420,6 @@ app.post('/api/tasks/mass_delete', requireAuth, async (req, res) => {
     }
     
     const snapshot = await query.get();
-    
     let deletedCount = 0;
     const batchArray = [];
     let batch = firestoreDb.batch();
@@ -363,7 +428,6 @@ app.post('/api/tasks/mass_delete', requireAuth, async (req, res) => {
     snapshot.docs.forEach((doc) => {
       const data = doc.data();
       if (beforeDate) {
-        // Simple comparison assuming createdDate is YYYY-MM-DD
         if (data.createdDate && data.createdDate < beforeDate) {
            batch.delete(doc.ref);
            count++;
@@ -382,10 +446,7 @@ app.post('/api/tasks/mass_delete', requireAuth, async (req, res) => {
       }
     });
     
-    if (count > 0) {
-      batchArray.push(batch.commit());
-    }
-    
+    if (count > 0) batchArray.push(batch.commit());
     await Promise.all(batchArray);
     
     // Invalidate stats cache
@@ -398,107 +459,106 @@ app.post('/api/tasks/mass_delete', requireAuth, async (req, res) => {
   }
 });
 
-// ─── Dashboard Stats ───
+// ─── USER GROUP SEGMENTATION ROUTES ───
 
-app.get('/api/stats', requireAuth, async (req, res) => {
+app.get('/api/groups', requireAuth, async (req, res) => {
   try {
-    const cachedStats = cache.get('dashboard_stats');
-    if (cachedStats) return res.json(cachedStats);
+    const snap = await firestoreDb.collection('user_groups').orderBy('createdAt', 'desc').get();
+    const groups = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    res.json({ groups });
+  } catch (err) {
+    console.error('Error fetching groups:', err);
+    res.status(500).json({ error: 'Failed to fetch groups' });
+  }
+});
 
-    const usersSnap = await firestoreDb.collection('users').get();
-    const tasksSnap = await firestoreDb.collection('tasks').get();
-    const reportsSnap = await firestoreDb.collection('problemReports').get();
-
-    let completedTasks = 0;
-    let activeTasks = 0;
-    let blockedUsers = 0;
-    let openProblemReports = 0;
-
-    tasksSnap.docs.forEach(doc => {
-      const data = doc.data();
-      if (data.isCompleted) completedTasks++;
-      else activeTasks++;
-    });
-
-    usersSnap.docs.forEach(doc => {
-      if (doc.data().blocked) blockedUsers++;
-    });
-
-    reportsSnap.docs.forEach(doc => {
-      const status = doc.data().status || 'open';
-      if (status !== 'resolved') openProblemReports++;
-    });
-
-    const stats = {
-      totalUsers: usersSnap.size,
-      totalTasks: tasksSnap.size,
-      activeTasks,
-      completedTasks,
-      blockedUsers,
-      openProblemReports
+app.post('/api/groups', requireAuth, async (req, res) => {
+  try {
+    const id = generateId();
+    const group = {
+      name: req.body.name || 'Untitled Group',
+      description: req.body.description || null,
+      filterType: req.body.filterType || 'manual', // manual, gender, age, version
+      filterGender: req.body.filterGender || null,
+      filterAgeMin: req.body.filterAgeMin ? parseInt(req.body.filterAgeMin) : null,
+      filterAgeMax: req.body.filterAgeMax ? parseInt(req.body.filterAgeMax) : null,
+      filterVersionMin: req.body.filterVersionMin ? parseInt(req.body.filterVersionMin) : null,
+      manualUids: req.body.manualUids || [],
+      createdAt: Date.now()
     };
-    cache.set('dashboard_stats', stats);
-    res.json(stats);
+
+    await firestoreDb.collection('user_groups').doc(id).set(group);
+    res.json({ success: true, id, group });
   } catch (err) {
-    console.error('Error fetching stats:', err);
-    res.status(500).json({ error: 'Failed to fetch stats' });
+    console.error('Error creating group:', err);
+    res.status(500).json({ error: 'Failed to create group' });
   }
 });
 
-// ─── AI Assistant Routes ───
-app.post('/api/ai/chat', requireAuth, async (req, res) => {
+app.delete('/api/groups/:id', requireAuth, async (req, res) => {
   try {
-    const { prompt } = req.body;
-    if (!ai) return res.status(500).json({ error: 'Gemini API not configured' });
-
-    const stats = cache.get('dashboard_stats') || { note: "Stats not loaded yet." };
-    
-    const systemPrompt = `You are Preamble Admin AI, a helpful, advanced admin assistant.
-Current Dashboard Stats: ${JSON.stringify(stats)}
-You help the admin manage the app, answer questions, and automate tasks.
-If the admin asks to perform an action, respond with a JSON block formatted EXACTLY like this:
-\`\`\`json
-{
-  "action": "action_name",
-  "payload": { ... }
-}
-\`\`\`
-Available actions:
-- create_broadcast: { "title": "...", "description": "...", "targetType": "all" }
-- mass_delete_tasks: { "status": "completed", "beforeDate": "YYYY-MM-DD" }
-- mass_delete_broadcasts: {}
-- mass_delete_notifications: {}
-
-Or simply reply conversationally. Keep responses concise, clean, and professional. Use markdown for styling.`;
-
-    const response = await ai.models.generateContent({
-        model: 'gemini-2.5-pro',
-        contents: prompt,
-        config: {
-            systemInstruction: systemPrompt,
-        }
-    });
-    
-    res.json({ reply: response.text });
+    await firestoreDb.collection('user_groups').doc(req.params.id).delete();
+    res.json({ success: true });
   } catch (err) {
-    console.error('AI chat error:', err);
-    res.status(500).json({ error: 'AI request failed' });
+    console.error('Error deleting group:', err);
+    res.status(500).json({ error: 'Failed to delete group' });
   }
 });
 
-// ─── Broadcasts (Admin Tasks) Routes ───
+// Optimized Group Membership Resolution (No complete memory scan unless manual)
+async function resolveGroupMembers(group) {
+  if (group.filterType === 'manual') {
+    return group.manualUids || [];
+  }
 
-// List all broadcasts
+  let query = firestoreDb.collection('users');
+
+  // Query filtering using Firestore index matches
+  if (group.filterGender) {
+    query = query.where('gender', '==', group.filterGender);
+  }
+
+  const snapshot = await query.get();
+  const uids = [];
+
+  for (const doc of snapshot.docs) {
+    const data = doc.data();
+    if (data.blocked) continue;
+
+    // Secondary filters done in-memory to prevent requiring composite index explosions
+    if (group.filterAgeMin != null && (data.age == null || data.age < group.filterAgeMin)) continue;
+    if (group.filterAgeMax != null && (data.age == null || data.age > group.filterAgeMax)) continue;
+    if (group.filterVersionMin != null && (data.appVersionCode == null || data.appVersionCode < group.filterVersionMin)) continue;
+
+    uids.push(doc.id);
+  }
+
+  return uids;
+}
+
+app.get('/api/groups/:id/members', requireAuth, async (req, res) => {
+  try {
+    const groupDoc = await firestoreDb.collection('user_groups').doc(req.params.id).get();
+    if (!groupDoc.exists) return res.status(404).json({ error: 'Group not found' });
+
+    const uids = await resolveGroupMembers(groupDoc.data());
+    res.json({ count: uids.length, uids });
+  } catch (err) {
+    console.error('Error resolving group members:', err);
+    res.status(500).json({ error: 'Failed to resolve members' });
+  }
+});
+
+// ─── BROADCAST (IN-APP ANNOUNCEMENT) ROUTES ───
+
 app.get('/api/broadcasts', requireAuth, async (req, res) => {
   try {
     const snap = await firestoreDb.collection('broadcasts').orderBy('createdAt', 'desc').get();
     const broadcasts = snap.docs.map(doc => {
       const data = doc.data();
-      // Ensure tags is always an array (may be stored as JSON string from older creates)
       if (typeof data.tags === 'string') {
         try { data.tags = JSON.parse(data.tags); } catch(e) { data.tags = []; }
       }
-      if (!Array.isArray(data.tags)) data.tags = [];
       return { id: doc.id, ...data };
     });
     res.json({ broadcasts });
@@ -508,13 +568,12 @@ app.get('/api/broadcasts', requireAuth, async (req, res) => {
   }
 });
 
-// Create broadcast (+ auto-send push notification)
+// Create Broadcast + FCM notification logic (Safe targeting integration)
 app.post('/api/broadcasts', requireAuth, async (req, res) => {
   try {
     const id = generateId();
     const now = Date.now();
 
-    // Parse tags from JSON string or array
     let tags = [];
     if (req.body.tags) {
       try {
@@ -523,7 +582,7 @@ app.post('/api/broadcasts', requireAuth, async (req, res) => {
     }
 
     const broadcast = {
-      title: req.body.title || 'Untitled',
+      title: req.body.title || 'Untitled Announcement',
       description: req.body.description || null,
       imageUrl: req.body.imageUrl || null,
       actionUrl: req.body.actionUrl || null,
@@ -531,34 +590,31 @@ app.post('/api/broadcasts', requireAuth, async (req, res) => {
       actionLabel: req.body.actionLabel || 'Open Now',
       type: req.body.type || 'announcement',
       tags: tags,
-      directRedirect: req.body.directRedirect || false,
+      directRedirect: req.body.directRedirect === true,
       priority: parseInt(req.body.priority) || 0,
       createdAt: now,
       expiresAt: req.body.expiresAt ? parseInt(req.body.expiresAt) : null,
       active: req.body.active !== false,
       featureKey: req.body.featureKey || null,
       dismissible: req.body.dismissible !== false,
-      targetType: req.body.targetType || 'all',    // all, group, single
+      targetType: req.body.targetType || 'all', // all, single, group
       targetGroupId: req.body.targetGroupId || null,
       targetUids: req.body.targetUids || null
     };
 
     await firestoreDb.collection('broadcasts').doc(id).set(broadcast);
 
-    // Auto-send push notification ONLY if explicitly enabled (default = OFF to avoid double notification)
+    // Send FCM push alerts to the target subset only if autoNotify is true
     let notifySent = 0;
     if (broadcast.active && req.body.autoNotify === true) {
-      // Generate campaign_id for PostHog A/B tracking
-      const campaignId = req.body.campaign_id || broadcast.title.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40) + '_' + Date.now().toString(36);
-      const campaignVariant = req.body.campaign_variant || 'default';
-
+      const campaignId = `broadcast_${id}_${now.toString(36)}`;
       const dataPayload = {
         title: broadcast.title,
         body: broadcast.description || broadcast.title,
         channelType: 'broadcast',
         deepLink: broadcast.deepLink || 'preamble://home',
         campaign_id: campaignId,
-        campaign_variant: campaignVariant
+        campaign_variant: 'default'
       };
 
       try {
@@ -572,7 +628,7 @@ app.post('/api/broadcasts', requireAuth, async (req, res) => {
           const uids = Array.isArray(broadcast.targetUids) ? broadcast.targetUids : [broadcast.targetUids];
           notifySent = await sendNotificationToUids(uids, dataPayload);
         } else {
-          // Send to all
+          // Broadcast to all active tokens
           const usersSnap = await firestoreDb.collection('users').get();
           const tokens = [];
           usersSnap.docs.forEach(doc => {
@@ -582,7 +638,7 @@ app.post('/api/broadcasts', requireAuth, async (req, res) => {
           notifySent = await sendToTokens(tokens, dataPayload);
         }
 
-        // Log the auto-notification
+        // Log notification record
         await firestoreDb.collection('notification_log').add({
           title: broadcast.title,
           body: broadcast.description || broadcast.title,
@@ -596,7 +652,7 @@ app.post('/api/broadcasts', requireAuth, async (req, res) => {
           source: 'broadcast_auto'
         });
       } catch (notifyErr) {
-        console.error('Auto-notify failed (broadcast still created):', notifyErr);
+        console.error('FCM broadcast notification error:', notifyErr);
       }
     }
 
@@ -607,28 +663,6 @@ app.post('/api/broadcasts', requireAuth, async (req, res) => {
   }
 });
 
-// Update broadcast
-app.put('/api/broadcasts/:id', requireAuth, async (req, res) => {
-  try {
-    const updates = { ...req.body };
-    delete updates.id;
-
-    // Parse tags if provided
-    if (updates.tags && typeof updates.tags === 'string') {
-      try { updates.tags = JSON.parse(updates.tags); } catch (e) { delete updates.tags; }
-    }
-    if (updates.priority) updates.priority = parseInt(updates.priority);
-    if (updates.expiresAt) updates.expiresAt = parseInt(updates.expiresAt);
-
-    await firestoreDb.collection('broadcasts').doc(req.params.id).update(updates);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Error updating broadcast:', err);
-    res.status(500).json({ error: 'Failed to update broadcast' });
-  }
-});
-
-// Delete broadcast
 app.delete('/api/broadcasts/:id', requireAuth, async (req, res) => {
   try {
     await firestoreDb.collection('broadcasts').doc(req.params.id).delete();
@@ -639,7 +673,7 @@ app.delete('/api/broadcasts/:id', requireAuth, async (req, res) => {
   }
 });
 
-// Toggle broadcast active status
+// Toggle active status
 app.post('/api/broadcasts/:id/toggle', requireAuth, async (req, res) => {
   try {
     const doc = await firestoreDb.collection('broadcasts').doc(req.params.id).get();
@@ -653,151 +687,9 @@ app.post('/api/broadcasts/:id/toggle', requireAuth, async (req, res) => {
   }
 });
 
-// Mass Delete Broadcasts
-app.post('/api/broadcasts/mass_delete', requireAuth, async (req, res) => {
-  try {
-    const snap = await firestoreDb.collection('broadcasts').get();
-    let batch = firestoreDb.batch();
-    let count = 0;
-    const batchArray = [];
-    
-    snap.docs.forEach(doc => {
-      batch.delete(doc.ref);
-      count++;
-      if (count === 500) {
-        batchArray.push(batch.commit());
-        batch = firestoreDb.batch();
-        count = 0;
-      }
-    });
-    
-    if (count > 0) batchArray.push(batch.commit());
-    await Promise.all(batchArray);
-    
-    res.json({ success: true, deletedCount: snap.size });
-  } catch (err) {
-    console.error('Error mass deleting broadcasts:', err);
-    res.status(500).json({ error: 'Failed to mass delete broadcasts' });
-  }
-});
+// ─── PUSH NOTIFICATIONS & FCM CAMPAIGN ROUTES ───
 
-// ─── User Groups Routes ───
-
-// List all groups
-app.get('/api/groups', requireAuth, async (req, res) => {
-  try {
-    const snap = await firestoreDb.collection('user_groups').orderBy('createdAt', 'desc').get();
-    const groups = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    res.json({ groups });
-  } catch (err) {
-    console.error('Error fetching groups:', err);
-    res.status(500).json({ error: 'Failed to fetch groups' });
-  }
-});
-
-// Create group
-app.post('/api/groups', requireAuth, async (req, res) => {
-  try {
-    const id = generateId();
-    const group = {
-      name: req.body.name || 'Untitled Group',
-      description: req.body.description || null,
-      filterType: req.body.filterType || 'manual',  // manual, gender, age, auto
-      filterGender: req.body.filterGender || null,   // male, female, other
-      filterAgeMin: req.body.filterAgeMin ? parseInt(req.body.filterAgeMin) : null,
-      filterAgeMax: req.body.filterAgeMax ? parseInt(req.body.filterAgeMax) : null,
-      manualUids: req.body.manualUids || [],          // manually added user UIDs
-      createdAt: Date.now()
-    };
-
-    await firestoreDb.collection('user_groups').doc(id).set(group);
-    res.json({ success: true, id, group });
-  } catch (err) {
-    console.error('Error creating group:', err);
-    res.status(500).json({ error: 'Failed to create group' });
-  }
-});
-
-// Update group
-app.put('/api/groups/:id', requireAuth, async (req, res) => {
-  try {
-    const updates = { ...req.body };
-    delete updates.id;
-    if (updates.filterAgeMin) updates.filterAgeMin = parseInt(updates.filterAgeMin);
-    if (updates.filterAgeMax) updates.filterAgeMax = parseInt(updates.filterAgeMax);
-
-    await firestoreDb.collection('user_groups').doc(req.params.id).update(updates);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Error updating group:', err);
-    res.status(500).json({ error: 'Failed to update group' });
-  }
-});
-
-// Delete group
-app.delete('/api/groups/:id', requireAuth, async (req, res) => {
-  try {
-    await firestoreDb.collection('user_groups').doc(req.params.id).delete();
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Error deleting group:', err);
-    res.status(500).json({ error: 'Failed to delete group' });
-  }
-});
-
-// Resolve group members — returns list of UIDs matching the group's filters
-app.get('/api/groups/:id/members', requireAuth, async (req, res) => {
-  try {
-    const groupDoc = await firestoreDb.collection('user_groups').doc(req.params.id).get();
-    if (!groupDoc.exists) return res.status(404).json({ error: 'Group not found' });
-
-    const group = groupDoc.data();
-    const uids = await resolveGroupMembers(group);
-    res.json({ count: uids.length, uids });
-  } catch (err) {
-    console.error('Error resolving group members:', err);
-    res.status(500).json({ error: 'Failed to resolve members' });
-  }
-});
-
-// Helper: resolve group member UIDs based on filters
-async function resolveGroupMembers(group) {
-  if (group.filterType === 'manual') {
-    return group.manualUids || [];
-  }
-
-  const usersSnap = await firestoreDb.collection('users').get();
-  const uids = [];
-
-  for (const doc of usersSnap.docs) {
-    const data = doc.data();
-    if (data.blocked) continue;
-
-    let match = true;
-
-    if (group.filterGender && data.gender) {
-      if (data.gender !== group.filterGender) match = false;
-    } else if (group.filterGender && !data.gender) {
-      match = false; // user has no gender data, skip
-    }
-
-    if (match && group.filterAgeMin != null && data.age != null) {
-      if (data.age < group.filterAgeMin) match = false;
-    }
-    if (match && group.filterAgeMax != null && data.age != null) {
-      if (data.age > group.filterAgeMax) match = false;
-    }
-    if (match && (group.filterAgeMin != null || group.filterAgeMax != null) && data.age == null) {
-      match = false; // no age data, can't filter
-    }
-
-    if (match) uids.push(doc.id);
-  }
-
-  return uids;
-}
-
-// Helper: send FCM notification to a list of UIDs (deduplicates)
+// Helper: resolve FCM tokens from UID list
 async function sendNotificationToUids(uids, dataPayload) {
   const uniqueUids = [...new Set(uids)];
   const tokens = [];
@@ -811,13 +703,13 @@ async function sendNotificationToUids(uids, dataPayload) {
   return await sendToTokens(tokens, dataPayload);
 }
 
-// Helper: send FCM to token list in batches (deduplicates tokens)
+// Multicast batch dispatcher (sends in slices of 500)
 async function sendToTokens(tokens, dataPayload) {
-  tokens = [...new Set(tokens)]; // Remove duplicate tokens
-  if (tokens.length === 0) return 0;
+  const uniqueTokens = [...new Set(tokens)];
+  if (uniqueTokens.length === 0) return 0;
   let sent = 0;
-  for (let i = 0; i < tokens.length; i += 500) {
-    const batch = tokens.slice(i, i + 500);
+  for (let i = 0; i < uniqueTokens.length; i += 500) {
+    const batch = uniqueTokens.slice(i, i + 500);
     const response = await admin.messaging().sendEachForMulticast({
       tokens: batch,
       data: dataPayload,
@@ -828,39 +720,46 @@ async function sendToTokens(tokens, dataPayload) {
   return sent;
 }
 
-// ─── Push Notifications Routes ───
-
-// Send notification to users (all, single, or group)
+// Send FCM alerts (WITH STRICTOR PARAMETER VALIDATIONS)
 app.post('/api/notifications/send', requireAuth, async (req, res) => {
   try {
     const { title, body, deepLink, url, channelType, targetType, targetUid, targetGroupId } = req.body;
 
     if (!title || !body) {
-      return res.status(400).json({ error: 'Title and body are required' });
+      return res.status(400).json({ error: 'Title and body parameters are required.' });
     }
 
-    // Generate campaign_id for PostHog A/B tracking
-    const campaignId = req.body.campaign_id || title.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40) + '_' + Date.now().toString(36);
-    const campaignVariant = req.body.campaign_variant || 'default';
+    // Explicit Validation Guard: Return error on missing properties to prevent fallbacks from mass-spamming
+    if (targetType === 'single') {
+      if (!targetUid) {
+        return res.status(400).json({ error: 'Validation Error: targetUid is required when targetType is set to single.' });
+      }
+    } else if (targetType === 'group') {
+      if (!targetGroupId) {
+        return res.status(400).json({ error: 'Validation Error: targetGroupId is required when targetType is set to group.' });
+      }
+    } else if (targetType !== 'all') {
+      return res.status(400).json({ error: 'Validation Error: targetType must be set to either all, group, or single.' });
+    }
 
+    const campaignId = req.body.campaign_id || `${title.toLowerCase().replace(/[^a-z0-9]+/g, '_').slice(0, 40)}_${Date.now().toString(36)}`;
     const dataPayload = {
       title,
       body,
       channelType: channelType || 'broadcast',
       campaign_id: campaignId,
-      campaign_variant: campaignVariant
+      campaign_variant: req.body.campaign_variant || 'default'
     };
     if (deepLink) dataPayload.deepLink = deepLink;
     if (url) dataPayload.url = url;
 
     let sent = 0;
 
-    if (targetType === 'single' && targetUid) {
-      // Send to specific user via their FCM token
+    if (targetType === 'single') {
       const userDoc = await firestoreDb.collection('users').doc(targetUid).get();
       const token = userDoc.exists ? userDoc.data().fcmToken : null;
       if (!token) {
-        return res.status(400).json({ error: 'User has no FCM token' });
+        return res.status(400).json({ error: 'User does not possess an active FCM push token.' });
       }
       await admin.messaging().send({
         token,
@@ -868,35 +767,32 @@ app.post('/api/notifications/send', requireAuth, async (req, res) => {
         android: { priority: 'high' }
       });
       sent = 1;
-    } else if (targetType === 'group' && targetGroupId) {
-      // Send to a user group
+    } else if (targetType === 'group') {
       const groupDoc = await firestoreDb.collection('user_groups').doc(targetGroupId).get();
       if (!groupDoc.exists) {
-        return res.status(400).json({ error: 'Group not found' });
+        return res.status(404).json({ error: 'Target user group not found.' });
       }
       const uids = await resolveGroupMembers(groupDoc.data());
       sent = await sendNotificationToUids(uids, dataPayload);
     } else {
-      // Send to all users who have FCM tokens
+      // Send to all users with tokens
       const usersSnap = await firestoreDb.collection('users').get();
       const tokens = [];
       usersSnap.docs.forEach(doc => {
         const data = doc.data();
-        if (data.fcmToken && !data.blocked) {
-          tokens.push(data.fcmToken);
-        }
+        if (data.fcmToken && !data.blocked) tokens.push(data.fcmToken);
       });
       sent = await sendToTokens(tokens, dataPayload);
     }
 
-    // Log the notification
+    // Save notification log
     await firestoreDb.collection('notification_log').add({
       title,
       body,
       deepLink: deepLink || null,
       url: url || null,
       channelType: channelType || 'broadcast',
-      targetType: targetType || 'all',
+      targetType,
       targetUid: targetUid || null,
       targetGroupId: targetGroupId || null,
       sentAt: Date.now(),
@@ -906,12 +802,11 @@ app.post('/api/notifications/send', requireAuth, async (req, res) => {
 
     res.json({ success: true, sent });
   } catch (err) {
-    console.error('Error sending notification:', err);
-    res.status(500).json({ error: 'Failed to send notification: ' + err.message });
+    console.error('Error triggering notification campaign:', err);
+    res.status(500).json({ error: 'Failed to send notification campaign: ' + err.message });
   }
 });
 
-// Get notification history
 app.get('/api/notifications/history', requireAuth, async (req, res) => {
   try {
     const snap = await firestoreDb.collection('notification_log')
@@ -921,44 +816,13 @@ app.get('/api/notifications/history', requireAuth, async (req, res) => {
     const history = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     res.json({ history });
   } catch (err) {
-    console.error('Error fetching notification history:', err);
-    res.status(500).json({ error: 'Failed to fetch history' });
+    console.error('Error fetching notification logs:', err);
+    res.status(500).json({ error: 'Failed to fetch notification history' });
   }
 });
 
-// Mass Delete Notifications (Clear History)
-app.post('/api/notifications/mass_delete', requireAuth, async (req, res) => {
-  try {
-    const snap = await firestoreDb.collection('notification_log').get();
-    let batch = firestoreDb.batch();
-    let count = 0;
-    const batchArray = [];
-    
-    snap.docs.forEach(doc => {
-      batch.delete(doc.ref);
-      count++;
-      if (count === 500) {
-        batchArray.push(batch.commit());
-        batch = firestoreDb.batch();
-        count = 0;
-      }
-    });
-    
-    if (count > 0) batchArray.push(batch.commit());
-    await Promise.all(batchArray);
-    
-    res.json({ success: true, deletedCount: snap.size });
-  } catch (err) {
-    console.error('Error clearing notification history:', err);
-    res.status(500).json({ error: 'Failed to clear notification history' });
-  }
-});
+// ─── PERSONAL MODE MESSAGE OVERRIDES ───
 
-// ─── Personal Mode Messages (Override System) ───
-// These messages override hardcoded app messages for features like
-// greeting, smart progress, empty state, last task, streak warning, easter egg
-
-// List all PM messages
 app.get('/api/pm-messages', requireAuth, async (req, res) => {
   try {
     const snap = await firestoreDb.collection('pm_messages').orderBy('createdAt', 'desc').get();
@@ -970,18 +834,17 @@ app.get('/api/pm-messages', requireAuth, async (req, res) => {
   }
 });
 
-// Create PM message
 app.post('/api/pm-messages', requireAuth, async (req, res) => {
   try {
     const id = generateId();
     const msg = {
-      type: req.body.type || 'greeting',           // greeting, smart_progress, empty_state, last_task, streak_warn, easter_egg, late_night
-      condition: req.body.condition || 'default',   // time/progress condition (e.g., "morning", "progress_25", "evening")
+      type: req.body.type || 'greeting',
+      condition: req.body.condition || 'default',
       headline: req.body.headline || '',
       subtitle: req.body.subtitle || null,
       active: req.body.active !== false,
-      targetType: req.body.targetType || 'all',     // all, user
-      targetUids: req.body.targetUids || null,       // specific user UIDs (override for specific users)
+      targetType: req.body.targetType || 'all', // all, user
+      targetUids: req.body.targetUids || null,
       priority: parseInt(req.body.priority) || 0,
       createdAt: Date.now(),
       updatedAt: Date.now()
@@ -994,12 +857,12 @@ app.post('/api/pm-messages', requireAuth, async (req, res) => {
   }
 });
 
-// Update PM message
 app.put('/api/pm-messages/:id', requireAuth, async (req, res) => {
   try {
     const updates = { ...req.body, updatedAt: Date.now() };
     delete updates.id;
     if (updates.priority) updates.priority = parseInt(updates.priority);
+
     await firestoreDb.collection('pm_messages').doc(req.params.id).update(updates);
     res.json({ success: true });
   } catch (err) {
@@ -1008,7 +871,6 @@ app.put('/api/pm-messages/:id', requireAuth, async (req, res) => {
   }
 });
 
-// Delete PM message
 app.delete('/api/pm-messages/:id', requireAuth, async (req, res) => {
   try {
     await firestoreDb.collection('pm_messages').doc(req.params.id).delete();
@@ -1019,9 +881,7 @@ app.delete('/api/pm-messages/:id', requireAuth, async (req, res) => {
   }
 });
 
-// ─── Problem Reports ───
-
-const VALID_REPORT_STATUSES = ['open', 'in_progress', 'resolved'];
+// ─── PROBLEM REPORTS & SUPPORT TICKETS ROUTES ───
 
 async function attachSignedMediaUrls(report) {
   const bucket = admin.storage().bucket();
@@ -1032,11 +892,11 @@ async function attachSignedMediaUrls(report) {
     try {
       const [url] = await bucket.file(attachment.storagePath).getSignedUrl({
         action: 'read',
-        expires: Date.now() + 60 * 60 * 1000
+        expires: Date.now() + 60 * 60 * 1000 // 1 hour token
       });
       return { ...attachment, signedUrl: url };
     } catch (err) {
-      console.warn('Could not sign report attachment:', attachment.storagePath, err.message);
+      console.warn('Could not generate signed GCS URL:', attachment.storagePath, err.message);
       return { ...attachment, signedUrl: null };
     }
   }));
@@ -1044,29 +904,45 @@ async function attachSignedMediaUrls(report) {
   return { ...report, attachments: signedAttachments };
 }
 
+// Get paginated problem reports
 app.get('/api/problem-reports', requireAuth, async (req, res) => {
   try {
     const filterStatus = req.query.status || 'all';
-    const snap = await firestoreDb.collection('problemReports').orderBy('updatedAt', 'desc').limit(200).get();
-    let reports = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const startAfterId = req.query.startAfter;
+
+    let query = firestoreDb.collection('problemReports').orderBy('updatedAt', 'desc');
 
     if (filterStatus !== 'all') {
-      reports = reports.filter(report => report.status === filterStatus);
+      query = query.where('status', '==', filterStatus);
     }
 
+    if (startAfterId) {
+      const doc = await firestoreDb.collection('problemReports').doc(startAfterId).get();
+      if (doc.exists) query = query.startAfter(doc);
+    }
+
+    const snap = await query.limit(limit).get();
+    let reports = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
     reports = await Promise.all(reports.map(attachSignedMediaUrls));
-    res.json({ reports });
+
+    res.json({ 
+      reports,
+      nextOffsetId: reports.length === limit ? reports[reports.length - 1].id : null
+    });
   } catch (err) {
     console.error('Error fetching problem reports:', err);
     res.status(500).json({ error: 'Failed to fetch problem reports' });
   }
 });
 
+// Update status & manage transactional block gates
 app.put('/api/problem-reports/:id/status', requireAuth, async (req, res) => {
   try {
     const { status, adminNote } = req.body;
-    if (!VALID_REPORT_STATUSES.includes(status)) {
-      return res.status(400).json({ error: 'Invalid status', validStatuses: VALID_REPORT_STATUSES });
+    if (!['open', 'in_progress', 'resolved'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid report status' });
     }
 
     const now = Date.now();
@@ -1108,10 +984,11 @@ app.put('/api/problem-reports/:id/status', requireAuth, async (req, res) => {
         }
       }
     });
+
     cache.del('dashboard_stats');
     res.json({ success: true, updates });
   } catch (err) {
-    console.error('Error updating problem report:', err);
+    console.error('Error saving status update on report:', err);
     res.status(err.statusCode || 500).json({ error: err.message || 'Failed to update problem report' });
   }
 });
@@ -1126,7 +1003,7 @@ app.delete('/api/problem-reports/:id', requireAuth, async (req, res) => {
 
     const report = reportDoc.data() || {};
     if (report.status !== 'resolved') {
-      return res.status(400).json({ error: 'Only resolved reports can be deleted.' });
+      return res.status(400).json({ error: 'Only resolved tickets are eligible for deletion.' });
     }
 
     const attachments = Array.isArray(report.attachments) ? report.attachments : [];
@@ -1137,7 +1014,7 @@ app.delete('/api/problem-reports/:id', requireAuth, async (req, res) => {
         throw Object.assign(new Error('Problem report not found'), { statusCode: 404 });
       }
       if (latestReport.data()?.status !== 'resolved') {
-        throw Object.assign(new Error('Only resolved reports can be deleted.'), { statusCode: 400 });
+        throw Object.assign(new Error('Only resolved tickets are eligible for deletion.'), { statusCode: 400 });
       }
 
       const uid = latestReport.data()?.uid;
@@ -1149,6 +1026,7 @@ app.delete('/api/problem-reports/:id', requireAuth, async (req, res) => {
       tx.delete(reportRef);
     });
 
+    // Clean up media assets from Cloud Storage
     const bucket = admin.storage().bucket();
     const deletedAttachments = [];
     for (const attachment of attachments) {
@@ -1157,26 +1035,275 @@ app.delete('/api/problem-reports/:id', requireAuth, async (req, res) => {
         await bucket.file(attachment.storagePath).delete({ ignoreNotFound: true });
         deletedAttachments.push(attachment.storagePath);
       } catch (err) {
-        console.warn('Could not delete report attachment:', attachment.storagePath, err.message);
+        console.warn('GCS Cleanup warning:', attachment.storagePath, err.message);
       }
     }
 
     cache.del('dashboard_stats');
     res.json({ success: true, deletedAttachments: deletedAttachments.length });
   } catch (err) {
-    console.error('Error deleting problem report:', err);
+    console.error('Error deleting report:', err);
     res.status(err.statusCode || 500).json({ error: err.message || 'Failed to delete problem report' });
   }
 });
 
-// ─── AI Text Generation (Mistral) ───
+// ─── DASHBOARD STATS ROUTE (O(1) CACHED META-DOCUMENT ACCESS) ───
 
-const MISTRAL_API_KEY = 'kGPnSqNxoGLBMDY4acTyhVbprn0MZRJ0';
+app.get('/api/stats', requireAuth, async (req, res) => {
+  try {
+    const cachedStats = cache.get('dashboard_stats');
+    if (cachedStats) return res.json(cachedStats);
 
+    // Try reading pre-aggregated dashboard doc
+    const statsDoc = await firestoreDb.collection('stats').doc('dashboard').get();
+    if (statsDoc.exists) {
+      const statsData = statsDoc.data();
+      cache.set('dashboard_stats', statsData);
+      return res.json(statsData);
+    }
+
+    // Fallback: Perform heavy count scans if metadata document doesn't exist yet (first-run setup)
+    console.log('Stats meta-document missing. Running aggregate fallback scan...');
+    const usersSnap = await firestoreDb.collection('users').get();
+    const tasksSnap = await firestoreDb.collection('tasks').get();
+    const reportsSnap = await firestoreDb.collection('problemReports').get();
+
+    let completedTasks = 0;
+    let activeTasks = 0;
+    let blockedUsers = 0;
+    let openProblemReports = 0;
+
+    tasksSnap.docs.forEach(doc => {
+      if (doc.data().isCompleted) completedTasks++;
+      else activeTasks++;
+    });
+
+    usersSnap.docs.forEach(doc => {
+      if (doc.data().blocked) blockedUsers++;
+    });
+
+    reportsSnap.docs.forEach(doc => {
+      const status = doc.data().status || 'open';
+      if (status !== 'resolved') openProblemReports++;
+    });
+
+    const stats = {
+      totalUsers: usersSnap.size,
+      totalTasks: tasksSnap.size,
+      activeTasks,
+      completedTasks,
+      blockedUsers,
+      openProblemReports,
+      updatedAt: Date.now()
+    };
+
+    // Save calculation back to Firestore as O(1) cache source of truth
+    await firestoreDb.collection('stats').doc('dashboard').set(stats);
+    cache.set('dashboard_stats', stats);
+
+    res.json(stats);
+  } catch (err) {
+    console.error('Error retrieving aggregates:', err);
+    res.status(500).json({ error: 'Failed to retrieve stats' });
+  }
+});
+
+app.get('/api/stats/posthog', requireAuth, async (req, res) => {
+  const apiKey = process.env.POSTHOG_PERSONAL_API_KEY;
+  const projectId = process.env.POSTHOG_PROJECT_ID;
+
+  if (!apiKey || !projectId) {
+    return res.status(503).json({ error: 'PostHog analytics integration is not configured in .env' });
+  }
+
+  const cachedData = cache.get('posthog_funnel_stats');
+  if (cachedData) return res.json(cachedData);
+
+  try {
+    const url = `https://us.posthog.com/api/projects/${projectId}/query`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query: {
+          kind: 'TrendsQuery',
+          series: [
+            { kind: 'EventsNode', event: '$app_install', math: 'dau' },
+            { kind: 'EventsNode', event: 'onboarding_completed', math: 'dau' },
+            { kind: 'EventsNode', event: 'google_sync', math: 'dau' }
+          ],
+          dateRange: { date_from: '-30d' }
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`PostHog HTTP Error ${response.status}: ${errText}`);
+    }
+
+    const data = await response.json();
+    const results = data.results || [];
+    const installObj = results.find(r => r.label === '$app_install') || { count: 0 };
+    const onboardingObj = results.find(r => r.label === 'onboarding_completed') || { count: 0 };
+    const syncObj = results.find(r => r.label === 'google_sync') || { count: 0 };
+
+    const payload = {
+      installs: installObj.count || 0,
+      onboarded: onboardingObj.count || 0,
+      synced: syncObj.count || 0,
+      updatedAt: Date.now()
+    };
+
+    cache.set('posthog_funnel_stats', payload, 3600); // cache for 1 hour
+    res.json(payload);
+  } catch (err) {
+    console.error('Error fetching PostHog query:', err);
+    res.status(500).json({ error: 'Failed to retrieve PostHog analytics' });
+  }
+});
+
+app.get('/api/stats/posthog/events', requireAuth, async (req, res) => {
+  const apiKey = process.env.POSTHOG_PERSONAL_API_KEY;
+  const projectId = process.env.POSTHOG_PROJECT_ID;
+
+  if (!apiKey || !projectId) {
+    return res.status(503).json({ error: 'PostHog analytics integration is not configured' });
+  }
+
+  try {
+    const url = `https://us.posthog.com/api/projects/${projectId}/events/?limit=40`;
+    const response = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`PostHog Events Error ${response.status}: ${errText}`);
+    }
+
+    const data = await response.json();
+    res.json({ events: data.results || [] });
+  } catch (err) {
+    console.error('Error fetching PostHog events:', err);
+    res.status(500).json({ error: 'Failed to fetch PostHog events log' });
+  }
+});
+
+app.get('/api/stats/posthog/trends', requireAuth, async (req, res) => {
+  const apiKey = process.env.POSTHOG_PERSONAL_API_KEY;
+  const projectId = process.env.POSTHOG_PROJECT_ID;
+
+  if (!apiKey || !projectId) {
+    return res.status(503).json({ error: 'PostHog analytics integration is not configured' });
+  }
+
+  const cachedData = cache.get('posthog_trends_stats');
+  if (cachedData) return res.json(cachedData);
+
+  try {
+    const url = `https://us.posthog.com/api/projects/${projectId}/query`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        query: {
+          kind: 'TrendsQuery',
+          series: [
+            { kind: 'EventsNode', event: 'task_created', math: 'total' },
+            { kind: 'EventsNode', event: 'task_completed', math: 'total' },
+            { kind: 'EventsNode', event: 'ai_interaction', math: 'total' },
+            { kind: 'EventsNode', event: 'app_crashed', math: 'total' }
+          ],
+          dateRange: { date_from: '-14d' }
+        }
+      })
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`PostHog Trends HTTP Error ${response.status}: ${errText}`);
+    }
+
+    const data = await response.json();
+    const results = data.results || [];
+    
+    const createdObj = results.find(r => r.label === 'task_created') || { data: [], labels: [] };
+    const completedObj = results.find(r => r.label === 'task_completed') || { data: [], labels: [] };
+    const aiObj = results.find(r => r.label === 'ai_interaction') || { data: [], labels: [] };
+    const crashedObj = results.find(r => r.label === 'app_crashed') || { data: [], labels: [] };
+
+    const payload = {
+      labels: createdObj.labels || completedObj.labels || aiObj.labels || [],
+      created: createdObj.data || [],
+      completed: completedObj.data || [],
+      ai: aiObj.data || [],
+      crashes: crashedObj.data || []
+    };
+
+    cache.set('posthog_trends_stats', payload, 1800); // cache for 30 minutes
+    res.json(payload);
+  } catch (err) {
+    console.error('Error fetching PostHog trends:', err);
+    res.status(500).json({ error: 'Failed to retrieve PostHog trends' });
+  }
+});
+
+// ─── AI ASSISTANT / GENERATION ROUTES ───
+
+app.post('/api/ai/chat', requireAuth, async (req, res) => {
+  try {
+    const { prompt } = req.body;
+    if (!ai) return res.status(500).json({ error: 'Gemini AI API is not configured on this server.' });
+
+    const statsDoc = await firestoreDb.collection('stats').doc('dashboard').get();
+    const stats = statsDoc.exists ? statsDoc.data() : { note: 'aggregates unavailable' };
+    
+    const systemPrompt = `You are Preamble Admin AI, a helpful, advanced admin assistant.
+Current Dashboard Stats: ${JSON.stringify(stats)}
+You help the admin manage the app, answer questions, and automate tasks.
+If the admin asks to perform an action, respond with a JSON block formatted EXACTLY like this:
+\`\`\`json
+{
+  "action": "action_name",
+  "payload": { ... }
+}
+\`\`\`
+Available actions:
+- create_broadcast: { "title": "...", "description": "...", "targetType": "all" }
+- mass_delete_tasks: { "status": "completed", "beforeDate": "YYYY-MM-DD" }
+
+Or simply reply conversationally. Keep responses concise, clean, and professional. Use markdown for styling.`;
+
+    const response = await ai.models.generateContent({
+        model: 'gemini-2.5-pro',
+        contents: prompt,
+        config: {
+            systemInstruction: systemPrompt
+        }
+    });
+    
+    res.json({ reply: response.text });
+  } catch (err) {
+    console.error('Gemini chat execution error:', err);
+    res.status(500).json({ error: 'AI processing failed' });
+  }
+});
+
+// Copywriting generator (Mistral)
 app.post('/api/ai/generate', requireAuth, async (req, res) => {
   try {
     const { type, context } = req.body;
-    // type: 'notification', 'broadcast', 'pm_message'
+    const key = process.env.MISTRAL_API_KEY || 'kGPnSqNxoGLBMDY4acTyhVbprn0MZRJ0';
 
     const systemPrompt = `You are a creative copywriter for "Preamble", a modern task management app. Write short, engaging, and friendly content. Be concise — max 2 sentences. Use emoji sparingly. Match the tone: motivational for task-related content, warm for greetings, informative for announcements.`;
 
@@ -1199,7 +1326,7 @@ app.post('/api/ai/generate', requireAuth, async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${MISTRAL_API_KEY}`
+        'Authorization': `Bearer ${key}`
       },
       body: JSON.stringify({
         model: 'mistral-small-latest',
@@ -1230,53 +1357,17 @@ app.post('/api/ai/generate', requireAuth, async (req, res) => {
 
     res.json({ success: true, generated: parsed });
   } catch (err) {
-    console.error('AI generation error:', err);
-    res.status(500).json({ error: 'AI generation failed: ' + err.message });
+    console.error('Mistral text generation failed:', err);
+    res.status(500).json({ error: 'Mistral copywriting execution failed: ' + err.message });
   }
 });
 
-// ─── Serve Frontend ───
-
-app.get('/dashboard', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
+// Serve index.html SPA entry for other requests
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
-app.get('/users', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'users.html'));
-});
-
-app.get('/users/:uid', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'user-detail.html'));
-});
-
-app.get('/broadcasts', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'broadcasts.html'));
-});
-
-app.get('/notifications', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'notifications.html'));
-});
-
-app.get('/reports', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'reports.html'));
-});
-
-app.get('/groups', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'groups.html'));
-});
-
-app.get('/pm-messages', requireAuth, (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'pm-messages.html'));
-});
-
-app.get('/', (req, res) => {
-  if (req.session && req.session.user) {
-    return res.redirect('/dashboard');
-  }
-  res.sendFile(path.join(__dirname, 'public', 'login.html'));
-});
-
-// Simple ID generator
+// ID Generator helper
 function generateId() {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
   let id = '';
@@ -1287,5 +1378,5 @@ function generateId() {
 }
 
 app.listen(PORT, () => {
-  console.log(`\n  ✦ Preamble Admin Panel running at http://localhost:${PORT}\n`);
+  console.log(`\n  ✦ New Preamble Admin Panel backend listening at http://localhost:${PORT}\n`);
 });

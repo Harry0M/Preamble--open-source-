@@ -15,6 +15,7 @@ import android.util.Log
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import com.theblankstate.preamble.PreambleApplication
+import com.theblankstate.preamble.analytics.AnalyticsManager
 import com.theblankstate.preamble.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,9 +60,15 @@ class VoiceTaskService : Service() {
         
         if (!isVoice) {
             // Text command from notification or external source
+            if (intent != null) {
+                AnalyticsManager.trackNotificationAction("quick_add")
+            }
             saveTask(textCommand!!, existingTaskId, isNotification)
         } else {
             // Voice mode: listen via microphone
+            if (intent != null) {
+                AnalyticsManager.trackNotificationAction("voice")
+            }
             startListening()
         }
         
@@ -178,6 +185,11 @@ class VoiceTaskService : Service() {
 
         CoroutineScope(Dispatchers.IO).launch {
             Log.d("PreambleAI", "═══ VoiceTaskService.saveTask() ═══")
+            if (isNotification) {
+                AnalyticsManager.trackAiParserUsed("text_quick_add")
+            } else {
+                AnalyticsManager.trackAiParserUsed("voice")
+            }
             Log.d("PreambleAI", "  Input: '$title'")
             Log.d("PreambleAI", "  ExistingTaskId: $existingTaskId")
 
@@ -681,6 +693,14 @@ class VoiceTaskService : Service() {
             createdTaskId = localTask.id
             // Schedule alarm if task has a deadline time
             scheduleAlarmForTask(localTask)
+        }
+        if (createdTaskId != null) {
+            AnalyticsManager.trackTaskCreated(
+                category = tags ?: "uncategorized",
+                isPriority = priority > 0,
+                hasDeadline = time != null,
+                isRecurring = validRecurrence != null
+            )
         }
         return createdTaskId
     }

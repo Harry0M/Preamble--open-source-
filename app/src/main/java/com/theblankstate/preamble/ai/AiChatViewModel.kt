@@ -258,6 +258,7 @@ class AiChatViewModel(
      */
     suspend fun parseTaskPreview(text: String): Map<String, String>? {
         if (!isConfigured()) return null
+        com.theblankstate.preamble.analytics.AnalyticsManager.trackAiParserUsed("text_task_sheet")
         return try {
             _isLoading.value = true
             if (useCloud()) {
