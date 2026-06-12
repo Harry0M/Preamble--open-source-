@@ -980,6 +980,110 @@ class TaskViewModel(
         }
     }
 
+    /**
+     * Save a raw task immediately (isSyncing=true) and schedule AiParsingWorker
+     * to refine it in the background. Used when user presses save before AI finishes.
+     * @param userOverrides comma-separated field names the user explicitly set (e.g. "priority,date,tags")
+     */
+    fun addTaskWithPendingAiParse(
+        rawText: String,
+        date: String? = null,
+        deadlineTime: String? = null,
+        syncToGoogle: Boolean = false,
+        syncToCalendar: Boolean = false,
+        priority: Int = 0,
+        description: String? = null,
+        tags: String? = null,
+        subtasks: List<String> = emptyList(),
+        isHabit: Boolean = false,
+        isEvent: Boolean = false,
+        eventIcon: String? = null,
+        eventColor: String? = null,
+        recurrenceType: String? = null,
+        recurrenceInterval: Int = 1,
+        recurrenceDays: String? = null,
+        recurrenceEndDate: String? = null,
+        userOverrides: String = ""
+    ) {
+        val normalizedTitle = TaskInputValidator.normalizeTitle(rawText)
+        if (!TaskInputValidator.isValidTitle(normalizedTitle)) return
+        viewModelScope.launch {
+            val taskDate = date ?: TaskRepository.todayString()
+            val now = System.currentTimeMillis()
+            val validRecurrence = recurrenceType?.takeIf {
+                it in listOf("daily", "weekly", "monthly", "yearly", "rollover")
+            }
+            val task = com.theblankstate.preamble.data.Task(
+                title = normalizedTitle,
+                createdDate = taskDate,
+                deadlineTime = deadlineTime,
+                createdTimestamp = now,
+                updatedTimestamp = now,
+                priority = priority,
+                description = description,
+                tags = tags,
+                recurrenceType = validRecurrence,
+                recurrenceInterval = if (validRecurrence != null && validRecurrence != "rollover") recurrenceInterval else null,
+                recurrenceDays = if (validRecurrence != null && validRecurrence != "rollover") recurrenceDays else null,
+                recurrenceEndDate = recurrenceEndDate,
+                isHabit = isHabit,
+                isEvent = isEvent,
+                eventIcon = eventIcon,
+                eventColor = eventColor,
+                isSyncing = true  // Mark as pending AI refinement
+            )
+            repository.insertTask(task)
+            if (!tags.isNullOrBlank()) {
+                repository.saveTagOverride(task.id, tags)
+            }
+            if (subtasks.isNotEmpty()) {
+                repository.addSubtasks(task.id, subtasks)
+                _subtaskCounts.update { current ->
+                    current + (task.id to Pair(0, subtasks.size))
+                }
+            }
+
+            // Schedule AiParsingWorker to refine the task in the background
+            val data = androidx.work.Data.Builder()
+                .putString("taskId", task.id)
+                .putString("rawText", rawText)
+                .putString("userOverrides", userOverrides)
+                .build()
+            val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.ai.AiParsingWorker>()
+                .setInputData(data)
+                .setBackoffCriteria(
+                    androidx.work.BackoffPolicy.EXPONENTIAL,
+                    30_000L,
+                    java.util.concurrent.TimeUnit.MILLISECONDS
+                )
+                .setConstraints(
+                    androidx.work.Constraints.Builder()
+                        .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                        .build()
+                )
+                .build()
+            androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+            android.util.Log.d("TaskViewModel", "Scheduled AiParsingWorker for early-saved task ${task.id}")
+
+            if (isHabit) {
+                repository.toggleHabit(task.id, true)
+                refreshHabitStreaks()
+            }
+            if (validRecurrence != null) {
+                triggerRecurrenceGeneration()
+            }
+            refreshStats()
+            invalidateCalendarForDate(taskDate)
+
+            AnalyticsManager.trackTaskCreated(
+                category = tags ?: "uncategorized",
+                isPriority = priority > 0,
+                hasDeadline = deadlineTime != null,
+                isRecurring = validRecurrence != null
+            )
+        }
+    }
+
     // ── Snackbar / Undo Delete support ──
     private val _snackbarEvent = MutableSharedFlow<SnackbarEvent>(extraBufferCapacity = 1)
     val snackbarEvent = _snackbarEvent.asSharedFlow()

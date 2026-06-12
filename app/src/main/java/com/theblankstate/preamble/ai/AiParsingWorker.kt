@@ -33,6 +33,7 @@ class AiParsingWorker(
         val app = applicationContext as PreambleApplication
         val taskId = inputData.getString("taskId") ?: return Result.failure()
         val rawText = inputData.getString("rawText") ?: return Result.failure()
+        val userOverrides = inputData.getString("userOverrides")?.split(",")?.filter { it.isNotBlank() }?.toSet() ?: emptySet()
 
         val task = app.repository.getTaskById(taskId)
         if (task == null) {
@@ -54,7 +55,7 @@ class AiParsingWorker(
                 )
 
                 if (result != null && result.toolCalls.isNotEmpty()) {
-                    applyToolCalls(app, task, taskId, result.toolCalls, today)
+                    applyToolCalls(app, task, taskId, result.toolCalls, today, userOverrides)
                     Log.d(TAG, "Cloud AI parsing succeeded for task $taskId")
                     return Result.success()
                 }
@@ -97,7 +98,7 @@ class AiParsingWorker(
             val response = provider.chat(listOf(systemMsg, userMsg), TaskTools.tools)
 
             if (!response.toolCalls.isNullOrEmpty()) {
-                applyLocalToolCalls(app, task, taskId, response.toolCalls, today)
+                applyLocalToolCalls(app, task, taskId, response.toolCalls, today, userOverrides)
             } else {
                 // No tool calls — AI couldn't parse input, save raw task as-is
                 Log.w(TAG, "AI returned no tool calls for task $taskId, saving as-is")
@@ -132,11 +133,12 @@ class AiParsingWorker(
         taskId: String,
         toolCalls: List<CloudToolCall>,
         today: String,
+        userOverrides: Set<String> = emptySet(),
     ) {
         for (call in toolCalls) {
             when (call.name) {
                 "add_task", "set_reminder" -> {
-                    applyParsedTask(app, task, taskId, call.args, today)
+                    applyParsedTask(app, task, taskId, call.args, today, userOverrides)
                 }
                 else -> {
                     app.repository.updateTask(task.copy(isSyncing = false))
@@ -154,11 +156,12 @@ class AiParsingWorker(
         taskId: String,
         toolCalls: List<ToolCall>,
         today: String,
+        userOverrides: Set<String> = emptySet(),
     ) {
         for (call in toolCalls) {
             when (call.name) {
                 "add_task", "set_reminder" -> {
-                    applyParsedTask(app, task, taskId, call.arguments, today)
+                    applyParsedTask(app, task, taskId, call.arguments, today, userOverrides)
                 }
                 else -> {
                     app.repository.updateTask(task.copy(isSyncing = false))
@@ -176,17 +179,20 @@ class AiParsingWorker(
         taskId: String,
         args: Map<String, String>,
         today: String,
+        userOverrides: Set<String> = emptySet(),
     ) {
-        Log.d(TAG, "applyParsedTask: taskId=$taskId, args=$args")
+        Log.d(TAG, "applyParsedTask: taskId=$taskId, args=$args, userOverrides=$userOverrides")
         val rawText = task.title
+        // Title is always refined by AI (that's the whole point)
         val refinedTitle = args["title"] ?: rawText
-        val date = args["date"]
-        val time = args["deadline_time"] ?: args["time"]
-        val tags = args["tags"]
-        val priority = args["priority"]?.toIntOrNull() ?: 0
+        // Respect user overrides: if user set a field manually, keep their value
+        val date = if ("date" in userOverrides) null else args["date"]
+        val time = if ("time" in userOverrides) null else (args["deadline_time"] ?: args["time"])
+        val tags = if ("tags" in userOverrides) null else args["tags"]
+        val priority = if ("priority" in userOverrides) task.priority else (args["priority"]?.toIntOrNull() ?: 0)
         val recurrence = args["recurrence"]
-        val description = args["description"]
-        val subtasksList = TaskTools.parseSubtasks(args["subtasks"])
+        val description = if ("description" in userOverrides) null else args["description"]
+        val subtasksList = if ("subtasks" in userOverrides) emptyList() else TaskTools.parseSubtasks(args["subtasks"])
         val isHabit = args["is_habit"]?.lowercase()?.let { it == "true" || it == "1" } ?: false
         val isEvent = args["is_event"]?.lowercase()?.let { it == "true" || it == "1" } ?: false
         val eventIcon = args["event_icon"]
@@ -210,9 +216,9 @@ class AiParsingWorker(
 
         var updated = task.copy(
             title = refinedTitle,
-            createdDate = date ?: today,
-            deadlineTime = time,
-            tags = tags,
+            createdDate = date ?: task.createdDate,
+            deadlineTime = time ?: task.deadlineTime,
+            tags = tags ?: task.tags,
             priority = priority,
             description = description ?: task.description,
             recurrenceType = effectiveRecurrence,

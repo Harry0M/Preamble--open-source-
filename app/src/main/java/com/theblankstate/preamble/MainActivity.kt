@@ -507,6 +507,9 @@ fun PreambleApp(
                 onAddRecurringTask = { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks, isHabit, isEvent, eventIcon, eventColor ->
                     viewModel.addRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks, isHabit, isEvent, eventIcon, eventColor)
                 },
+                onAddTaskPendingParse = { rawText, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, userOverrides ->
+                    viewModel.addTaskWithPendingAiParse(rawText, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, userOverrides)
+                },
                 onSyncGoogle = { viewModel.syncGoogleData() },
                 isRefreshing = viewModel.isRefreshing.collectAsState().value,
                 isBackgroundDeleting = viewModel.isBackgroundDeleting.collectAsState().value,

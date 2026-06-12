@@ -135,7 +135,8 @@ fun AddTaskSheet(
     onDismiss: () -> Unit,
     onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?) -> Unit,
     onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?) -> Unit)? = null,
-    aiChatViewModel: AiChatViewModel? = null
+    aiChatViewModel: AiChatViewModel? = null,
+    onAddTaskPendingParse: ((rawText: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?, recurrenceType: String?, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, userOverrides: String) -> Unit)? = null
 ) {
     val context = LocalContext.current
     // Haptic feedback support
@@ -210,6 +211,7 @@ fun AddTaskSheet(
     }
     var isAiParsing by remember { mutableStateOf(false) }
     var aiLastParsed by remember { mutableStateOf("") }
+    var aiParsedTitle by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(taskTitle) {
         if (!aiControlEnabled) return@LaunchedEffect
@@ -220,13 +222,15 @@ fun AddTaskSheet(
         if (input == aiLastParsed) return@LaunchedEffect
         kotlinx.coroutines.delay(700)
         if (taskTitle.trim() != input) return@LaunchedEffect  // user kept typing
+        aiParsedTitle = null  // Clear old preview while re-parsing
         isAiParsing = true
         val result = aiChatViewModel.parseTaskPreview(input)
         isAiParsing = false
         if (result != null) {
             val newTitle = result["title"]?.takeIf { it.isNotBlank() } ?: input
-            aiLastParsed = newTitle
-            if (newTitle != taskTitle) taskTitle = newTitle
+            aiLastParsed = input
+            // Problem 1 fix: Don't overwrite taskTitle. Show parsed title as preview instead.
+            aiParsedTitle = newTitle
             if (selectedTime == null) result["deadline_time"]?.takeIf { it.isNotBlank() }?.let { selectedTime = it }
             if (selectedDate == null) result["date"]?.takeIf { it.isNotBlank() }?.let { selectedDate = it }
             if (selectedPriority == 0) result["priority"]?.toIntOrNull()?.let { selectedPriority = it }
@@ -367,10 +371,44 @@ fun AddTaskSheet(
             }
             
             val desc = taskDescription.trim().ifBlank { null }
-            if (recurrenceType != null && onAddRecurringTask != null) {
+            // Problem 1: Use AI parsed title if available, otherwise raw input
+            val finalTitle = (aiParsedTitle ?: taskTitle.trim()).trim()
+
+            // Problem 2: If AI is still parsing and user saves early, use async path
+            if (isAiParsing && aiParsedTitle == null && onAddTaskPendingParse != null) {
+                // Calculate which fields the user explicitly set (protect from async AI overwrite)
+                val overrides = mutableListOf<String>()
+                if (selectedPriority != 0) overrides.add("priority")
+                if (selectedDate != null) overrides.add("date")
+                if (selectedTime != null) overrides.add("time")
+                if (selectedTags.isNotEmpty()) overrides.add("tags")
+                if (desc != null) overrides.add("description")
+                if (finalSubtasks.isNotEmpty()) overrides.add("subtasks")
+                val daysStr = if (recurrenceDays.isNotEmpty()) recurrenceDays.sorted().joinToString(",") else null
+                onAddTaskPendingParse(
+                    taskTitle.trim(),
+                    selectedDate,
+                    selectedTime,
+                    syncToGoogle,
+                    syncToCalendar,
+                    selectedPriority,
+                    desc,
+                    if (selectedTags.isNotEmpty()) selectedTags.joinToString(",") else null,
+                    finalSubtasks,
+                    isHabit,
+                    isEvent,
+                    eventIcon,
+                    eventColor,
+                    recurrenceType,
+                    recurrenceInterval,
+                    daysStr,
+                    recurrenceEndDate,
+                    overrides.joinToString(",")
+                )
+            } else if (recurrenceType != null && onAddRecurringTask != null) {
                 val daysStr = if (recurrenceDays.isNotEmpty()) recurrenceDays.sorted().joinToString(",") else null
                 onAddRecurringTask(
-                    taskTitle.trim(),
+                    finalTitle,
                     selectedDate,
                     selectedTime,
                     selectedPriority,
@@ -389,7 +427,7 @@ fun AddTaskSheet(
                 )
             } else {
                 onAddTask(
-                    taskTitle.trim(),
+                    finalTitle,
                     selectedDate,
                     selectedTime,
                     syncToGoogle,
@@ -483,9 +521,9 @@ fun AddTaskSheet(
                 }
             }
 
-            // "Thinking…" label while AI parses (above input)
+            // AI status: "Thinking…" while parsing, or parsed title preview when done
             AnimatedVisibility(
-                visible = isAiParsing,
+                visible = isAiParsing || aiParsedTitle != null,
                 enter = fadeIn(),
                 exit = fadeOut()
             ) {
@@ -494,17 +532,31 @@ fun AddTaskSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    NotationIcon(
-                        type = "half_dotted",
-                        size = 12.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                        spinning = true
-                    )
-                    Text(
-                        "thinking…",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    if (isAiParsing) {
+                        NotationIcon(
+                            type = "half_dotted",
+                            size = 12.dp,
+                            color = MaterialTheme.colorScheme.primary,
+                            spinning = true
+                        )
+                        Text(
+                            "thinking…",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else if (aiParsedTitle != null) {
+                        Text(
+                            "✨",
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                        Text(
+                            aiParsedTitle!!,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
 
@@ -618,7 +670,6 @@ fun AddTaskSheet(
                         SuggestionChip(
                             onClick = {
                                 selectedDate = parsedDateTime.date
-                                taskTitle = parsedDateTime.cleanedTitle
                             },
                             label = { Text(parsedDateTime.date, style = MaterialTheme.typography.labelSmall) },
                             icon = { Icon(Icons.Default.DateRange, null, Modifier.size(16.dp)) }
@@ -628,7 +679,6 @@ fun AddTaskSheet(
                         SuggestionChip(
                             onClick = {
                                 selectedTime = parsedDateTime.time
-                                taskTitle = parsedDateTime.cleanedTitle
                             },
                             label = { Text(parsedDateTime.time, style = MaterialTheme.typography.labelSmall) },
                             icon = { Icon(Icons.Default.AccessTime, null, Modifier.size(16.dp)) }

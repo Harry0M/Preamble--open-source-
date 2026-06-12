@@ -156,6 +156,7 @@ fun HomeScreen(
     onToggleHabit: ((Task) -> Unit)? = null,
     onEditTask: ((Task, String, String?, String?, Int, String?, String?, String?, Int, String?, String?, Boolean, String?, String?) -> Unit)? = null,
     onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?) -> Unit)? = null,
+    onAddTaskPendingParse: ((rawText: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?, recurrenceType: String?, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, userOverrides: String) -> Unit)? = null,
     onSyncGoogle: (() -> Unit)? = null,
     isRefreshing: Boolean = false,
     isBackgroundDeleting: Boolean = false,
@@ -1543,7 +1544,11 @@ fun HomeScreen(
                 onAddRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks, isHabit, isEvent, eventIcon, eventColor)
                 showAddSheet = false
             } } else null,
-            aiChatViewModel = aiChatViewModel
+            aiChatViewModel = aiChatViewModel,
+            onAddTaskPendingParse = if (onAddTaskPendingParse != null) { { rawText, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, userOverrides ->
+                onAddTaskPendingParse(rawText, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, userOverrides)
+                showAddSheet = false
+            } } else null
         )
     }
 
