@@ -1069,7 +1069,7 @@ fun TaskDetailBottomSheet(
                                                     .background(
                                                         when {
                                                             completed == true -> streakColor
-                                                            completed == false -> androidx.compose.ui.graphics.Color(0xFFEF5350)
+                                                            completed == false && !isToday && !isFuture -> androidx.compose.ui.graphics.Color(0xFFEF5350)
                                                             isToday -> streakColor.copy(alpha = 0.15f)
                                                             else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.04f)
                                                         }
@@ -1085,7 +1085,8 @@ fun TaskDetailBottomSheet(
                                                     style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
                                                     fontWeight = if (isToday) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Normal,
                                                     color = when {
-                                                        completed == true || completed == false -> androidx.compose.ui.graphics.Color.White
+                                                        completed == true -> androidx.compose.ui.graphics.Color.White
+                                                        completed == false && !isToday && !isFuture -> androidx.compose.ui.graphics.Color.White
                                                         isToday -> streakColor
                                                         isFuture -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
                                                         else -> MaterialTheme.colorScheme.onSurfaceVariant

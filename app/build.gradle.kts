@@ -26,7 +26,7 @@ android {
         applicationId = "com.theblankstate.preamble"
         minSdk = 24
         targetSdk = 36
-        versionCode = 9
+        versionCode = 11
         versionName = "1.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

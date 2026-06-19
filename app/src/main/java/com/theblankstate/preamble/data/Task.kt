@@ -66,7 +66,10 @@ data class Reminder(
         fun fromJson(json: String?): List<Reminder> {
             if (json.isNullOrBlank()) return emptyList()
             return try {
-                Gson().fromJson(json, object : TypeToken<List<Reminder>>() {}.type)
+                // Gson can produce platform-null elements in the list; filterNotNull to stay safe.
+                @Suppress("UNCHECKED_CAST")
+                val raw: List<Reminder?> = Gson().fromJson(json, object : TypeToken<List<Reminder?>>() {}.type)
+                raw.filterNotNull()
             } catch (e: Exception) {
                 // Fallback: try parsing Google Calendar format [{method, minutes}]
                 try {
@@ -210,15 +213,16 @@ data class Task(
             } catch (_: Exception) { null }
         } else null
 
-        return reminders.mapIndexedNotNull { index, reminder ->
+        return reminders.mapIndexedNotNull { index, rem ->
+            // Defensive: Gson can sneak platform-null through Kotlin's type system in release builds.
+            @Suppress("SENSELESS_NULL_IN_WHEN", "USELESS_IS_CHECK")
+            val reminder: Reminder? = rem as? Reminder
             if (reminder == null) return@mapIndexedNotNull null
             val safeType = reminder.type ?: "before"
-            val triggerMs = when (safeType) {
-                "exact" -> reminder.epochMs
-                "before" -> {
-                    if (baseMs != null && reminder.minutesBefore != null) {
-                        baseMs - (reminder.minutesBefore * 60 * 1000L)
-                    } else null
+            val triggerMs: Long? = when {
+                safeType == "exact" -> reminder.epochMs
+                safeType == "before" && baseMs != null && reminder.minutesBefore != null -> {
+                    baseMs - (reminder.minutesBefore * 60 * 1000L)
                 }
                 else -> null
             }
