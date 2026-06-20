@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Search
@@ -60,6 +61,7 @@ import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.ViewHeadline
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.IconButton
@@ -78,7 +80,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -474,9 +475,10 @@ fun HomeScreen(
         Scaffold(
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
-                TopAppBar(
+                CenterAlignedTopAppBar(
+                    windowInsets = WindowInsets(0, 0, 0, 0),
                     title = {
-                        Column {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             val todayStr = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()) }
                             val todayHoliday = tasks.firstOrNull { it.isInfoOnly && it.eventType == "holiday" && it.createdDate == todayStr }?.title
 
@@ -531,7 +533,6 @@ fun HomeScreen(
                                         )
                                     }
                                 } // closes personal mode Row
-                                RichDateHeader(modifier = Modifier.padding(top = 2.dp), externalFestival = todayHoliday)
                             } else {
                                 // Classic mode — original layout preserved
                                 Row(
@@ -546,28 +547,10 @@ fun HomeScreen(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                 }
-                                RichDateHeader(modifier = Modifier.padding(top = 2.dp), externalFestival = todayHoliday)
                             }
                         }
                     },
                     actions = {
-                        // Filter button — toggles tag filter bar (with search chip)
-                        IconButton(onClick = {
-                            showFilterBar = !showFilterBar
-                            if (!showFilterBar) {
-                                isSearchActive = false
-                                onSearchQueryChanged("")
-                            }
-                        }) {
-                            Icon(
-                                imageVector = Icons.Filled.FilterList,
-                                contentDescription = "Filter",
-                                tint = if (showFilterBar || isSearchActive || selectedTagFilter != null)
-                                    MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-
                         // Alarm icon
                         IconButton(onClick = { showAlarmSheet = true }) {
                             Icon(Icons.Filled.Alarm, contentDescription = "Alarms")
@@ -600,62 +583,15 @@ fun HomeScreen(
                             }
                         }
 
-                        // Three-dot menu — Eisenhower Matrix + Timeline View
-                        Box {
-                            IconButton(onClick = { showMoreMenu = true }) {
-                                Icon(Icons.Filled.MoreVert, contentDescription = "More options")
+                        // Filter/Views menu (Arrow down)
+                        IconButton(onClick = { 
+                            showFilterBar = !showFilterBar 
+                            if (!showFilterBar) {
+                                isSearchActive = false
+                                onSearchQueryChanged("")
                             }
-                            DropdownMenu(
-                                expanded = showMoreMenu,
-                                onDismissRequest = { showMoreMenu = false }
-                            ) {
-                                DropdownMenuItem(
-                                    text = { Text("Eisenhower Matrix") },
-                                    onClick = {
-                                        showEisenhowerView = !showEisenhowerView
-                                        showMoreMenu = false
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            Icons.Filled.GridView,
-                                            contentDescription = null,
-                                            tint = if (showEisenhowerView) MaterialTheme.colorScheme.primary
-                                                   else MaterialTheme.colorScheme.onSurface
-                                        )
-                                    },
-                                    trailingIcon = if (showEisenhowerView) ({
-                                        Icon(
-                                            Icons.Filled.Close,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp),
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }) else null
-                                )
-                                DropdownMenuItem(
-                                    text = { Text("Timeline View") },
-                                    onClick = {
-                                        ThemePreferences.setTimelineUi(context, !isTimelineEnabled)
-                                        showMoreMenu = false
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            if (isTimelineEnabled) Icons.Filled.ViewHeadline else Icons.Filled.ViewAgenda,
-                                            contentDescription = null,
-                                            tint = if (isTimelineEnabled) MaterialTheme.colorScheme.primary
-                                                   else MaterialTheme.colorScheme.onSurface
-                                        )
-                                    },
-                                    trailingIcon = if (isTimelineEnabled) ({
-                                        Icon(
-                                            Icons.Filled.Close,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(16.dp),
-                                            tint = MaterialTheme.colorScheme.primary
-                                        )
-                                    }) else null
-                                )
-                            }
+                        }) {
+                            Icon(Icons.Filled.KeyboardArrowDown, contentDescription = "Toggle views and filters")
                         }
                     },
                     scrollBehavior = scrollBehavior
@@ -885,6 +821,36 @@ fun HomeScreen(
                                 leadingIcon = {
                                     Icon(
                                         imageVector = if (isSearchActive) Icons.Filled.Close else Icons.Filled.Search,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            )
+                        }
+                        // Eisenhower Matrix chip
+                        item {
+                            FilterChip(
+                                selected = showEisenhowerView,
+                                onClick = { showEisenhowerView = !showEisenhowerView },
+                                label = { Text("Eisenhower Matrix", style = MaterialTheme.typography.labelSmall) },
+                                leadingIcon = {
+                                    Icon(
+                                        Icons.Filled.GridView,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            )
+                        }
+                        // Timeline View chip
+                        item {
+                            FilterChip(
+                                selected = isTimelineEnabled,
+                                onClick = { ThemePreferences.setTimelineUi(context, !isTimelineEnabled) },
+                                label = { Text("Timeline View", style = MaterialTheme.typography.labelSmall) },
+                                leadingIcon = {
+                                    Icon(
+                                        if (isTimelineEnabled) Icons.Filled.ViewHeadline else Icons.Filled.ViewAgenda,
                                         contentDescription = null,
                                         modifier = Modifier.size(14.dp)
                                     )

@@ -47,6 +47,7 @@ data class UserProfile(
     val baselineScore: Int = 0,
     val percentile: Int = 0,
     val onboardingCompletedAt: Long = 0L,
+    val preambleId: String? = null,
 ) {
     val discountEligible: Boolean
         get() = role == UserRole.STUDENT || (age != null && age < 25)
@@ -94,11 +95,14 @@ object UserProfileStore {
     private const val K_SCORE = "profile_baseline_score"
     private const val K_PERCENTILE = "profile_percentile"
     private const val K_COMPLETED_AT = "profile_completed_at"
+    private const val K_PREAMBLE_ID = "profile_preamble_id"
 
     fun save(ctx: Context, p: UserProfile) {
         val score = if (p.baselineScore > 0) p.baselineScore else computeBaselineScore(p)
         val pct = if (p.percentile > 0) p.percentile else computePercentile(score)
         val completedAt = if (p.onboardingCompletedAt > 0) p.onboardingCompletedAt else System.currentTimeMillis()
+        val preambleIdToSave = p.preambleId ?: generatePreambleId()
+        
         ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().apply {
             p.name?.let { putString(K_NAME, it) }
             p.age?.let { putInt(K_AGE, it) }
@@ -113,11 +117,12 @@ object UserProfileStore {
             putInt(K_SCORE, score)
             putInt(K_PERCENTILE, pct)
             putLong(K_COMPLETED_AT, completedAt)
+            putString(K_PREAMBLE_ID, preambleIdToSave)
             apply()
         }
 
         // Bridge profile fields into long-term memory so AI sees them via memory snapshot.
-        bridgeToMemoryAsync(ctx, p)
+        bridgeToMemoryAsync(ctx, p.copy(preambleId = preambleIdToSave))
     }
 
     private fun bridgeToMemoryAsync(ctx: Context, p: UserProfile) {
@@ -167,7 +172,65 @@ object UserProfileStore {
             baselineScore = sp.getInt(K_SCORE, 0),
             percentile = sp.getInt(K_PERCENTILE, 0),
             onboardingCompletedAt = sp.getLong(K_COMPLETED_AT, 0L),
+            preambleId = sp.getString(K_PREAMBLE_ID, null),
         )
+    }
+
+    private fun generatePreambleId(): String {
+        val chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        return (1..8).map { chars.random() }.joinToString("")
+    }
+
+    fun ensurePreambleId(ctx: Context): String {
+        val p = load(ctx)
+        if (p.preambleId != null) return p.preambleId
+        val newId = generatePreambleId()
+        val updated = p.copy(preambleId = newId)
+        save(ctx, updated)
+        syncToFirestore(updated)
+        return newId
+    }
+
+    /**
+     * Fetches profile from Firestore and saves it locally.
+     */
+    fun fetchFromFirestore(ctx: Context, onComplete: (Boolean) -> Unit = {}) {
+        val uid = FirebaseAuth.getInstance().currentUser?.uid
+        if (uid == null) { onComplete(false); return }
+        try {
+            FirebaseFirestore.getInstance("preamble")
+                .collection("users").document(uid)
+                .get()
+                .addOnSuccessListener { doc ->
+                    if (doc.exists()) {
+                        val p = UserProfile(
+                            name = doc.getString("name"),
+                            age = doc.getLong("age")?.toInt(),
+                            gender = doc.getString("gender"),
+                            role = UserRole.fromKey(doc.getString("role")),
+                            tasksPerDay = TasksPerDay.fromKey(doc.getString("tasksPerDay")),
+                            baselineScore = doc.getLong("baselineScore")?.toInt() ?: 0,
+                            percentile = doc.getLong("percentile")?.toInt() ?: 0,
+                            onboardingCompletedAt = doc.getLong("onboardingCompletedAt") ?: 0L,
+                            preambleId = doc.getString("preambleId")
+                        )
+                        // Note: Ignoring goals list for now to keep it simple, 
+                        // as we just need the Preamble ID mostly.
+                        val finalP = if (p.preambleId == null) {
+                            val newId = generatePreambleId()
+                            p.copy(preambleId = newId).also { syncToFirestore(it) }
+                        } else p
+                        
+                        save(ctx, finalP)
+                        onComplete(true)
+                    } else {
+                        onComplete(false)
+                    }
+                }
+                .addOnFailureListener { onComplete(false) }
+        } catch (e: Exception) {
+            onComplete(false)
+        }
     }
 
     /**
@@ -191,12 +254,32 @@ object UserProfileStore {
         data["percentile"] = profile.percentile
         data["discountEligible"] = profile.discountEligible
         data["onboardingCompletedAt"] = profile.onboardingCompletedAt
+        
+        // If syncing a profile without preambleId, but we know save() generates it, 
+        // we should try to use the generated one if possible.
+        // Usually syncToFirestore is called with the object from load() or immediately after save().
+        profile.preambleId?.let { data["preambleId"] = it }
+        
         if (data.isEmpty()) { onResult(false); return }
         try {
-            FirebaseFirestore.getInstance("preamble")
-                .collection("users").document(uid)
+            val db = FirebaseFirestore.getInstance("preamble")
+            
+            // 1. Sync full profile
+            db.collection("users").document(uid)
                 .set(data, com.google.firebase.firestore.SetOptions.merge())
-                .addOnSuccessListener { onResult(true) }
+                .addOnSuccessListener { 
+                    // 2. Sync public search mapping if we have a preambleId
+                    profile.preambleId?.let { pId ->
+                        val publicData = mapOf(
+                            "uid" to uid,
+                            "name" to (profile.name ?: "Anonymous User"),
+                            "preambleId" to pId
+                        )
+                        db.collection("preambleIds").document(pId)
+                            .set(publicData)
+                    }
+                    onResult(true) 
+                }
                 .addOnFailureListener { onResult(false) }
         } catch (e: Exception) {
             onResult(false)

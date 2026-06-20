@@ -61,6 +61,9 @@ object AuthManager {
                 )
             }
 
+            // Sync UserProfile from Firestore to get Preamble ID
+            com.theblankstate.preamble.data.UserProfileStore.fetchFromFirestore(context)
+
             // Migrate locally-saved AI memories to the real uid + sync to Firestore
             runCatching {
                 com.theblankstate.preamble.ai.AiMemoryRepository.get(context).migrateOnLogin()

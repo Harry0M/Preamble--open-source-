@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -261,10 +262,18 @@ class MainActivity : ComponentActivity() {
      */
     private fun parseDeepLink(intent: Intent?): String? {
         val data = intent?.data ?: return null
-        if (data.scheme != "preamble") return null
-        val host = data.host ?: return null
-        val path = data.path?.trimStart('/') ?: ""
-        return if (path.isNotEmpty()) "$host/$path" else host
+        if (data.scheme == "preamble" || data.scheme == "https") {
+            // Handle https://preamble.theblankstate.com/invite/XXXXXX
+            if (data.host == "preamble.theblankstate.com" && data.path?.startsWith("/invite/") == true) {
+                return "invite/" + data.lastPathSegment
+            }
+            if (data.scheme == "preamble") {
+                val host = data.host ?: return null
+                val path = data.path?.trimStart('/') ?: ""
+                return if (path.isNotEmpty()) "$host/$path" else host
+            }
+        }
+        return null
     }
 
     override fun onResume() {
@@ -365,7 +374,7 @@ fun PreambleApp(
 
     // PostHog: Har tab change pe screen view track karo
     // Compose mein traditional Activity nahi hota, toh manually track karna padta hai
-    val screenNames = remember { listOf("HomeScreen", "StatsScreen", "CalendarScreen", "AiChatScreen", "SettingsScreen") }
+    val screenNames = remember { listOf("HomeScreen", "StatsScreen", "CalendarScreen", "AiChatScreen", "WorkspaceScreen", "SettingsScreen") }
     androidx.compose.runtime.LaunchedEffect(selectedTab) {
         val now = System.currentTimeMillis()
         val elapsedSec = (now - lastTabStartTime) / 1000.0
@@ -375,6 +384,8 @@ fun PreambleApp(
                 AnalyticsManager.trackScreenClosed("stats_screen", elapsedSec)
             } else if (lastTab == 3) { // AiChatScreen
                 AnalyticsManager.trackScreenClosed("ai_chat_screen", elapsedSec)
+            } else if (lastTab == 4) { // WorkspaceScreen
+                AnalyticsManager.trackScreenClosed("workspace_screen", elapsedSec)
             }
         }
         
@@ -383,6 +394,8 @@ fun PreambleApp(
             AnalyticsManager.trackScreenOpened("stats_screen")
         } else if (selectedTab == 3) {
             AnalyticsManager.trackScreenOpened("ai_chat_screen")
+        } else if (selectedTab == 4) {
+            AnalyticsManager.trackScreenOpened("workspace_screen")
         }
         
         lastTab = selectedTab
@@ -428,9 +441,12 @@ fun PreambleApp(
             ExpressiveNavItem("Stats", Icons.Filled.Analytics),
             ExpressiveNavItem("Calendar", Icons.Default.DateRange),
             ExpressiveNavItem("AI", Icons.Filled.AutoAwesome),
+            ExpressiveNavItem("Workspace", Icons.Default.Group),
             ExpressiveNavItem("Settings", Icons.Default.Settings),
         )
     }
+
+    var initialInviteId by remember { mutableStateOf<String?>(null) }
 
     // Handle deep link navigation
     androidx.compose.runtime.LaunchedEffect(deepLinkTarget) {
@@ -450,7 +466,11 @@ fun PreambleApp(
                 }
                 deepLinkTarget.startsWith("calendar") -> selectedTab = 2
                 deepLinkTarget.startsWith("ai") -> selectedTab = 3
-                deepLinkTarget.startsWith("settings") -> selectedTab = 4
+                deepLinkTarget.startsWith("invite/") -> {
+                    selectedTab = 4
+                    initialInviteId = deepLinkTarget.removePrefix("invite/")
+                }
+                deepLinkTarget.startsWith("settings") -> selectedTab = 5
             }
             onDeepLinkConsumed()
         }
@@ -647,7 +667,14 @@ fun PreambleApp(
                     modifier = Modifier.padding(innerPadding).consumeWindowInsets(innerPadding)
                 )
             }
-            4 -> SettingsScreen(
+            4 -> {
+                com.theblankstate.preamble.ui.screens.WorkspaceScreen(
+                    initialInviteId = initialInviteId,
+                    onInviteConsumed = { initialInviteId = null },
+                    modifier = Modifier.padding(innerPadding)
+                )
+            }
+            5 -> SettingsScreen(
                 yearlyHeatmap = stats.yearlyHeatmap,
                 modifier = Modifier.padding(innerPadding)
             )
