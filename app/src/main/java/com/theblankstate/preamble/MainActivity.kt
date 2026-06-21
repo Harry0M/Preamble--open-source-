@@ -368,6 +368,7 @@ fun PreambleApp(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var quickAddTrigger by remember { mutableIntStateOf(0) }
+    var showFriendsScreen by remember { mutableStateOf(false) }
 
     var lastTab by remember { mutableIntStateOf(selectedTab) }
     var lastTabStartTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -512,6 +513,7 @@ fun PreambleApp(
     ) { innerPadding ->
         when (selectedTab) {
             0 -> HomeScreen(
+                onOpenFriends = { showFriendsScreen = true },
                 tasks = tasks,
                 pastTasks = pastTasks,
                 streak = stats.streak,
@@ -668,9 +670,7 @@ fun PreambleApp(
                 )
             }
             4 -> {
-                com.theblankstate.preamble.ui.screens.WorkspaceScreen(
-                    initialInviteId = initialInviteId,
-                    onInviteConsumed = { initialInviteId = null },
+                com.theblankstate.preamble.ui.screens.DummyWorkspaceScreen(
                     modifier = Modifier.padding(innerPadding)
                 )
             }
@@ -679,5 +679,21 @@ fun PreambleApp(
                 modifier = Modifier.padding(innerPadding)
             )
         }
+    }
+    
+    // Full-screen overlay for Friends screen
+    androidx.compose.animation.AnimatedVisibility(
+        visible = showFriendsScreen,
+        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it }),
+        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { it })
+    ) {
+        androidx.activity.compose.BackHandler { showFriendsScreen = false }
+        com.theblankstate.preamble.ui.screens.WorkspaceScreen(
+            taskViewModel = viewModel,
+            initialInviteId = initialInviteId,
+            onInviteConsumed = { initialInviteId = null },
+            onClose = { showFriendsScreen = false },
+            modifier = Modifier.fillMaxSize()
+        )
     }
 }

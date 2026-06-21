@@ -20,9 +20,30 @@ service cloud.firestore {
       return d.tags is string && d.tags.size() <= 100;
     }
 
+    // Public directory for discovering users by Preamble ID
+    match /preambleIds/{preambleId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow update: if request.auth != null && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
     // User profile access - CRITICAL for app functionality
     match /users/{uid} {
       allow read, write: if isOwner(uid);
+
+      match /friends/{friendId} {
+        // Allow users to read, update, create or delete if it's their own friends list, 
+        // OR if they are modifying their own record in someone else's friends list
+        allow read, write: if isOwner(uid) || (request.auth != null && friendId == request.auth.uid);
+      }
+
+      match /invites/{inviteId} {
+        allow read: if isOwner(uid);
+        allow update, delete: if isOwner(uid);
+        // Anyone can CREATE an invite to this user, but only if they are the sender
+        allow create: if request.auth != null && request.resource.data.senderUid == request.auth.uid;
+      }
     }
 
     // OLD PATH STRUCTURE - what the app actually uses

@@ -21,7 +21,8 @@ data class Friend(
     val uid: String = "",
     val name: String = "",
     val preambleId: String = "",
-    val addedAt: Long = System.currentTimeMillis()
+    val addedAt: Long = System.currentTimeMillis(),
+    val productivityPoints: Int = (100..999).random() // TODO: Fetch real points from backend
 )
 
 class WorkspaceRepository {

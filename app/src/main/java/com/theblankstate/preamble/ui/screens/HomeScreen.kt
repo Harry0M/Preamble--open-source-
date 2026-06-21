@@ -59,6 +59,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.ViewHeadline
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.foundation.border
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -148,6 +150,7 @@ import kotlinx.coroutines.flow.collectLatest
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
+    onOpenFriends: () -> Unit = {},
     tasks: List<Task>,
     pastTasks: Map<String, List<Task>> = emptyMap(),
     streak: Int,
@@ -248,6 +251,10 @@ fun HomeScreen(
 
     // Time-aware computed values (stable for the session — doesn't drift mid-use)
     val currentHour = remember { java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) }
+
+    // Fetch friends for the face pile
+    val workspaceViewModel: com.theblankstate.preamble.ui.viewmodels.WorkspaceViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val friends by workspaceViewModel.friends.collectAsState()
     val isLateNight = remember { currentHour >= 23 || currentHour < 5 }
     val timeGreeting = remember {
         val condition = when (currentHour) {
@@ -477,6 +484,45 @@ fun HomeScreen(
             topBar = {
                 CenterAlignedTopAppBar(
                     windowInsets = WindowInsets(0, 0, 0, 0),
+                    navigationIcon = {
+                        Row(
+                            modifier = Modifier
+                                .padding(start = 16.dp)
+                                .clickable(onClick = onOpenFriends),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val displaySeeds = friends.map { it.preambleId } + listOf("dummy_a", "dummy_b")
+                            val displayAvatars = displaySeeds.take(2)
+                            val extraCount = if (friends.size > 2) friends.size - 2 else 1 // Always show a third circle
+                            
+                            Box(contentAlignment = Alignment.CenterStart) {
+                                displayAvatars.forEachIndexed { index, seed ->
+                                    coil.compose.AsyncImage(
+                                        model = "https://api.dicebear.com/9.x/micah/png?seed=$seed",
+                                        contentDescription = "Friend Avatar",
+                                        modifier = Modifier
+                                            .padding(start = (index * 24).dp)
+                                            .size(36.dp)
+                                            .clip(androidx.compose.foundation.shape.CircleShape)
+                                            .background(Color.White)
+                                            .border(2.dp, MaterialTheme.colorScheme.surface, androidx.compose.foundation.shape.CircleShape)
+                                    )
+                                }
+                                Surface(
+                                    shape = androidx.compose.foundation.shape.CircleShape,
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    modifier = Modifier
+                                        .padding(start = (2 * 24).dp)
+                                        .size(36.dp)
+                                        .border(2.dp, MaterialTheme.colorScheme.surface, androidx.compose.foundation.shape.CircleShape)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.MoreHoriz, contentDescription = "More friends", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                        }
+                    },
                     title = {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             val todayStr = remember { java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date()) }
