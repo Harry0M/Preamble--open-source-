@@ -50,6 +50,9 @@ import com.theblankstate.preamble.ui.components.ExpressiveNavItem
 import com.theblankstate.preamble.ui.components.ExpressiveNavigationBar
 import com.theblankstate.preamble.viewmodel.TaskViewModel
 import com.theblankstate.preamble.analytics.AnalyticsManager
+import com.theblankstate.preamble.ui.viewmodels.WorkspaceViewModel
+import com.theblankstate.preamble.ui.screens.WorkspaceTasksScreen
+import com.theblankstate.preamble.repository.Friend
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 
@@ -144,6 +147,7 @@ class MainActivity : ComponentActivity() {
                     val viewModel: TaskViewModel = viewModel(
                         factory = TaskViewModel.Factory(app.repository, app)
                     )
+                    val workspaceViewModel: WorkspaceViewModel = viewModel()
 
                     // Profile collected during onboarding now. Back-fill Firestore if user
                     // had already onboarded pre-v2 but is missing the new fields.
@@ -169,6 +173,7 @@ class MainActivity : ComponentActivity() {
                     ) {
                         PreambleApp(
                             viewModel = viewModel,
+                            workspaceViewModel = workspaceViewModel,
                             deepLinkTarget = deepLinkTarget,
                             onDeepLinkConsumed = { _deepLinkTarget.value = null },
                             onOpenRecap = { _openRecap.value = true },
@@ -362,6 +367,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun PreambleApp(
     viewModel: TaskViewModel,
+    workspaceViewModel: WorkspaceViewModel,
     deepLinkTarget: String? = null,
     onDeepLinkConsumed: () -> Unit = {},
     onOpenRecap: () -> Unit = {},
@@ -436,13 +442,18 @@ fun PreambleApp(
     val isImeVisible = WindowInsets.ime.getBottom(density) > 0
     val showBottomBar = !(selectedTab == 3 && isImeVisible)
 
-    val expressiveNavItems = remember {
+    val incomingAssignments by workspaceViewModel.incomingAssignments.collectAsState()
+    val pendingAssignmentsCount = remember(incomingAssignments) {
+        incomingAssignments.count { it.assignmentStatus == "pending" }
+    }
+
+    val expressiveNavItems = remember(pendingAssignmentsCount) {
         listOf(
             ExpressiveNavItem("Tasks", Icons.Default.Home),
             ExpressiveNavItem("Stats", Icons.Filled.Analytics),
             ExpressiveNavItem("Calendar", Icons.Default.DateRange),
             ExpressiveNavItem("AI", Icons.Filled.AutoAwesome),
-            ExpressiveNavItem("Workspace", Icons.Default.Group),
+            ExpressiveNavItem("Workspace", Icons.Default.Group, badgeCount = pendingAssignmentsCount),
             ExpressiveNavItem("Settings", Icons.Default.Settings),
         )
     }
@@ -517,8 +528,24 @@ fun PreambleApp(
                 tasks = tasks,
                 pastTasks = pastTasks,
                 streak = stats.streak,
-                onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor -> 
-                    viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor) 
+                onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, assignedToFriend -> 
+                    if (assignedToFriend != null) {
+                        val task = com.theblankstate.preamble.data.Task(
+                            title = title,
+                            createdDate = date ?: com.theblankstate.preamble.repository.TaskRepository.todayString(),
+                            deadlineTime = deadlineTime,
+                            priority = priority,
+                            description = description,
+                            tags = tags,
+                            subtasksJson = if (subtasks.isNotEmpty()) com.google.gson.Gson().toJson(subtasks.map { com.theblankstate.preamble.data.Subtask(title = it) }) else null,
+                            isEvent = isEvent,
+                            eventIcon = eventIcon,
+                            eventColor = eventColor
+                        )
+                        workspaceViewModel.assignCollaborativeTask(assignedToFriend, task)
+                    } else {
+                        viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor) 
+                    }
                 },
                 onToggleTask = { viewModel.toggleTask(it) },
                 onDeleteTask = { viewModel.deleteTask(it) },
@@ -645,7 +672,7 @@ fun PreambleApp(
                 if (showCalendarAddSheet) {
                     com.theblankstate.preamble.ui.components.AddTaskSheet(
                         onDismiss = { showCalendarAddSheet = false },
-                        onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor ->
+                        onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, _ ->
                             viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor)
                             showCalendarAddSheet = false
                         },
@@ -670,7 +697,8 @@ fun PreambleApp(
                 )
             }
             4 -> {
-                com.theblankstate.preamble.ui.screens.DummyWorkspaceScreen(
+                WorkspaceTasksScreen(
+                    workspaceViewModel = workspaceViewModel,
                     modifier = Modifier.padding(innerPadding)
                 )
             }

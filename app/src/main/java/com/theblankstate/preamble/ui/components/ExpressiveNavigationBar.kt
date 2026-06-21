@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -38,11 +39,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 
 data class ExpressiveNavItem(
     val label: String,
     val icon: ImageVector,
     val contentDescription: String = label,
+    val badgeCount: Int = 0
 )
 
 @Composable
@@ -130,12 +133,32 @@ private fun ExpressiveNavItemView(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
-            Icon(
-                imageVector = item.icon,
-                contentDescription = item.contentDescription,
-                tint = iconTint,
-                modifier = Modifier.size(22.dp),
-            )
+            Box(contentAlignment = Alignment.TopEnd) {
+                Icon(
+                    imageVector = item.icon,
+                    contentDescription = item.contentDescription,
+                    tint = iconTint,
+                    modifier = Modifier.size(22.dp),
+                )
+                if (item.badgeCount > 0) {
+                    Box(
+                        modifier = Modifier
+                            .size(14.dp)
+                            .background(MaterialTheme.colorScheme.error, CircleShape)
+                            .padding(1.dp)
+                            .align(Alignment.TopEnd),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (item.badgeCount > 9) "9+" else item.badgeCount.toString(),
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp),
+                            color = MaterialTheme.colorScheme.onError,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.width(4.dp))
             AnimatedVisibility(
                 visible = selected,
                 enter = fadeIn(

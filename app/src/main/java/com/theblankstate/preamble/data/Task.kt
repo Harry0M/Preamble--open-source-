@@ -173,7 +173,12 @@ data class Task(
     val habitSuperStreakCount: Int = 0,             // Number of completed 21-day cycles
     val isEvent: Boolean = false,                  // Whether this task is tracked as an event (hides checkbox)
     val eventIcon: String? = null,                 // Custom emoji icon representing the event
-    val eventColor: String? = null                 // Hex color code for event tinting
+    val eventColor: String? = null,                 // Hex color code for event tinting
+    val assignedByUid: String? = null,
+    val assignedByName: String? = null,
+    val assignedToUid: String? = null,
+    val assignedToName: String? = null,
+    val assignmentStatus: String? = null
 ) {
     val isCalendarEvent: Boolean get() = source == "google_calendar"
     val isGoogleTask: Boolean get() = source == "google_tasks"

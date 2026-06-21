@@ -12,8 +12,6 @@ data class ParsedDateTime(
 
 object NaturalDateParser {
 
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-
     private val dayNames = mapOf(
         "monday" to Calendar.MONDAY, "mon" to Calendar.MONDAY,
         "tuesday" to Calendar.TUESDAY, "tue" to Calendar.TUESDAY, "tues" to Calendar.TUESDAY,
@@ -129,6 +127,7 @@ object NaturalDateParser {
     private fun daysFromNow(days: Int): String {
         val cal = Calendar.getInstance()
         cal.add(Calendar.DAY_OF_YEAR, days)
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         return dateFormat.format(cal.time)
     }
 
@@ -138,6 +137,7 @@ object NaturalDateParser {
         var diff = targetDay - currentDay
         if (diff <= 0) diff += 7
         cal.add(Calendar.DAY_OF_YEAR, diff)
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         return dateFormat.format(cal.time)
     }
 
@@ -146,6 +146,7 @@ object NaturalDateParser {
         val currentDay = cal.get(Calendar.DAY_OF_WEEK)
         var diff = targetDay - currentDay
         if (diff < 0) diff += 7
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
         if (diff == 0) return dateFormat.format(cal.time) // today
         cal.add(Calendar.DAY_OF_YEAR, diff)
         return dateFormat.format(cal.time)

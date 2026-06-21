@@ -104,6 +104,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.PredefinedTags
+import com.theblankstate.preamble.repository.Friend
 import com.theblankstate.preamble.ui.components.AddTaskSheet
 import com.theblankstate.preamble.ui.components.HapticConfig
 import com.theblankstate.preamble.ui.components.LocalHapticConfig
@@ -154,7 +155,7 @@ fun HomeScreen(
     tasks: List<Task>,
     pastTasks: Map<String, List<Task>> = emptyMap(),
     streak: Int,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?) -> Unit,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?, assignedToFriend: com.theblankstate.preamble.repository.Friend?) -> Unit,
     onToggleTask: (Task) -> Unit,
     onDeleteTask: (Task) -> Unit,
     onToggleHabit: ((Task) -> Unit)? = null,
@@ -384,7 +385,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList(), false, false, null, null)
+                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList(), false, false, null, null, null)
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -433,7 +434,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList(), false, false, null, null)
+                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList(), false, false, null, null, null)
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -1548,8 +1549,8 @@ fun HomeScreen(
     if (showAddSheet) {
         AddTaskSheet(
             onDismiss = { showAddSheet = false },
-            onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor ->
-                onAddTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor)
+            onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, assignedToFriend ->
+                onAddTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, assignedToFriend)
                 showAddSheet = false
             },
             onAddRecurringTask = if (onAddRecurringTask != null) { { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks, isHabit, isEvent, eventIcon, eventColor ->
@@ -1560,7 +1561,8 @@ fun HomeScreen(
             onAddTaskPendingParse = if (onAddTaskPendingParse != null) { { rawText, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, userOverrides ->
                 onAddTaskPendingParse(rawText, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, userOverrides)
                 showAddSheet = false
-            } } else null
+            } } else null,
+            friends = friends
         )
     }
 

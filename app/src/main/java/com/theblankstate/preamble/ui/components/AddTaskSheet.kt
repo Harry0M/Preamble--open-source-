@@ -42,6 +42,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Mic
@@ -64,6 +65,7 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.InputChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -114,6 +116,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.sp
 import com.theblankstate.preamble.data.TaskInputValidator
+import com.theblankstate.preamble.repository.Friend
 import androidx.compose.foundation.lazy.LazyRow
 import com.theblankstate.preamble.util.EventIconHelper
 import androidx.compose.foundation.border
@@ -133,10 +136,11 @@ import kotlinx.coroutines.launch
 @Composable
 fun AddTaskSheet(
     onDismiss: () -> Unit,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?) -> Unit,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?, assignedToFriend: Friend?) -> Unit,
     onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?) -> Unit)? = null,
     aiChatViewModel: AiChatViewModel? = null,
-    onAddTaskPendingParse: ((rawText: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?, recurrenceType: String?, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, userOverrides: String) -> Unit)? = null
+    onAddTaskPendingParse: ((rawText: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?, recurrenceType: String?, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, userOverrides: String) -> Unit)? = null,
+    friends: List<Friend> = emptyList()
 ) {
     val context = LocalContext.current
     // Haptic feedback support
@@ -157,6 +161,7 @@ fun AddTaskSheet(
     var taskDescription by remember { mutableStateOf("") }
     var newSubtasks by remember { mutableStateOf(listOf<String>()) }
     var pendingSubtaskTitle by remember { mutableStateOf("") }
+    var selectedFriend by remember { mutableStateOf<Friend?>(null) }
     var selectedTime by remember { mutableStateOf<String?>(null) }
     var selectedDate by remember { mutableStateOf<String?>(null) }
     var selectedPriority by remember { mutableStateOf(0) }
@@ -439,7 +444,8 @@ fun AddTaskSheet(
                     isHabit,
                     isEvent,
                     eventIcon,
-                    eventColor
+                    eventColor,
+                    selectedFriend
                 )
             }
             // Haptic + toast confirmation
@@ -657,6 +663,45 @@ fun AddTaskSheet(
                         .padding(vertical = 8.dp),
                     color = MaterialTheme.colorScheme.primary
                 )
+            }
+
+            // Assignee chip
+            AnimatedVisibility(visible = selectedFriend != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    selectedFriend?.let { friend ->
+                        InputChip(
+                            selected = true,
+                            onClick = { selectedFriend = null },
+                            label = { Text("Assignee: ${friend.name}", style = MaterialTheme.typography.labelSmall) },
+                            avatar = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = friend.name.take(1).uppercase(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        fontSize = 9.sp
+                                    )
+                                }
+                            },
+                            trailingIcon = {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Remove assignee",
+                                    modifier = Modifier.size(14.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        )
+                    }
+                }
             }
 
             // NLP date/time suggestion chips
@@ -935,6 +980,79 @@ fun AddTaskSheet(
                                     showPriorityDialog = false
                                 }
                             )
+                        }
+                    }
+                }
+
+                // Assign to Friend button (only if user has friends)
+                if (friends.isNotEmpty()) {
+                    var showFriendDropdown by remember { mutableStateOf(false) }
+                    Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
+                        IconButton(onClick = { showFriendDropdown = true }) {
+                            Icon(
+                                Icons.Default.Group,
+                                contentDescription = "Assign to Friend",
+                                tint = if (selectedFriend != null)
+                                    MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showFriendDropdown,
+                            onDismissRequest = { showFriendDropdown = false },
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.widthIn(max = 240.dp).heightIn(max = 300.dp),
+                            properties = PopupProperties(focusable = false)
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Unassigned (Self)", style = MaterialTheme.typography.bodyMedium) },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Group, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
+                                },
+                                trailingIcon = {
+                                    if (selectedFriend == null) {
+                                        Icon(Icons.Default.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
+                                    }
+                                },
+                                onClick = {
+                                    selectedFriend = null
+                                    showFriendDropdown = false
+                                }
+                            )
+                            
+                            friends.forEach { friend ->
+                                val isSelected = selectedFriend?.uid == friend.uid
+                                DropdownMenuItem(
+                                    text = { Text(friend.name, style = MaterialTheme.typography.bodyMedium) },
+                                    leadingIcon = {
+                                        val initial = friend.name.take(1).uppercase()
+                                        Box(
+                                            modifier = Modifier
+                                                .size(24.dp)
+                                                .background(
+                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                                    shape = CircleShape
+                                                ),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = initial,
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        }
+                                    },
+                                    trailingIcon = {
+                                        if (isSelected) {
+                                            Icon(Icons.Default.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                    },
+                                    onClick = {
+                                        selectedFriend = friend
+                                        showFriendDropdown = false
+                                    }
+                                )
+                            }
                         }
                     }
                 }

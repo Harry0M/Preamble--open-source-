@@ -1144,6 +1144,21 @@ class TaskViewModel(
 
             val newCompleted = !task.isCompleted
 
+            if (task.assignedByUid != null) {
+                // Update collaborative task assignment status in Firestore in real-time
+                val newStatus = if (newCompleted) "completed" else "accepted"
+                try {
+                    com.theblankstate.preamble.repository.WorkspaceRepository().updateAssignmentStatus(
+                        taskId = task.id,
+                        targetUid = task.assignedByUid!!,
+                        newStatus = newStatus,
+                        isCompleted = newCompleted
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.e("TaskViewModel", "Failed to sync completion to Firestore", e)
+                }
+            }
+
             // PostHog: Task complete/uncomplete track karo
             if (newCompleted) {
                 val daysOld = try {
@@ -1260,6 +1275,18 @@ class TaskViewModel(
 
     private fun commitDelete(task: Task) {
         viewModelScope.launch {
+            if (task.assignedByUid != null) {
+                try {
+                    com.theblankstate.preamble.repository.WorkspaceRepository().updateAssignmentStatus(
+                        taskId = task.id,
+                        targetUid = task.assignedByUid!!,
+                        newStatus = "declined",
+                        isCompleted = false
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.e("TaskViewModel", "Failed to sync deletion to Firestore", e)
+                }
+            }
             val taskJson = com.google.gson.Gson().toJson(task)
             if (task.source == "google_tasks" && task.id.startsWith("gtask_")) {
                 val mutation = com.theblankstate.preamble.data.SyncMutation(

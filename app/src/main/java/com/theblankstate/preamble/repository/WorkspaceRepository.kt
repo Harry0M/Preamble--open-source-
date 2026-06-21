@@ -8,6 +8,11 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
+import com.google.gson.Gson
+import com.google.gson.GsonBuilder
+import com.google.gson.ExclusionStrategy
+import com.google.gson.FieldAttributes
+import com.theblankstate.preamble.data.Task
 
 data class WorkspaceInvite(
     val id: String = "",
@@ -28,6 +33,17 @@ data class Friend(
 class WorkspaceRepository {
     private val db = FirebaseFirestore.getInstance("preamble")
     private val auth = FirebaseAuth.getInstance()
+    
+    private val gson = GsonBuilder()
+        .setExclusionStrategies(object : ExclusionStrategy {
+            override fun shouldSkipField(f: FieldAttributes): Boolean {
+                return f.name.endsWith("\$delegate") || f.declaredClass == Lazy::class.java
+            }
+            override fun shouldSkipClass(clazz: Class<*>): Boolean {
+                return clazz == Lazy::class.java
+            }
+        })
+        .create()
     
     private val currentUid: String?
         get() = auth.currentUser?.uid
@@ -207,5 +223,169 @@ class WorkspaceRepository {
             }
             
         awaitClose { listener.remove() }
+    }
+
+    // Get real-time updates for incoming assignments (assigned to me)
+    fun getIncomingAssignmentsFlow(): Flow<List<Task>> = callbackFlow {
+        val uid = currentUid
+        if (uid == null) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+
+        val listener = db.collection("users").document(uid)
+            .collection("collaborativeTasks")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e("WorkspaceRepo", "Error listening to collaborative tasks", error)
+                    return@addSnapshotListener
+                }
+
+                if (snapshot != null) {
+                    val tasks = snapshot.documents.mapNotNull { doc ->
+                        try {
+                            val data = doc.data ?: return@mapNotNull null
+                            val json = gson.toJson(data)
+                            gson.fromJson(json, Task::class.java)
+                        } catch (e: Exception) {
+                            Log.e("WorkspaceRepo", "Failed to deserialize collaborative task", e)
+                            null
+                        }
+                    }.filter { it.assignedByUid != uid } // Filter incoming
+                    trySend(tasks)
+                }
+            }
+
+        awaitClose { listener.remove() }
+    }
+
+    // Get real-time updates for outgoing assignments (assigned by me)
+    fun getOutgoingAssignmentsFlow(): Flow<List<Task>> = callbackFlow {
+        val uid = currentUid
+        if (uid == null) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+
+        val listener = db.collection("users").document(uid)
+            .collection("collaborativeTasks")
+            .whereEqualTo("assignedByUid", uid)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e("WorkspaceRepo", "Error listening to outgoing collaborative tasks", error)
+                    return@addSnapshotListener
+                }
+
+                if (snapshot != null) {
+                    val tasks = snapshot.documents.mapNotNull { doc ->
+                        try {
+                            val data = doc.data ?: return@mapNotNull null
+                            val json = gson.toJson(data)
+                            gson.fromJson(json, Task::class.java)
+                        } catch (e: Exception) {
+                            Log.e("WorkspaceRepo", "Failed to deserialize outgoing task", e)
+                            null
+                        }
+                    }
+                    trySend(tasks)
+                }
+            }
+
+        awaitClose { listener.remove() }
+    }
+
+    // Assign a task to a friend
+    suspend fun assignTask(friend: Friend, task: Task, senderName: String): Result<Unit> {
+        val uid = currentUid ?: return Result.failure(Exception("Not logged in"))
+        
+        // Prepare task with assignment fields
+        val assignedTask = task.copy(
+            assignedByUid = uid,
+            assignedByName = senderName,
+            assignedToUid = friend.uid,
+            assignedToName = friend.name,
+            assignmentStatus = "pending"
+        )
+
+        val json = gson.toJson(assignedTask)
+        val type = object : com.google.gson.reflect.TypeToken<Map<String, Any?>>() {}.type
+        val taskMap: Map<String, Any?> = gson.fromJson(json, type)
+
+        return try {
+            val batch = db.batch()
+
+            // Write to recipient's collaborativeTasks
+            val recipientRef = db.collection("users").document(friend.uid)
+                .collection("collaborativeTasks").document(task.id)
+            batch.set(recipientRef, taskMap)
+
+            // Write to sender's collaborativeTasks
+            val senderRef = db.collection("users").document(uid)
+                .collection("collaborativeTasks").document(task.id)
+            batch.set(senderRef, taskMap)
+
+            batch.commit().await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("WorkspaceRepo", "Error assigning task", e)
+            Result.failure(e)
+        }
+    }
+
+    // Update assignment status in both collections
+    suspend fun updateAssignmentStatus(taskId: String, targetUid: String, newStatus: String, isCompleted: Boolean = false): Result<Unit> {
+        val uid = currentUid ?: return Result.failure(Exception("Not logged in"))
+        return try {
+            val batch = db.batch()
+            val updates = mutableMapOf<String, Any>(
+                "assignmentStatus" to newStatus,
+                "isCompleted" to isCompleted,
+                "updatedTimestamp" to System.currentTimeMillis()
+            )
+            if (isCompleted) {
+                updates["completedTimestamp"] = System.currentTimeMillis()
+                updates["completedDate"] = TaskRepository.todayString()
+            }
+
+            // Update recipient's collaborativeTasks
+            val recipientRef = db.collection("users").document(targetUid)
+                .collection("collaborativeTasks").document(taskId)
+            batch.update(recipientRef, updates)
+
+            // Update sender's collaborativeTasks
+            val senderRef = db.collection("users").document(uid)
+                .collection("collaborativeTasks").document(taskId)
+            batch.update(senderRef, updates)
+
+            batch.commit().await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("WorkspaceRepo", "Error updating assignment status", e)
+            Result.failure(e)
+        }
+    }
+
+    // Delete collaborative task assignment from both collections (Recall)
+    suspend fun deleteAssignment(taskId: String, targetUid: String): Result<Unit> {
+        val uid = currentUid ?: return Result.failure(Exception("Not logged in"))
+        return try {
+            val batch = db.batch()
+
+            val recipientRef = db.collection("users").document(targetUid)
+                .collection("collaborativeTasks").document(taskId)
+            batch.delete(recipientRef)
+
+            val senderRef = db.collection("users").document(uid)
+                .collection("collaborativeTasks").document(taskId)
+            batch.delete(senderRef)
+
+            batch.commit().await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Log.e("WorkspaceRepo", "Error deleting assignment", e)
+            Result.failure(e)
+        }
     }
 }

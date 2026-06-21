@@ -76,6 +76,23 @@ service cloud.firestore {
          request.resource.data.keys().size() == 2);
     }
 
+    // Collaborative tasks assigned by friends
+    match /users/{uid}/collaborativeTasks/{taskId} {
+      allow read: if isOwner(uid) 
+        || (request.auth != null && (resource == null 
+            || resource.data.assignedByUid == request.auth.uid 
+            || resource.data.assignedToUid == request.auth.uid));
+      allow create: if request.auth != null 
+        && request.resource.data.assignedByUid == request.auth.uid 
+        && (isOwner(uid) || exists(/databases/$(database)/documents/users/$(uid)/friends/$(request.auth.uid)));
+      allow update: if isOwner(uid) 
+        || (request.auth != null && (resource.data.assignedByUid == request.auth.uid 
+            || resource.data.assignedToUid == request.auth.uid));
+      allow delete: if isOwner(uid) 
+        || (request.auth != null && (resource.data.assignedByUid == request.auth.uid 
+            || resource.data.assignedToUid == request.auth.uid));
+    }
+
     // AI chat messages — users can read/write their own conversations
     match /users/{uid}/ai_chat/{conversationId} {
       allow read, write: if isOwner(uid);

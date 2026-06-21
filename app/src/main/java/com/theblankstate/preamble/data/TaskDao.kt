@@ -265,6 +265,9 @@ interface TaskDao {
           AND (eventType IS NULL OR eventType NOT IN ('holiday', 'birthday', 'focusTime', 'outOfOffice'))
     """)
     suspend fun getAllTasksForStreak(): List<Task>
+
+    @Query("SELECT * FROM tasks WHERE assignedByUid IS NOT NULL")
+    suspend fun getLocalAssignedTasks(): List<Task>
 }
 
 data class PriorityCount(
