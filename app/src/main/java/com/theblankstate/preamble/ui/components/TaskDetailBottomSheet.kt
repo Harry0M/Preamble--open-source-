@@ -167,7 +167,11 @@ fun TaskDetailBottomSheet(
     onToggleRollover: (() -> Unit)? = null,
     isPastTask: Boolean = false,
     habitStreakData: com.theblankstate.preamble.repository.TaskRepository.HabitStreakData? = null,
-    currentUserUid: String? = null
+    currentUserUid: String? = null,
+    onReact: ((String) -> Unit)? = null,
+    onNudge: ((String) -> Unit)? = null,
+    canNudge: ((String) -> Boolean)? = null,
+    nudgeCooldownRemaining: ((String) -> Long)? = null
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -386,7 +390,12 @@ fun TaskDetailBottomSheet(
                         adminName = task.collabAdminName,
                         assignees = task.collabAssignees,
                         currentUserUid = currentUserUid,
-                        showRoleControls = false
+                        showRoleControls = false,
+                        reactions = task.collabReactions,
+                        onReact = onReact,
+                        onNudge = onNudge,
+                        canNudge = canNudge,
+                        nudgeCooldownRemaining = nudgeCooldownRemaining
                     )
                 }
             }

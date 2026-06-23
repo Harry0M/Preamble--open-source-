@@ -38,6 +38,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.theblankstate.preamble.R
 import com.theblankstate.preamble.repository.Friend
+import com.theblankstate.preamble.ui.components.LeaderboardSection
 import com.theblankstate.preamble.ui.viewmodels.FriendRemovalImpact
 import com.theblankstate.preamble.ui.viewmodels.WorkspaceUiState
 import com.theblankstate.preamble.ui.viewmodels.WorkspaceViewModel
@@ -79,6 +80,12 @@ fun WorkspaceScreen(
     val friends by viewModel.friends.collectAsState()
     val invites by viewModel.invites.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
+    // Friends_Leaderboard (social-engagement Requirements 9.1, 9.2, 9.6), ranked by current
+    // Weekly_Window points in the ViewModel. Drives both the LeaderboardSection and the
+    // current-week figure that supersedes the legacy friend.productivityPoints display.
+    val leaderboard by viewModel.leaderboard.collectAsState()
+    val currentUserUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+    val weeklyPointsByUid = remember(leaderboard) { leaderboard.associate { it.uid to it.weeklyPoints } }
     val statsState = taskViewModel?.statsState?.collectAsState()?.value
     
     val myScore = statsState?.productivityScore ?: 0
@@ -357,6 +364,18 @@ fun WorkspaceScreen(
                     }
                 }
 
+                // FRIENDS LEADERBOARD (social-engagement Requirements 9.1, 9.2, 9.6)
+                item(key = "leaderboard_section") {
+                    LeaderboardSection(
+                        entries = leaderboard,
+                        currentUserUid = currentUserUid,
+                        modifier = Modifier.animateItem(
+                            fadeInSpec = tween(300),
+                            fadeOutSpec = tween(300)
+                        )
+                    )
+                }
+
                 // FRIENDS LIST
                 itemsIndexed(friends, key = { _, it -> "friend_${it.uid}" }) { index, friend ->
                     val cardColor = CardColors[index % CardColors.size]
@@ -425,7 +444,7 @@ fun WorkspaceScreen(
                                         ) {
                                             Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFD166)) // Yellow star
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Text("${friend.productivityPoints} Productivity Points", fontWeight = FontWeight.Bold, color = Color.Black)
+                                            Text("${weeklyPointsByUid[friend.uid] ?: 0} Points this week", fontWeight = FontWeight.Bold, color = Color.Black)
                                         }
                                     }
                                     

@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import com.theblankstate.preamble.data.CollabAssigneeStatus
 import com.theblankstate.preamble.data.PreambleDatabase
 import com.theblankstate.preamble.data.Subtask
@@ -16,16 +17,23 @@ import com.theblankstate.preamble.collab.FriendRemovalImpactLogic
 import com.theblankstate.preamble.collab.InviteLink
 import com.theblankstate.preamble.collab.InviteValidation
 import com.theblankstate.preamble.collab.InviteValidator
+import com.theblankstate.preamble.collab.Leaderboard
+import com.theblankstate.preamble.collab.NudgeRateLimit
 import com.theblankstate.preamble.collab.PreambleId
+import com.theblankstate.preamble.collab.Reactions
+import com.theblankstate.preamble.collab.TaskReaction
 import com.theblankstate.preamble.repository.Friend
 import com.theblankstate.preamble.repository.WorkspaceInvite
 import com.theblankstate.preamble.repository.WorkspaceRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -76,6 +84,45 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
      */
     private val _prefillPreambleId = MutableStateFlow<String?>(null)
     val prefillPreambleId: StateFlow<String?> = _prefillPreambleId.asStateFlow()
+
+    /**
+     * Last LOCAL nudge send time per `(taskId, targetUid)` pair, used to gate the nudge
+     * control via [NudgeRateLimit] (Req 12). Held in memory only — server-side enforcement in
+     * the `sendNudge` callable is authoritative; this drives the instant optimistic UI.
+     */
+    private val lastNudgeSentAt = mutableMapOf<Pair<String, String>, Long>()
+
+    /**
+     * The set of `(taskId, targetUid)` pairs currently shown as "nudged" so the UI can reflect
+     * the optimistic nudged state (Req 10.4). Reverted when the backend write fails/times out.
+     */
+    private val _nudgedTargets = MutableStateFlow<Set<Pair<String, String>>>(emptySet())
+    val nudgedTargets: StateFlow<Set<Pair<String, String>>> = _nudgedTargets.asStateFlow()
+
+    /**
+     * The Friends_Leaderboard for the signed-in user plus friends, ranked by current
+     * Weekly_Window points descending (Req 9.1, 9.2, 9.3). Computed from the repository's
+     * leaderboard score documents combined with the friend list (names + uids) via the pure
+     * [Leaderboard.ranking]; `now = System.currentTimeMillis()` so a window crossing changes
+     * the ranking without any write (Req 9.5). Self is always included; an empty friend list
+     * yields a single self row, which the UI renders with the no-friends empty-state (Req 9.6).
+     * A failure retains the last computed value (`catch` without re-emit).
+     */
+    val leaderboard: StateFlow<List<Leaderboard.Entry>> =
+        combine(repo.getLeaderboardScoresFlow(), _friends) { scores, friends ->
+            val selfUid = currentUid ?: return@combine emptyList()
+            val friendUids = friends
+                .map(Friend::uid)
+                .filter { it.isNotBlank() && it != selfUid }
+                .toSet()
+            val names = HashMap<String, String>().apply {
+                put(selfUid, myName)
+                friends.forEach { if (it.uid.isNotBlank()) put(it.uid, it.name) }
+            }
+            Leaderboard.ranking(selfUid, friendUids, scores, names, System.currentTimeMillis())
+        }
+            .catch { error -> Log.e(TAG, "Leaderboard computation failed", error) }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
         observeFriends()
@@ -652,6 +699,147 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
             isCompleted = completed,
             collabAssigneesJson = gson.toJson(statuses)
         )
+    }
+
+    /**
+     * Optimistically add, change, or remove the signed-in user's reaction on [task] (Req 5).
+     *
+     * Snapshots the task's projected reactions, applies the pure [Reactions.apply] to the local
+     * Room copy within 200 ms (mirroring the other collaborative optimistic mutations), then
+     * launches [WorkspaceRepository.updateMyReaction] inside the 30 s write timeout. The tapped
+     * [emoji] is passed straight through — the pure logic/repository decides add/change/remove,
+     * so tapping the user's current emoji toggles it off. On failure or timeout the exact
+     * pre-tap snapshot is restored and an error is surfaced (Req 5.1, 5.2, 5.3, 14.5).
+     */
+    fun updateMyReaction(task: Task, emoji: String) {
+        val uid = currentUid ?: return
+        val previous = task
+        val now = System.currentTimeMillis()
+
+        // Build the reactions map (keyed by reactor uid) from the projected reactions so the pure
+        // toggle/change/remove logic can decide the new local state.
+        val currentReactions: List<TaskReaction> = parseReactions(task.reactionsJson)
+        val reactionsMap = LinkedHashMap<String, Any?>()
+        currentReactions.forEach { reaction ->
+            reactionsMap[reaction.reactorUid] = linkedMapOf<String, Any?>(
+                "emoji" to reaction.emoji,
+                "targetUid" to reaction.targetUid,
+                "createdAt" to reaction.createdAt
+            )
+        }
+
+        val updatedReactions: List<TaskReaction> =
+            when (val result = Reactions.apply(reactionsMap, uid, emoji, null, now)) {
+                is Reactions.ReactionResult.Rejected -> {
+                    _uiState.value = WorkspaceUiState.Error(result.reason)
+                    return
+                }
+                is Reactions.ReactionResult.Updated ->
+                    result.reactions.toTaskReactions(currentReactions, uid, now)
+            }
+
+        val optimistic = task.copy(
+            reactionsJson = if (updatedReactions.isEmpty()) null else gson.toJson(updatedReactions)
+        )
+
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { taskDao.updateTask(optimistic) }
+            withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
+                // Pass the tapped emoji through; the repo/pure logic toggles it off when it
+                // matches the user's current reaction.
+                repo.updateMyReaction(task.id, emoji)
+            }.onFailure { error ->
+                withContext(Dispatchers.IO) { taskDao.updateTask(previous) }
+                _uiState.value = WorkspaceUiState.Error(error.userMessage("Failed to update reaction"))
+            }
+        }
+    }
+
+    /** True iff a nudge may be sent now for [targetUid] on [task], per the local 60-min window. */
+    fun canNudge(task: Task, targetUid: String, now: Long = System.currentTimeMillis()): Boolean =
+        NudgeRateLimit.canSend(lastNudgeSentAt[task.id to targetUid], now)
+
+    /** Millis remaining before another nudge may be sent for [targetUid] on [task] (0 when allowed). */
+    fun nudgeCooldownRemaining(task: Task, targetUid: String, now: Long = System.currentTimeMillis()): Long =
+        NudgeRateLimit.cooldownRemaining(lastNudgeSentAt[task.id to targetUid], now)
+
+    /**
+     * Send a Nudge to [targetUid] for [task], reflecting an optimistic nudged state within 200 ms
+     * (Req 10.4). The control is gated locally via [NudgeRateLimit] against the last LOCAL nudge
+     * time for the `(task, target)` pair (Req 12.2, 12.4); the authoritative checks (membership,
+     * pending target, server-side rate limit) live in the `sendNudge` callable. On failure or the
+     * 30 s timeout the optimistic nudged state and the recorded local send time are reverted and
+     * the server reason (e.g. "Only pending members can be nudged", "nudged recently") is surfaced
+     * (Req 10.5, 11.2, 12.2, 14.5).
+     */
+    fun nudge(task: Task, targetUid: String) {
+        val uid = currentUid ?: return
+        if (targetUid == uid) {
+            _uiState.value = WorkspaceUiState.Error("You cannot nudge yourself")
+            return
+        }
+        val key = task.id to targetUid
+        val now = System.currentTimeMillis()
+
+        // Gate via the local rate limit so a too-soon repeat never reaches the backend (Req 12.2).
+        if (!NudgeRateLimit.canSend(lastNudgeSentAt[key], now)) {
+            _uiState.value = WorkspaceUiState.Error("You nudged recently, try again later")
+            return
+        }
+
+        // Optimistic nudged state (<200 ms) + record the local send time for the pair.
+        val previousSentAt = lastNudgeSentAt[key]
+        lastNudgeSentAt[key] = now
+        _nudgedTargets.update { it + key }
+
+        viewModelScope.launch {
+            withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
+                repo.sendNudge(task.id, targetUid)
+            }.fold(
+                onSuccess = { _uiState.value = WorkspaceUiState.Success("Nudge sent") },
+                onFailure = { error ->
+                    // Revert the optimistic nudged state and the recorded send time (Req 10.5).
+                    _nudgedTargets.update { it - key }
+                    if (previousSentAt == null) lastNudgeSentAt.remove(key) else lastNudgeSentAt[key] = previousSentAt
+                    _uiState.value = WorkspaceUiState.Error(error.userMessage("The nudge could not be sent"))
+                }
+            )
+        }
+    }
+
+    /** Parses the projected reactions list from [reactionsJson], or an empty list when absent. */
+    private fun parseReactions(reactionsJson: String?): List<TaskReaction> =
+        reactionsJson?.let {
+            runCatching {
+                gson.fromJson<List<TaskReaction>>(
+                    it,
+                    object : TypeToken<List<TaskReaction>>() {}.type
+                )
+            }.getOrNull()
+        } ?: emptyList()
+
+    /**
+     * Re-projects a reactions map (keyed by reactor uid) back into [TaskReaction]s for local
+     * rendering, preserving each existing reactor's display name and defaulting the signed-in
+     * user's name to [myName].
+     */
+    private fun Map<String, Any?>.toTaskReactions(
+        previous: List<TaskReaction>,
+        selfUid: String,
+        now: Long
+    ): List<TaskReaction> {
+        val nameByUid = previous.associate { it.reactorUid to it.reactorName }
+        return entries.mapNotNull { (reactorUid, value) ->
+            val entry = value as? Map<*, *> ?: return@mapNotNull null
+            val emoji = entry["emoji"] as? String ?: return@mapNotNull null
+            TaskReaction(
+                reactorUid = reactorUid,
+                reactorName = nameByUid[reactorUid] ?: if (reactorUid == selfUid) myName else reactorUid,
+                emoji = emoji,
+                targetUid = entry["targetUid"] as? String,
+                createdAt = (entry["createdAt"] as? Number)?.toLong() ?: now
+            )
+        }
     }
 
     fun refreshData() = Unit // Snapshot listeners are the refresh mechanism.

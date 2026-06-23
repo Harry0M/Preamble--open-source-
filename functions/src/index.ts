@@ -23,3 +23,7 @@ export { submitProblemReport } from "./problem-reports";
 
 // Database task counter triggers
 export { onTaskCreated, onTaskDeleted } from "./counters";
+
+// Social engagement: nudge callable + kudos reaction trigger (data-only FCM)
+export { sendNudge } from "./nudge";
+export { onCollaborativeTaskReaction } from "./kudos";

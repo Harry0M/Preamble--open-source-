@@ -191,7 +191,8 @@ data class Task(
     val assignmentStatus: String? = null,
     val collabAssigneesJson: String? = null,
     val collabAdminUid: String? = null,
-    val collabAdminName: String? = null
+    val collabAdminName: String? = null,
+    val reactionsJson: String? = null
 ) {
     val isCalendarEvent: Boolean get() = source == "google_calendar"
     val isGoogleTask: Boolean get() = source == "google_tasks"
@@ -221,6 +222,22 @@ data class Task(
     }
     val collabAssigneeUids: List<String> by lazy {
         collabAssignees.map { it.uid }
+    }
+
+    /**
+     * The reactions projected onto this task from the canonical document's top-level
+     * `reactions` map (social-engagement Requirements 3.1, 3.3). Empty when there are
+     * none. Each entry carries the reactor's uid, resolved display name, and emoji.
+     */
+    val collabReactions: List<com.theblankstate.preamble.collab.TaskReaction> by lazy {
+        reactionsJson?.let {
+            runCatching {
+                Gson().fromJson<List<com.theblankstate.preamble.collab.TaskReaction>>(
+                    it,
+                    object : TypeToken<List<com.theblankstate.preamble.collab.TaskReaction>>() {}.type
+                )
+            }.getOrNull()
+        } ?: emptyList()
     }
 
     /**

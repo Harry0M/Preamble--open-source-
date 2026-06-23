@@ -3,17 +3,23 @@ package com.theblankstate.preamble.repository
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FieldPath
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
+import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.functions.FirebaseFunctionsException
 import com.theblankstate.preamble.collab.AssigneeRef
 import com.theblankstate.preamble.collab.CollaborativeDocument
 import com.theblankstate.preamble.collab.CollaborativeDocumentResult
 import com.theblankstate.preamble.collab.CollaborativeMemberOps
+import com.theblankstate.preamble.collab.Leaderboard
 import com.theblankstate.preamble.collab.MemberStatusTransitions
 import com.theblankstate.preamble.collab.InviteValidation
 import com.theblankstate.preamble.collab.InviteValidator
 import com.theblankstate.preamble.collab.PreambleId
+import com.theblankstate.preamble.collab.Reactions
 import com.theblankstate.preamble.collab.TaskProjection
 import com.theblankstate.preamble.data.CollabAssigneeStatus
 import com.theblankstate.preamble.data.Task
@@ -49,7 +55,8 @@ data class Friend(
  */
 class WorkspaceRepository(
     private val db: FirebaseFirestore = FirebaseFirestore.getInstance(FIRESTORE_DATABASE_ID),
-    private val auth: FirebaseAuth = FirebaseAuth.getInstance()
+    private val auth: FirebaseAuth = FirebaseAuth.getInstance(),
+    private val functions: FirebaseFunctions = FirebaseFunctions.getInstance()
 ) {
     val currentUid: String?
         get() = auth.currentUser?.uid
@@ -536,6 +543,14 @@ class WorkspaceRepository(
                 )
             )
         }.await()
+
+        // Award Productivity_Points only for the collaborative accepted -> completed
+        // transition (Req 7.1, 7.5). The completion already committed above; this is a
+        // best-effort follow-up — awardCompletionPoints swallows and logs its own failure,
+        // so it never rolls back the completion (Req 7.2 idempotency guards double counting).
+        if (newStatus == MemberStatusTransitions.Status.COMPLETED) {
+            awardCompletionPoints(taskId)
+        }
     }.onFailure { Log.e(TAG, "Failed to update member status", it) }
 
     /**
@@ -599,6 +614,218 @@ class WorkspaceRepository(
         val uid = currentUid ?: return Result.failure(IllegalStateException("Not logged in"))
         return updateCollabAssignmentStatus(taskId, targetUid, uid, newStatus, isCompleted)
     }
+
+    // ---------------------------------------------------------------------------------------
+    // Social-engagement: reactions, leaderboard points, and nudges.
+    // ---------------------------------------------------------------------------------------
+
+    /**
+     * Add, change, or remove only the signed-in member's reaction on a Collaborative_Task.
+     *
+     * Mirrors [updateCollabAssignmentStatus]: a client-side guard rejects an out-of-set emoji
+     * before any write (Req 1.3), and a transaction reads the canonical document, delegates the
+     * toggle/change/remove decision to the pure [Reactions] logic, and writes only the caller's
+     * own slice `reactions.{uid}` plus `updatedAt` (Req 2.1, 2.5; matching the deployed
+     * `updatesOwnReactionOnly()` rule). Passing [emoji] == null is the explicit remove control
+     * (Req 2.4) and uses [FieldValue.delete] on the caller's key.
+     *
+     * @param emoji a member of [Reactions.EMOJI_SET] to add/change, or null to remove.
+     */
+    suspend fun updateMyReaction(taskId: String, emoji: String?): Result<Unit> = runCatching<Unit> {
+        val uid = requireCurrentUid()
+        // Client-side guard (Req 1.3): reject an emoji outside the fixed Reaction_Emoji_Set.
+        require(emoji == null || Reactions.isValidEmoji(emoji)) { Reactions.REASON_INVALID_EMOJI }
+        val reference = db.collection(COLLABORATIVE_TASKS).document(taskId)
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(reference)
+            if (!snapshot.exists()) throw IllegalStateException("Shared task no longer exists")
+            val now = System.currentTimeMillis()
+            val currentReactions = snapshot.reactionsValue()
+
+            // Decide the value written to the caller's own reactions key: the new entry map for an
+            // add/change, FieldValue.delete() for a removal, or null to skip the write entirely
+            // (explicit remove when the reactor has no reaction — a no-op, Req 2.4).
+            val ownEntry: Any? = if (emoji == null) {
+                if (currentReactions.containsKey(uid)) FieldValue.delete() else null
+            } else {
+                when (val result = Reactions.apply(currentReactions, uid, emoji, null, now)) {
+                    is Reactions.ReactionResult.Rejected ->
+                        throw IllegalStateException(result.reason)
+                    is Reactions.ReactionResult.Updated -> when (result.effect) {
+                        Reactions.Effect.REMOVED -> FieldValue.delete()
+                        Reactions.Effect.ADDED, Reactions.Effect.CHANGED -> result.reactions[uid]
+                    }
+                }
+            }
+
+            if (ownEntry != null) {
+                transaction.update(
+                    reference,
+                    mapOf(
+                        "reactions.$uid" to ownEntry,
+                        "updatedAt" to now
+                    )
+                )
+            }
+        }.await()
+    }.onFailure { Log.e(TAG, "Failed to update reaction", it) }
+
+    /**
+     * Award the Completion_Award to the signed-in user for completing [taskId], at most once.
+     *
+     * A transaction on `/leaderboard/{uid}` reads the current [Leaderboard.ScoreDoc] (an empty
+     * first-award doc when the document is absent), applies the pure [Leaderboard.award]
+     * (idempotent on `awardedTasks`, monotonic, bucketed by the current Weekly_Window — Req 7.1,
+     * 7.2, 7.3, 7.4), and commits nothing when the task was already awarded. The first-ever award
+     * creates the document at exactly `totalPoints == 10` to satisfy the `/leaderboard` create
+     * rule; subsequent awards update with the +10 monotonic delta.
+     */
+    suspend fun awardCompletionPoints(taskId: String): Result<Unit> = runCatching<Unit> {
+        val uid = requireCurrentUid()
+        val reference = db.collection(LEADERBOARD).document(uid)
+        db.runTransaction { transaction ->
+            val snapshot = transaction.get(reference)
+            val now = System.currentTimeMillis()
+            val current = snapshot.scoreDoc(uid)
+            val awarded = Leaderboard.award(current, taskId, now)
+
+            // Already awarded (Req 7.2): the doc is unchanged, so commit nothing.
+            if (awarded != current) {
+                val data = mapOf(
+                    "uid" to uid,
+                    "totalPoints" to awarded.totalPoints,
+                    "weeklyPoints" to awarded.weeklyPoints,
+                    "awardedTasks" to awarded.awardedTasks.toList(),
+                    "updatedAt" to now
+                )
+                if (snapshot.exists()) {
+                    transaction.update(reference, data)
+                } else {
+                    // First award: create at exactly the Completion_Award (matches the create rule).
+                    transaction.set(reference, data)
+                }
+            }
+        }.await()
+    }.onFailure { Log.e(TAG, "Failed to award completion points", it) }
+
+    /**
+     * The set of the signed-in user's friend uids (excluding self), used to scope the
+     * Friends_Leaderboard. Reuses [getFriendsOnce].
+     */
+    suspend fun getFriendUidsOnce(): Set<String> {
+        val uid = currentUid
+        return getFriendsOnce()
+            .map(Friend::uid)
+            .filter { it.isNotBlank() && it != uid }
+            .toSet()
+    }
+
+    /**
+     * Observe the leaderboard score documents for the signed-in user and that user's friends.
+     *
+     * The signed-in user's `/leaderboard/{uid}` doc is observed with a snapshot listener, and a
+     * per-friend snapshot listener is attached for each friend uid (each `get`/listen is evaluated
+     * against the `/leaderboard` read rule, which permits a friend read only when the reciprocal
+     * friendship exists — so the bounded per-doc reads avoid the query-time rule rejection a
+     * `whereIn` collection query would hit). The friend set is sourced from [getFriendsFlow], and
+     * listeners are added/removed as friends change. A per-listener error is logged and the last
+     * loaded scores are retained (no re-emit), so the collecting ViewModel keeps its prior ranking.
+     */
+    fun getLeaderboardScoresFlow(): Flow<Map<String, Leaderboard.ScoreDoc>> = callbackFlow {
+        val uid = currentUid
+        if (uid == null) {
+            trySend(emptyMap())
+            close()
+            return@callbackFlow
+        }
+
+        val lock = Any()
+        val scores = LinkedHashMap<String, Leaderboard.ScoreDoc>()
+        val registrations = HashMap<String, ListenerRegistration>()
+
+        fun publish() {
+            synchronized(lock) { trySend(LinkedHashMap(scores)) }
+        }
+
+        fun listenTo(targetUid: String) {
+            synchronized(lock) {
+                if (registrations.containsKey(targetUid)) return
+                val registration = db.collection(LEADERBOARD).document(targetUid)
+                    .addSnapshotListener { snapshot, error ->
+                        if (error != null) {
+                            // Retain last-loaded scores; do not close or re-emit (Req 9.1, 9.4).
+                            Log.e(TAG, "Leaderboard listener failed for $targetUid", error)
+                            return@addSnapshotListener
+                        }
+                        synchronized(lock) {
+                            if (snapshot != null && snapshot.exists()) {
+                                scores[targetUid] = snapshot.scoreDoc(targetUid)
+                            } else {
+                                scores.remove(targetUid)
+                            }
+                        }
+                        publish()
+                    }
+                registrations[targetUid] = registration
+            }
+        }
+
+        fun stopListening(targetUid: String) {
+            synchronized(lock) {
+                registrations.remove(targetUid)?.remove()
+                scores.remove(targetUid)
+            }
+        }
+
+        // Always observe the signed-in user's own score.
+        listenTo(uid)
+
+        // Track the friend set and reconcile listeners as it changes.
+        val friendCollector = launch {
+            getFriendsFlow().collect { friends ->
+                val friendUids = friends.map(Friend::uid).filter { it.isNotBlank() }.toSet()
+                val keep = friendUids + uid
+                val stale = synchronized(lock) { registrations.keys.filter { it !in keep } }
+                stale.forEach(::stopListening)
+                friendUids.forEach(::listenTo)
+            }
+        }
+
+        awaitClose {
+            friendCollector.cancel()
+            synchronized(lock) {
+                registrations.values.forEach(ListenerRegistration::remove)
+                registrations.clear()
+            }
+        }
+    }
+
+    /**
+     * Send a Nudge to a pending member by invoking the server-side `sendNudge` callable
+     * (default region `us-central1`), which authoritatively enforces membership, the pending
+     * target, the not-self guard, and the 60-minute rate limit before delivering the push
+     * (Req 11, 12). A [FirebaseFunctionsException] (e.g. `failed-precondition`) is mapped to a
+     * failed [Result] carrying the server's reason so the ViewModel can revert the optimistic
+     * nudged state and surface the message (Req 10.5, 11.2, 12.2).
+     */
+    suspend fun sendNudge(taskId: String, targetUid: String): Result<Unit> = runCatching<Unit> {
+        val uid = requireCurrentUid()
+        require(taskId.isNotBlank()) { "Invalid task" }
+        require(targetUid.isNotBlank() && targetUid != uid) { "You cannot nudge yourself" }
+        val payload = hashMapOf<String, Any?>(
+            "taskId" to taskId,
+            "targetUid" to targetUid
+        )
+        try {
+            functions.getHttpsCallable("sendNudge").call(payload).await()
+        } catch (exception: FirebaseFunctionsException) {
+            // Carry the callable's reason message (failed-precondition, etc.) up to the caller.
+            throw IllegalStateException(
+                exception.message ?: "The nudge could not be sent",
+                exception
+            )
+        }
+    }.onFailure { Log.e(TAG, "Failed to send nudge", it) }
 
     suspend fun removeCollaborator(taskId: String, memberUid: String): Result<Unit> = runCatching<Unit> {
         val uid = requireCurrentUid()
@@ -817,6 +1044,37 @@ class WorkspaceRepository(
         return MemberStatusTransitions.MemberStateValue(status, isCompleted, completedTimestamp)
     }
 
+    /** Project the canonical document's loosely-typed `reactions` map into a string-keyed map. */
+    private fun DocumentSnapshot.reactionsValue(): Map<String, Any?> {
+        val reactions = get("reactions") as? Map<*, *> ?: return emptyMap()
+        val result = LinkedHashMap<String, Any?>(reactions.size)
+        for ((key, value) in reactions) {
+            if (key is String) result[key] = value
+        }
+        return result
+    }
+
+    /** Parse a `/leaderboard/{uid}` document into a [Leaderboard.ScoreDoc] (empty when absent). */
+    private fun DocumentSnapshot.scoreDoc(uid: String): Leaderboard.ScoreDoc {
+        if (!exists()) return Leaderboard.ScoreDoc(uid = uid)
+        val totalPoints = (get("totalPoints") as? Number)?.toInt() ?: 0
+        val weeklyRaw = get("weeklyPoints") as? Map<*, *>
+        val weeklyPoints = LinkedHashMap<String, Int>()
+        weeklyRaw?.forEach { (key, value) ->
+            if (key is String && value is Number) weeklyPoints[key] = value.toInt()
+        }
+        val awardedTasks = (get("awardedTasks") as? List<*>)
+            ?.filterIsInstance<String>()
+            ?.toSet()
+            .orEmpty()
+        return Leaderboard.ScoreDoc(
+            uid = uid,
+            totalPoints = totalPoints,
+            weeklyPoints = weeklyPoints,
+            awardedTasks = awardedTasks
+        )
+    }
+
     private fun requireCurrentUid(): String =
         currentUid ?: throw IllegalStateException("Sign in to use collaboration")
 
@@ -828,6 +1086,7 @@ class WorkspaceRepository(
         const val INVITES = "invites"
         const val PREAMBLE_IDS = "preambleIds"
         const val COLLABORATIVE_TASKS = "collaborativeTasks"
+        const val LEADERBOARD = "leaderboard"
         const val MEMBER_UID_MAP = "memberUidMap"
         const val COLLAB_SCHEMA_VERSION = CollaborativeDocument.SCHEMA_VERSION
         const val MAX_ASSIGNEES = CollaborativeDocument.MAX_ASSIGNEES

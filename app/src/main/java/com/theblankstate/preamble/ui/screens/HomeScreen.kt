@@ -257,6 +257,9 @@ fun HomeScreen(
     // Fetch friends for the face pile
     val workspaceViewModel: com.theblankstate.preamble.ui.viewmodels.WorkspaceViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val friends by workspaceViewModel.friends.collectAsState()
+    // Collected so the optimistic nudged/cooldown state in the detail sheets recomposes
+    // when a nudge is sent (social-engagement Requirements 10.4, 12.2).
+    val nudgedTargets by workspaceViewModel.nudgedTargets.collectAsState()
     // Home Incoming_Section source: own incoming (pending) collaborative assignments, narrowed by
     // the single source of truth for incoming selection (Requirements 19.1, 19.8).
     val incomingAssignments by workspaceViewModel.incomingAssignments.collectAsState()
@@ -1996,7 +1999,15 @@ fun HomeScreen(
                 }
             } else null,
             isPastTask = isPast,
-            habitStreakData = habitStreaks[task.recurrenceParentId ?: task.id]
+            habitStreakData = habitStreaks[task.recurrenceParentId ?: task.id],
+            currentUserUid = FirebaseAuth.getInstance().currentUser?.uid,
+            onReact = { emoji -> workspaceViewModel.updateMyReaction(task, emoji) },
+            onNudge = { targetUid -> workspaceViewModel.nudge(task, targetUid) },
+            canNudge = { targetUid ->
+                nudgedTargets // read so the control recomposes after a nudge
+                workspaceViewModel.canNudge(task, targetUid)
+            },
+            nudgeCooldownRemaining = { targetUid -> workspaceViewModel.nudgeCooldownRemaining(task, targetUid) }
         )
     }
 
@@ -2044,6 +2055,15 @@ fun HomeScreen(
             onLeaveCollabTask = {
                 taskToEdit?.let { workspaceViewModel.leaveTask(it) }
                 taskToEdit = null
+            },
+            onReact = { emoji -> taskToEdit?.let { workspaceViewModel.updateMyReaction(it, emoji) } },
+            onNudge = { targetUid -> taskToEdit?.let { workspaceViewModel.nudge(it, targetUid) } },
+            canNudge = { targetUid ->
+                nudgedTargets // read so the control recomposes after a nudge
+                taskToEdit?.let { workspaceViewModel.canNudge(it, targetUid) } ?: true
+            },
+            nudgeCooldownRemaining = { targetUid ->
+                taskToEdit?.let { workspaceViewModel.nudgeCooldownRemaining(it, targetUid) } ?: 0L
             }
         )
     }

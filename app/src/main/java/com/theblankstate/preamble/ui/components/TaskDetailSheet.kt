@@ -114,7 +114,11 @@ fun TaskDetailSheet(
     currentUserUid: String? = null,
     onRemoveCollabMember: ((String) -> Unit)? = null,
     onTransferCollabOwnership: ((String) -> Unit)? = null,
-    onLeaveCollabTask: (() -> Unit)? = null
+    onLeaveCollabTask: (() -> Unit)? = null,
+    onReact: ((String) -> Unit)? = null,
+    onNudge: ((String) -> Unit)? = null,
+    canNudge: ((String) -> Boolean)? = null,
+    nudgeCooldownRemaining: ((String) -> Long)? = null
 ) {
     var taskTitle by remember { mutableStateOf(task.title) }
     var taskDescription by remember { mutableStateOf(task.description ?: "") }
@@ -505,6 +509,11 @@ fun TaskDetailSheet(
                         onLeave = if (onLeaveCollabTask != null) {
                             { showLeaveTaskConfirm = true }
                         } else null,
+                        reactions = task.collabReactions,
+                        onReact = onReact,
+                        onNudge = onNudge,
+                        canNudge = canNudge,
+                        nudgeCooldownRemaining = nudgeCooldownRemaining,
                     )
                 }
                 Spacer(modifier = Modifier.height(20.dp))

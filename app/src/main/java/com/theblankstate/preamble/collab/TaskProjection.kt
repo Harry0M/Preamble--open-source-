@@ -1,5 +1,6 @@
 package com.theblankstate.preamble.collab
 
+import androidx.compose.runtime.Stable
 import com.google.gson.ExclusionStrategy
 import com.google.gson.FieldAttributes
 import com.google.gson.Gson
@@ -7,6 +8,23 @@ import com.google.gson.GsonBuilder
 import com.google.gson.reflect.TypeToken
 import com.theblankstate.preamble.data.CollabAssigneeStatus
 import com.theblankstate.preamble.data.Task
+
+/**
+ * A single reaction projected from the canonical document's top-level `reactions`
+ * map into the local [Task.reactionsJson] for rendering (Requirements 3.1, 3.3).
+ *
+ * Mirrors the style of [CollabAssigneeStatus]: a plain, [Stable] value type with
+ * the reactor's resolved display name so the UI can show "name + emoji" without an
+ * extra lookup.
+ */
+@Stable
+data class TaskReaction(
+    val reactorUid: String,
+    val reactorName: String,
+    val emoji: String,
+    val targetUid: String? = null,
+    val createdAt: Long = 0L
+)
 
 /**
  * Pure projection logic between the admin's local [Task] and the shared `task`
@@ -41,7 +59,11 @@ object TaskProjection {
         "assignmentStatus",
         "collabAssigneesJson",
         "collabAdminUid",
-        "collabAdminName"
+        "collabAdminName",
+        // Reactions live at the document top level, not inside the shared `task`
+        // payload, so the admin's own local projection is never written back as
+        // shared state (Requirement 3.x; mirrors Requirement 7.7).
+        "reactionsJson"
     )
 
     /**
@@ -129,6 +151,24 @@ object TaskProjection {
         val myCompleted = myState?.get("isCompleted") as? Boolean ?: false
         val myCompletedTimestamp = (myState?.get("completedTimestamp") as? Number)?.toLong()
 
+        val reactionsMap = data["reactions"] as? Map<*, *> ?: emptyMap<Any, Any>()
+        val reactions = reactionsMap.entries.mapNotNull { (key, value) ->
+            val reactorUid = key as? String ?: return@mapNotNull null
+            @Suppress("UNCHECKED_CAST")
+            val reaction = value as? Map<String, Any?> ?: return@mapNotNull null
+            val emoji = reaction["emoji"] as? String ?: return@mapNotNull null
+            @Suppress("UNCHECKED_CAST")
+            val reactorState = memberStates[reactorUid] as? Map<String, Any?>
+            TaskReaction(
+                reactorUid = reactorUid,
+                reactorName = reactorState?.get("name") as? String ?: DEFAULT_NAME,
+                emoji = emoji,
+                targetUid = reaction["targetUid"] as? String,
+                createdAt = (reaction["createdAt"] as? Number)?.toLong() ?: 0L
+            )
+        }
+        val reactionsJson = if (reactions.isEmpty()) null else gson.toJson(reactions)
+
         baseTask.copy(
             id = (data["taskId"] as? String).orEmpty().ifBlank { documentId },
             isCompleted = myCompleted,
@@ -136,6 +176,7 @@ object TaskProjection {
             collabAdminUid = adminUid,
             collabAdminName = adminName,
             collabAssigneesJson = gson.toJson(assignees),
+            reactionsJson = reactionsJson,
             assignedByUid = adminUid,
             assignedByName = adminName,
             assignedToUid = assignees.firstOrNull()?.uid,
