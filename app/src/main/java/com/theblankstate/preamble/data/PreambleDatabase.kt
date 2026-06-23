@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [Task::class, TaskTagOverride::class, FocusSession::class, AiMemoryEntity::class, AiProcessLogEntity::class, ChatMessageEntity::class, SyncMutation::class],
-    version = 28,
+    version = 29,
     exportSchema = false
 )
 abstract class PreambleDatabase : RoomDatabase() {
@@ -32,7 +32,7 @@ abstract class PreambleDatabase : RoomDatabase() {
                     PreambleDatabase::class.java,
                     "preamble_db"
                 )
-                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28)
+                .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12, MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22, MIGRATION_22_23, MIGRATION_23_24, MIGRATION_24_25, MIGRATION_25_26, MIGRATION_26_27, MIGRATION_27_28, MIGRATION_28_29)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance
@@ -372,6 +372,41 @@ abstract class PreambleDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `assignedToUid` TEXT DEFAULT NULL")
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `assignedToName` TEXT DEFAULT NULL")
                 db.execSQL("ALTER TABLE `tasks` ADD COLUMN `assignmentStatus` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `collabAssigneesJson` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `collabAdminUid` TEXT DEFAULT NULL")
+                db.execSQL("ALTER TABLE `tasks` ADD COLUMN `collabAdminName` TEXT DEFAULT NULL")
+            }
+        }
+
+        private val MIGRATION_28_29 = object : Migration(28, 29) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val columns = mutableSetOf<String>()
+                val cursor = db.query("PRAGMA table_info(`tasks`)")
+                try {
+                    val nameIndex = cursor.getColumnIndex("name")
+                    while (cursor.moveToNext()) {
+                        if (nameIndex >= 0) {
+                            columns.add(cursor.getString(nameIndex))
+                        }
+                    }
+                } finally {
+                    cursor.close()
+                }
+
+                fun addColumnIfNeeded(columnName: String, typeAndConstraints: String) {
+                    if (!columns.contains(columnName)) {
+                        db.execSQL("ALTER TABLE `tasks` ADD COLUMN `$columnName` $typeAndConstraints")
+                    }
+                }
+
+                addColumnIfNeeded("assignedByUid", "TEXT DEFAULT NULL")
+                addColumnIfNeeded("assignedByName", "TEXT DEFAULT NULL")
+                addColumnIfNeeded("assignedToUid", "TEXT DEFAULT NULL")
+                addColumnIfNeeded("assignedToName", "TEXT DEFAULT NULL")
+                addColumnIfNeeded("assignmentStatus", "TEXT DEFAULT NULL")
+                addColumnIfNeeded("collabAssigneesJson", "TEXT DEFAULT NULL")
+                addColumnIfNeeded("collabAdminUid", "TEXT DEFAULT NULL")
+                addColumnIfNeeded("collabAdminName", "TEXT DEFAULT NULL")
             }
         }
     }

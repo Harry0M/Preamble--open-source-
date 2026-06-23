@@ -37,6 +37,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.theblankstate.preamble.R
+import com.theblankstate.preamble.repository.Friend
+import com.theblankstate.preamble.ui.viewmodels.FriendRemovalImpact
 import com.theblankstate.preamble.ui.viewmodels.WorkspaceUiState
 import com.theblankstate.preamble.ui.viewmodels.WorkspaceViewModel
 import com.theblankstate.preamble.viewmodel.TaskViewModel
@@ -84,12 +86,25 @@ fun WorkspaceScreen(
     val context = LocalContext.current
     var showAddFriendDialog by remember { mutableStateOf(initialInviteId != null) }
     var targetId by remember { mutableStateOf(initialInviteId ?: "") }
+    var friendPendingRemoval by remember { mutableStateOf<Friend?>(null) }
+    var removalImpact by remember { mutableStateOf<FriendRemovalImpact?>(null) }
+    var transferOwnedTasks by remember { mutableStateOf(false) }
     
     var isRefreshing by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
     
     // Pick random backgrounds on composition
     val heroBackground = remember { RandomBackgrounds.random() }
+    val requestFriendRemoval: (Friend) -> Unit = { friend ->
+        val impact = viewModel.friendRemovalImpact(friend.uid)
+        if (impact.requiresResolution) {
+            friendPendingRemoval = friend
+            removalImpact = impact
+            transferOwnedTasks = false
+        } else {
+            viewModel.removeFriend(friend.uid)
+        }
+    }
 
     // Handle Toast/Snackbar for UI state
     LaunchedEffect(uiState) {
@@ -418,7 +433,7 @@ fun WorkspaceScreen(
                                     
                                     // Actions
                                     Button(
-                                        onClick = { viewModel.removeFriend(friend.uid) },
+                                        onClick = { requestFriendRemoval(friend) },
                                         colors = ButtonDefaults.buttonColors(containerColor = Color.Black.copy(alpha = 0.1f), contentColor = Color.Black)
                                     ) {
                                         Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -460,7 +475,7 @@ fun WorkspaceScreen(
                                         )
                                         Spacer(modifier = Modifier.width(12.dp))
                                         IconButton(
-                                            onClick = { viewModel.removeFriend(friend.uid) },
+                                            onClick = { requestFriendRemoval(friend) },
                                             modifier = Modifier.size(32.dp)
                                         ) {
                                             Icon(Icons.Default.Close, contentDescription = "Remove Friend", tint = Color.Black.copy(alpha = 0.4f))
@@ -537,6 +552,76 @@ fun WorkspaceScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showAddFriendDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    val pendingFriend = friendPendingRemoval
+    val pendingImpact = removalImpact
+    if (pendingFriend != null && pendingImpact != null) {
+        AlertDialog(
+            onDismissRequest = {
+                friendPendingRemoval = null
+                removalImpact = null
+                transferOwnedTasks = false
+            },
+            title = { Text("Resolve shared tasks first") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "You still share ${pendingImpact.totalTasks} task${if (pendingImpact.totalTasks == 1) "" else "s"} with ${pendingFriend.name}. Choose what should happen before removing this friend."
+                    )
+                    if (pendingImpact.administeredTasks.isNotEmpty()) {
+                        Text(
+                            "Tasks you own: ${pendingImpact.administeredTasks.size}. By default, ${pendingFriend.name} will be removed from those tasks and you stay admin.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { transferOwnedTasks = !transferOwnedTasks }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = transferOwnedTasks,
+                                onCheckedChange = { transferOwnedTasks = it }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Transfer my owned shared tasks to ${pendingFriend.name} and leave them")
+                        }
+                    }
+                    if (pendingImpact.memberTasks.isNotEmpty()) {
+                        Text(
+                            "Tasks owned by someone else: ${pendingImpact.memberTasks.size}. You will leave those tasks before the friendship is removed.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.resolveTasksAndRemoveFriend(pendingFriend, transferOwnedTasks)
+                        friendPendingRemoval = null
+                        removalImpact = null
+                        transferOwnedTasks = false
+                    }
+                ) {
+                    Text("Resolve & Remove")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        friendPendingRemoval = null
+                        removalImpact = null
+                        transferOwnedTasks = false
+                    }
+                ) {
                     Text("Cancel")
                 }
             }

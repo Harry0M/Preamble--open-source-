@@ -23,6 +23,10 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
@@ -106,7 +110,11 @@ fun TaskDetailSheet(
     onCompleteAllSubtasks: (() -> Unit)? = null,
     onSnooze: ((Long) -> Unit)? = null,
     onUnsnooze: (() -> Unit)? = null,
-    onToggleHabit: ((Task) -> Unit)? = null
+    onToggleHabit: ((Task) -> Unit)? = null,
+    currentUserUid: String? = null,
+    onRemoveCollabMember: ((String) -> Unit)? = null,
+    onTransferCollabOwnership: ((String) -> Unit)? = null,
+    onLeaveCollabTask: (() -> Unit)? = null
 ) {
     var taskTitle by remember { mutableStateOf(task.title) }
     var taskDescription by remember { mutableStateOf(task.description ?: "") }
@@ -129,7 +137,9 @@ fun TaskDetailSheet(
     var eventIcon by remember { mutableStateOf(task.eventIcon) }
     var eventColor by remember { mutableStateOf(task.eventColor) }
     var showEventDialog by remember { mutableStateOf(false) }
-
+    var memberPendingRemoval by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var memberPendingTransfer by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var showLeaveTaskConfirm by remember { mutableStateOf(false) }
     val hasChanges = remember(taskTitle, taskDescription, selectedTime, selectedDate, selectedPriority, selectedTags, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, isEvent, eventIcon, eventColor) {
         taskTitle != task.title ||
                 taskDescription != (task.description ?: "") ||
@@ -463,6 +473,42 @@ fun TaskDetailSheet(
             }
 
             Spacer(modifier = Modifier.height(20.dp))
+
+            // ═══════════════════════════════════════════════════════════════
+            // ASSIGNED MEMBERS & STATUS
+            // ═══════════════════════════════════════════════════════════════
+            if (task.collabAdminUid != null || task.collabAssignees.isNotEmpty()) {
+                EditSection(title = "Assigned Members & Status", icon = Icons.Default.Group) {
+                    // Shared collaborator-list rendering (task 14.1) so the edit sheet and the
+                    // read-only tap-to-open sheet cannot drift (Requirements 20, 21). Role
+                    // controls are enabled here (showRoleControls = true); the remove/transfer/
+                    // leave callbacks route through the existing confirmation dialogs so the
+                    // edit sheet's Requirement 13 role behavior is unchanged.
+                    CollaboratorMemberList(
+                        adminUid = task.collabAdminUid,
+                        adminName = task.collabAdminName,
+                        assignees = task.collabAssignees,
+                        currentUserUid = currentUserUid,
+                        showRoleControls = true,
+                        onRemoveMember = if (onRemoveCollabMember != null) {
+                            { uid ->
+                                val name = task.collabAssignees.firstOrNull { it.uid == uid }?.name ?: ""
+                                memberPendingRemoval = uid to name
+                            }
+                        } else null,
+                        onTransferOwnership = if (onTransferCollabOwnership != null) {
+                            { uid ->
+                                val name = task.collabAssignees.firstOrNull { it.uid == uid }?.name ?: ""
+                                memberPendingTransfer = uid to name
+                            }
+                        } else null,
+                        onLeave = if (onLeaveCollabTask != null) {
+                            { showLeaveTaskConfirm = true }
+                        } else null,
+                    )
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+            }
 
             // ═══════════════════════════════════════════════════════════════
             // DATE & TIME
@@ -999,6 +1045,77 @@ fun TaskDetailSheet(
         }
     }
 
+    memberPendingRemoval?.let { (memberUid, memberName) ->
+        AlertDialog(
+            onDismissRequest = { memberPendingRemoval = null },
+            title = { Text("Remove member?") },
+            text = { Text("$memberName will lose access to this shared task. Their completion state will be kept in history but hidden from the active member list.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onRemoveCollabMember?.invoke(memberUid)
+                        memberPendingRemoval = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Remove")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { memberPendingRemoval = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    memberPendingTransfer?.let { (memberUid, memberName) ->
+        AlertDialog(
+            onDismissRequest = { memberPendingTransfer = null },
+            title = { Text("Transfer ownership?") },
+            text = { Text("$memberName will become admin of this shared task. You will stay as a member unless you leave later.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onTransferCollabOwnership?.invoke(memberUid)
+                        memberPendingTransfer = null
+                    }
+                ) {
+                    Text("Transfer")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { memberPendingTransfer = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showLeaveTaskConfirm) {
+        AlertDialog(
+            onDismissRequest = { showLeaveTaskConfirm = false },
+            title = { Text("Leave shared task?") },
+            text = { Text("This task will be removed from your list. Other members will keep their copy and progress.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        onLeaveCollabTask?.invoke()
+                        showLeaveTaskConfirm = false
+                        onDismiss()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Leave")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLeaveTaskConfirm = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
 
 }
 

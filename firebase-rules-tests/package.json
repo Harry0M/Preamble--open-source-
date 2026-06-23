@@ -1,0 +1,13 @@
+{
+  "name": "preamble-firestore-rules-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npx --yes firebase-tools@14.18.0 emulators:exec --project demo-preamble --only firestore \"node firestore.rules.test.mjs\"",
+    "verify-matrix": "npx --yes firebase-tools@14.18.0 emulators:exec --project demo-preamble --only firestore \"node verification-matrix.mjs\""
+  },
+  "dependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "firebase": "^11.10.0"
+  }
+}

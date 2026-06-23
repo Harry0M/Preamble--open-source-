@@ -250,6 +250,23 @@ class TaskRepository(
         }
         syncManager?.pushTask(updated)
 
+        if (updated.collabAdminUid != null) {
+            val myUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            if (myUid != null) {
+                com.theblankstate.preamble.repository.WorkspaceRepository()
+                    .updateCollabAssignmentStatus(
+                        taskId = updated.id,
+                        adminUid = updated.collabAdminUid,
+                        assigneeUid = myUid,
+                        newStatus = if (updated.isCompleted) "completed" else "accepted",
+                        isCompleted = updated.isCompleted
+                    )
+                    .onFailure { error ->
+                        android.util.Log.e("TaskRepository", "Failed to sync member completion", error)
+                    }
+            }
+        }
+
         // When completing a parent task, also complete all child subtask rows
         if (isBecomingCompleted) {
             val childSubtasks = dao.getSubtasksForParentSync(task.id)
@@ -282,6 +299,17 @@ class TaskRepository(
         val normalized = normalizeForStorage(task) ?: return
         dao.updateTask(normalized)
         syncManager?.pushTask(normalized)
+
+        if (normalized.collabAdminUid != null) {
+            val myUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            if (myUid != null && normalized.collabAdminUid == myUid) {
+                com.theblankstate.preamble.repository.WorkspaceRepository()
+                    .updateCollaborativeTask(normalized)
+                    .onFailure { error ->
+                        android.util.Log.e("TaskRepository", "Failed to sync collaborative task details", error)
+                    }
+            }
+        }
     }
 
     suspend fun deleteTask(task: Task) {
@@ -289,6 +317,7 @@ class TaskRepository(
         dao.deleteAllSubtasks(task.id)
         dao.deleteTask(task)
         syncManager?.deleteTask(task.id)
+
     }
 
     fun searchTasks(query: String): Flow<List<Task>> = dao.searchTasks(query)
@@ -354,10 +383,46 @@ class TaskRepository(
         )
         dao.updateTask(updatedSubtask)
         syncManager?.pushTask(updatedSubtask)
-        
+
         // Check if we need to update parent task completion
         subtask.parentTaskId?.let { parentId ->
-            updateParentTaskCompletion(parentId)
+            val parent = dao.getTaskById(parentId) ?: return@let
+            val subtasks = dao.getSubtasksForParentSync(parentId)
+
+            // Re-map subtask list to update parent's subtasksJson
+            val subtaskObjects = subtasks.map { sub ->
+                val currentSub = if (sub.id == subtaskId) updatedSubtask else sub
+                com.theblankstate.preamble.data.Subtask(id = currentSub.id, title = currentSub.title, isCompleted = currentSub.isCompleted)
+            }
+
+            val allSubtasksCompleted = subtasks.isNotEmpty() && subtasks.all {
+                if (it.id == subtaskId) isCompleted else it.isCompleted
+            }
+            val shouldCompleteParent = allSubtasksCompleted
+
+            val updatedParent = parent.copy(
+                isCompleted = shouldCompleteParent,
+                completedTimestamp = if (shouldCompleteParent) System.currentTimeMillis() else null,
+                completedDate = if (shouldCompleteParent && parent.recurrenceType == "rollover") todayString() else if (!shouldCompleteParent) null else parent.completedDate,
+                updatedTimestamp = System.currentTimeMillis(),
+                subtasksJson = com.google.gson.Gson().toJson(subtaskObjects)
+            )
+            dao.updateTask(updatedParent)
+            syncManager?.pushTask(updatedParent)
+
+            // If collaborative, update the canonical shared task.
+            if (updatedParent.collabAdminUid != null) {
+                com.theblankstate.preamble.repository.WorkspaceRepository()
+                    .updateCollabTaskSubtasks(
+                        taskId = updatedParent.id,
+                        adminUid = updatedParent.collabAdminUid,
+                        subtasksJson = updatedParent.subtasksJson!!,
+                        parentCompleted = updatedParent.isCompleted
+                    )
+                    .onFailure { error ->
+                        android.util.Log.e("TaskRepository", "Failed to sync collaborative subtasks", error)
+                    }
+            }
         }
         
         return updatedSubtask
@@ -366,11 +431,6 @@ class TaskRepository(
     suspend fun updateParentTaskCompletion(parentId: String) {
         val parent = dao.getTaskById(parentId) ?: return
         val subtasks = dao.getSubtasksForParentSync(parentId)
-        
-        // Auto-completion rules:
-        // 1. If parent is marked completed, all subtasks should be completed
-        // 2. If all subtasks are completed, parent should be completed
-        // 3. If any subtask is incomplete, parent should be incomplete (unless manually overridden)
         
         val allSubtasksCompleted = subtasks.isNotEmpty() && subtasks.all { it.isCompleted }
         val shouldCompleteParent = allSubtasksCompleted

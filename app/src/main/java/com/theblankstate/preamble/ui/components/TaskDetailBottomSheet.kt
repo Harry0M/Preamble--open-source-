@@ -166,7 +166,8 @@ fun TaskDetailBottomSheet(
     onRemoveReminder: ((Int) -> Unit)? = null,
     onToggleRollover: (() -> Unit)? = null,
     isPastTask: Boolean = false,
-    habitStreakData: com.theblankstate.preamble.repository.TaskRepository.HabitStreakData? = null
+    habitStreakData: com.theblankstate.preamble.repository.TaskRepository.HabitStreakData? = null,
+    currentUserUid: String? = null
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -373,6 +374,22 @@ fun TaskDetailBottomSheet(
                 onDeleteSubtask = { subtaskId -> onDeleteSubtask?.invoke(subtaskId) },
                 onCompleteAllSubtasks = { onCompleteAllSubtasks?.invoke() }
             )
+
+            // ═══════════════════════════════════════════════════════════════
+            // COLLABORATORS (read-only, shown only for collaborative tasks)
+            // ═══════════════════════════════════════════════════════════════
+            if (task.collabAdminUid != null || task.collabAssignees.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                DetailSection(title = "Collaborators") {
+                    CollaboratorMemberList(
+                        adminUid = task.collabAdminUid,
+                        adminName = task.collabAdminName,
+                        assignees = task.collabAssignees,
+                        currentUserUid = currentUserUid,
+                        showRoleControls = false
+                    )
+                }
+            }
 
             // ═══════════════════════════════════════════════════════════════
             // LOCATION WITH MAP PREVIEW

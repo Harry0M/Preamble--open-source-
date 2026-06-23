@@ -2,98 +2,250 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isOwner(uid) {
-      return request.auth != null && request.auth.uid == uid;
+    function signedIn() {
+      return request.auth != null;
     }
 
-    // Simple validation that won't fail
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isValidTaskData(data) {
+      return data.title is string
+        && data.title.size() >= 1
+        && data.title.size() <= 500;
+    }
+
     function isValidTask() {
-      let d = request.resource.data;
-      // Title must exist and be reasonable length
-      return d.title is string
-        && d.title.size() >= 1
-        && d.title.size() <= 500;
+      return isValidTaskData(request.resource.data);
+    }
+
+    function isValidTagOverrideData(data) {
+      return data.tags is string && data.tags.size() <= 100;
     }
 
     function isValidTagOverride() {
+      return isValidTagOverrideData(request.resource.data);
+    }
+
+    function isOwnLegacyDocument() {
+      return signedIn() && resource.data.uid == request.auth.uid;
+    }
+
+    function writesOwnLegacyDocument() {
+      return signedIn() && request.resource.data.uid == request.auth.uid;
+    }
+
+    function isFriendRecordFor(friendId) {
+      return request.resource.data.uid == friendId
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 100
+        && request.resource.data.preambleId is string
+        && request.resource.data.preambleId.size() <= 40;
+    }
+
+    function hasIncomingInviteFrom(uid, friendId) {
+      return exists(/databases/$(database)/documents/users/$(uid)/invites/$(friendId));
+    }
+
+    function isValidInviteFor(uid, inviteId) {
+      return inviteId == request.auth.uid
+        && request.resource.data.senderUid == request.auth.uid
+        && request.resource.data.targetUid == uid
+        && request.resource.data.senderName is string
+        && request.resource.data.senderName.size() <= 100
+        && request.resource.data.senderPreambleId is string
+        && request.resource.data.senderPreambleId.size() <= 40;
+    }
+
+    function isCollabMember() {
+      return signedIn()
+        && resource.data.memberUids is list
+        && request.auth.uid in resource.data.memberUids;
+    }
+
+    function isQueryableCollabMember() {
+      return signedIn()
+        && resource.data.memberUidMap is map
+        && resource.data.memberUidMap[request.auth.uid] == true;
+    }
+
+    function hasValidMemberUidMap(data) {
+      return data.memberUidMap is map
+        && data.memberUidMap.keys().hasAll(data.memberUids)
+        && data.memberUidMap.keys().hasOnly(data.memberUids)
+        && data.memberUidMap[data.adminUid] == true;
+    }
+
+    function isValidMemberStatus(status) {
+      return status in ['pending', 'accepted', 'completed', 'declined', 'left', 'removed'];
+    }
+
+    function isValidOwnMemberState() {
+      let state = request.resource.data.memberStates[request.auth.uid];
+      return state is map
+        && state.uid == request.auth.uid
+        && state.status is string
+        && isValidMemberStatus(state.status)
+        && state.isCompleted is bool;
+    }
+
+    function isValidCollaborativeDocument(taskId) {
       let d = request.resource.data;
-      return d.tags is string && d.tags.size() <= 100;
+      return d.schemaVersion == 2
+        && d.taskId == taskId
+        && d.adminUid is string
+        && d.adminName is string
+        && d.memberUids is list
+        && d.memberUids.size() >= 1
+        && d.memberUids.size() <= 51
+        && d.assigneeUids is list
+        && d.assigneeUids.size() <= 50
+        && d.memberUids.hasAll(d.assigneeUids)
+        && d.memberUids.hasAll([d.adminUid])
+        && hasValidMemberUidMap(d)
+        && d.memberStates is map
+        && d.task is map
+        && isValidTaskData(d.task);
     }
 
-    // Public directory for discovering users by Preamble ID
+    function isCollaborativeAdminCreate(taskId) {
+      return signedIn()
+        && request.resource.data.adminUid == request.auth.uid
+        && request.auth.uid in request.resource.data.memberUids
+        && isValidCollaborativeDocument(taskId);
+    }
+
+    function isCollaborativeAdminUpdate(taskId) {
+      return signedIn()
+        && resource.data.adminUid == request.auth.uid
+        && request.resource.data.taskId == resource.data.taskId
+        && isValidCollaborativeDocument(taskId);
+    }
+
+    function updatesOwnMemberStatusOnly() {
+      return isCollabMember()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberStates', 'updatedAt'])
+        && request.resource.data.memberStates.diff(resource.data.memberStates).affectedKeys().hasOnly([request.auth.uid])
+        && isValidOwnMemberState();
+    }
+
+    function updatesOwnSubtaskStateOnly() {
+      return isCollabMember()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['task', 'memberStates', 'updatedAt'])
+        && request.resource.data.task.diff(resource.data.task).affectedKeys().hasOnly(['subtasksJson', 'updatedTimestamp'])
+        && request.resource.data.memberStates.diff(resource.data.memberStates).affectedKeys().hasOnly([request.auth.uid])
+        && isValidOwnMemberState();
+    }
+
+    function removesSelfFromCollaborativeTaskOnly() {
+      return isCollabMember()
+        && resource.data.adminUid != request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberUids', 'assigneeUids', 'memberUidMap', 'memberStates', 'updatedAt'])
+        && request.resource.data.memberUids == resource.data.memberUids.removeAll([request.auth.uid])
+        && request.resource.data.assigneeUids == resource.data.assigneeUids.removeAll([request.auth.uid])
+        && hasValidMemberUidMap(request.resource.data)
+        && request.resource.data.memberStates.diff(resource.data.memberStates).affectedKeys().hasOnly([request.auth.uid])
+        && request.resource.data.memberStates[request.auth.uid].status == 'left'
+        && isValidOwnMemberState();
+    }
+
+    // Public directory for discovering users by Preamble ID.
     match /preambleIds/{preambleId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
-      allow update: if request.auth != null && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid;
-      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.uid == request.auth.uid;
+      allow update: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
     }
 
-    // User profile access - CRITICAL for app functionality
+    // User profile and private subcollections.
     match /users/{uid} {
       allow read, write: if isOwner(uid);
 
       match /friends/{friendId} {
-        // Allow users to read, update, create or delete if it's their own friends list, 
-        // OR if they are modifying their own record in someone else's friends list
-        allow read, write: if isOwner(uid) || (request.auth != null && friendId == request.auth.uid);
+        allow read: if isOwner(uid);
+        allow create: if signedIn() && (
+          (
+            isOwner(uid)
+            && isFriendRecordFor(friendId)
+            && hasIncomingInviteFrom(uid, friendId)
+          )
+          || (
+            friendId == request.auth.uid
+            && isFriendRecordFor(friendId)
+            && existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)/friends/$(uid))
+          )
+        );
+        allow update: if isOwner(uid)
+          && resource.data.uid == friendId
+          && isFriendRecordFor(friendId);
+        allow delete: if isOwner(uid) || (signedIn() && friendId == request.auth.uid);
       }
 
       match /invites/{inviteId} {
-        allow read: if isOwner(uid);
-        allow update, delete: if isOwner(uid);
-        // Anyone can CREATE an invite to this user, but only if they are the sender
-        allow create: if request.auth != null && request.resource.data.senderUid == request.auth.uid;
+        // The owner reads all their incoming invites. A sender may read ONLY the
+        // single outgoing invite doc keyed by their own uid, so the duplicate-pending
+        // guard in sendInvite works without exposing anyone else's invites (Req 1.7, 17).
+        allow get: if isOwner(uid) || (signedIn() && inviteId == request.auth.uid);
+        allow list: if isOwner(uid);
+        allow create: if signedIn() && isValidInviteFor(uid, inviteId);
+        allow update: if false;
+        allow delete: if isOwner(uid) || (signedIn() && inviteId == request.auth.uid);
+      }
+
+      // Deny the buggy per-user collaborative task copy path. Shared tasks now live
+      // only at /collaborativeTasks/{taskId}.
+      match /collaborativeTasks/{taskId} {
+        allow read, write: if false;
       }
     }
 
-    // OLD PATH STRUCTURE - what the app actually uses
+    // Legacy root task mirror used by the current Play Store app.
+    // Tightened: users can only read/delete docs whose stored uid is their own.
     match /tasks/{taskId} {
-      allow read, delete: if request.auth != null; // Authenticated users can read
-      allow create, update: if isOwner(request.resource.data.uid) && isValidTask();
+      allow read, delete: if isOwnLegacyDocument();
+      allow create, update: if writesOwnLegacyDocument() && isValidTask();
     }
 
     match /tagOverrides/{overrideId} {
-      allow read, delete: if request.auth != null; // Authenticated users can read
-      allow create, update: if isOwner(request.resource.data.uid) && isValidTagOverride();
+      allow read, delete: if isOwnLegacyDocument();
+      allow create, update: if writesOwnLegacyDocument() && isValidTagOverride();
     }
 
-    // Broadcasts — authenticated users can read admin broadcasts
+    // Canonical collaborative tasks.
+    match /collaborativeTasks/{taskId} {
+      allow get: if isCollabMember();
+      allow list: if isQueryableCollabMember();
+      allow create: if isCollaborativeAdminCreate(taskId);
+      allow update: if isCollaborativeAdminUpdate(taskId)
+        || updatesOwnMemberStatusOnly()
+        || updatesOwnSubtaskStateOnly()
+        || removesSelfFromCollaborativeTaskOnly();
+      allow delete: if signedIn() && resource.data.adminUid == request.auth.uid;
+    }
+
+    // Broadcasts — authenticated users can read admin broadcasts.
     match /broadcasts/{broadcastId} {
-      allow read: if request.auth != null;
+      allow read: if signedIn();
     }
 
     // Problem reports — users can track their own reports.
-    // Creation/status changes happen through Cloud Functions/Admin SDK so limits are enforced server-side.
+    // Creation/status changes happen through Cloud Functions/Admin SDK.
     match /problemReports/{reportId} {
-      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow read: if signedIn() && resource.data.uid == request.auth.uid;
     }
 
-    // Admin tasks - users can only read their assigned tasks
+    // Admin tasks — users can only read and update their own status flags.
     match /users/{uid}/assignedTasks/{taskId} {
       allow read: if isOwner(uid);
-      allow write: if isOwner(uid) &&
-        (request.resource.data.keys().hasAll(['completed', 'dismissed']) &&
-         request.resource.data.keys().size() == 2);
+      allow write: if isOwner(uid)
+        && request.resource.data.keys().hasAll(['completed', 'dismissed'])
+        && request.resource.data.keys().size() == 2;
     }
 
-    // Collaborative tasks assigned by friends
-    match /users/{uid}/collaborativeTasks/{taskId} {
-      allow read: if isOwner(uid) 
-        || (request.auth != null && (resource == null 
-            || resource.data.assignedByUid == request.auth.uid 
-            || resource.data.assignedToUid == request.auth.uid));
-      allow create: if request.auth != null 
-        && request.resource.data.assignedByUid == request.auth.uid 
-        && (isOwner(uid) || exists(/databases/$(database)/documents/users/$(uid)/friends/$(request.auth.uid)));
-      allow update: if isOwner(uid) 
-        || (request.auth != null && (resource.data.assignedByUid == request.auth.uid 
-            || resource.data.assignedToUid == request.auth.uid));
-      allow delete: if isOwner(uid) 
-        || (request.auth != null && (resource.data.assignedByUid == request.auth.uid 
-            || resource.data.assignedToUid == request.auth.uid));
-    }
-
-    // AI chat messages — users can read/write their own conversations
+    // AI chat messages — users can read/write their own conversations.
     match /users/{uid}/ai_chat/{conversationId} {
       allow read, write: if isOwner(uid);
 
@@ -102,18 +254,16 @@ service cloud.firestore {
       }
     }
 
-    // AI memory — users can read/write their own long-term memory
+    // AI memory — users can read/write their own long-term memory.
     match /users/{uid}/ai_memory/{memoryId} {
       allow read, write: if isOwner(uid);
     }
 
-    // AI credits — read-only for clients (writes only via Cloud Functions admin SDK)
+    // AI credits — read-only for clients; writes happen through Admin SDK.
     match /users/{uid}/ai_credits/{doc} {
       allow read: if isOwner(uid);
-      // No client write — only server can modify credits
     }
 
-    // Block everything else
     match /{document=**} {
       allow read, write: if false;
     }

@@ -11,6 +11,7 @@ import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.notification.TaskNotificationManager
 import com.theblankstate.preamble.repository.AdminTaskRepository
 import com.theblankstate.preamble.repository.TaskRepository
+import com.theblankstate.preamble.repository.Friend
 import com.theblankstate.preamble.sync.GoogleCalendarManager
 import com.theblankstate.preamble.sync.GoogleSyncCoordinator
 import com.theblankstate.preamble.sync.GoogleTasksManager
@@ -864,7 +865,22 @@ class TaskViewModel(
         }
     }
 
-    fun addTask(title: String, date: String? = null, deadlineTime: String? = null, syncToGoogle: Boolean = false, syncToCalendar: Boolean = false, priority: Int = 0, description: String? = null, tags: String? = null, subtasks: List<String> = emptyList(), isHabit: Boolean = false, isEvent: Boolean = false, eventIcon: String? = null, eventColor: String? = null) {
+    fun addTask(
+        title: String,
+        date: String? = null,
+        deadlineTime: String? = null,
+        syncToGoogle: Boolean = false,
+        syncToCalendar: Boolean = false,
+        priority: Int = 0,
+        description: String? = null,
+        tags: String? = null,
+        subtasks: List<String> = emptyList(),
+        isHabit: Boolean = false,
+        isEvent: Boolean = false,
+        eventIcon: String? = null,
+        eventColor: String? = null,
+        assignedToFriends: List<Friend> = emptyList()
+    ) {
         val normalizedTitle = TaskInputValidator.normalizeTitle(title)
         val normalizedDescription = TaskInputValidator.normalizeDescription(description)
         if (!TaskInputValidator.isValidTitle(normalizedTitle) || !TaskInputValidator.isValidDescription(normalizedDescription)) return
@@ -872,7 +888,86 @@ class TaskViewModel(
             val taskDate = date ?: TaskRepository.todayString()
             val now = System.currentTimeMillis()
             val finalTask: com.theblankstate.preamble.data.Task
-            if (syncToCalendar && GoogleCalendarManager.isLinked.value) {
+            if (assignedToFriends.isNotEmpty()) {
+                val adminUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+                val adminName = com.theblankstate.preamble.data.UserProfileStore.load(appContext).name ?: "Anonymous User"
+                if (adminUid != null) {
+                    val subtaskObjects = subtasks.map { com.theblankstate.preamble.data.Subtask(title = it) }
+                    val subtasksJsonStr = if (subtaskObjects.isNotEmpty()) com.google.gson.Gson().toJson(subtaskObjects) else null
+
+                    val collabTask = com.theblankstate.preamble.data.Task(
+                        title = normalizedTitle,
+                        createdDate = taskDate,
+                        deadlineTime = deadlineTime,
+                        createdTimestamp = now,
+                        updatedTimestamp = now,
+                        priority = priority,
+                        description = normalizedDescription,
+                        tags = tags,
+                        isEvent = isEvent,
+                        eventIcon = eventIcon,
+                        eventColor = eventColor,
+                        collabAdminUid = adminUid,
+                        collabAdminName = adminName,
+                        collabAssigneesJson = com.google.gson.Gson().toJson(assignedToFriends.map {
+                            com.theblankstate.preamble.data.CollabAssigneeStatus(
+                                uid = it.uid,
+                                name = it.name,
+                                isCompleted = false,
+                                completedTimestamp = null,
+                                assignedTimestamp = now
+                            )
+                        }),
+                        assignedByUid = adminUid,
+                        assignedByName = adminName,
+                        assignedToUid = assignedToFriends.firstOrNull()?.uid,
+                        assignedToName = assignedToFriends.firstOrNull()?.name,
+                        assignmentStatus = "pending",
+                        subtasksJson = subtasksJsonStr
+                    )
+
+                    repository.insertTask(collabTask)
+                    finalTask = collabTask
+
+                    if (subtasks.isNotEmpty()) {
+                        repository.addSubtasks(finalTask.id, subtasks)
+                    }
+
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        // The admin's own local copy was already saved above (Requirements 6.2, 6.7);
+                        // the canonical-document write runs asynchronously here without blocking it.
+                        val result = try {
+                            com.theblankstate.preamble.repository.WorkspaceRepository().assignTaskToMultiple(
+                                assignees = assignedToFriends,
+                                task = finalTask,
+                                adminName = adminName
+                            )
+                        } catch (e: Exception) {
+                            android.util.Log.e("TaskViewModel", "Error pushing collaborative task to Firestore", e)
+                            Result.failure(e)
+                        }
+                        // On canonical-create failure: retain the local copy (do NOT roll back) and
+                        // surface a message that the collaborative assignment could not be completed
+                        // (Requirement 6.8).
+                        if (result.isFailure) {
+                            android.util.Log.e(
+                                "TaskViewModel",
+                                "Collaborative assignment failed; retaining local copy",
+                                result.exceptionOrNull()
+                            )
+                            _snackbarEvent.tryEmit(
+                                SnackbarEvent(message = "Couldn't share task with collaborators. Your copy was saved.")
+                            )
+                        }
+                    }
+                } else {
+                    finalTask = repository.addTask(normalizedTitle, date, deadlineTime, priority, normalizedDescription, tags, isEvent = isEvent, eventIcon = eventIcon, eventColor = eventColor)
+                        ?: return@launch
+                    if (subtasks.isNotEmpty()) {
+                        repository.addSubtasks(finalTask.id, subtasks)
+                    }
+                }
+            } else if (syncToCalendar && GoogleCalendarManager.isLinked.value) {
                 val tempId = java.util.UUID.randomUUID().toString()
                 val task = com.theblankstate.preamble.data.Task(
                     id = tempId,
@@ -938,9 +1033,11 @@ class TaskViewModel(
             } else {
                 finalTask = repository.addTask(normalizedTitle, date, deadlineTime, priority, normalizedDescription, tags, isEvent = isEvent, eventIcon = eventIcon, eventColor = eventColor)
                     ?: return@launch
+                if (subtasks.isNotEmpty()) {
+                    repository.addSubtasks(finalTask.id, subtasks)
+                }
             }
             if (subtasks.isNotEmpty()) {
-                repository.addSubtasks(finalTask.id, subtasks)
                 // Optimistic UI insert to bypass the 5-15ms flow observation delay!
                 _subtaskCounts.update { current ->
                     current + (finalTask.id to Pair(0, subtasks.size))
@@ -1003,7 +1100,8 @@ class TaskViewModel(
         recurrenceInterval: Int = 1,
         recurrenceDays: String? = null,
         recurrenceEndDate: String? = null,
-        userOverrides: String = ""
+        userOverrides: String = "",
+        assignedToFriends: List<Friend> = emptyList()
     ) {
         val normalizedTitle = TaskInputValidator.normalizeTitle(rawText)
         if (!TaskInputValidator.isValidTitle(normalizedTitle)) return
@@ -1013,25 +1111,66 @@ class TaskViewModel(
             val validRecurrence = recurrenceType?.takeIf {
                 it in listOf("daily", "weekly", "monthly", "yearly", "rollover")
             }
-            val task = com.theblankstate.preamble.data.Task(
-                title = normalizedTitle,
-                createdDate = taskDate,
-                deadlineTime = deadlineTime,
-                createdTimestamp = now,
-                updatedTimestamp = now,
-                priority = priority,
-                description = description,
-                tags = tags,
-                recurrenceType = validRecurrence,
-                recurrenceInterval = if (validRecurrence != null && validRecurrence != "rollover") recurrenceInterval else null,
-                recurrenceDays = if (validRecurrence != null && validRecurrence != "rollover") recurrenceDays else null,
-                recurrenceEndDate = recurrenceEndDate,
-                isHabit = isHabit,
-                isEvent = isEvent,
-                eventIcon = eventIcon,
-                eventColor = eventColor,
-                isSyncing = true  // Mark as pending AI refinement
-            )
+            val adminUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+            val adminName = com.theblankstate.preamble.data.UserProfileStore.load(appContext).name ?: "Anonymous User"
+
+            val task = if (assignedToFriends.isNotEmpty() && adminUid != null) {
+                com.theblankstate.preamble.data.Task(
+                    title = normalizedTitle,
+                    createdDate = taskDate,
+                    deadlineTime = deadlineTime,
+                    createdTimestamp = now,
+                    updatedTimestamp = now,
+                    priority = priority,
+                    description = description,
+                    tags = tags,
+                    recurrenceType = validRecurrence,
+                    recurrenceInterval = if (validRecurrence != null && validRecurrence != "rollover") recurrenceInterval else null,
+                    recurrenceDays = if (validRecurrence != null && validRecurrence != "rollover") recurrenceDays else null,
+                    recurrenceEndDate = recurrenceEndDate,
+                    isHabit = isHabit,
+                    isEvent = isEvent,
+                    eventIcon = eventIcon,
+                    eventColor = eventColor,
+                    isSyncing = true,  // Mark as pending AI refinement
+                    collabAdminUid = adminUid,
+                    collabAdminName = adminName,
+                    collabAssigneesJson = com.google.gson.Gson().toJson(assignedToFriends.map {
+                        com.theblankstate.preamble.data.CollabAssigneeStatus(
+                            uid = it.uid,
+                            name = it.name,
+                            isCompleted = false,
+                            completedTimestamp = null,
+                            assignedTimestamp = now
+                        )
+                    }),
+                    assignedByUid = adminUid,
+                    assignedByName = adminName,
+                    assignedToUid = assignedToFriends.firstOrNull()?.uid,
+                    assignedToName = assignedToFriends.firstOrNull()?.name,
+                    assignmentStatus = "pending"
+                )
+            } else {
+                com.theblankstate.preamble.data.Task(
+                    title = normalizedTitle,
+                    createdDate = taskDate,
+                    deadlineTime = deadlineTime,
+                    createdTimestamp = now,
+                    updatedTimestamp = now,
+                    priority = priority,
+                    description = description,
+                    tags = tags,
+                    recurrenceType = validRecurrence,
+                    recurrenceInterval = if (validRecurrence != null && validRecurrence != "rollover") recurrenceInterval else null,
+                    recurrenceDays = if (validRecurrence != null && validRecurrence != "rollover") recurrenceDays else null,
+                    recurrenceEndDate = recurrenceEndDate,
+                    isHabit = isHabit,
+                    isEvent = isEvent,
+                    eventIcon = eventIcon,
+                    eventColor = eventColor,
+                    isSyncing = true  // Mark as pending AI refinement
+                )
+            }
             repository.insertTask(task)
             if (!tags.isNullOrBlank()) {
                 repository.saveTagOverride(task.id, tags)
@@ -1143,21 +1282,6 @@ class TaskViewModel(
             refreshCalendarDate()
 
             val newCompleted = !task.isCompleted
-
-            if (task.assignedByUid != null) {
-                // Update collaborative task assignment status in Firestore in real-time
-                val newStatus = if (newCompleted) "completed" else "accepted"
-                try {
-                    com.theblankstate.preamble.repository.WorkspaceRepository().updateAssignmentStatus(
-                        taskId = task.id,
-                        targetUid = task.assignedByUid!!,
-                        newStatus = newStatus,
-                        isCompleted = newCompleted
-                    )
-                } catch (e: Exception) {
-                    android.util.Log.e("TaskViewModel", "Failed to sync completion to Firestore", e)
-                }
-            }
 
             // PostHog: Task complete/uncomplete track karo
             if (newCompleted) {
@@ -1275,16 +1399,16 @@ class TaskViewModel(
 
     private fun commitDelete(task: Task) {
         viewModelScope.launch {
-            if (task.assignedByUid != null) {
-                try {
-                    com.theblankstate.preamble.repository.WorkspaceRepository().updateAssignmentStatus(
-                        taskId = task.id,
-                        targetUid = task.assignedByUid!!,
-                        newStatus = "declined",
-                        isCompleted = false
-                    )
-                } catch (e: Exception) {
-                    android.util.Log.e("TaskViewModel", "Failed to sync deletion to Firestore", e)
+            if (task.collabAdminUid != null) {
+                val workspaceRepository = com.theblankstate.preamble.repository.WorkspaceRepository()
+                val myUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
+                val result = if (myUid == task.collabAdminUid) {
+                    workspaceRepository.deleteCollabTaskForAll(task.id, task.collabAssignees)
+                } else {
+                    workspaceRepository.leaveCollaborativeTask(task.id)
+                }
+                result.onFailure { error ->
+                    android.util.Log.e("TaskViewModel", "Failed to finalize collaborative task deletion", error)
                 }
             }
             val taskJson = com.google.gson.Gson().toJson(task)

@@ -107,6 +107,16 @@ data class Reminder(
 }
 
 @Stable
+data class CollabAssigneeStatus(
+    val uid: String,
+    val name: String,
+    val status: String = "pending",
+    val isCompleted: Boolean = false,
+    val completedTimestamp: Long? = null,
+    val assignedTimestamp: Long = System.currentTimeMillis()
+)
+
+@Stable
 @Entity(
     tableName = "tasks",
     indices = [
@@ -178,7 +188,10 @@ data class Task(
     val assignedByName: String? = null,
     val assignedToUid: String? = null,
     val assignedToName: String? = null,
-    val assignmentStatus: String? = null
+    val assignmentStatus: String? = null,
+    val collabAssigneesJson: String? = null,
+    val collabAdminUid: String? = null,
+    val collabAdminName: String? = null
 ) {
     val isCalendarEvent: Boolean get() = source == "google_calendar"
     val isGoogleTask: Boolean get() = source == "google_tasks"
@@ -201,6 +214,14 @@ data class Task(
     val subtasks: List<Subtask> by lazy { subtasksJson?.let { Gson().fromJson(it, object : TypeToken<List<Subtask>>() {}.type) } ?: emptyList() }
     val syncMetadata: Map<String, Any>? by lazy { syncMetadataJson?.let { Gson().fromJson(it, object : TypeToken<Map<String, Any>>() {}.type) } }
     val localReminders: List<Reminder> by lazy { Reminder.fromJson(remindersJson) }
+    val collabAssignees: List<CollabAssigneeStatus> by lazy {
+        collabAssigneesJson?.let {
+            Gson().fromJson(it, object : TypeToken<List<CollabAssigneeStatus>>() {}.type)
+        } ?: emptyList()
+    }
+    val collabAssigneeUids: List<String> by lazy {
+        collabAssignees.map { it.uid }
+    }
 
     /**
      * Compute trigger times in epoch millis for each reminder.

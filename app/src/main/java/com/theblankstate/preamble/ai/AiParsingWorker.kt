@@ -4,9 +4,21 @@ import android.content.Context
 import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import android.widget.Toast
 import com.google.firebase.auth.FirebaseAuth
 import com.theblankstate.preamble.BuildConfig
 import com.theblankstate.preamble.PreambleApplication
+import com.google.gson.Gson
+import com.theblankstate.preamble.collab.AssigneeResolution
+import com.theblankstate.preamble.collab.AssigneeResolver
+import com.theblankstate.preamble.collab.DefaultAssigneeResolver
+import com.theblankstate.preamble.repository.Friend
+import com.theblankstate.preamble.repository.WorkspaceRepository
+import com.theblankstate.preamble.data.Subtask
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -244,7 +256,19 @@ class AiParsingWorker(
                 updated = updated.copy(remindersJson = com.theblankstate.preamble.data.Reminder.toJson(listOf(defaultReminder)))
             }
         }
-        app.repository.updateTask(updated)
+        val workspaceRepository = WorkspaceRepository()
+        val currentUid = FirebaseAuth.getInstance().currentUser?.uid
+        val explicitCollabFriends = updated.collabAssignees
+            .filter { it.uid.isNotBlank() && it.uid != currentUid }
+            .map { Friend(uid = it.uid, name = it.name) }
+            .distinctBy(Friend::uid)
+        val isExplicitPendingCollab = updated.collabAdminUid != null && explicitCollabFriends.isNotEmpty()
+
+        // For selected-friend pending tasks, create the canonical shared document before
+        // repository.updateTask() tries to sync admin edits to that document.
+        if (!isExplicitPendingCollab) {
+            app.repository.updateTask(updated)
+        }
         if (tags != null) {
             app.repository.saveTagOverride(taskId, tags)
         }
@@ -258,9 +282,166 @@ class AiParsingWorker(
             app.repository.addSubtasks(taskId, subtasksList)
             Log.d(TAG, "Added ${subtasksList.size} subtasks to task $taskId")
         }
+
+        val taskWithSubtasks = packSubtasks(app, updated, taskId)
+
+        if (isExplicitPendingCollab) {
+            val localCollaborativeTask = taskWithSubtasks.copy(assignmentStatus = "accepted")
+            // The own copy was already saved with the admin's as-entered attributes when the
+            // task was confirmed (Requirement 7.4). Now that AI parsing has finalized those
+            // attributes, write them as a subsequent canonical update. This creates the
+            // canonical document if it does not yet exist and otherwise refreshes only the
+            // shared payload, so any member who already accepted/declined is preserved
+            // (Requirements 7.3, 7.4, 8.6).
+            workspaceRepository.writeFinalizedCollaborativeAttributes(
+                task = localCollaborativeTask,
+                assignees = explicitCollabFriends
+            ).onFailure { error ->
+                Log.e(TAG, "Error publishing selected-friend collaborative task after AI parsing", error)
+                surfaceMessage("The collaborative assignment could not be completed.")
+            }
+            app.repository.updateTask(localCollaborativeTask)
+            return
+        }
+
+        // Voice/notification/task-sheet raw text can assign friends by natural language.
+        // This happens after normal parsing so the core task creation flow stays unchanged.
+        // The Assignee_Resolver runs client-side, bounded by a 30 s budget, so normal
+        // task creation is never blocked or delayed (Requirements 9.1, 9.2, 9.9).
+        if (taskWithSubtasks.collabAdminUid == null && currentUid != null) {
+            resolveAndAssignFriends(app, workspaceRepository, taskWithSubtasks, rawText, currentUid)
+        }
+    }
+
+    /**
+     * Runs the client-side [AssigneeResolver] over the already-saved task's raw text and,
+     * only when the resolution is [AssigneeResolution.Assigned], promotes the task to a
+     * collaborative task via [WorkspaceRepository.assignTaskToMultiple].
+     *
+     * The whole phase is bounded by `withTimeout(30_000)` so it can never block or delay
+     * the already-completed own-copy save (Requirements 9.1, 9.2). Every non-`Assigned`
+     * outcome leaves the task non-collaborative; `Ambiguous`, `Failed`, and timeout surface
+     * a message to the user (Requirements 9.4, 9.7, 9.8). Resolution runs entirely on-device
+     * and no longer depends on the removed `aiResolveAssignees` Cloud Function (Requirement 9.9).
+     */
+    private suspend fun resolveAndAssignFriends(
+        app: PreambleApplication,
+        workspaceRepository: WorkspaceRepository,
+        task: com.theblankstate.preamble.data.Task,
+        rawText: String,
+        currentUid: String,
+    ) {
+        val friends = runCatching { workspaceRepository.getFriendsOnce() }
+            .onFailure { Log.w(TAG, "Could not load friends for assignment resolution", it) }
+            .getOrDefault(emptyList())
+        if (friends.isEmpty()) return
+
+        val resolution: AssigneeResolution = try {
+            withTimeout(ASSIGNEE_RESOLUTION_TIMEOUT_MS) {
+                assigneeResolver.resolve(rawText, friends)
+            }
+        } catch (e: TimeoutCancellationException) {
+            // Timeout: leave the saved own copy unchanged and surface a message (Requirement 9.8).
+            Log.w(TAG, "Assignee resolution timed out for task ${task.id}", e)
+            AssigneeResolution.Failed
+        } catch (e: Exception) {
+            Log.w(TAG, "Assignee resolution failed for task ${task.id}", e)
+            AssigneeResolution.Failed
+        }
+
+        when (resolution) {
+            is AssigneeResolution.Assigned -> {
+                assignResolvedFriends(app, workspaceRepository, task, resolution.friends, currentUid)
+            }
+            // No assignment intended or an intended assignee matched no friend: keep the task
+            // as a normal non-collaborative task with no message (Requirements 9.5, 9.6).
+            AssigneeResolution.NoAssignee,
+            AssigneeResolution.Unmatched -> Unit
+            // An intended name matched more than one friend (Requirement 9.7).
+            is AssigneeResolution.Ambiguous ->
+                surfaceMessage("Couldn't assign the task: \"${resolution.term}\" matches more than one friend.")
+            // Resolution failed or timed out (Requirement 9.8).
+            AssigneeResolution.Failed ->
+                surfaceMessage("Couldn't determine who to assign this task to. It was saved without an assignee.")
+        }
+    }
+
+    /**
+     * Promotes [task] to a collaborative task assigned to the resolved [assignees] and
+     * mirrors the collaborative state into the admin's local copy (Requirement 9.3).
+     */
+    private suspend fun assignResolvedFriends(
+        app: PreambleApplication,
+        workspaceRepository: WorkspaceRepository,
+        task: com.theblankstate.preamble.data.Task,
+        assignees: List<Friend>,
+        currentUid: String,
+    ) {
+        if (assignees.isEmpty()) return
+        val adminName = com.theblankstate.preamble.data.UserProfileStore
+            .load(applicationContext)
+            .name
+            ?.takeIf { it.isNotBlank() }
+            ?: "Preamble user"
+        val now = System.currentTimeMillis()
+        val collabTask = task.copy(
+            collabAdminUid = currentUid,
+            collabAdminName = adminName,
+            collabAssigneesJson = Gson().toJson(assignees.map { friend ->
+                com.theblankstate.preamble.data.CollabAssigneeStatus(
+                    uid = friend.uid,
+                    name = friend.name,
+                    status = "pending",
+                    isCompleted = false,
+                    completedTimestamp = null,
+                    assignedTimestamp = now
+                )
+            }),
+            assignedByUid = currentUid,
+            assignedByName = adminName,
+            assignedToUid = assignees.firstOrNull()?.uid,
+            assignedToName = assignees.firstOrNull()?.name,
+            assignmentStatus = "accepted"
+        )
+        workspaceRepository.assignTaskToMultiple(
+            assignees = assignees,
+            task = collabTask,
+            adminName = adminName
+        ).onFailure { error ->
+            Log.e(TAG, "Error publishing natural-language collaborative task after AI parsing", error)
+            surfaceMessage("The collaborative assignment could not be completed.")
+        }
+        app.repository.updateTask(collabTask)
+    }
+
+    /** Surfaces a short user-facing message from the background worker. */
+    private suspend fun surfaceMessage(message: String) {
+        withContext(Dispatchers.Main) {
+            Toast.makeText(applicationContext, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private suspend fun packSubtasks(
+        app: PreambleApplication,
+        task: com.theblankstate.preamble.data.Task,
+        taskId: String,
+    ): com.theblankstate.preamble.data.Task {
+        val subtasks = app.repository.getSubtasksForParentSync(taskId)
+        val subtaskObjects = subtasks.map { Subtask(id = it.id, title = it.title, isCompleted = it.isCompleted) }
+        return task.copy(subtasksJson = Gson().toJson(subtaskObjects))
     }
 
     companion object {
         private const val TAG = "AiParsingWorker"
+
+        /** Upper bound for the separate assignee-resolution phase (Requirements 9.2, 9.8). */
+        private const val ASSIGNEE_RESOLUTION_TIMEOUT_MS = 30_000L
+
+        /**
+         * Client-side resolver used by the separate assignee-resolution phase. It runs
+         * entirely on-device and does not call the removed `aiResolveAssignees` Cloud
+         * Function (Requirement 9.9).
+         */
+        private val assigneeResolver: AssigneeResolver = DefaultAssigneeResolver()
     }
 }

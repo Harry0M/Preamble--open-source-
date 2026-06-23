@@ -12,6 +12,8 @@ export { aiChat, aiChatContinue } from "./ai-chat";
 
 // Task parsing (voice, notification, task sheet)
 export { aiParseTask } from "./ai-parse-task";
+// aiResolveAssignees removed: assignee resolution now runs client-side in
+// AiParsingWorker via DefaultAssigneeResolver (Requirement 9.9).
 
 // Credits endpoints
 export { aiCreditsReward, aiCreditsBalance } from "./ai-credits";

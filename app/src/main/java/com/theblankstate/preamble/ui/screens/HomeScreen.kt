@@ -126,6 +126,7 @@ import kotlin.math.sin
 import android.widget.Toast
 import android.app.Activity
 import com.theblankstate.preamble.ai.AiChatViewModel
+import com.google.firebase.auth.FirebaseAuth
 import android.app.AlarmManager
 import android.content.Context
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -155,13 +156,13 @@ fun HomeScreen(
     tasks: List<Task>,
     pastTasks: Map<String, List<Task>> = emptyMap(),
     streak: Int,
-    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?, assignedToFriend: com.theblankstate.preamble.repository.Friend?) -> Unit,
+    onAddTask: (title: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?, assignedToFriends: List<com.theblankstate.preamble.repository.Friend>) -> Unit,
     onToggleTask: (Task) -> Unit,
     onDeleteTask: (Task) -> Unit,
     onToggleHabit: ((Task) -> Unit)? = null,
     onEditTask: ((Task, String, String?, String?, Int, String?, String?, String?, Int, String?, String?, Boolean, String?, String?) -> Unit)? = null,
     onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?) -> Unit)? = null,
-    onAddTaskPendingParse: ((rawText: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?, recurrenceType: String?, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, userOverrides: String) -> Unit)? = null,
+    onAddTaskPendingParse: ((rawText: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?, recurrenceType: String?, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, userOverrides: String, assignedToFriends: List<com.theblankstate.preamble.repository.Friend>) -> Unit)? = null,
     onSyncGoogle: (() -> Unit)? = null,
     isRefreshing: Boolean = false,
     isBackgroundDeleting: Boolean = false,
@@ -256,6 +257,10 @@ fun HomeScreen(
     // Fetch friends for the face pile
     val workspaceViewModel: com.theblankstate.preamble.ui.viewmodels.WorkspaceViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val friends by workspaceViewModel.friends.collectAsState()
+    // Home Incoming_Section source: own incoming (pending) collaborative assignments, narrowed by
+    // the single source of truth for incoming selection (Requirements 19.1, 19.8).
+    val incomingAssignments by workspaceViewModel.incomingAssignments.collectAsState()
+    val incomingTasks = com.theblankstate.preamble.collab.IncomingTasks.incoming(incomingAssignments)
     val isLateNight = remember { currentHour >= 23 || currentHour < 5 }
     val timeGreeting = remember {
         val condition = when (currentHour) {
@@ -385,7 +390,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList(), false, false, null, null, null)
+                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList(), false, false, null, null, emptyList())
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -434,7 +439,7 @@ fun HomeScreen(
                             Toast.makeText(context, result, Toast.LENGTH_SHORT).show()
                         }
                     } else {
-                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList(), false, false, null, null, null)
+                        onAddTask(spoken, null, null, false, false, 0, null, null, emptyList(), false, false, null, null, emptyList())
                         voiceText = "Saved: $spoken"
                     }
                 }
@@ -1015,6 +1020,23 @@ fun HomeScreen(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Home Incoming_Section as the first item, above the existing date groups
+                // (Requirement 19.1). It renders nothing when there are no incoming tasks (19.8).
+                // Accept/Decline reuse the ViewModel's optimistic <200 ms update, pending-only
+                // transition guard, and exact-state revert on failure/timeout (19.3-19.7). After
+                // accept the task's own status becomes "accepted" so it drops out of the incoming
+                // list and falls through to the normal Home list (19.4); after decline it is
+                // filtered out entirely (19.5).
+                if (incomingTasks.isNotEmpty()) {
+                    item(key = "incoming_section") {
+                        IncomingSection(
+                            incoming = incomingTasks,
+                            onAccept = { workspaceViewModel.acceptAssignment(it) },
+                            onDecline = { workspaceViewModel.declineAssignment(it) }
+                        )
+                    }
+                }
+
                 // Today's tasks with timeline view
                 if (tasks.isNotEmpty()) {
                     item(key = "progress_bar") {
@@ -1549,8 +1571,8 @@ fun HomeScreen(
     if (showAddSheet) {
         AddTaskSheet(
             onDismiss = { showAddSheet = false },
-            onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, assignedToFriend ->
-                onAddTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, assignedToFriend)
+            onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, assignedToFriends ->
+                onAddTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, assignedToFriends)
                 showAddSheet = false
             },
             onAddRecurringTask = if (onAddRecurringTask != null) { { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks, isHabit, isEvent, eventIcon, eventColor ->
@@ -1558,8 +1580,8 @@ fun HomeScreen(
                 showAddSheet = false
             } } else null,
             aiChatViewModel = aiChatViewModel,
-            onAddTaskPendingParse = if (onAddTaskPendingParse != null) { { rawText, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, userOverrides ->
-                onAddTaskPendingParse(rawText, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, userOverrides)
+            onAddTaskPendingParse = if (onAddTaskPendingParse != null) { { rawText, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, userOverrides, assignedToFriends ->
+                onAddTaskPendingParse(rawText, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, userOverrides, assignedToFriends)
                 showAddSheet = false
             } } else null,
             friends = friends
@@ -2009,7 +2031,20 @@ fun HomeScreen(
             onUnsnooze = if (onUnsnoozeTask != null && taskToEdit?.snoozedUntil != null && taskToEdit!!.snoozedUntil!! > System.currentTimeMillis()) {
                 { onUnsnoozeTask(taskToEdit!!.id) }
             } else null,
-            onToggleHabit = onToggleHabit
+            onToggleHabit = onToggleHabit,
+            currentUserUid = FirebaseAuth.getInstance().currentUser?.uid,
+            onRemoveCollabMember = { memberUid ->
+                taskToEdit?.let { workspaceViewModel.removeMember(it, memberUid) }
+                taskToEdit = null
+            },
+            onTransferCollabOwnership = { memberUid ->
+                taskToEdit?.let { workspaceViewModel.transferOwnership(it, memberUid) }
+                taskToEdit = null
+            },
+            onLeaveCollabTask = {
+                taskToEdit?.let { workspaceViewModel.leaveTask(it) }
+                taskToEdit = null
+            }
         )
     }
 
@@ -2102,3 +2137,117 @@ fun WaveProgressBar(
     }
 }
 
+
+/**
+ * Home Incoming_Section (Requirement 19).
+ *
+ * Renders the signed-in user's own incoming (pending) collaborative tasks at the top of the Home
+ * list. The section — including its header — is shown only when [incoming] is non-empty
+ * (Requirement 19.8); when there are no incoming tasks it emits nothing so the Home list looks
+ * exactly as it did before. Each row shows the task title plus an inline Accept and Decline control
+ * pair (Requirement 19.2).
+ *
+ * This composable is intentionally presentation-only: callers pass the already-narrowed incoming
+ * list (e.g. `IncomingTasks.incoming(workspaceViewModel.incomingAssignments)`) and the
+ * accept/decline callbacks. Wiring into the Home `LazyColumn` and the ViewModel happens separately
+ * (task 16.2).
+ */
+@Composable
+private fun IncomingSection(
+    incoming: List<Task>,
+    onAccept: (Task) -> Unit,
+    onDecline: (Task) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // Header (and the whole section) is shown only when there is at least one incoming task (19.8).
+    if (incoming.isEmpty()) return
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = "Incoming",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp)
+        )
+
+        incoming.forEach { task ->
+            key(task.id) {
+                IncomingSectionRow(
+                    task = task,
+                    onAccept = { onAccept(task) },
+                    onDecline = { onDecline(task) }
+                )
+            }
+        }
+    }
+}
+
+/**
+ * A single Incoming_Section row: the task title alongside an inline Accept and Decline control pair
+ * (Requirement 19.2). Styling mirrors the existing Home card/button conventions.
+ */
+@Composable
+private fun IncomingSectionRow(
+    task: Task,
+    onAccept: () -> Unit,
+    onDecline: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = task.title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (!task.assignedByName.isNullOrBlank()) {
+                    Text(
+                        text = "Assigned by ${task.assignedByName}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Button(
+                    onClick = onAccept,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Text("Accept", style = MaterialTheme.typography.labelLarge)
+                }
+                OutlinedButton(
+                    onClick = onDecline,
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Decline", style = MaterialTheme.typography.labelLarge)
+                }
+            }
+        }
+    }
+}

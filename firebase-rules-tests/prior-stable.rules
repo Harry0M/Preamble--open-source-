@@ -1,0 +1,121 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // Simple validation that won't fail
+    function isValidTask() {
+      let d = request.resource.data;
+      // Title must exist and be reasonable length
+      return d.title is string
+        && d.title.size() >= 1
+        && d.title.size() <= 500;
+    }
+
+    function isValidTagOverride() {
+      let d = request.resource.data;
+      return d.tags is string && d.tags.size() <= 100;
+    }
+
+    // Public directory for discovering users by Preamble ID
+    match /preambleIds/{preambleId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow update: if request.auth != null && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
+    // User profile access - CRITICAL for app functionality
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
+
+      match /friends/{friendId} {
+        // Allow users to read, update, create or delete if it's their own friends list, 
+        // OR if they are modifying their own record in someone else's friends list
+        allow read, write: if isOwner(uid) || (request.auth != null && friendId == request.auth.uid);
+      }
+
+      match /invites/{inviteId} {
+        allow read: if isOwner(uid);
+        allow update, delete: if isOwner(uid);
+        // Anyone can CREATE an invite to this user, but only if they are the sender
+        allow create: if request.auth != null && request.resource.data.senderUid == request.auth.uid;
+      }
+    }
+
+    // OLD PATH STRUCTURE - what the app actually uses
+    match /tasks/{taskId} {
+      allow read, delete: if request.auth != null; // Authenticated users can read
+      allow create, update: if isOwner(request.resource.data.uid) && isValidTask();
+    }
+
+    match /tagOverrides/{overrideId} {
+      allow read, delete: if request.auth != null; // Authenticated users can read
+      allow create, update: if isOwner(request.resource.data.uid) && isValidTagOverride();
+    }
+
+    // Broadcasts ΓÇö authenticated users can read admin broadcasts
+    match /broadcasts/{broadcastId} {
+      allow read: if request.auth != null;
+    }
+
+    // Problem reports ΓÇö users can track their own reports.
+    // Creation/status changes happen through Cloud Functions/Admin SDK so limits are enforced server-side.
+    match /problemReports/{reportId} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+    }
+
+    // Admin tasks - users can only read their assigned tasks
+    match /users/{uid}/assignedTasks/{taskId} {
+      allow read: if isOwner(uid);
+      allow write: if isOwner(uid) &&
+        (request.resource.data.keys().hasAll(['completed', 'dismissed']) &&
+         request.resource.data.keys().size() == 2);
+    }
+
+    // Collaborative tasks assigned by friends
+    match /users/{uid}/collaborativeTasks/{taskId} {
+      allow read: if isOwner(uid) 
+        || (request.auth != null && (resource == null 
+            || resource.data.assignedByUid == request.auth.uid 
+            || resource.data.assignedToUid == request.auth.uid));
+      allow create: if request.auth != null 
+        && request.resource.data.assignedByUid == request.auth.uid 
+        && (isOwner(uid) || exists(/databases/$(database)/documents/users/$(uid)/friends/$(request.auth.uid)));
+      allow update: if isOwner(uid) 
+        || (request.auth != null && (resource.data.assignedByUid == request.auth.uid 
+            || resource.data.assignedToUid == request.auth.uid));
+      allow delete: if isOwner(uid) 
+        || (request.auth != null && (resource.data.assignedByUid == request.auth.uid 
+            || resource.data.assignedToUid == request.auth.uid));
+    }
+
+    // AI chat messages ΓÇö users can read/write their own conversations
+    match /users/{uid}/ai_chat/{conversationId} {
+      allow read, write: if isOwner(uid);
+
+      match /messages/{messageId} {
+        allow read, write: if isOwner(uid);
+      }
+    }
+
+    // AI memory ΓÇö users can read/write their own long-term memory
+    match /users/{uid}/ai_memory/{memoryId} {
+      allow read, write: if isOwner(uid);
+    }
+
+    // AI credits ΓÇö read-only for clients (writes only via Cloud Functions admin SDK)
+    match /users/{uid}/ai_credits/{doc} {
+      allow read: if isOwner(uid);
+      // No client write ΓÇö only server can modify credits
+    }
+
+    // Block everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

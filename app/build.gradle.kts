@@ -73,6 +73,14 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        unitTests.all {
+            // Run JVM unit tests on the JUnit Platform so jqwik properties and
+            // JUnit 5 (Jupiter) tests execute. The junit-vintage-engine keeps the
+            // existing JUnit 4 tests running on the same platform.
+            it.useJUnitPlatform()
+        }
+    }
     packaging {
         resources {
             excludes += setOf(
@@ -175,6 +183,11 @@ dependencies {
     }
 
     testImplementation(libs.junit)
+    // JUnit 5 (Jupiter) + jqwik for JVM property-based and unit tests of pure logic.
+    testImplementation(libs.junit.jupiter)
+    testImplementation(libs.jqwik)
+    // Allow the existing JUnit 4 tests to run on the JUnit Platform.
+    testRuntimeOnly(libs.junit.vintage.engine)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

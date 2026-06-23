@@ -800,6 +800,14 @@ fun TaskItem(
                 )
             }
         }
+        // Collaborative-task avatar cluster (Requirement 22): compact, end-aligned in the row's
+        // header area. Renders nothing for non-collaborative tasks (22.5), and leaves the row's
+        // combinedClickable, the completion toggle, and the completion-driven Home reordering
+        // untouched (22.6).
+        CollaboratorAvatarCluster(
+            task = task,
+            modifier = Modifier.padding(start = 8.dp)
+        )
         if (isEditable) {
             Box {
                 IconButton(

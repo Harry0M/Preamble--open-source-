@@ -528,24 +528,8 @@ fun PreambleApp(
                 tasks = tasks,
                 pastTasks = pastTasks,
                 streak = stats.streak,
-                onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, assignedToFriend -> 
-                    if (assignedToFriend != null) {
-                        val task = com.theblankstate.preamble.data.Task(
-                            title = title,
-                            createdDate = date ?: com.theblankstate.preamble.repository.TaskRepository.todayString(),
-                            deadlineTime = deadlineTime,
-                            priority = priority,
-                            description = description,
-                            tags = tags,
-                            subtasksJson = if (subtasks.isNotEmpty()) com.google.gson.Gson().toJson(subtasks.map { com.theblankstate.preamble.data.Subtask(title = it) }) else null,
-                            isEvent = isEvent,
-                            eventIcon = eventIcon,
-                            eventColor = eventColor
-                        )
-                        workspaceViewModel.assignCollaborativeTask(assignedToFriend, task)
-                    } else {
-                        viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor) 
-                    }
+                onAddTask = { title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, assignedToFriends ->
+                    viewModel.addTask(title, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, assignedToFriends)
                 },
                 onToggleTask = { viewModel.toggleTask(it) },
                 onDeleteTask = { viewModel.deleteTask(it) },
@@ -556,8 +540,8 @@ fun PreambleApp(
                 onAddRecurringTask = { title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks, isHabit, isEvent, eventIcon, eventColor ->
                     viewModel.addRecurringTask(title, date, deadlineTime, priority, description, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, syncToCalendar, tags, subtasks, isHabit, isEvent, eventIcon, eventColor)
                 },
-                onAddTaskPendingParse = { rawText, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, userOverrides ->
-                    viewModel.addTaskWithPendingAiParse(rawText, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, userOverrides)
+                onAddTaskPendingParse = { rawText, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, userOverrides, assignedToFriends ->
+                    viewModel.addTaskWithPendingAiParse(rawText, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, userOverrides, assignedToFriends)
                 },
                 onSyncGoogle = { viewModel.syncGoogleData() },
                 isRefreshing = viewModel.isRefreshing.collectAsState().value,

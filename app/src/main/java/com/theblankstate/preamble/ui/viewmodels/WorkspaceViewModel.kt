@@ -1,29 +1,54 @@
 package com.theblankstate.preamble.ui.viewmodels
 
 import android.app.Application
+import android.net.Uri
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.firebase.auth.FirebaseAuth
+import com.google.gson.Gson
+import com.theblankstate.preamble.data.CollabAssigneeStatus
 import com.theblankstate.preamble.data.PreambleDatabase
+import com.theblankstate.preamble.data.Subtask
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.UserProfileStore
+import com.theblankstate.preamble.collab.FriendRemovalImpactLogic
+import com.theblankstate.preamble.collab.InviteLink
+import com.theblankstate.preamble.collab.InviteValidation
+import com.theblankstate.preamble.collab.InviteValidator
+import com.theblankstate.preamble.collab.PreambleId
 import com.theblankstate.preamble.repository.Friend
 import com.theblankstate.preamble.repository.WorkspaceInvite
 import com.theblankstate.preamble.repository.WorkspaceRepository
-import com.theblankstate.preamble.repository.TaskRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+
+data class FriendRemovalImpact(
+    val administeredTasks: List<Task> = emptyList(),
+    val memberTasks: List<Task> = emptyList()
+) {
+    val totalTasks: Int get() = administeredTasks.size + memberTasks.size
+    val requiresResolution: Boolean get() = totalTasks > 0
+}
 
 class WorkspaceViewModel(application: Application) : AndroidViewModel(application) {
     private val repo = WorkspaceRepository()
-    
-    val myPreambleId: String = UserProfileStore.ensurePreambleId(application)
-    private val myName: String = UserProfileStore.load(application).name ?: "Anonymous User"
-
+    private val gson = Gson()
     private val database = PreambleDatabase.getInstance(application)
-    private val taskRepo = TaskRepository(database.taskDao())
+    private val taskDao = database.taskDao()
+
+    val myPreambleId: String = UserProfileStore.ensurePreambleId(application)
+    private val myName: String = UserProfileStore.load(application).name ?: "Preamble user"
+    private val currentUid: String?
+        get() = FirebaseAuth.getInstance().currentUser?.uid
 
     private val _friends = MutableStateFlow<List<Friend>>(emptyList())
     val friends: StateFlow<List<Friend>> = _friends.asStateFlow()
@@ -31,185 +56,654 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     private val _invites = MutableStateFlow<List<WorkspaceInvite>>(emptyList())
     val invites: StateFlow<List<WorkspaceInvite>> = _invites.asStateFlow()
 
+    private val _collaborativeTasks = MutableStateFlow<List<Task>>(emptyList())
+    val collaborativeTasks: StateFlow<List<Task>> = _collaborativeTasks.asStateFlow()
+
     private val _incomingAssignments = MutableStateFlow<List<Task>>(emptyList())
     val incomingAssignments: StateFlow<List<Task>> = _incomingAssignments.asStateFlow()
 
     private val _outgoingAssignments = MutableStateFlow<List<Task>>(emptyList())
     val outgoingAssignments: StateFlow<List<Task>> = _outgoingAssignments.asStateFlow()
-    
+
     private val _uiState = MutableStateFlow<WorkspaceUiState>(WorkspaceUiState.Idle)
     val uiState: StateFlow<WorkspaceUiState> = _uiState.asStateFlow()
 
+    /**
+     * Holds a Preamble_ID parsed from an invite link so the add-friend field can be
+     * pre-filled (Requirement 2.2). The UI observes this, fills the entry field, and
+     * calls [consumePrefill] once it has been applied. A `null` value means there is
+     * nothing to pre-fill.
+     */
+    private val _prefillPreambleId = MutableStateFlow<String?>(null)
+    val prefillPreambleId: StateFlow<String?> = _prefillPreambleId.asStateFlow()
+
     init {
-        viewModelScope.launch {
-            repo.getFriendsFlow().collect { _friends.value = it }
-        }
-        viewModelScope.launch {
-            repo.getPendingInvitesFlow().collect { _invites.value = it }
-        }
-        viewModelScope.launch {
-            repo.getIncomingAssignmentsFlow().collect { assignments ->
-                _incomingAssignments.value = assignments
-                
-                // Sync with local Room database safely in IO dispatcher
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    try {
-                        val acceptedOnRemote = assignments.filter { it.assignmentStatus == "accepted" || it.assignmentStatus == "completed" }
-                        val acceptedRemoteIds = acceptedOnRemote.map { it.id }.toSet()
+        observeFriends()
+        observeInvites()
+        observeCollaborativeTasks()
+    }
 
-                        // 1. Ensure all accepted remote assignments are in local DB
-                        for (remoteTask in acceptedOnRemote) {
-                            val localTask = database.taskDao().getTaskById(remoteTask.id)
-                            if (localTask == null) {
-                                val taskToInsert = remoteTask.copy(
-                                    isSyncing = false,
-                                    syncFailed = false
-                                )
-                                database.taskDao().insertTask(taskToInsert)
-                            } else {
-                                // Update completion state if it changed on remote
-                                if (localTask.isCompleted != remoteTask.isCompleted) {
-                                    val updatedTask = localTask.copy(
-                                        isCompleted = remoteTask.isCompleted,
-                                        completedTimestamp = remoteTask.completedTimestamp,
-                                        completedDate = remoteTask.completedDate,
-                                        assignmentStatus = remoteTask.assignmentStatus
-                                    )
-                                    database.taskDao().updateTask(updatedTask)
-                                }
-                            }
-                        }
+    private fun observeFriends() {
+        viewModelScope.launch {
+            repo.getFriendsFlow()
+                .catch { reportListenerFailure("friends", it) }
+                .collect { _friends.value = it }
+        }
+    }
 
-                        // 2. Remove any local tasks that were recalled/deleted on remote
-                        val localAssigned = database.taskDao().getLocalAssignedTasks()
-                        for (localTask in localAssigned) {
-                            if (localTask.id !in acceptedRemoteIds) {
-                                database.taskDao().deleteTask(localTask)
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e("WorkspaceViewModel", "Error syncing collaborative tasks with Room", e)
+    private fun observeInvites() {
+        viewModelScope.launch {
+            repo.getPendingInvitesFlow()
+                .catch { reportListenerFailure("invites", it) }
+                .collect { _invites.value = it }
+        }
+    }
+
+    private fun observeCollaborativeTasks() {
+        viewModelScope.launch {
+            repo.getCollaborativeTasksFlow()
+                .catch { reportListenerFailure("collaborative tasks", it) }
+                .collect { tasks ->
+                    val uid = currentUid
+                    _collaborativeTasks.value = tasks
+                    _incomingAssignments.value = tasks.filter { it.collabAdminUid != uid }
+                    _outgoingAssignments.value = tasks.filter { it.collabAdminUid == uid }
+                    synchronizeCollaborativeTasksToRoom(tasks, uid)
+                }
+        }
+    }
+
+    private suspend fun synchronizeCollaborativeTasksToRoom(tasks: List<Task>, uid: String?) =
+        withContext(Dispatchers.IO) {
+            if (uid == null) return@withContext
+            val locallyVisibleTasks = tasks.filter { task ->
+                task.collabAdminUid == uid || task.assignmentStatus in setOf("accepted", "completed")
+            }
+            val visibleIds = locallyVisibleTasks.mapTo(mutableSetOf(), Task::id)
+
+            // Mirror each visible task independently so that one member's mirror failure
+            // does not abort the rest of the sync. A failure for a given task retains that
+            // task's last successfully synced local copy (we never overwrite or delete it on
+            // failure) and flags that a message must be surfaced (Requirement 7.6).
+            var mirrorFailed = false
+            locallyVisibleTasks.forEach { remoteTask ->
+                try {
+                    val localTask = taskDao.getTaskById(remoteTask.id)
+                    val merged = if (localTask == null) {
+                        remoteTask.copy(isSyncing = false, syncFailed = false)
+                    } else {
+                        mergeRemoteCollaboration(localTask, remoteTask)
                     }
+                    taskDao.insertTask(merged)
+                    synchronizeSubtaskRows(merged)
+                } catch (exception: Exception) {
+                    Log.e(TAG, "Failed to mirror collaborative task ${remoteTask.id} to Room", exception)
+                    mirrorFailed = true
                 }
             }
+
+            // Prune local assigned tasks that are no longer visible. Guarded so a pruning
+            // failure cannot crash the listener or block the message surfaced above.
+            try {
+                taskDao.getLocalAssignedTasks()
+                    .filter { it.id !in visibleIds }
+                    .forEach { staleTask ->
+                        taskDao.deleteAllSubtasks(staleTask.id)
+                        taskDao.deleteTask(staleTask)
+                    }
+            } catch (exception: Exception) {
+                Log.e(TAG, "Failed to prune stale collaborative tasks", exception)
+                mirrorFailed = true
+            }
+
+            if (mirrorFailed) {
+                // The last synced copy is retained above; tell the user the shared task
+                // could not be updated (Requirement 7.6).
+                _uiState.value = WorkspaceUiState.Error("A shared task could not be updated. Showing the last synced version.")
+            }
         }
-        viewModelScope.launch {
-            repo.getOutgoingAssignmentsFlow().collect { _outgoingAssignments.value = it }
+
+    private fun mergeRemoteCollaboration(local: Task, remote: Task): Task = local.copy(
+        title = remote.title,
+        isCompleted = remote.isCompleted,
+        completedTimestamp = remote.completedTimestamp,
+        completedDate = remote.completedDate,
+        createdDate = remote.createdDate,
+        deadlineTime = remote.deadlineTime,
+        updatedTimestamp = remote.updatedTimestamp,
+        priority = remote.priority,
+        description = remote.description,
+        recurrenceType = remote.recurrenceType,
+        recurrenceInterval = remote.recurrenceInterval,
+        recurrenceDays = remote.recurrenceDays,
+        recurrenceEndDate = remote.recurrenceEndDate,
+        tags = remote.tags,
+        subtasksJson = remote.subtasksJson,
+        remindersJson = remote.remindersJson,
+        isHabit = remote.isHabit,
+        isEvent = remote.isEvent,
+        eventIcon = remote.eventIcon,
+        eventColor = remote.eventColor,
+        assignedByUid = remote.assignedByUid,
+        assignedByName = remote.assignedByName,
+        assignedToUid = remote.assignedToUid,
+        assignedToName = remote.assignedToName,
+        assignmentStatus = remote.assignmentStatus,
+        collabAssigneesJson = remote.collabAssigneesJson,
+        collabAdminUid = remote.collabAdminUid,
+        collabAdminName = remote.collabAdminName,
+        isSyncing = false,
+        syncFailed = false
+    )
+
+    private suspend fun synchronizeSubtaskRows(parent: Task) {
+        if (parent.subtasksJson.isNullOrBlank()) return
+        parent.subtasks.forEach { subtask ->
+            val existing = taskDao.getTaskById(subtask.id)
+            val row = existing?.copy(
+                title = subtask.title,
+                isCompleted = subtask.isCompleted,
+                updatedTimestamp = parent.updatedTimestamp
+            ) ?: Task(
+                id = subtask.id,
+                title = subtask.title,
+                isCompleted = subtask.isCompleted,
+                createdDate = parent.createdDate,
+                createdTimestamp = parent.createdTimestamp,
+                updatedTimestamp = parent.updatedTimestamp,
+                parentTaskId = parent.id,
+                source = parent.source
+            )
+            taskDao.insertTask(row)
         }
     }
 
     fun sendInvite(targetId: String) {
-        if (targetId.isBlank()) return
+        if (_uiState.value is WorkspaceUiState.Loading) return
+
+        // Run the same local validation used by the invite-link entry path
+        // (Requirement 2.3): reject empty (1.2), self (1.5), an existing friend (1.6),
+        // and a known pending request (1.7) before any write. Directory non-existence
+        // (1.4) is decided authoritatively by the repository's directory lookup.
+        when (val validation = validateSubmission(targetId)) {
+            InviteValidation.Ok -> Unit
+            else -> {
+                _uiState.value = WorkspaceUiState.Error(validation.message())
+                return
+            }
+        }
+
         _uiState.value = WorkspaceUiState.Loading
         viewModelScope.launch {
-            try {
-                val result = repo.sendInvite(targetId, myName, myPreambleId)
-                if (result.isSuccess) {
-                    _uiState.value = WorkspaceUiState.Success("Invite sent successfully!")
-                } else {
-                    _uiState.value = WorkspaceUiState.Error(result.exceptionOrNull()?.message ?: "Failed to send invite")
+            withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
+                repo.sendInvite(targetId, myName, myPreambleId)
+            }.fold(
+                onSuccess = { _uiState.value = WorkspaceUiState.Success("Invite sent") },
+                onFailure = { _uiState.value = WorkspaceUiState.Error(it.userMessage("Failed to send invite")) }
+            )
+        }
+    }
+
+    /** `https://preamble.theblankstate.com/invite/{my normalized Preamble_ID}` (Requirement 2.1). */
+    fun buildInviteLink(): String = InviteLink.build(myPreambleId)
+
+    /** Adapts an Android [Uri] opened from an invite link to the pure parse path. */
+    fun prefillFromInviteLink(uri: Uri) = prefillFromInviteLink(uri.toString())
+
+    /**
+     * Parses an invite link and, when it carries a well-formed Preamble_ID, pre-fills the
+     * add-friend flow with the normalized id (Requirement 2.2). The pre-filled value is
+     * then submitted through [sendInvite], which applies the exact same validation as
+     * manual entry (Requirement 2.3). A malformed link does not pre-fill anything and
+     * surfaces an "invalid invite link" message (Requirement 2.4).
+     */
+    fun prefillFromInviteLink(link: String) {
+        when (val result = InviteLink.parse(link)) {
+            is InviteLink.ParseResult.Valid -> {
+                // Validate the embedded id with the same rules as manual entry before
+                // pre-filling, so an immediately-rejectable id (self / already-friend)
+                // surfaces its message rather than silently pre-filling (2.3).
+                when (val validation = validateSubmission(result.preambleId)) {
+                    InviteValidation.Ok -> {
+                        _prefillPreambleId.value = result.preambleId
+                        _uiState.value = WorkspaceUiState.Idle
+                    }
+                    else -> {
+                        _prefillPreambleId.value = null
+                        _uiState.value = WorkspaceUiState.Error(validation.message())
+                    }
                 }
-            } catch (e: Exception) {
-                Log.e("WorkspaceViewModel", "Exception sending invite", e)
-                _uiState.value = WorkspaceUiState.Error(e.localizedMessage ?: "Failed to send invite due to an error")
+            }
+            InviteLink.ParseResult.Invalid -> {
+                // Requirement 2.4: do not pre-fill; tell the user the link is invalid.
+                _prefillPreambleId.value = null
+                _uiState.value = WorkspaceUiState.Error("That invite link is invalid")
             }
         }
     }
 
+    /** Clears the pending pre-fill once the UI has applied it to the entry field. */
+    fun consumePrefill() {
+        _prefillPreambleId.value = null
+    }
+
+    /**
+     * Local invite validation shared by manual entry and invite-link entry so both apply
+     * identical rules (Requirement 2.3). Delegates to the pure [InviteValidator]; the
+     * authoritative directory lookup (1.4) and any server-side pending check remain in
+     * the repository. Outbound-pending state is not mirrored locally, so an empty pending
+     * set is passed and a true duplicate is still caught by the repository.
+     */
+    private fun validateSubmission(rawId: String): InviteValidation =
+        InviteValidator.validate(
+            submittedPreambleId = rawId,
+            ownPreambleId = myPreambleId,
+            friendPreambleIds = _friends.value.mapTo(mutableSetOf()) { it.preambleId },
+            pendingPreambleIds = emptySet()
+        )
+
+    private fun InviteValidation.message(): String = when (this) {
+        InviteValidation.Ok -> ""
+        InviteValidation.EmptyId -> "Enter a Preamble ID to send an invite"
+        InviteValidation.SelfInvite -> "You can't send a friend request to yourself"
+        InviteValidation.AlreadyFriends -> "You're already friends with that user"
+        InviteValidation.AlreadyPending -> "A request to that user is already pending"
+        InviteValidation.NotFound -> "No user exists with that Preamble ID"
+    }
+
     fun acceptInvite(invite: WorkspaceInvite) {
+        val previousInvites = _invites.value
+        val previousFriends = _friends.value
+        val optimisticFriend = Friend(
+            uid = invite.senderUid,
+            name = invite.senderName,
+            preambleId = invite.senderPreambleId
+        )
+        _invites.update { list -> list.filterNot { it.id == invite.id } }
+        _friends.update { list -> listOf(optimisticFriend) + list.filterNot { it.uid == invite.senderUid } }
+
         viewModelScope.launch {
-            try {
+            withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
                 repo.acceptInvite(invite, myName, myPreambleId)
-            } catch (e: Exception) {
-                Log.e("WorkspaceViewModel", "Exception accepting invite", e)
+            }.onFailure { error ->
+                _invites.value = previousInvites
+                _friends.value = previousFriends
+                _uiState.value = WorkspaceUiState.Error(error.userMessage("Failed to accept invite"))
             }
         }
     }
 
     fun declineInvite(inviteId: String) {
+        val previous = _invites.value
+        _invites.update { list -> list.filterNot { it.id == inviteId } }
         viewModelScope.launch {
-            try {
+            withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
                 repo.declineInvite(inviteId)
-            } catch (e: Exception) {
-                Log.e("WorkspaceViewModel", "Exception declining invite", e)
+            }.onFailure { error ->
+                _invites.value = previous
+                _uiState.value = WorkspaceUiState.Error(error.userMessage("Failed to decline invite"))
             }
         }
     }
 
+    fun friendRemovalImpact(friendUid: String): FriendRemovalImpact {
+        val uid = currentUid ?: return FriendRemovalImpact()
+        // Delegate the partition to the pure, JVM-testable logic (Requirement 5.1, Property 13).
+        // A task's full member set is the admin plus its assignees, so "shared with the friend"
+        // covers both the friend-is-admin and friend-is-assignee cases.
+        val partition = FriendRemovalImpactLogic.partition(
+            currentUid = uid,
+            friendUid = friendUid,
+            tasks = _collaborativeTasks.value,
+            adminUid = { it.collabAdminUid },
+            memberUids = { task ->
+                (task.collabAssigneeUids + listOfNotNull(task.collabAdminUid)).toSet()
+            }
+        )
+        return FriendRemovalImpact(
+            administeredTasks = partition.administeredTasks,
+            memberTasks = partition.memberTasks
+        )
+    }
+
+    /** Only removes immediately when no collaborative task needs a lifecycle decision. */
     fun removeFriend(friendUid: String) {
+        val friend = _friends.value.firstOrNull { it.uid == friendUid } ?: return
+        if (friendRemovalImpact(friendUid).requiresResolution) {
+            _uiState.value = WorkspaceUiState.Error("Resolve shared tasks before removing ${friend.name}")
+            return
+        }
+        removeFriendOptimistically(friend)
+    }
+
+    /**
+     * Resolves every shared task with [friend] and then removes the friendship.
+     *
+     * Requirement 5.6: An admin-owned affected task is only resolved by a completed
+     * Transfer_Ownership. If the user confirms while any admin-owned task is unresolved
+     * (i.e. they did not opt to transfer), the removal is blocked, the friend record is
+     * retained, every affected task is left unchanged, and the error names each
+     * unresolved admin-owned task by title.
+     *
+     * Requirement 5.7: Each chosen action is applied (Transfer_Ownership for admin-owned
+     * tasks, Self_Removal for member tasks) and the friend relationship record is deleted
+     * only after all chosen actions have succeeded.
+     *
+     * Requirement 5.8: If applying any chosen action (or the final friend deletion) fails,
+     * the friend record is retained, the friend is restored to the displayed friend list,
+     * every affected task that was mutated locally is restored to its pre-attempt state,
+     * and an error message is surfaced.
+     */
+    fun resolveTasksAndRemoveFriend(friend: Friend, transferOwnedTasks: Boolean) {
+        val impact = friendRemovalImpact(friend.uid)
+
+        // Requirement 5.6: block the removal while any admin-owned task is unresolved.
+        // The only valid resolution for an admin-owned task is Transfer_Ownership, so a
+        // confirm without the transfer choice leaves those tasks unresolved.
+        if (impact.administeredTasks.isNotEmpty() && !transferOwnedTasks) {
+            val unresolvedTitles = impact.administeredTasks.joinToString(", ") { it.title }
+            _uiState.value = WorkspaceUiState.Error(
+                "Transfer ownership before removing ${friend.name}. Unresolved tasks: $unresolvedTitles"
+            )
+            return
+        }
+
+        val previousFriends = _friends.value
+        // Optimistic UI: remove the friend from the displayed list immediately. The
+        // backing friend record is only deleted after every task action succeeds (5.7).
+        _friends.update { list -> list.filterNot { it.uid == friend.uid } }
+        _uiState.value = WorkspaceUiState.Loading
+
         viewModelScope.launch {
+            // Track member tasks whose local rows we delete so we can restore them on failure (5.8).
+            val locallyRemoved = mutableListOf<Task>()
             try {
-                repo.removeFriend(friendUid)
-            } catch (e: Exception) {
-                Log.e("WorkspaceViewModel", "Exception removing friend", e)
+                // Admin-owned tasks: transfer ownership to the friend and leave the task.
+                // Each collaborative write is bounded by the 30 s write timeout; a timeout
+                // is mapped to the same revert path as a failure (Requirements 14.5, 5.8).
+                impact.administeredTasks.forEach { task ->
+                    withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
+                        repo.transferOwnership(task.id, friend.uid, leaveCurrentAdmin = true)
+                    }.getOrThrow()
+                }
+                // Member tasks: self-removal.
+                impact.memberTasks.forEach { task ->
+                    withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
+                        repo.leaveCollaborativeTask(task.id)
+                    }.getOrThrow()
+                    deleteLocalCollaborativeTask(task)
+                    locallyRemoved += task
+                }
+                // Delete the friend relationship record only after all actions succeed (5.7).
+                // Friend removal carries the dedicated 10 s timeout (Requirement 4.4).
+                withWriteTimeout(FRIEND_REMOVAL_TIMEOUT_MS) {
+                    repo.removeFriend(friend.uid)
+                }.getOrThrow()
+                _uiState.value = WorkspaceUiState.Success("Friend removed")
+            } catch (exception: Exception) {
+                // Requirement 5.8: retain the friend record, restore the friend to the list,
+                // and restore every locally-removed task to its pre-attempt state.
+                _friends.value = previousFriends
+                locallyRemoved.forEach { restoreLocalCollaborativeTask(it) }
+                _uiState.value = WorkspaceUiState.Error(
+                    exception.userMessage("Could not finish removing the friend")
+                )
             }
         }
     }
 
-    fun refreshData() {
-        // Data is real-time via Firestore Flow listeners. 
-        // This function provides a hook for PullToRefresh if we ever need explicit reloading.
+    private suspend fun restoreLocalCollaborativeTask(task: Task) {
+        withContext(Dispatchers.IO) { taskDao.insertTask(task) }
+        synchronizeSubtaskRows(task)
     }
 
-    fun resetState() {
-        _uiState.value = WorkspaceUiState.Idle
+    private fun removeFriendOptimistically(friend: Friend) {
+        val previous = _friends.value
+        _friends.update { list -> list.filterNot { it.uid == friend.uid } }
+        viewModelScope.launch {
+            withWriteTimeout(FRIEND_REMOVAL_TIMEOUT_MS) {
+                repo.removeFriend(friend.uid)
+            }.fold(
+                onSuccess = { _uiState.value = WorkspaceUiState.Success("Friend removed") },
+                onFailure = { error ->
+                    _friends.value = previous
+                    _uiState.value = WorkspaceUiState.Error(error.userMessage("Friend removal could not be completed"))
+                }
+            )
+        }
     }
-
-    // ── Collaborative Assignment Actions ──
 
     fun assignCollaborativeTask(friend: Friend, task: Task) {
+        val uid = currentUid ?: return
+        val now = System.currentTimeMillis()
+        val collaborativeTask = task.copy(
+            collabAdminUid = uid,
+            collabAdminName = myName,
+            assignedByUid = uid,
+            assignedByName = myName,
+            assignedToUid = friend.uid,
+            assignedToName = friend.name,
+            assignmentStatus = "accepted",
+            collabAssigneesJson = gson.toJson(
+                listOf(CollabAssigneeStatus(friend.uid, friend.name, assignedTimestamp = now))
+            )
+        )
         viewModelScope.launch {
-            try {
-                repo.assignTask(friend, task, myName)
-            } catch (e: Exception) {
-                Log.e("WorkspaceViewModel", "Exception assigning task", e)
+            withContext(Dispatchers.IO) { taskDao.updateTask(collaborativeTask) }
+            withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
+                repo.assignTask(friend, collaborativeTask, myName)
+            }.onFailure { error ->
+                withContext(Dispatchers.IO) { taskDao.updateTask(task) }
+                _uiState.value = WorkspaceUiState.Error(error.userMessage("Failed to assign task"))
+            }
+        }
+    }
+
+    /**
+     * Admin-only: add an existing friend to a collaborative task as a `pending` member,
+     * reflecting the addition in local state immediately (<200 ms) before the backend
+     * write (Requirements 11.7, 11.8). On failure or the 30 s write timeout, the prior
+     * task state is restored exactly and an error is surfaced (Requirements 11.6, 14.5).
+     */
+    fun addMember(task: Task, friend: Friend) {
+        if (task.collabAssignees.any { it.uid == friend.uid } || friend.uid == task.collabAdminUid) return
+        val previous = task
+        val now = System.currentTimeMillis()
+        val optimistic = task.copy(
+            collabAssigneesJson = gson.toJson(
+                task.collabAssignees + CollabAssigneeStatus(
+                    uid = friend.uid,
+                    name = friend.name,
+                    status = "pending",
+                    assignedTimestamp = now
+                )
+            )
+        )
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { taskDao.updateTask(optimistic) }
+            withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
+                repo.addMember(task.id, friend)
+            }.onFailure { error ->
+                withContext(Dispatchers.IO) { taskDao.updateTask(previous) }
+                _uiState.value = WorkspaceUiState.Error(error.userMessage("Failed to add member"))
             }
         }
     }
 
     fun acceptAssignment(task: Task) {
+        val uid = currentUid ?: return
+        val optimistic = task.withMemberStatus(uid, "accepted", false)
+        _incomingAssignments.update { list -> list.map { if (it.id == task.id) optimistic else it } }
         viewModelScope.launch {
-            try {
-                repo.updateAssignmentStatus(task.id, task.assignedByUid ?: "", "accepted")
-                
-                val localTask = task.copy(
-                    assignmentStatus = "accepted",
-                    isSyncing = false,
-                    syncFailed = false
-                )
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    database.taskDao().insertTask(localTask)
-                }
-            } catch (e: Exception) {
-                Log.e("WorkspaceViewModel", "Exception accepting assignment", e)
+            withContext(Dispatchers.IO) {
+                taskDao.insertTask(optimistic.copy(isSyncing = false, syncFailed = false))
+                synchronizeSubtaskRows(optimistic)
+            }
+            withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
+                repo.updateCollabAssignmentStatus(task.id, task.collabAdminUid.orEmpty(), uid, "accepted")
+            }.onFailure { error ->
+                deleteLocalCollaborativeTask(optimistic)
+                _uiState.value = WorkspaceUiState.Error(error.userMessage("Failed to accept task"))
             }
         }
     }
 
     fun declineAssignment(task: Task) {
+        val uid = currentUid ?: return
+        val previous = _incomingAssignments.value
+        _incomingAssignments.update { list -> list.filterNot { it.id == task.id } }
         viewModelScope.launch {
-            try {
-                repo.updateAssignmentStatus(task.id, task.assignedByUid ?: "", "declined")
-            } catch (e: Exception) {
-                Log.e("WorkspaceViewModel", "Exception declining assignment", e)
+            withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
+                repo.updateCollabAssignmentStatus(task.id, task.collabAdminUid.orEmpty(), uid, "declined")
+            }.onFailure { error ->
+                _incomingAssignments.value = previous
+                _uiState.value = WorkspaceUiState.Error(error.userMessage("Failed to decline task"))
+            }
+        }
+    }
+
+    fun removeMember(task: Task, memberUid: String) {
+        val previous = task
+        val optimistic = task.copy(
+            collabAssigneesJson = gson.toJson(task.collabAssignees.filterNot { it.uid == memberUid })
+        )
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { taskDao.updateTask(optimistic) }
+            withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
+                repo.removeCollaborator(task.id, memberUid)
+            }.onFailure { error ->
+                withContext(Dispatchers.IO) { taskDao.updateTask(previous) }
+                _uiState.value = WorkspaceUiState.Error(error.userMessage("Failed to remove member"))
+            }
+        }
+    }
+
+    fun transferOwnership(task: Task, newAdminUid: String) {
+        val newAdmin = task.collabAssignees.firstOrNull { it.uid == newAdminUid } ?: return
+        val previous = task
+        val optimistic = task.copy(
+            collabAdminUid = newAdmin.uid,
+            collabAdminName = newAdmin.name,
+            collabAssigneesJson = gson.toJson(
+                task.collabAssignees.filterNot { it.uid == newAdminUid } +
+                    CollabAssigneeStatus(
+                        uid = currentUid.orEmpty(),
+                        name = myName,
+                        status = "accepted",
+                        assignedTimestamp = task.createdTimestamp
+                    )
+            )
+        )
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { taskDao.updateTask(optimistic) }
+            withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
+                repo.transferOwnership(task.id, newAdminUid)
+            }.onFailure { error ->
+                withContext(Dispatchers.IO) { taskDao.updateTask(previous) }
+                _uiState.value = WorkspaceUiState.Error(error.userMessage("Failed to transfer ownership"))
+            }
+        }
+    }
+
+    fun leaveTask(task: Task) {
+        viewModelScope.launch {
+            deleteLocalCollaborativeTask(task)
+            withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
+                repo.leaveCollaborativeTask(task.id)
+            }.onFailure { error ->
+                withContext(Dispatchers.IO) { taskDao.insertTask(task) }
+                synchronizeSubtaskRows(task)
+                _uiState.value = WorkspaceUiState.Error(error.userMessage("Failed to leave task"))
             }
         }
     }
 
     fun recallAssignment(task: Task) {
         viewModelScope.launch {
-            try {
-                repo.deleteAssignment(task.id, task.assignedToUid ?: "")
-            } catch (e: Exception) {
-                Log.e("WorkspaceViewModel", "Exception recalling assignment", e)
+            withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
+                repo.deleteCollabTaskForAll(task.id, task.collabAssignees)
+            }.onFailure { error ->
+                _uiState.value = WorkspaceUiState.Error(error.userMessage("Failed to recall task"))
             }
         }
+    }
+
+    private suspend fun deleteLocalCollaborativeTask(task: Task) = withContext(Dispatchers.IO) {
+        taskDao.deleteAllSubtasks(task.id)
+        taskDao.deleteTask(task)
+    }
+
+    private fun Task.withMemberStatus(
+        memberUid: String,
+        status: String,
+        completed: Boolean
+    ): Task {
+        val statuses = collabAssignees.map { member ->
+            if (member.uid == memberUid) {
+                member.copy(
+                    status = status,
+                    isCompleted = completed,
+                    completedTimestamp = if (completed) System.currentTimeMillis() else null
+                )
+            } else member
+        }
+        return copy(
+            assignmentStatus = status,
+            isCompleted = completed,
+            collabAssigneesJson = gson.toJson(statuses)
+        )
+    }
+
+    fun refreshData() = Unit // Snapshot listeners are the refresh mechanism.
+
+    fun resetState() {
+        _uiState.value = WorkspaceUiState.Idle
+    }
+
+    private fun reportListenerFailure(label: String, error: Throwable) {
+        // Requirement 14.1: a listener failure must never tear down the app. The last
+        // successfully loaded data for this data set is retained (we never clear the
+        // backing StateFlow here), and we surface a message naming the affected data set.
+        Log.e(TAG, "$label listener stopped", error)
+        _uiState.value = WorkspaceUiState.Error("Could not load $label. Showing the last loaded data.")
+    }
+
+    /**
+     * Runs a repository write under a timeout and folds a timeout into the same failed
+     * [Result] path as any other backend failure, so callers revert optimistic state and
+     * surface a message identically (Requirements 4.4, 14.5).
+     */
+    private suspend fun <T> withWriteTimeout(
+        timeoutMillis: Long,
+        block: suspend () -> Result<T>
+    ): Result<T> = try {
+        withTimeout(timeoutMillis) { block() }
+    } catch (timeout: TimeoutCancellationException) {
+        Log.e(TAG, "Write timed out after ${timeoutMillis}ms", timeout)
+        Result.failure(timeout)
+    }
+
+    private fun Throwable.userMessage(fallback: String): String = when {
+        // A timeout's technical message ("Timed out waiting for 10000 ms") is not useful
+        // to the user; fall back to the caller's friendly text (Requirements 4.4, 14.5).
+        this is TimeoutCancellationException -> fallback
+        else -> localizedMessage?.takeIf { it.isNotBlank() } ?: fallback
+    }
+
+    private companion object {
+        const val TAG = "WorkspaceViewModel"
+
+        /** Friend removal is treated as failed after 10 s (Requirement 4.4). */
+        const val FRIEND_REMOVAL_TIMEOUT_MS = 10_000L
+
+        /** All other collaborative / friend writes are treated as failed after 30 s (Requirement 14.5). */
+        const val COLLABORATIVE_WRITE_TIMEOUT_MS = 30_000L
     }
 }
 
 sealed class WorkspaceUiState {
-    object Idle : WorkspaceUiState()
-    object Loading : WorkspaceUiState()
+    data object Idle : WorkspaceUiState()
+    data object Loading : WorkspaceUiState()
     data class Success(val message: String) : WorkspaceUiState()
     data class Error(val message: String) : WorkspaceUiState()
 }
