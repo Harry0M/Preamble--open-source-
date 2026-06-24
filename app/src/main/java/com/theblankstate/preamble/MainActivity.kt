@@ -79,6 +79,7 @@ class MainActivity : ComponentActivity() {
 
         // Parse deep link from launch intent
         _deepLinkTarget.value = parseDeepLink(intent)
+        captureReferrerIfPresent(_deepLinkTarget.value)
 
         // Weekly Recap deep-link from notification
         if (intent.getBooleanExtra(com.theblankstate.preamble.notification.WeeklyRecapReceiver.EXTRA_OPEN_RECAP, false)) {
@@ -229,6 +230,7 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         parseDeepLink(intent)?.let { target ->
             _deepLinkTarget.value = target
+            captureReferrerIfPresent(target)
         }
         if (intent.getBooleanExtra(com.theblankstate.preamble.notification.WeeklyRecapReceiver.EXTRA_OPEN_RECAP, false)) {
             _openRecap.value = true
@@ -279,6 +281,28 @@ class MainActivity : ComponentActivity() {
             }
         }
         return null
+    }
+
+    /**
+     * Captures the referring Preamble_ID from an `invite/{id}` deep link before an
+     * account exists on this device (Requirement 2.1), and records the
+     * `referral-invite-opened` funnel event (Requirement 6.2).
+     *
+     * The referrer id is persisted single-use via [com.theblankstate.preamble.referral.PendingReferrerStore]
+     * so it survives until the first account creation, where the attribution is
+     * written. When an account already exists there is no pre-signup attribution to
+     * retain, so the capture is skipped.
+     */
+    private fun captureReferrerIfPresent(target: String?) {
+        if (target == null || !target.startsWith("invite/")) return
+        if (AuthManager.isSignedIn()) return
+
+        val normalizedId = com.theblankstate.preamble.collab.PreambleId
+            .normalize(target.removePrefix("invite/"))
+        if (normalizedId.isBlank()) return
+
+        com.theblankstate.preamble.referral.PendingReferrerStore.save(this, normalizedId)
+        AnalyticsManager.trackReferralInviteOpened()
     }
 
     override fun onResume() {
@@ -375,6 +399,7 @@ fun PreambleApp(
     var selectedTab by remember { mutableIntStateOf(0) }
     var quickAddTrigger by remember { mutableIntStateOf(0) }
     var showFriendsScreen by remember { mutableStateOf(false) }
+    var showCirclesScreen by remember { mutableStateOf(false) }
 
     var lastTab by remember { mutableIntStateOf(selectedTab) }
     var lastTabStartTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -705,6 +730,20 @@ fun PreambleApp(
             initialInviteId = initialInviteId,
             onInviteConsumed = { initialInviteId = null },
             onClose = { showFriendsScreen = false },
+            onOpenCircles = { showCirclesScreen = true },
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+
+    // Full-screen overlay for Shared Circles (shared-circles Requirement 2.4)
+    androidx.compose.animation.AnimatedVisibility(
+        visible = showCirclesScreen,
+        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it }),
+        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { it })
+    ) {
+        androidx.activity.compose.BackHandler { showCirclesScreen = false }
+        com.theblankstate.preamble.ui.screens.CirclesScreen(
+            onClose = { showCirclesScreen = false },
             modifier = Modifier.fillMaxSize()
         )
     }

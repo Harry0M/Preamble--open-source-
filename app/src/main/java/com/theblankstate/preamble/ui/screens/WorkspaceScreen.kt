@@ -39,6 +39,7 @@ import coil.compose.AsyncImage
 import com.theblankstate.preamble.R
 import com.theblankstate.preamble.repository.Friend
 import com.theblankstate.preamble.ui.components.LeaderboardSection
+import com.theblankstate.preamble.ui.components.ReferralCta
 import com.theblankstate.preamble.ui.viewmodels.FriendRemovalImpact
 import com.theblankstate.preamble.ui.viewmodels.WorkspaceUiState
 import com.theblankstate.preamble.ui.viewmodels.WorkspaceViewModel
@@ -75,6 +76,7 @@ fun WorkspaceScreen(
     initialInviteId: String? = null,
     onInviteConsumed: () -> Unit = {},
     onClose: (() -> Unit)? = null,
+    onOpenCircles: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val friends by viewModel.friends.collectAsState()
@@ -162,18 +164,41 @@ fun WorkspaceScreen(
                 }
                 
                 // "Active" Pill / Add button
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { showAddFriendDialog = true }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    if (onOpenCircles != null) {
+                        // Entry into Shared Circles from the friends/workspace area
+                        // (shared-circles Requirement 2.4).
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            modifier = Modifier.clip(RoundedCornerShape(50)).clickable { onOpenCircles() }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.Groups, contentDescription = "Circles", modifier = Modifier.size(18.dp))
+                                Text("Circles", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                        }
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        modifier = Modifier.clip(RoundedCornerShape(50)).clickable { showAddFriendDialog = true }
                     ) {
-                        Icon(Icons.Default.GroupAdd, contentDescription = "Add Friend", modifier = Modifier.size(18.dp))
-                        Text("Add", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.GroupAdd, contentDescription = "Add Friend", modifier = Modifier.size(18.dp))
+                            Text("Add", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        }
                     }
                 }
             }
@@ -301,6 +326,14 @@ fun WorkspaceScreen(
                     }
                 }
                 
+                // REFERRAL CTA (Growth-loops Req 1): both sides get 50 credits.
+                item {
+                    ReferralCta(
+                        inviteLink = viewModel.buildInviteLink(),
+                        modifier = Modifier.padding(bottom = 16.dp),
+                    )
+                }
+
                 // PENDING INVITES
                 itemsIndexed(invites, key = { _, it -> "invite_${it.id}" }) { _, invite ->
                     val cardColor = Color(0xFF2C2C2E) // Dark slate for invites

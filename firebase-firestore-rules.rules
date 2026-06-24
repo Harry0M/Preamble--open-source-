@@ -123,6 +123,36 @@ service cloud.firestore {
         && isValidCollaborativeDocument(taskId);
     }
 
+    function isValidReactionEmoji(emoji) {
+      return emoji in ['👍', '🎉', '🔥', '👏', '❤️', '💪'];
+    }
+
+    function isValidOwnReaction() {
+      let r = request.resource.data.reactions[request.auth.uid];
+      return r is map && r.emoji is string && isValidReactionEmoji(r.emoji);
+    }
+
+    function updatesOwnReactionOnly() {
+      return isCollabMember()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions', 'updatedAt'])
+        && request.resource.data.reactions.diff(resource.data.get('reactions', {})).affectedKeys().hasOnly([request.auth.uid])
+        && (
+            // remove: own key absent after the write (Req 2.3, 2.4)
+            !(request.auth.uid in request.resource.data.reactions)
+            // add/change: own key present and a valid 6-set emoji (Req 1.2, 1.3, 2.2)
+            || isValidOwnReaction()
+           );
+    }
+
+    function isValidPointsAward() {
+      let before = resource.data.totalPoints;
+      let after  = request.resource.data.totalPoints;
+      return after == before + 10
+        && after >= before
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['totalPoints', 'weeklyPoints', 'awardedTasks', 'updatedAt']);
+    }
+
     function updatesOwnMemberStatusOnly() {
       return isCollabMember()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberStates', 'updatedAt'])
@@ -148,6 +178,129 @@ service cloud.firestore {
         && request.resource.data.memberStates.diff(resource.data.memberStates).affectedKeys().hasOnly([request.auth.uid])
         && request.resource.data.memberStates[request.auth.uid].status == 'left'
         && isValidOwnMemberState();
+    }
+
+    // ---- Shared Circle helpers (canonical /circles/{circleId} document). ----
+    function circleIsMember() {
+      return signedIn()
+        && resource.data.memberUids is list
+        && request.auth.uid in resource.data.memberUids;
+    }
+
+    function circleIsQueryableMember() {
+      return signedIn()
+        && resource.data.memberUidMap is map
+        && resource.data.memberUidMap[request.auth.uid] == true;
+    }
+
+    function circleHasValidMemberUidMap(data) {
+      return data.memberUidMap is map
+        && data.memberUidMap.keys().hasAll(data.memberUids)
+        && data.memberUidMap.keys().hasOnly(data.memberUids)
+        && data.memberUidMap[data.adminUid] == true;
+    }
+
+    function isValidCircleMemberStatus(status) {
+      return status in ['active', 'left', 'removed'];
+    }
+
+    function isValidCircleDocument(circleId) {
+      let d = request.resource.data;
+      return d.circleId == circleId
+        && d.adminUid is string
+        && d.name is string
+        && d.name.size() >= 1
+        && d.memberUids is list
+        && d.memberUids.size() >= 1
+        && d.memberUids.size() <= 50
+        && d.memberUids.hasAll([d.adminUid])
+        && circleHasValidMemberUidMap(d)
+        && d.memberStates is map;
+    }
+
+    function isCircleAdminCreate(circleId) {
+      return signedIn()
+        && request.resource.data.adminUid == request.auth.uid
+        && request.auth.uid in request.resource.data.memberUids
+        && isValidCircleDocument(circleId);
+    }
+
+    function isCircleAdminUpdate(circleId) {
+      return signedIn()
+        && resource.data.adminUid == request.auth.uid
+        && request.resource.data.adminUid == resource.data.adminUid
+        && request.resource.data.circleId == resource.data.circleId
+        && isValidCircleDocument(circleId);
+    }
+
+    // Non-admin self-removal: own-slice idiom (Req 13.5), parallels
+    // removesSelfFromCollaborativeTaskOnly.
+    function removesSelfFromCircleOnly() {
+      return circleIsMember()
+        && resource.data.adminUid != request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['memberUids', 'memberUidMap', 'memberStates', 'updatedAt'])
+        && request.resource.data.memberUids == resource.data.memberUids.removeAll([request.auth.uid])
+        && circleHasValidMemberUidMap(request.resource.data)
+        && request.resource.data.memberStates.diff(resource.data.memberStates).affectedKeys()
+             .hasOnly([request.auth.uid])
+        && request.resource.data.memberStates[request.auth.uid].status == 'left';
+    }
+
+    // ---- Shared Circle task helpers (denormalized memberUidMap on the task
+    // itself — no parent get() for membership reads). ----
+    function circleTaskIsMember() {
+      return signedIn()
+        && resource.data.memberUidMap is map
+        && resource.data.memberUidMap[request.auth.uid] == true;
+    }
+
+    function circleTaskIncomingIsMember() {
+      return signedIn()
+        && request.resource.data.memberUidMap is map
+        && request.resource.data.memberUidMap[request.auth.uid] == true;
+    }
+
+    function isValidCircleTaskCreate() {
+      let d = request.resource.data;
+      return d.circleId is string
+        && d.authorUid == request.auth.uid
+        && d.title is string
+        && d.title.size() >= 1
+        && d.title.size() <= 500
+        && d.isCompleted == false
+        && circleTaskIncomingIsMember();
+    }
+
+    // ANY member may write ONLY the shared-completion fields (Req 14.4) —
+    // diff-based, parallels updatesOwnMemberStatusOnly / updatesOwnReactionOnly.
+    function updatesOnlyCompletionFields() {
+      return circleTaskIsMember()
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['isCompleted', 'completedBy', 'completedAt', 'updatedAt'])
+        && request.resource.data.isCompleted is bool
+        && request.resource.data.circleId == resource.data.circleId
+        && request.resource.data.authorUid == resource.data.authorUid
+        && request.resource.data.title == resource.data.title
+        && request.resource.data.memberUidMap == resource.data.memberUidMap;
+    }
+
+    // Title edit / delete: author or circle admin only (Req 14.5, 14.6).
+    function isCircleTaskAuthor() {
+      return signedIn() && resource.data.authorUid == request.auth.uid;
+    }
+
+    function isCircleAdminOf(circleId) {
+      return signedIn()
+        && get(/databases/$(database)/documents/circles/$(circleId)).data.adminUid == request.auth.uid;
+    }
+
+    function authorOrAdminEdit() {
+      return circleTaskIsMember()
+        && (isCircleTaskAuthor() || isCircleAdminOf(resource.data.circleId))
+        && request.resource.data.circleId == resource.data.circleId
+        && request.resource.data.authorUid == resource.data.authorUid
+        && request.resource.data.memberUidMap == resource.data.memberUidMap;
     }
 
     // Public directory for discovering users by Preamble ID.
@@ -222,8 +375,52 @@ service cloud.firestore {
       allow update: if isCollaborativeAdminUpdate(taskId)
         || updatesOwnMemberStatusOnly()
         || updatesOwnSubtaskStateOnly()
+        || updatesOwnReactionOnly()
         || removesSelfFromCollaborativeTaskOnly();
       allow delete: if signedIn() && resource.data.adminUid == request.auth.uid;
+    }
+
+    // Canonical shared circles. Membership-gated reads, admin-gated metadata
+    // writes, and the non-admin self-removal own-slice idiom (Req 13).
+    match /circles/{circleId} {
+      allow get: if circleIsMember();
+      allow list: if circleIsQueryableMember();
+      allow create: if isCircleAdminCreate(circleId);
+      allow update: if isCircleAdminUpdate(circleId)
+        || removesSelfFromCircleOnly();
+      allow delete: if signedIn() && resource.data.adminUid == request.auth.uid;
+    }
+
+    // Canonical shared Circle tasks (top-level, denormalized memberUidMap).
+    // Member-gated reads, member create, any-member completion writes, and
+    // author/admin-gated title edit and delete (Req 14).
+    match /circleTasks/{taskId} {
+      allow get: if circleTaskIsMember();
+      allow list: if circleTaskIsMember();
+      allow create: if isValidCircleTaskCreate();
+      allow update: if updatesOnlyCompletionFields()
+        || authorOrAdminEdit();
+      allow delete: if circleTaskIsMember()
+        && (isCircleTaskAuthor() || isCircleAdminOf(resource.data.circleId));
+    }
+
+    // Friends leaderboard — self-owned, friend-readable productivity score.
+    match /leaderboard/{uid} {
+      // Owner reads own score; a friend may read iff they are in the owner's friends subcollection.
+      allow read: if isOwner(uid)
+        || (signedIn() && exists(/databases/$(database)/documents/users/$(uid)/friends/$(request.auth.uid)));
+      // First award creates the doc at exactly the Completion_Award.
+      allow create: if isOwner(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.totalPoints == 10;
+      // Subsequent awards are owner-only, +10, monotonic.
+      allow update: if isOwner(uid) && isValidPointsAward();
+      allow delete: if false;
+    }
+
+    // Nudges — written/read only by the sendNudge Cloud Function (Admin SDK).
+    match /nudges/{nudgeId} {
+      allow read, write: if false;
     }
 
     // Broadcasts — authenticated users can read admin broadcasts.
@@ -262,6 +459,27 @@ service cloud.firestore {
     // AI credits — read-only for clients; writes happen through Admin SDK.
     match /users/{uid}/ai_credits/{doc} {
       allow read: if isOwner(uid);
+    }
+
+    // Referral attribution. The referred user may create exactly one PENDING
+    // attribution naming someone else; only the Admin SDK may move it to
+    // "rewarded"/"rejected" or grant credits. (Req 2.2, 2.6, 3.4, 3.5, 4.1)
+    match /referrals/{referredUid} {
+      // Owner reads their own attribution; referrer may read the doc that names them.
+      allow read: if isOwner(referredUid)
+        || (signedIn() && resource.data.referrerUid == request.auth.uid);
+
+      // Create: only the referred user, only state "pending", never self-referral,
+      // and the doc must be keyed by the creator's own uid.
+      allow create: if isOwner(referredUid)
+        && request.resource.data.referredUid == request.auth.uid
+        && request.resource.data.referrerUid is string
+        && request.resource.data.referrerUid != request.auth.uid
+        && request.resource.data.state == 'pending';
+
+      // Clients can never update or delete (no flipping to "rewarded",
+      // no changing referrerUid). All state changes go through the Admin SDK.
+      allow update, delete: if false;
     }
 
     match /{document=**} {

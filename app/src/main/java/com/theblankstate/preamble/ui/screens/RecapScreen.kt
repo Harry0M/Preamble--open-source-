@@ -171,6 +171,24 @@ fun RecapScreen(
     val profile = remember { UserProfileStore.load(ctx) }
     val slides = remember(statsState) { buildSlides(statsState, profile.name) }
 
+    // Branded weekly-recap shareable wiring (Requirement 7): project the existing
+    // StatsState into a WeeklyRecapSummary consumed by ShareableContentMapper.
+    val normalizedPreambleId = remember { UserProfileStore.ensurePreambleId(ctx) }
+    val recapSummary = remember(statsState) {
+        val weekNum = Calendar.getInstance().get(Calendar.WEEK_OF_YEAR)
+        val perfectDays = statsState.dailyStatsWithDates
+            .takeLast(7)
+            .count { (_, done, total) -> total > 0 && done >= total }
+        com.theblankstate.preamble.share.WeeklyRecapSummary(
+            weekLabel = "Week $weekNum",
+            tasksCompleted = statsState.thisWeekCompleted,
+            perfectDays = perfectDays,
+        )
+    }
+    val recapShareContent = remember(recapSummary) {
+        com.theblankstate.preamble.share.ShareableContentMapper.fromWeeklyRecap(recapSummary)
+    }
+
     var index by remember { mutableStateOf(0) }
     val progress = remember { Animatable(0f) }
 
@@ -257,6 +275,12 @@ fun RecapScreen(
                     fontFamily = FontFamily.Monospace,
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // Branded weekly-recap shareable (Requirement 7): renders the
+                    // branded card off-screen and shares it with an invite-link caption.
+                    com.theblankstate.preamble.ui.components.ShareMomentChip(
+                        content = recapShareContent,
+                        normalizedPreambleId = normalizedPreambleId,
+                    )
                     // Share this slide
                     if (slide.id != "header") {
                         Box(

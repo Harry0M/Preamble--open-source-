@@ -48,6 +48,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
@@ -106,6 +107,7 @@ import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.PredefinedTags
 import com.theblankstate.preamble.repository.Friend
 import com.theblankstate.preamble.ui.components.AddTaskSheet
+import com.theblankstate.preamble.ui.components.DayPlanReviewSheet
 import com.theblankstate.preamble.ui.components.HapticConfig
 import com.theblankstate.preamble.ui.components.LocalHapticConfig
 import com.theblankstate.preamble.ui.components.TaskDetailBottomSheet
@@ -146,6 +148,7 @@ import com.theblankstate.preamble.data.AdminTask
 import com.theblankstate.preamble.ui.components.AdminTaskCard
 import com.theblankstate.preamble.ui.components.AdminTaskDetailSheet
 import com.theblankstate.preamble.viewmodel.TaskViewModel
+import com.theblankstate.preamble.viewmodel.DayPlanState
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.collectLatest
 
@@ -223,6 +226,35 @@ fun HomeScreen(
     val activity = context as? Activity
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     var isLateNightDismissed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+
+    // ── Track A (AI Plan-My-Day) + Track B (premium gate) wiring ──
+    // Reuse the existing app-scoped TaskRepository and the Activity-scoped TaskViewModel
+    // (keyed by class within the store, so this is the same instance the rest of the app uses).
+    val planApp = remember(context) { context.applicationContext as com.theblankstate.preamble.PreambleApplication }
+    val planTaskViewModel: TaskViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+        factory = TaskViewModel.Factory(planApp.repository, planApp)
+    )
+    val dayPlanViewModel: com.theblankstate.preamble.viewmodel.DayPlanViewModel =
+        androidx.lifecycle.viewmodel.compose.viewModel(
+            factory = com.theblankstate.preamble.viewmodel.DayPlanViewModel.Factory(planApp.repository, planTaskViewModel)
+        )
+    val dayPlanState by dayPlanViewModel.state.collectAsState()
+    // Non-null while a locked feature's upsell is being shown (Req 11.1, 11.3).
+    var upsellFeature by remember { mutableStateOf<com.theblankstate.preamble.data.PremiumFeature?>(null) }
+
+    // Plan-My-Day entry point: run the Track B gate, then either upsell or request a plan.
+    val onPlanMyDay: () -> Unit = {
+        val feature = com.theblankstate.preamble.data.PremiumFeature.AI_AUTO_PLANNING
+        val unlocked = com.theblankstate.preamble.data.FeatureGate.isUnlocked(context, feature)
+        com.theblankstate.preamble.analytics.AnalyticsManager.trackGateEvaluated("AI_AUTO_PLANNING", unlocked) // Req 12.1
+        if (unlocked) {
+            dayPlanViewModel.requestPlan() // Req 11.2
+        } else {
+            // Req 11.1: locked ⇒ show the upsell and do NOT trigger planning.
+            upsellFeature = feature
+            com.theblankstate.preamble.analytics.AnalyticsManager.trackUpsellShown("AI_AUTO_PLANNING") // Req 12.2
+        }
+    }
 
     val isCalendarSyncing by com.theblankstate.preamble.sync.GoogleCalendarManager.isSyncing.collectAsState()
     val isManualSyncing by com.theblankstate.preamble.sync.GoogleCalendarManager.isManualSyncing.collectAsState()
@@ -606,6 +638,11 @@ fun HomeScreen(
                         }
                     },
                     actions = {
+                        // Plan my day — AI auto-scheduling entry point (Track A, gated by Track B).
+                        IconButton(onClick = onPlanMyDay) {
+                            Icon(Icons.Filled.AutoAwesome, contentDescription = "Plan my day")
+                        }
+
                         // Alarm icon
                         IconButton(onClick = { showAlarmSheet = true }) {
                             Icon(Icons.Filled.Alarm, contentDescription = "Alarms")
@@ -2073,6 +2110,40 @@ fun HomeScreen(
             onDismiss = { showFocusSheet = false },
             taskId = focusTaskId,
             taskTitle = focusTaskTitle
+        )
+    }
+
+    // ── Track A: Day-plan review sheet + terminal-state surfacing ──
+    // Shown ONLY in the Review state; nothing is written until Accept (Req 3.1, 3.2, 3.3).
+    (dayPlanState as? com.theblankstate.preamble.viewmodel.DayPlanState.Review)?.let { review ->
+        DayPlanReviewSheet(
+            review = review,
+            onAccept = { dayPlanViewModel.accept() },
+            onDiscard = { dayPlanViewModel.discard() },
+        )
+    }
+
+    // Surface the terminal states as a Toast, then reset to Idle (Req 1.4, 4.4, 5.2, 5.3, 5.5).
+    androidx.compose.runtime.LaunchedEffect(dayPlanState) {
+        val msg = when (dayPlanState) {
+            DayPlanState.NoSchedulableTasks -> "No unscheduled tasks to plan."
+            DayPlanState.CouldNotGenerate -> "Day plan could not be generated."
+            DayPlanState.InsufficientCredits -> "You need more AI credits to plan your day."
+            DayPlanState.Failed -> "The schedule could not be applied."
+            DayPlanState.Applied -> "Day plan applied."
+            else -> null
+        }
+        if (msg != null) {
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+            dayPlanViewModel.reset()
+        }
+    }
+
+    // ── Track B: premium upsell shown when the gate returns locked (Req 11.1, 11.3) ──
+    upsellFeature?.let { feature ->
+        com.theblankstate.preamble.ui.components.PremiumUpsellSheet(
+            feature = feature,
+            onDismissRequest = { upsellFeature = null },
         )
     }
 

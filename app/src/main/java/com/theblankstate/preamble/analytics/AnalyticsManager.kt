@@ -538,6 +538,123 @@ object AnalyticsManager {
     }
 
     // ═══════════════════════════════════════════════════
+    //  REFERRAL FUNNEL — Growth-loop invite tracking
+    // ═══════════════════════════════════════════════════
+
+    /** Referral_Funnel event names (Requirement 6). */
+    const val EVENT_REFERRAL_INVITE_OPENED = "referral-invite-opened"
+    const val EVENT_REFERRAL_INVITE_SHARED = "referral-invite-shared"
+    const val EVENT_REFERRAL_SIGNUP = "referral-signup"
+
+    /**
+     * App opened from an Invite_Link before/at attribution capture (Requirement 6.2).
+     * Fired from the `MainActivity` deep-link path.
+     */
+    fun trackReferralInviteOpened() {
+        captureEvent(event = EVENT_REFERRAL_INVITE_OPENED)
+    }
+
+    /**
+     * Signed-in user shared or copied their Invite_Link from the Referral_CTA
+     * (Requirement 6.1). The CTA itself (task 7.5) calls this on copy/share.
+     *
+     * @param method how the link left the app, e.g. "copy" or "share"
+     */
+    fun trackReferralInviteShared(method: String) {
+        captureEvent(
+            event = EVENT_REFERRAL_INVITE_SHARED,
+            properties = mapOf("method" to method)
+        )
+    }
+
+    /**
+     * A Referral_Attribution was created at signup (Requirement 6.3).
+     * Fired from the first-signup attribution path.
+     */
+    fun trackReferralSignup() {
+        captureEvent(event = EVENT_REFERRAL_SIGNUP)
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  SHAREABLE MOMENTS — Growth-loop share tracking
+    // ═══════════════════════════════════════════════════
+
+    /** Shareable_Moment share event name (Requirement 10.5). */
+    const val EVENT_MOMENT_SHARED = "moment-shared"
+
+    /**
+     * A Shareable_Moment was shared (Requirement 10.5). Fired by the
+     * `ShareableViewModel` after the Share_Sheet is launched successfully.
+     *
+     * @param kind the Shareable_Moment kind, e.g. the `ShareKind` name
+     */
+    fun trackMomentShared(kind: String) {
+        captureEvent(
+            event = EVENT_MOMENT_SHARED,
+            properties = mapOf("kind" to kind)
+        )
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  PLAN-MY-DAY — Track A day-plan tracking
+    // ═══════════════════════════════════════════════════
+
+    /**
+     * A user invoked Plan_My_Day with one or more Schedulable_Tasks (Req 6.1).
+     *
+     * @param count the number of Schedulable_Tasks included in the request
+     */
+    fun trackDayPlanRequested(count: Int) {
+        captureEvent(
+            event = "day_plan_requested",
+            properties = mapOf("schedulable_count" to count)
+        )
+    }
+
+    /** A user accepted a Proposed_Schedule (Req 6.2). */
+    fun trackDayPlanAccepted() {
+        captureEvent(event = "day_plan_accepted")
+    }
+
+    /** A user discarded a Proposed_Schedule (Req 6.3). */
+    fun trackDayPlanDiscarded() {
+        captureEvent(event = "day_plan_discarded")
+    }
+
+    // ═══════════════════════════════════════════════════
+    //  PREMIUM GATING — Track B gate/upsell tracking
+    // ═══════════════════════════════════════════════════
+
+    /**
+     * A Gating_Decision was evaluated for a Premium_Feature at a feature entry
+     * point (Req 12.1).
+     *
+     * @param feature the Premium_Feature being gated
+     * @param unlocked the resulting unlocked state
+     */
+    fun trackGateEvaluated(feature: String, unlocked: Boolean) {
+        captureEvent(
+            event = "gate_evaluated",
+            properties = mapOf(
+                "feature" to feature,
+                "unlocked" to unlocked
+            )
+        )
+    }
+
+    /**
+     * An Upsell was presented for a locked Premium_Feature (Req 12.2).
+     *
+     * @param feature the Premium_Feature whose upsell was shown
+     */
+    fun trackUpsellShown(feature: String) {
+        captureEvent(
+            event = "upsell_shown",
+            properties = mapOf("feature" to feature)
+        )
+    }
+
+    // ═══════════════════════════════════════════════════
     //  CAPTURE HELPER — Single capture point
     // ═══════════════════════════════════════════════════
 

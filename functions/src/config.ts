@@ -114,6 +114,20 @@ export const FIRST_TIME_BONUS    = 20;
 export const AD_COOLDOWN_SECONDS = 300; // 5 minutes between ads
 
 // ---------------------------------------------------------------------------
+// Referral rewards (growth-loops — two-sided referral invites)
+// ---------------------------------------------------------------------------
+
+/** AI credits granted to EACH side of an eligible referred signup. */
+export const REFERRAL_REWARD = 50;
+
+/**
+ * "Genuinely new account" tolerance window. The referred account's creation
+ * time must fall within ±this many ms of the attribution timestamp for the
+ * referral to be eligible (guards against rewarding pre-existing accounts).
+ */
+export const REFERRAL_NEW_ACCOUNT_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
+
+// ---------------------------------------------------------------------------
 // Legacy credit system (Flash only — Mistral now uses token budgets)
 // ---------------------------------------------------------------------------
 

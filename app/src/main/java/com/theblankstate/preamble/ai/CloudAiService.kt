@@ -322,6 +322,105 @@ object CloudAiService {
         }
     }
 
+    /**
+     * Request an AI day plan through the Cloud Function — used by Plan-My-Day (Track A).
+     * Mirrors [parseTask]'s one-shot request/parse shape but is pointed at `aiPlanDay`
+     * and runs under the credit-charged path.
+     *
+     * The returned [PlanDayResult.Success.assignments] are **untrusted** raw `(id, time)`
+     * pairs straight from the model; the caller converts them to `RawAssignment`s and feeds
+     * them to the pure client-side `ScheduleNormalizer`, which is the authority on correctness.
+     *
+     * @return [PlanDayResult.Success] with assignments + model on success,
+     *         [PlanDayResult.InsufficientCredits] for HTTP 402 / `success:false` with that error,
+     *         or `null` on the daily-limit (429), network, or parse error.
+     */
+    suspend fun planDay(
+        schedulable: List<PlanTaskDto>,
+        fixed: List<PlanFixedDto>,
+        date: String,
+        dayStart: String,
+        dayEnd: String,
+    ): PlanDayResult? = withContext(Dispatchers.IO) {
+        val token = runCatching { getAuthToken() }.getOrNull() ?: return@withContext null
+
+        val schedulableJson = JSONArray()
+        for (t in schedulable) {
+            schedulableJson.put(JSONObject().apply {
+                put("id", t.id)
+                put("title", t.title)
+                put("priority", t.priority)
+            })
+        }
+        val fixedJson = JSONArray()
+        for (f in fixed) {
+            fixedJson.put(JSONObject().apply {
+                put("start", f.start)
+                if (!f.end.isNullOrBlank()) put("end", f.end)
+            })
+        }
+
+        val body = JSONObject().apply {
+            put("schedulable", schedulableJson)
+            put("fixed", fixedJson)
+            put("date", date)
+            put("dayStart", dayStart)
+            put("dayEnd", dayEnd)
+            put("appVersionCode", com.theblankstate.preamble.BuildConfig.VERSION_CODE)
+        }
+
+        val request = Request.Builder()
+            .url("$BASE_URL/aiPlanDay")
+            .addHeader("Authorization", "Bearer $token")
+            .post(body.toString().toRequestBody(JSON_MEDIA))
+            .build()
+
+        try {
+            val response = client.newCall(request).execute()
+
+            // Insufficient credits — distinct, recoverable signal (Req 5.5).
+            if (response.code == 402) {
+                Log.w(TAG, "planDay insufficient credits (402)")
+                return@withContext PlanDayResult.InsufficientCredits
+            }
+
+            // Daily limit — map to existing daily-limit message, treat as failure here.
+            if (response.code == 429) {
+                Log.w(TAG, "planDay daily limit reached (429)")
+                return@withContext null
+            }
+
+            if (!response.isSuccessful) {
+                Log.w(TAG, "planDay failed: ${response.code}")
+                return@withContext null
+            }
+
+            val json = JSONObject(response.body!!.string())
+            if (!json.optBoolean("success", false)) {
+                val error = json.optString("error")
+                if (error == "INSUFFICIENT_CREDITS") {
+                    return@withContext PlanDayResult.InsufficientCredits
+                }
+                Log.w(TAG, "planDay error: $error")
+                return@withContext null
+            }
+
+            val assignmentsArr = json.optJSONArray("assignments") ?: JSONArray()
+            val assignments = (0 until assignmentsArr.length()).map { i ->
+                val a = assignmentsArr.getJSONObject(i)
+                PlanAssignmentDto(id = a.optString("id"), time = a.optString("time"))
+            }
+
+            PlanDayResult.Success(
+                assignments = assignments,
+                model = json.optString("model", ""),
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "planDay request failed", e)
+            null
+        }
+    }
+
     private suspend fun processSSEEvent(
         event: String,
         data: String,
@@ -394,3 +493,21 @@ data class CreditBalance(val balance: Int, val totalEarned: Int, val totalSpent:
 data class RewardResult(val creditsAdded: Int, val firstTimeBonus: Int, val newBalance: Int, val adsRemainingToday: Int? = null)
 data class ToolResult(val name: String, val result: String)
 data class ParseTaskResult(val toolCalls: List<CloudToolCall>, val text: String, val model: String)
+
+/** Request DTO: a task eligible for auto-scheduling. */
+data class PlanTaskDto(val id: String, val title: String, val priority: Int)
+
+/** Request DTO: an immovable current-day item. A point commitment has [end] == null. */
+data class PlanFixedDto(val start: String, val end: String? = null)
+
+/** Response DTO: one untrusted `(id, time)` pair exactly as the model proposed it. */
+data class PlanAssignmentDto(val id: String, val time: String)
+
+/** Outcome of a [CloudAiService.planDay] call. `null` is reserved for network/parse/limit errors. */
+sealed interface PlanDayResult {
+    /** Server returned a (still untrusted) proposal to be validated by the client normalizer. */
+    data class Success(val assignments: List<PlanAssignmentDto>, val model: String) : PlanDayResult
+
+    /** Server rejected the request because the user has insufficient AI credits (Req 5.5). */
+    data object InsufficientCredits : PlanDayResult
+}

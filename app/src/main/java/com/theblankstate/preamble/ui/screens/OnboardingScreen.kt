@@ -55,6 +55,10 @@ import com.theblankstate.preamble.data.UserProfileStore
 import com.theblankstate.preamble.data.UserRole
 import com.theblankstate.preamble.data.computeBaselineScore
 import com.theblankstate.preamble.data.computePercentile
+import com.theblankstate.preamble.referral.AttributionDecision
+import com.theblankstate.preamble.referral.PendingReferrerStore
+import com.theblankstate.preamble.referral.ReferralAttribution
+import com.theblankstate.preamble.referral.ReferralRepository
 import com.theblankstate.preamble.ui.theme.ThemePreferences
 import kotlinx.coroutines.launch
 import nl.dionsegijn.konfetti.compose.KonfettiView
@@ -76,6 +80,45 @@ private const val PAGE_TASKS_GOAL = 6
 private const val PAGE_NOTATIONS = 7
 private const val PAGE_PERMISSIONS = 8
 private const val PAGE_REVEAL = 9
+
+/**
+ * Records a referral attribution for a brand-new account (Growth-loops
+ * Requirements 2.2, 2.4, 2.5, 2.6, 6.3).
+ *
+ * Reads and consumes the single-use pending referrer, resolves it to a uid,
+ * and runs the pure [ReferralAttribution.decide]. Only an [AttributionDecision.Attribute]
+ * result writes a pending `/referrals` doc and fires the `referral-signup` event;
+ * every [AttributionDecision.Skipped] outcome leaves account creation untouched
+ * with no write. All work is wrapped so a referral failure can never block sign-up.
+ */
+private suspend fun recordReferralAttribution(
+    context: Context,
+    newAccountUid: String,
+    referralRepository: ReferralRepository = ReferralRepository(),
+) {
+    runCatching {
+        val pendingReferrerId = PendingReferrerStore.consume(context)
+        if (pendingReferrerId.isNullOrBlank()) return  // Req 2.5: nothing retained.
+
+        val resolvedReferrerUid = referralRepository.resolveReferrer(pendingReferrerId)
+        val newAccountPreambleId = UserProfileStore.ensurePreambleId(context)
+
+        val decision = ReferralAttribution.decide(
+            pendingReferrerId = pendingReferrerId,
+            resolvedReferrerUid = resolvedReferrerUid,
+            newAccountUid = newAccountUid,
+            newAccountPreambleId = newAccountPreambleId,
+        )
+
+        if (decision is AttributionDecision.Attribute) {
+            referralRepository.createPendingAttribution(
+                referrerUid = decision.referrerUid,
+                referrerPreambleId = decision.referrerPreambleId,
+            )
+            AnalyticsManager.trackReferralSignup()  // Req 6.3
+        }
+    }
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -180,6 +223,16 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                                         scope.launch { pagerState.animateScrollToPage(PAGE_WELCOME_BACK) }
                                     } else {
                                         // New user → full onboarding
+                                        // Growth-loops Req 2.2/2.4/2.5/2.6/6.3: at first account
+                                        // creation, attribute this account to a retained referrer
+                                        // (if any). Any Skipped decision leaves sign-up unchanged
+                                        // with no /referrals write.
+                                        scope.launch {
+                                            recordReferralAttribution(
+                                                context = context,
+                                                newAccountUid = signInResult.user.uid,
+                                            )
+                                        }
                                         scope.launch { pagerState.animateScrollToPage(PAGE_NAME) }
                                     }
                                 }

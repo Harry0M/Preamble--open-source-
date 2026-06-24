@@ -40,6 +40,7 @@ object AiConfigService {
     private const val K_MEMORY_MODEL = "ai_memory_model"
     private const val K_KILL_SWITCH = "ai_kill_switch"
     private const val K_SMART_DEFAULT = "ai_smart_mode_default"
+    private const val K_PREMIUM_GATING = "premium_gating_enabled"
 
     @Volatile private var initialized = false
 
@@ -67,6 +68,7 @@ object AiConfigService {
                     K_MEMORY_MODEL to BuildConfig.AI_MEMORY_MODEL,
                     K_KILL_SWITCH to false,
                     K_SMART_DEFAULT to true,
+                    K_PREMIUM_GATING to false,
                 )
             ).await()
             rc.fetchAndActivate().await()
@@ -104,6 +106,16 @@ object AiConfigService {
     fun smartModeDefault(): Boolean = runCatching {
         FirebaseRemoteConfig.getInstance().getBoolean(K_SMART_DEFAULT)
     }.getOrDefault(true)
+
+    /**
+     * Master switch for premium feature gating (Track B). Mirrors [killSwitch] exactly:
+     * reads the BOOLEAN via Remote Config and falls back to OFF when the value has not
+     * been fetched, is absent, or cannot be read. Gating only turns ON when the fetched
+     * value is `true` (Req 7.1, 7.2, 7.4).
+     */
+    fun premiumGatingEnabled(): Boolean = runCatching {
+        FirebaseRemoteConfig.getInstance().getBoolean(K_PREMIUM_GATING)
+    }.getOrDefault(false)
 
     /**
      * Resolve the API key for a given provider. Pulls from BuildConfig — never from

@@ -5,6 +5,8 @@ import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import com.theblankstate.preamble.ai.AiConfigService
+import com.theblankstate.preamble.gating.GatingDecision
 import kotlinx.coroutines.tasks.await
 
 /**
@@ -162,8 +164,27 @@ enum class PremiumFeature {
     EXPRESSIVE_APPEARANCE,
     STATS_EXTENDED_RANGE,
     STATS_DEDICATED_SCREEN,
+    AI_AUTO_PLANNING,
+    UNLIMITED_AI_CREDITS,
 }
 
+/**
+ * Android edge for the premium-gating decision.
+ *
+ * Resolves the two real-world inputs at the edge — the effective [EntitlementTier] (with
+ * expiry resolution, Req 9.3) and the remotely fetched master switch
+ * ([AiConfigService.premiumGatingEnabled], OFF on unfetched/absent/read failure, Req 7.1/7.2) —
+ * then delegates the actual policy to the pure [GatingDecision].
+ *
+ * SAFETY (Req 8.3): while the master switch is OFF, [GatingDecision] ignores the tier and
+ * returns unlocked for every feature, so this collapses to the previous always-`true`
+ * behavior — no live paywall and no observable change for existing users. Gating only takes
+ * effect when an owner deliberately turns `premium_gating_enabled` ON.
+ */
 object FeatureGate {
-    fun isUnlocked(ctx: Context, feature: PremiumFeature): Boolean = true
+    fun isUnlocked(ctx: Context, feature: PremiumFeature): Boolean {
+        val tier = EntitlementStore.effectiveTier(ctx)          // Req 9.3 expiry resolution
+        val switch = AiConfigService.premiumGatingEnabled()     // Req 7.1/7.2 remote read, OFF default
+        return GatingDecision.isFeatureUnlocked(feature, tier, switch)
+    }
 }

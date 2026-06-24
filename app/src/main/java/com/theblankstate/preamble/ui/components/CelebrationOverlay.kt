@@ -170,13 +170,29 @@ fun CelebrationOverlay(
                 is TaskViewModel.CelebrationEvent.StreakDay -> "Day ${e.days} locked in."
                 is TaskViewModel.CelebrationEvent.Standard -> ""
             }
+            // The share content for the milestone, if this celebration is shareable
+            // (streak milestone or perfect day — Requirements 8.1, 9.1).
+            val shareContent = when (e) {
+                is TaskViewModel.CelebrationEvent.StreakDay ->
+                    com.theblankstate.preamble.share.ShareableContentMapper.fromStreak(e.days)
+                is TaskViewModel.CelebrationEvent.PerfectDay ->
+                    com.theblankstate.preamble.share.ShareableContentMapper.fromPerfectDay(e.tasks)
+                else -> null
+            }
+            val normalizedPreambleId = remember {
+                com.theblankstate.preamble.data.UserProfileStore.ensurePreambleId(ctx)
+            }
+
             AnimatedVisibility(
                 visible = showBanner,
                 enter = fadeIn(tween(200)),
                 exit = fadeOut(tween(300)),
                 modifier = Modifier.align(Alignment.TopCenter)
             ) {
-                Box(modifier = Modifier.padding(top = 60.dp)) {
+                Column(
+                    modifier = Modifier.padding(top = 60.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(999.dp))
@@ -190,6 +206,21 @@ fun CelebrationOverlay(
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold,
                         )
+                    }
+                    // Offer a share control for shareable milestones (Req 8.1, 9.1).
+                    if (shareContent != null) {
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(Color.Black)
+                                .padding(2.dp)
+                        ) {
+                            ShareMomentChip(
+                                content = shareContent,
+                                normalizedPreambleId = normalizedPreambleId,
+                            )
+                        }
                     }
                 }
             }

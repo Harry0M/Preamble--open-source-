@@ -12,6 +12,9 @@ export { aiChat, aiChatContinue } from "./ai-chat";
 
 // Task parsing (voice, notification, task sheet)
 export { aiParseTask } from "./ai-parse-task";
+
+// Plan-My-Day (Track A — credit-charged one-shot scheduling proposal)
+export { aiPlanDay } from "./ai-plan-day";
 // aiResolveAssignees removed: assignee resolution now runs client-side in
 // AiParsingWorker via DefaultAssigneeResolver (Requirement 9.9).
 
@@ -27,3 +30,9 @@ export { onTaskCreated, onTaskDeleted } from "./counters";
 // Social engagement: nudge callable + kudos reaction trigger (data-only FCM)
 export { sendNudge } from "./nudge";
 export { onCollaborativeTaskReaction } from "./kudos";
+
+// Growth loops: two-sided referral reward trigger (Admin-SDK credit transaction)
+export { onReferralFriendship } from "./referrals";
+
+// Shared circles: membership propagation + delete cascade trigger (Admin-SDK fan-out)
+export { onCirclesMembershipChanged } from "./circles";

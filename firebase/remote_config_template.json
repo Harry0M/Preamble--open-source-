@@ -41,6 +41,13 @@
       },
       "description": "Default value for smart mode (memory + task context injection) on first install.",
       "valueType": "BOOLEAN"
+    },
+    "premium_gating_enabled": {
+      "defaultValue": {
+        "value": "false"
+      },
+      "description": "Master switch for premium feature gating. false = no gating (all features unlocked, production-equivalent). Turn ON deliberately to lock candidate features for non-premium tiers.",
+      "valueType": "BOOLEAN"
     }
   },
   "version": {
