@@ -778,6 +778,57 @@ fun TaskItem(
                     )
                 }
             }
+
+            // Collaborative Send_Status chip (WS3): the Admin-visible status is derived purely
+            // from task.collabSendStatus. null (non-collaborative / n/a) and "sent" intentionally
+            // render no chip to avoid clutter; this does not touch the row's click/completion
+            // behavior or the avatar cluster.
+            val sendStatus = task.collabSendStatus
+            if (sendStatus == "parsing" || sendStatus == "queued" || sendStatus == "sending" || sendStatus == "send_failed") {
+                val isSendError = sendStatus == "send_failed"
+                val sendLabel = when (sendStatus) {
+                    "parsing" -> "Parsing…"
+                    "queued" -> "Queued"
+                    "sending" -> "Sending…"
+                    else -> "Send failed"
+                }
+                val sendIcon = when (sendStatus) {
+                    "queued" -> Icons.Default.Schedule
+                    "send_failed" -> Icons.Default.CloudOff
+                    else -> Icons.Default.Sync
+                }
+                val sendContainer = if (isSendError) MaterialTheme.colorScheme.errorContainer
+                    else MaterialTheme.colorScheme.secondaryContainer
+                val sendContent = if (isSendError) MaterialTheme.colorScheme.onErrorContainer
+                    else MaterialTheme.colorScheme.onSecondaryContainer
+                // M3 Expressive pill chip, consistent with the rollover/snoozed indicators above.
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    color = sendContainer,
+                    modifier = Modifier.padding(top = 4.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                    ) {
+                        Icon(
+                            imageVector = sendIcon,
+                            contentDescription = null,
+                            modifier = Modifier.size(12.dp),
+                            tint = sendContent
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = sendLabel,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium
+                            ),
+                            color = sendContent
+                        )
+                    }
+                }
+            }
         }
         if (task.deadlineTime != null) {
             Box(

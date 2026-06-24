@@ -110,6 +110,12 @@ data class Reminder(
 data class CollabAssigneeStatus(
     val uid: String,
     val name: String,
+    // Member's photo (Req 26), carried in the canonical document so every member can
+    // read photos from the shared doc without an extra lookup. Nullable + defaulted so
+    // it is additive and backward-compatible with documents/rows that predate this field
+    // (it is serialized inside the existing collabAssigneesJson TEXT column — no Room
+    // migration is required).
+    val photoUrl: String? = null,
     val status: String = "pending",
     val isCompleted: Boolean = false,
     val completedTimestamp: Long? = null,
@@ -192,7 +198,8 @@ data class Task(
     val collabAssigneesJson: String? = null,
     val collabAdminUid: String? = null,
     val collabAdminName: String? = null,
-    val reactionsJson: String? = null
+    val reactionsJson: String? = null,
+    val collabSendStatus: String? = null  // null for non-collaborative; else "parsing"/"queued"/"sending"/"sent"/"send_failed"
 ) {
     val isCalendarEvent: Boolean get() = source == "google_calendar"
     val isGoogleTask: Boolean get() = source == "google_tasks"

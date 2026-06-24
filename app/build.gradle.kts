@@ -189,6 +189,9 @@ dependencies {
     testImplementation(libs.jqwik)
     // Allow the existing JUnit 4 tests to run on the JUnit Platform.
     testRuntimeOnly(libs.junit.vintage.engine)
+    // JUnit Platform launcher must be on the test runtime classpath explicitly
+    // (Gradle 9 no longer injects it automatically).
+    testRuntimeOnly(libs.junit.platform.launcher)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

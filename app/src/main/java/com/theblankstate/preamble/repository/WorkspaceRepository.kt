@@ -16,10 +16,12 @@ import com.theblankstate.preamble.collab.CollaborativeDocumentResult
 import com.theblankstate.preamble.collab.CollaborativeMemberOps
 import com.theblankstate.preamble.collab.Leaderboard
 import com.theblankstate.preamble.collab.MemberStatusTransitions
+import com.theblankstate.preamble.collab.OutgoingInvite
 import com.theblankstate.preamble.collab.InviteValidation
 import com.theblankstate.preamble.collab.InviteValidator
 import com.theblankstate.preamble.collab.PreambleId
 import com.theblankstate.preamble.collab.Reactions
+import com.theblankstate.preamble.collab.SocialSearch
 import com.theblankstate.preamble.collab.TaskProjection
 import com.theblankstate.preamble.data.CollabAssigneeStatus
 import com.theblankstate.preamble.data.Task
@@ -41,10 +43,19 @@ data class WorkspaceInvite(
 data class Friend(
     val uid: String = "",
     val name: String = "",
-    val preambleId: String = "",
+    override val preambleId: String = "",
     val addedAt: Long = System.currentTimeMillis(),
-    val productivityPoints: Int = 0
-)
+    val productivityPoints: Int = 0,
+    // Member photo sourced from the counterpart's public directory entry at
+    // invite-accept time (Req 26). Nullable + defaulted so it is additive and
+    // backward-compatible with existing Friend documents that predate this field.
+    val photoUrl: String? = null
+) : SocialSearch.Searchable {
+    // Social_Search matches against the Preamble_ID and the display name (Req 9.2, 9.3);
+    // displayName aliases the friend's name so a Friend row is searchable consistently with
+    // the leaderboard rows without duplicating data.
+    override val displayName: String get() = name
+}
 
 /**
  * Firestore gateway for friendships and collaborative tasks.
@@ -151,10 +162,26 @@ class WorkspaceRepository(
             senderName = senderName,
             senderPreambleId = senderPreambleId
         )
-        db.collection(USERS).document(targetUid)
+
+        // The successful write is a single batch that creates BOTH the recipient's
+        // incoming Friend_Request and the sender mirror at
+        // /users/{senderUid}/outgoingInvites/{targetUid} (social-hub-redesign Req 4.1).
+        // Because every validation gate above runs before this commit, a rejected or
+        // failed send creates neither document (Req 5.4).
+        val incomingRef = db.collection(USERS).document(targetUid)
             .collection(INVITES).document(uid)
-            .set(invite)
-            .await()
+        val mirrorRef = db.collection(USERS).document(uid)
+            .collection(OUTGOING_INVITES).document(targetUid)
+        val mirror = OutgoingInvite(
+            targetUid = targetUid,
+            targetPreambleId = normalizedId,
+            timestamp = System.currentTimeMillis()
+        )
+
+        val batch = db.batch()
+        batch.set(incomingRef, invite)
+        batch.set(mirrorRef, mirror)
+        batch.commit().await()
     }.onFailure { Log.e(TAG, "Failed to send invite", it) }
 
     suspend fun acceptInvite(
@@ -164,6 +191,15 @@ class WorkspaceRepository(
     ): Result<Unit> = runCatching<Unit> {
         val uid = requireCurrentUid()
         require(invite.senderUid.isNotBlank() && invite.senderUid != uid) { "Invalid invite" }
+
+        // Read each counterpart's photoUrl from the public directory so the reciprocal
+        // Friend records carry the member photo (Req 26). The invite does not carry a
+        // photoUrl, so the sender's is looked up via their Preamble_ID directory entry
+        // (/preambleIds/{ID}, written with photoUrl by syncToFirestore). The current
+        // user's own photoUrl comes from their own directory entry. Both lookups are
+        // best-effort: a missing entry or absent photoUrl simply leaves photoUrl null.
+        val senderPhotoUrl = resolvePreambleId(invite.senderPreambleId)?.get("photoUrl") as? String
+        val myPhotoUrl = resolvePreambleId(myPreambleId)?.get("photoUrl") as? String
 
         val now = System.currentTimeMillis()
         val batch = db.batch()
@@ -180,7 +216,8 @@ class WorkspaceRepository(
                 uid = invite.senderUid,
                 name = invite.senderName,
                 preambleId = invite.senderPreambleId,
-                addedAt = now
+                addedAt = now,
+                photoUrl = senderPhotoUrl
             )
         )
         batch.set(
@@ -189,7 +226,8 @@ class WorkspaceRepository(
                 uid = uid,
                 name = myName.trim().ifBlank { "Preamble user" },
                 preambleId = myPreambleId.trim().uppercase(),
-                addedAt = now
+                addedAt = now,
+                photoUrl = myPhotoUrl
             )
         )
         batch.delete(inviteRef)
@@ -203,6 +241,29 @@ class WorkspaceRepository(
             .delete()
             .await()
     }.onFailure { Log.e(TAG, "Failed to decline invite", it) }
+
+    /**
+     * Withdraw an Outgoing_Invite the signed-in user has sent (social-hub-redesign
+     * Req 4.1). Deletes both the incoming Friend_Request stored under the recipient
+     * (`/users/{targetUid}/invites/{senderUid}`) and the sender mirror
+     * (`/users/{senderUid}/outgoingInvites/{targetUid}`) in a single batch so the
+     * invite disappears from both sides together.
+     */
+    suspend fun withdrawInvite(targetUid: String): Result<Unit> = runCatching<Unit> {
+        val uid = requireCurrentUid()
+        require(targetUid.isNotBlank() && targetUid != uid) { "Invalid invite" }
+
+        val batch = db.batch()
+        batch.delete(
+            db.collection(USERS).document(targetUid)
+                .collection(INVITES).document(uid)
+        )
+        batch.delete(
+            db.collection(USERS).document(uid)
+                .collection(OUTGOING_INVITES).document(targetUid)
+        )
+        batch.commit().await()
+    }.onFailure { Log.e(TAG, "Failed to withdraw invite", it) }
 
     suspend fun removeFriend(friendUid: String): Result<Unit> = runCatching<Unit> {
         val uid = requireCurrentUid()
@@ -246,6 +307,40 @@ class WorkspaceRepository(
                     document.toObject(WorkspaceInvite::class.java)?.copy(id = document.id)
                 }
                 trySend(invites)
+            }
+
+        awaitClose(listener::remove)
+    }
+
+    /**
+     * Observe the signed-in user's mirrored Outgoing_Invites at
+     * `/users/{senderUid}/outgoingInvites` (social-hub-redesign Req 4.1).
+     *
+     * Follows the same snapshot-listener pattern as [getPendingInvitesFlow]: a
+     * listener error closes the flow so the collecting ViewModel can `catch` it,
+     * retain its last-loaded list, and surface a non-fatal message without
+     * crashing the surface.
+     */
+    fun getOutgoingInvitesFlow(): Flow<List<OutgoingInvite>> = callbackFlow {
+        val uid = currentUid
+        if (uid == null) {
+            trySend(emptyList())
+            close()
+            return@callbackFlow
+        }
+
+        val listener = db.collection(USERS).document(uid).collection(OUTGOING_INVITES)
+            .orderBy("timestamp", Query.Direction.DESCENDING)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "Outgoing invite listener failed", error)
+                    close(error)
+                    return@addSnapshotListener
+                }
+                val outgoing = snapshot?.documents.orEmpty().mapNotNull { document ->
+                    document.toObject(OutgoingInvite::class.java)
+                }
+                trySend(outgoing)
             }
 
         awaitClose(listener::remove)
@@ -363,16 +458,20 @@ class WorkspaceRepository(
     suspend fun assignTaskToMultiple(
         assignees: List<Friend>,
         task: Task,
-        adminName: String
+        adminName: String,
+        adminPhotoUrl: String? = null
     ): Result<Unit> = runCatching<Unit> {
         val uid = requireCurrentUid()
         // Build + set the single canonical document (Requirement 6.3). createCollaborativeDocument
         // enforces all invariants and rejects the no-friend (6.4) and oversized (6.5, 6.6) cases.
+        // Each member's photoUrl (Req 26) is carried into the canonical doc: the admin's own from
+        // [adminPhotoUrl] (UserProfile) and each assignee's from the Friend record.
         val document = createCollaborativeDocument(
             adminUid = uid,
             adminName = adminName,
             assignees = assignees,
-            task = task
+            task = task,
+            adminPhotoUrl = adminPhotoUrl
         )
         db.collection(COLLABORATIVE_TASKS).document(task.id)
             .set(document)
@@ -397,7 +496,8 @@ class WorkspaceRepository(
      */
     suspend fun writeFinalizedCollaborativeAttributes(
         task: Task,
-        assignees: List<Friend>
+        assignees: List<Friend>,
+        adminPhotoUrl: String? = null
     ): Result<Unit> = runCatching<Unit> {
         val uid = requireCurrentUid()
         require(task.collabAdminUid == uid) { "Only the task admin can finalize task details" }
@@ -424,7 +524,8 @@ class WorkspaceRepository(
                         adminUid = uid,
                         adminName = task.collabAdminName ?: "Preamble user",
                         assignees = assignees,
-                        task = task
+                        task = task,
+                        adminPhotoUrl = adminPhotoUrl
                     )
                 )
                 .await()
@@ -456,7 +557,7 @@ class WorkspaceRepository(
         } catch (exception: Exception) {
             val assignees = task.collabAssignees
                 .filter { it.uid.isNotBlank() && it.uid != uid }
-                .map { Friend(uid = it.uid, name = it.name) }
+                .map { Friend(uid = it.uid, name = it.name, photoUrl = it.photoUrl) }
                 .distinctBy(Friend::uid)
             if (assignees.isEmpty()) throw exception
 
@@ -990,17 +1091,19 @@ class WorkspaceRepository(
         adminUid: String,
         adminName: String,
         assignees: List<Friend>,
-        task: Task
+        task: Task,
+        adminPhotoUrl: String? = null
     ): Map<String, Any?> {
         val result = CollaborativeDocument.build(
             taskId = task.id,
             adminUid = adminUid,
             adminName = adminName,
-            assignees = assignees.map { AssigneeRef(uid = it.uid, name = it.name) },
+            assignees = assignees.map { AssigneeRef(uid = it.uid, name = it.name, photoUrl = it.photoUrl) },
             taskPayload = taskPayload(task),
             now = System.currentTimeMillis(),
             adminCompleted = task.isCompleted,
-            adminCompletedTimestamp = task.completedTimestamp
+            adminCompletedTimestamp = task.completedTimestamp,
+            adminPhotoUrl = adminPhotoUrl
         )
         return when (result) {
             is CollaborativeDocumentResult.Created -> result.document
@@ -1084,6 +1187,7 @@ class WorkspaceRepository(
         const val USERS = "users"
         const val FRIENDS = "friends"
         const val INVITES = "invites"
+        const val OUTGOING_INVITES = "outgoingInvites"
         const val PREAMBLE_IDS = "preambleIds"
         const val COLLABORATIVE_TASKS = "collaborativeTasks"
         const val LEADERBOARD = "leaderboard"

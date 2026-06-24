@@ -8,8 +8,10 @@ import android.speech.SpeechRecognizer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
@@ -19,6 +21,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,6 +50,10 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.graphics.shapes.CornerRounding
+import androidx.graphics.shapes.Morph
+import androidx.graphics.shapes.RoundedPolygon
+import androidx.graphics.shapes.star
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -72,6 +80,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -107,7 +117,6 @@ import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.PredefinedTags
 import com.theblankstate.preamble.repository.Friend
 import com.theblankstate.preamble.ui.components.AddTaskSheet
-import com.theblankstate.preamble.ui.components.DayPlanReviewSheet
 import com.theblankstate.preamble.ui.components.HapticConfig
 import com.theblankstate.preamble.ui.components.LocalHapticConfig
 import com.theblankstate.preamble.ui.components.TaskDetailBottomSheet
@@ -239,6 +248,9 @@ fun HomeScreen(
             factory = com.theblankstate.preamble.viewmodel.DayPlanViewModel.Factory(planApp.repository, planTaskViewModel)
         )
     val dayPlanState by dayPlanViewModel.state.collectAsState()
+    // Drives the full-screen Planning_Screen overlay (Req 18.1). Owned here; the alive FAB
+    // entry point that sets this true is wired by task 13.2.
+    var showPlanningScreen by remember { mutableStateOf(false) }
     // Non-null while a locked feature's upsell is being shown (Req 11.1, 11.3).
     var upsellFeature by remember { mutableStateOf<com.theblankstate.preamble.data.PremiumFeature?>(null) }
 
@@ -248,9 +260,11 @@ fun HomeScreen(
         val unlocked = com.theblankstate.preamble.data.FeatureGate.isUnlocked(context, feature)
         com.theblankstate.preamble.analytics.AnalyticsManager.trackGateEvaluated("AI_AUTO_PLANNING", unlocked) // Req 12.1
         if (unlocked) {
-            dayPlanViewModel.requestPlan() // Req 11.2
+            // Req 20.3 / 18.1: open the Planning_Screen immediately AND kick off the request.
+            showPlanningScreen = true
+            dayPlanViewModel.requestPlan()
         } else {
-            // Req 11.1: locked ⇒ show the upsell and do NOT trigger planning.
+            // Req 20.1, 20.2: locked ⇒ show the upsell and do NOT open planning or call planDay.
             upsellFeature = feature
             com.theblankstate.preamble.analytics.AnalyticsManager.trackUpsellShown("AI_AUTO_PLANNING") // Req 12.2
         }
@@ -289,6 +303,11 @@ fun HomeScreen(
     // Fetch friends for the face pile
     val workspaceViewModel: com.theblankstate.preamble.ui.viewmodels.WorkspaceViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
     val friends by workspaceViewModel.friends.collectAsState()
+    // Source the user's Circles for the create-sheet Recipient_Picker (Requirements 28.1, 30.1).
+    // CircleViewModel is an AndroidViewModel(application), so the default factory supplies the
+    // Application and no explicit factory is needed (mirrors how WorkspaceViewModel is obtained).
+    val circleViewModel: com.theblankstate.preamble.ui.viewmodels.CircleViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val circles by circleViewModel.circles.collectAsState()
     // Collected so the optimistic nudged/cooldown state in the detail sheets recomposes
     // when a nudge is sent (social-engagement Requirements 10.4, 12.2).
     val nudgedTargets by workspaceViewModel.nudgedTargets.collectAsState()
@@ -638,11 +657,6 @@ fun HomeScreen(
                         }
                     },
                     actions = {
-                        // Plan my day — AI auto-scheduling entry point (Track A, gated by Track B).
-                        IconButton(onClick = onPlanMyDay) {
-                            Icon(Icons.Filled.AutoAwesome, contentDescription = "Plan my day")
-                        }
-
                         // Alarm icon
                         IconButton(onClick = { showAlarmSheet = true }) {
                             Icon(Icons.Filled.Alarm, contentDescription = "Alarms")
@@ -748,6 +762,10 @@ fun HomeScreen(
                         )
                     }
                     }
+
+                    // Plan my day — alive morphing FAB (Track A entry point, gated by Track B).
+                    // Req 19.1, 19.2: a Material 3 Expressive morphing-shape FAB that feels alive.
+                    PlanMyDayFab(onClick = onPlanMyDay)
 
                     // Add task FAB
                     ExtendedFloatingActionButton(
@@ -1608,6 +1626,38 @@ fun HomeScreen(
         )
     }
 
+    // ── Track A: full-screen Plan-My-Day overlay (Req 18) ──
+    // State-driven overlay following the same pattern as the Friends/Circles full-screen
+    // overlays (AnimatedVisibility + BackHandler). Opens immediately while Loading and renders
+    // every DayPlanState in place. Closing it resets the ViewModel to Idle. The alive FAB that
+    // sets `showPlanningScreen = true` is wired by task 13.2.
+    AnimatedVisibility(
+        visible = showPlanningScreen,
+        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it }),
+        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { it }),
+    ) {
+        androidx.activity.compose.BackHandler {
+            showPlanningScreen = false
+            dayPlanViewModel.reset()
+        }
+        val closePlanning: () -> Unit = {
+            showPlanningScreen = false
+            dayPlanViewModel.reset()
+        }
+        com.theblankstate.preamble.ui.screens.PlanningScreen(
+            state = dayPlanState,
+            onAccept = { dayPlanViewModel.accept() },
+            onDiscard = {
+                dayPlanViewModel.discard()
+                showPlanningScreen = false
+            },
+            onRetry = { dayPlanViewModel.retry() },
+            onSubmitAdjustment = { text -> dayPlanViewModel.submitAdjustment(text) },
+            onClose = closePlanning,
+            modifier = Modifier.fillMaxSize(),
+        )
+    }
+
     if (showAddSheet) {
         AddTaskSheet(
             onDismiss = { showAddSheet = false },
@@ -1624,7 +1674,8 @@ fun HomeScreen(
                 onAddTaskPendingParse(rawText, date, deadlineTime, syncToGoogle, syncToCalendar, priority, description, tags, subtasks, isHabit, isEvent, eventIcon, eventColor, recurrenceType, recurrenceInterval, recurrenceDays, recurrenceEndDate, userOverrides, assignedToFriends)
                 showAddSheet = false
             } } else null,
-            friends = friends
+            friends = friends,
+            circles = circles
         )
     }
 
@@ -2113,32 +2164,6 @@ fun HomeScreen(
         )
     }
 
-    // ── Track A: Day-plan review sheet + terminal-state surfacing ──
-    // Shown ONLY in the Review state; nothing is written until Accept (Req 3.1, 3.2, 3.3).
-    (dayPlanState as? com.theblankstate.preamble.viewmodel.DayPlanState.Review)?.let { review ->
-        DayPlanReviewSheet(
-            review = review,
-            onAccept = { dayPlanViewModel.accept() },
-            onDiscard = { dayPlanViewModel.discard() },
-        )
-    }
-
-    // Surface the terminal states as a Toast, then reset to Idle (Req 1.4, 4.4, 5.2, 5.3, 5.5).
-    androidx.compose.runtime.LaunchedEffect(dayPlanState) {
-        val msg = when (dayPlanState) {
-            DayPlanState.NoSchedulableTasks -> "No unscheduled tasks to plan."
-            DayPlanState.CouldNotGenerate -> "Day plan could not be generated."
-            DayPlanState.InsufficientCredits -> "You need more AI credits to plan your day."
-            DayPlanState.Failed -> "The schedule could not be applied."
-            DayPlanState.Applied -> "Day plan applied."
-            else -> null
-        }
-        if (msg != null) {
-            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
-            dayPlanViewModel.reset()
-        }
-    }
-
     // ── Track B: premium upsell shown when the gate returns locked (Req 11.1, 11.3) ──
     upsellFeature?.let { feature ->
         com.theblankstate.preamble.ui.components.PremiumUpsellSheet(
@@ -2162,7 +2187,7 @@ fun HomeScreen(
 
 @Composable
 fun BottomWaveAnimation(modifier: Modifier = Modifier, color: Color) {
-    val transition = rememberInfiniteTransition(label = "wave")
+    val transition = rememberInfiniteTransition(label = "bottomWave")
     val phase by transition.animateFloat(
         initialValue = 0f,
         targetValue = (2 * Math.PI).toFloat(),
@@ -2267,7 +2292,7 @@ private fun IncomingSection(
 
         incoming.forEach { task ->
             key(task.id) {
-                IncomingSectionRow(
+                IncomingTaskCard(
                     task = task,
                     onAccept = { onAccept(task) },
                     onDecline = { onDecline(task) }
@@ -2278,67 +2303,196 @@ private fun IncomingSection(
 }
 
 /**
- * A single Incoming_Section row: the task title alongside an inline Accept and Decline control pair
- * (Requirement 19.2). Styling mirrors the existing Home card/button conventions.
+ * An Incoming_Task_Card (Requirement 27): a pending incoming Collaborative_Task assignment rendered
+ * as a normal task card so the user can read its full details, paired with inline Accept / decline
+ * controls.
+ *
+ * The card body reuses the normal [TaskItem] in a non-interactive presentation (`isEditable = false`,
+ * no-op toggle/delete, no detail) so the incoming card and a normal task card render the SAME
+ * metadata layout — title, deadline time formatted exactly as `TaskItem` formats it, tags, and the
+ * priority circle — and therefore cannot drift (27.2). An "Assigned by" attribution is retained
+ * from the previous minimal row.
+ *
+ * Controls (27.3, 27.4, 27.5): a wide filled Accept button (`Modifier.weight(1f)`) is measurably
+ * wider than the compact cross (`X`) decline icon button. Both are Material 3 Expressive — alive
+ * shape and a press-driven scale motion — consistent with the Social Hub. Accept/Decline call the
+ * existing optimistic [WorkspaceViewModel.acceptAssignment] / declineAssignment wiring (27.6–27.8).
  */
 @Composable
-private fun IncomingSectionRow(
+private fun IncomingTaskCard(
     task: Task,
     onAccept: () -> Unit,
     onDecline: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Card(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
         ),
         modifier = modifier.fillMaxWidth()
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                .padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            // Reuse the normal task card body so the incoming card and a normal card cannot drift.
+            // Non-interactive: isEditable = false disables the completion toggle, suppresses the
+            // overflow menu, and (with no onDetail) disables the row click — it reads as a normal
+            // card without acting as one.
+            TaskItem(
+                task = task,
+                onToggle = {},
+                onDelete = {},
+                isEditable = false
+            )
+
+            // Attribution preserved from the prior minimal Incoming_Section row.
+            if (!task.assignedByName.isNullOrBlank()) {
                 Text(
-                    text = task.title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    text = "Assigned by ${task.assignedByName}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 8.dp)
                 )
-                if (!task.assignedByName.isNullOrBlank()) {
-                    Text(
-                        text = "Assigned by ${task.assignedByName}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
 
             Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Wide Accept control — Material 3 Expressive: alive press-scale motion.
+                val acceptInteraction = remember { MutableInteractionSource() }
+                val acceptPressed by acceptInteraction.collectIsPressedAsState()
+                val acceptScale by animateFloatAsState(
+                    targetValue = if (acceptPressed) 0.96f else 1f,
+                    animationSpec = spring(dampingRatio = 0.45f, stiffness = 380f),
+                    label = "acceptScale"
+                )
                 Button(
                     onClick = onAccept,
-                    shape = RoundedCornerShape(12.dp),
+                    interactionSource = acceptInteraction,
+                    shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .scale(acceptScale)
+                ) {
+                    Text(
+                        text = "Accept",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold
                     )
-                ) {
-                    Text("Accept", style = MaterialTheme.typography.labelLarge)
                 }
-                OutlinedButton(
+
+                // Compact cross (X) decline control — measurably narrower than Accept.
+                val declineInteraction = remember { MutableInteractionSource() }
+                val declinePressed by declineInteraction.collectIsPressedAsState()
+                val declineScale by animateFloatAsState(
+                    targetValue = if (declinePressed) 0.9f else 1f,
+                    animationSpec = spring(dampingRatio = 0.45f, stiffness = 380f),
+                    label = "declineScale"
+                )
+                FilledTonalIconButton(
                     onClick = onDecline,
-                    shape = RoundedCornerShape(12.dp)
+                    interactionSource = declineInteraction,
+                    shape = RoundedCornerShape(16.dp),
+                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    ),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .scale(declineScale)
                 ) {
-                    Text("Decline", style = MaterialTheme.typography.labelLarge)
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Decline"
+                    )
                 }
             }
         }
+    }
+}
+
+/**
+ * Plan_My_Day_FAB — the alive Material 3 Expressive entry point for Track A (Req 19.1, 19.2).
+ *
+ * Replaces the old static top-bar `AutoAwesome` icon (Req 19.3). It feels "alive" via a
+ * continuously morphing-and-rotating shape (a star ↔ rounded-hexagon [Morph] clipped through
+ * the shared [MorphPolygonShape]) plus a gentle expressive scale pulse, echoing the lime hero
+ * treatment used by [PlanningScreen] and the Social Hub. Tapping it runs the Track B gate via
+ * the host's `onClick`.
+ */
+@Composable
+private fun PlanMyDayFab(onClick: () -> Unit) {
+    val lime = Color(0xFFD4FF70) // Vibrant Lime Green hero accent, consistent with PlanningScreen
+
+    val morph = remember {
+        Morph(
+            start = RoundedPolygon.star(
+                numVerticesPerRadius = 8,
+                innerRadius = 0.72f,
+                rounding = CornerRounding(0.22f),
+            ),
+            end = RoundedPolygon(
+                numVertices = 6,
+                rounding = CornerRounding(0.32f),
+            ),
+        )
+    }
+
+    val transition = rememberInfiniteTransition(label = "planFab")
+    val morphProgress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "planFabMorph",
+    )
+    val rotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(9000),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "planFabRotation",
+    )
+    val pulse by transition.animateFloat(
+        initialValue = 0.96f,
+        targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "planFabPulse",
+    )
+
+    Box(
+        modifier = Modifier
+            .size(56.dp)
+            .scale(pulse)
+            .clip(MorphPolygonShape(morph, morphProgress, rotation))
+            .background(lime)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.AutoAwesome,
+            contentDescription = "Plan my day",
+            tint = Color.Black,
+            modifier = Modifier.size(26.dp),
+        )
     }
 }

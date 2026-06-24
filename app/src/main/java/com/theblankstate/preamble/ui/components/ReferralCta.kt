@@ -45,19 +45,27 @@ private const val REFERRAL_REWARD = 50
 /**
  * The Referral_CTA surfaced on the friends/workspace surface (Growth-loops Requirement 1).
  *
- * States that BOTH the inviting user and the invited user receive the 50-credit
- * Referral_Reward (Requirements 1.1, 1.5), displays the signed-in user's
- * [inviteLink] (Requirement 1.2), and exposes a Copy control (clipboard +
- * confirmation snackbar — Requirement 1.3) and a Share control (`ACTION_SEND`
- * text carrying the link — Requirement 1.4). Both controls fire
+ * Displays the signed-in user's [inviteLink] (Requirement 1.2), and exposes a Copy
+ * control (clipboard + confirmation snackbar — Requirement 1.3) and a Share control
+ * (`ACTION_SEND` text carrying the link — Requirement 1.4). Both controls fire
  * `referral-invite-shared` through [AnalyticsManager] (Requirement 6.1).
  *
+ * The reward-statement copy is gated on [rewardsEnabled] (social-hub-redesign
+ * Requirement 8.2): while the Referral_Reward is disabled in Development_Mode the
+ * CTA does NOT state that both sides receive AI credits, and the invite/share flow
+ * keeps working unchanged. Flipping [rewardsEnabled] back to `true` restores the
+ * two-sided 50-credit reward messaging (Requirements 1.1, 1.5), so the change is
+ * reversible through configuration (Requirement 8.4).
+ *
  * @param inviteLink the user's own Invite_Link, built by `WorkspaceViewModel.buildInviteLink()`.
+ * @param rewardsEnabled whether the two-sided Referral_Reward is active; mirrors the
+ *   server-side `REFERRAL_REWARDS_ENABLED` gate and defaults to `false` in Development_Mode.
  */
 @Composable
 fun ReferralCta(
     inviteLink: String,
     modifier: Modifier = Modifier,
+    rewardsEnabled: Boolean = false,
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -96,8 +104,15 @@ fun ReferralCta(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    // Reward statement covering both sides + the amount (Req 1.1, 1.5).
-                    text = "You both get $REFERRAL_REWARD credits when they join",
+                    // Reward statement is gated on the Referral_Reward being enabled
+                    // (social-hub-redesign Req 8.2): while disabled, omit the credits
+                    // claim and use neutral copy; when enabled, state both sides earn
+                    // the 50-credit reward (Req 1.1, 1.5).
+                    text = if (rewardsEnabled) {
+                        "You both get $REFERRAL_REWARD credits when they join"
+                    } else {
+                        "Share Preamble with your friends"
+                    },
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -136,12 +151,15 @@ fun ReferralCta(
             Button(
                 onClick = {
                     // ACTION_SEND text carrying the link (Req 1.4), funnel (Req 6.1).
+                    // The credits claim is gated on the reward being enabled (Req 8.2).
+                    val shareText = if (rewardsEnabled) {
+                        "Join me on Preamble and we both get $REFERRAL_REWARD AI credits! $inviteLink"
+                    } else {
+                        "Join me on Preamble! $inviteLink"
+                    }
                     val shareIntent = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
-                        putExtra(
-                            Intent.EXTRA_TEXT,
-                            "Join me on Preamble and we both get $REFERRAL_REWARD AI credits! $inviteLink",
-                        )
+                        putExtra(Intent.EXTRA_TEXT, shareText)
                     }
                     AnalyticsManager.trackReferralInviteShared("share")
                     context.startActivity(Intent.createChooser(shareIntent, "Share invite link"))

@@ -169,6 +169,69 @@ Each step builds on the previous ones and ends by wiring the new logic into the 
 - [x] 9. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass, ask the user if questions arise.
 
+## Tasks — Track A Iteration 2: WS5 Plan-My-Day overhaul
+
+These tasks extend Track A (Requirements 13–20) per the "Design — Track A Iteration 2: WS5 Plan-My-Day overhaul" section. They are **additive**: the existing pure `ScheduleNormalizer` stays the correctness authority and is upgraded to be time-aware and to surface unplaced tasks, while the new clock/date/replanning/UX work is layered on the existing `DayPlanService`/`DayPlanViewModel`/`HomeScreen` edges. Track B (Requirements 7–12) is unchanged; the new `Planning_Screen` keeps the existing `FeatureGate.isUnlocked(AI_AUTO_PLANNING)` gate. Implementation language is **Kotlin** (Android client + pure `planner` package) and **TypeScript (Node)** for the `aiPlanDay` Cloud Function, consistent with the existing plan.
+
+- [x] 10. Upgrade the planner pure core to be time-aware and partition unplaced tasks
+  - [x] 10.1 Add `PlanClock`, `DayWindow`, and the time-aware `ScheduleNormalizer` changes
+    - In `com.theblankstate.preamble.planner` (still no Android/Firebase/AI imports): add the `PlanClock` `fun interface` with `now(): java.time.LocalDateTime` and `PlanClock.system()` (device clock + zone) so "now" is injected, not globally captured (13.1, 13.7)
+    - Add `DayWindow` with `SCHEDULE_LEAD_TIME_MIN = 10` and `effectiveWindowStart(workingWindowStartMin, nowMinuteOfDay, leadTimeMin = SCHEDULE_LEAD_TIME_MIN): Int` returning `max(workingWindowStartMin, nowMinuteOfDay + leadTimeMin.coerceIn(0,30)).coerceIn(0, 24*60)` (lead time clamped to 0..30) (13.2, 13.4)
+    - Add `earliestStartMinute: Int` to `DayPlanInput` (= `Effective_Window_Start`), keeping `dayStartMinute` as the configured working-window start
+    - Add `unplaced: List<SchedulableTask> = emptyList()` to `ProposedSchedule`
+    - Change `ScheduleNormalizer.normalize` so candidate-slot generation only emits a slot when `slot >= input.earliestStartMinute && slot in 0..1439 && slot !in reserved` (floors all proposals at `Effective_Window_Start`, so the model can never push a start into the past), and so schedulable tasks are partitioned into `assignments ∪ unplaced` — every schedulable id appears exactly once across the two (surplus tasks that cannot fit the remaining window land in `unplaced` instead of being silently dropped)
+    - _Requirements: 13.2, 13.3, 13.4, 16.2_
+
+  - [ ]* 10.2 Write property test for time-aware normalization
+    - **Property 13: Time-aware normalization never schedules in the past, never conflicts, never duplicates, and partitions every task**
+    - Add to `app/src/test/java/com/theblankstate/preamble/planner/`, tag `// Feature: ai-planning-and-gating, Property 13: Time-aware normalization never schedules in the past, never conflicts, never duplicates, and partitions every task`, `@Property(tries = 100)` minimum; generators produce random injected `PlanClock` values, working windows, lead-times in `0..30`, point/ranged `FixedCommitment`s, schedulable counts that deliberately exceed available slots, and adversarial `RawAssignment`s (past, duplicate, unknown-id, malformed, out-of-window, reserved-slot); assert (a) no time `< earliestStartMinute` or `> dayEndMinute`, (b) no time in any reserved minute-set, (c) pairwise-distinct times, (d) every schedulable id appears exactly once across `assignments ∪ unplaced`, and (e) identical inputs yield an identical result
+    - **Validates: Requirements 13.2, 13.3, 13.7, 15.3, 16.2, 16.3, 16.4**
+
+- [x] 11. Thread deterministic time/date through the orchestration and Cloud AI path
+  - [x] 11.1 Inject `PlanClock` into `DayPlanService.gatherInput` and short-circuit when no time remains
+    - Give `DayPlanService` a `PlanClock` (default `PlanClock.system()`); in `gatherInput`, read `clock.now()`, derive `nowMinuteOfDay = hour*60 + minute`, compute `earliestStartMinute = DayWindow.effectiveWindowStart(dayStartMinute, nowMinuteOfDay)`, set it on `DayPlanInput`, and include the current `date` and `dayOfWeek` so the ViewModel can pass them to `aiPlanDay` as planning context (13.1, 13.5)
+    - When `earliestStartMinute >= dayEndMinute`, short-circuit to the new `DayPlanState.NoRemainingTimeToday` with **no** AI call (13.6)
+    - _Requirements: 13.1, 13.5, 13.6_
+
+  - [x] 11.2 Extend `aiPlanDay` and `CloudAiService.planDay` with context, realism, and replanning fields
+    - In `functions/src/ai-plan-day.ts`: extend the request schema with `context { dayOfWeek, nowTime }`, set `dayStart = Effective_Window_Start`, add per-task `description`/`tags`, accept optional `priorAssignments` + `adjustment`, and accept a reserved `weather` field left `null` for MVP; extend `buildPlanPrompt` to pass `description`/`tags` and instruct the model to infer a `Task_Kind_Estimate`, schedule only what realistically fits the actual remaining window, and leave the rest unplaced rather than inventing collisions; keep model selection server-side via `getAiConfig(db)` (Mistral branch unchanged)
+    - In `ai/CloudAiService.kt`: extend `planDay(...)` to serialize the new `context`, `dayStart = Effective_Window_Start`, per-task `description`/`tags`, and optional `priorAssignments`/`adjustment` with `org.json`, passing all task content (any language/script) unmodified
+    - _Requirements: 13.5, 15.2, 16.1, 17.1_
+
+  - [ ]* 11.3 Write example tests for the time/date edge
+    - With a fixed injected `PlanClock` and stubbed `CloudAiService`: `DayWindow.effectiveWindowStart` boundaries (now before window start, now after, lead-time clamping at 0 and 30) and `SCHEDULE_LEAD_TIME_MIN` within `0..30` (13.2, 13.4); a late clock ⇒ `NoRemainingTimeToday` with `planDay` not called (13.6); the request payload carries `context` date/day/time and `dayStart == Effective_Window_Start` (13.5); MVP makes no weather/location call yet still produces a plan (14.2–14.4)
+    - _Requirements: 13.2, 13.4, 13.5, 13.6, 14.2, 14.3, 14.4_
+
+- [x] 12. Add retryable error states and conversational replanning to the ViewModel
+  - [x] 12.1 Add `NoRemainingTimeToday` and retryable `Error` states and remap failures
+    - Extend the `DayPlanState` sealed interface with `data object NoRemainingTimeToday` (13.6) and a retryable `data object Error` (18.4); in `requestPlan()`, remap `TimeoutCancellationException`, the generic exception catch, and the `result == null` (network/HTTP 500/parse) branches to `DayPlanState.Error` **instead of** `CouldNotGenerate`, reserving `CouldNotGenerate` for a valid-but-unusable model response; add `retry()` that re-invokes `requestPlan()`
+    - _Requirements: 18.4, 18.5_
+
+  - [x] 12.2 Implement `DayPlanViewModel.submitAdjustment` and the post-apply path
+    - Add `submitAdjustment(text)` that is a no-op unless the current state is `Review` (15.1); it re-enters `Loading`, calls `CloudAiService.planDay(...)` with the prior assignments + adjustment text under the same `withTimeout(PLAN_TIMEOUT_MS)`, feeds the result through the **same** `ScheduleNormalizer.normalize` with the **same** `DayPlanInput` (including `earliestStartMinute`) so the `Revised_Schedule` obeys Req 13/16 (15.2, 15.3), and on `Valid` re-enters `Review` writing nothing until `accept()` (15.4); when the response is usable but the adjustment cannot be fully honored (e.g. tasks remain `unplaced`), re-enter `Review` carrying an `advisory` while leaving the prior schedule reviewable (15.5); support `submitAdjustment` after `Applied` so a `Revised_Schedule` is shown in `Review` before any further `updateTask` (15.6); apply still flows through `TaskViewModel.updateTask(task, newTitle = task.title, newDate = task.createdDate, newDeadlineTime = assignment.time)`
+    - _Requirements: 15.1, 15.2, 15.3, 15.4, 15.5, 15.6_
+
+  - [ ]* 12.3 Write ViewModel example tests for replanning and error handling
+    - With a stubbed `CloudAiService` + fixed `PlanClock`: `submitAdjustment` valid only in `Review` and sends `priorAssignments` + `adjustment` (15.1, 15.2); a revised result re-enters `Review` with no write pre-accept (15.4); an unsatisfiable adjustment ⇒ advisory + prior schedule retained (15.5); a post-apply adjustment ⇒ `Review` before any further `updateTask` (15.6); network/500/timeout ⇒ `DayPlanState.Error` and `retry()` re-calls `planDay` (18.4, 18.5)
+    - _Requirements: 15.1, 15.2, 15.4, 15.5, 15.6, 18.4, 18.5_
+
+- [x] 13. Build the dedicated Planning_Screen and alive FAB entry point
+  - [x] 13.1 Add `PlanningScreen.kt` and retire `DayPlanReviewSheet`
+    - Add `ui/screens/PlanningScreen.kt` as a state-driven full-screen overlay (same pattern as `showFriendsScreen`/`showCirclesScreen`: `AnimatedVisibility` + `BackHandler` that closes it and calls `dayPlanViewModel.reset()`): opens immediately on invoke while `state == Loading` (18.1); `Loading` renders an alive Material 3 Expressive animated progress surface (18.2); `Review` renders each task `title` + proposed `HH:mm` with Accept/Discard, the `Plan_Adjustment` text field with a Revise action, and an `unplaced` tasks callout when present (18.3, 15.1, 16.2); `Error` renders a human-readable message with a **Retry** button and never a raw status code or blank screen (18.4, 18.5); `NoSchedulableTasks`, `NoRemainingTimeToday`, `CouldNotGenerate`, and `InsufficientCredits` each render their own in-screen human-readable message (18.6)
+    - Remove `ui/components/DayPlanReviewSheet.kt` and the `HomeScreen` block + `LaunchedEffect` that rendered the sheet and toasted terminal states (now shown inside the screen)
+    - _Requirements: 18.1, 18.2, 18.3, 18.4, 18.5, 18.6_
+
+  - [x] 13.2 Replace the top-bar icon with an alive `Plan_My_Day_FAB` and wire the gated overlay
+    - In `ui/screens/HomeScreen.kt`: remove the `AutoAwesome` `IconButton` from the top-bar `actions` (19.3); add an alive Material 3 Expressive morphing-shape `Plan_My_Day_FAB` to the existing `floatingActionButton` `Column` (alongside Focus/Voice/Add) (19.1, 19.2); keep the existing gate in `onClick` — evaluate `FeatureGate.isUnlocked(ctx, PremiumFeature.AI_AUTO_PLANNING)` with `trackGateEvaluated(...)` before opening; if locked, show `PremiumUpsellSheet` + `trackUpsellShown(...)` and do **not** open for planning or call `planDay` (20.1, 20.2); if unlocked, set `showPlanningScreen = true` and call `dayPlanViewModel.requestPlan()` (20.3); add the `showPlanningScreen` overlay state + `BackHandler` wiring
+    - _Requirements: 19.1, 19.2, 19.3, 20.1, 20.2, 20.3_
+
+  - [ ]* 13.3 Write Compose tests for the Planning_Screen and FAB
+    - `PlanningScreen` renders an alive progress indicator in `Loading` (18.1, 18.2); `Review` shows title + `HH:mm` with Accept/Discard, the adjustment field, and an `unplaced` callout (18.3, 16.2); `Error` shows a human-readable message + Retry and no raw status code (18.4); each terminal state renders its message (18.6); the `Plan_My_Day_FAB` is present and invokes planning while the top-bar `AutoAwesome` icon is gone (19); locked gate ⇒ upsell + screen not opened for planning, unlocked ⇒ screen opens + `requestPlan` (20.2, 20.3)
+    - _Requirements: 16.2, 18.1, 18.2, 18.3, 18.4, 18.6, 19.1, 19.3, 20.2, 20.3_
+
+- [x] 14. Iteration 2 checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
 ## Notes
 
 - Tasks marked with `*` are optional test sub-tasks and can be skipped for a faster MVP; core (non-test) implementation tasks are never optional.
@@ -178,6 +241,7 @@ Each step builds on the previous ones and ends by wiring the new logic into the 
 - The two tracks are independent: Track A can ship with gating permanently OFF, and Track B can ship without Track A (it references Track A only as the named candidate `AI_AUTO_PLANNING`).
 - **Track B safety:** replacing the `FeatureGate.isUnlocked` stub (task 6.2) keeps the OFF path provably identical to today's always-`true` behavior — while `premium_gating_enabled` is false the decision ignores the tier and returns unlocked for every feature, so no live paywall is introduced and Live_Users are unaffected until an owner deliberately turns the switch ON.
 - **Test execution environment:** JVM unit-test execution (the jqwik property tests and the Compose tests) is currently blocked because the build environment lacks a complete JDK 21 with `jlink` (`gradle.properties` pins JDK 17). Until a full JDK 21 toolchain is available, the pure-logic and Compose test sources are verified by **compilation** (they must compile cleanly) rather than by running the suite. The Node-based Cloud Functions tests for `aiPlanDay` run independently of that constraint and are executable now.
+- **Iteration 2 (Track A — WS5, tasks 10–14):** extends Track A for Requirements 13–20 and adds exactly one new pure property — **Property 13** (time-aware normalization: never-past, never-conflict, never-duplicate, total partition). Weather is intentionally skipped for MVP (Req 14 decision: deterministic time/date only, no new permission); the `weather` request field is reserved and `null`. The new `Planning_Screen` retires `DayPlanReviewSheet` and is reached from the alive `Plan_My_Day_FAB`, preserving the existing `FeatureGate.isUnlocked(AI_AUTO_PLANNING)` gate. Track B (Requirements 7–12, Properties 7–12) is unchanged.
 
 ## Task Dependency Graph
 
@@ -191,7 +255,14 @@ Each step builds on the previous ones and ends by wiring the new logic into the 
     { "id": 4, "tasks": ["5.3", "6.2", "6.3"] },
     { "id": 5, "tasks": ["5.4", "6.4"] },
     { "id": 6, "tasks": ["8.1", "8.2"] },
-    { "id": 7, "tasks": ["8.3", "8.4"] }
+    { "id": 7, "tasks": ["8.3", "8.4"] },
+    { "id": 8, "tasks": ["10.1", "11.2"] },
+    { "id": 9, "tasks": ["10.2", "11.1"] },
+    { "id": 10, "tasks": ["11.3", "12.1"] },
+    { "id": 11, "tasks": ["12.2"] },
+    { "id": 12, "tasks": ["12.3", "13.1"] },
+    { "id": 13, "tasks": ["13.2"] },
+    { "id": 14, "tasks": ["13.3"] }
   ]
 }
 ```

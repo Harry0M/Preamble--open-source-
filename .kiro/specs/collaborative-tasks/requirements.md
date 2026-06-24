@@ -352,3 +352,188 @@ The following requirements extend the implemented feature with four user-interfa
 4. THE Avatar_Cluster SHALL visually distinguish Members whose Member_Status is `accepted` or `completed` from Members whose Member_Status is `pending`.
 5. WHERE a task row in the Home_Task_List represents a non-collaborative task, THE Home_Task_List SHALL NOT display an Avatar_Cluster on that task row.
 6. THE Home_Task_List SHALL preserve the existing behavior whereby a Member completing a Collaborative_Task moves that task upward in the Home_Task_List, unchanged by the presence of the Avatar_Cluster.
+
+---
+
+## Requirements (Iteration 3: Collaborative correctness & live task-list visuals)
+
+The following requirements extend the implemented feature with two correctness fixes for collaborative task creation (WS3) and three visual upgrades for the collaborative task list (WS4). They reuse the components, defined terms, and behaviors established in Requirements 1–22 — notably the canonical Collaborative_Task document, the asynchronous own-copy-first save flow (Requirements 6.2, 6.7, 7.3, 7.4), the AI-parsing-then-finalize path, optimistic UI, the Incoming_Section (Requirement 19), and the member preview/overflow arithmetic behind the Avatar_Cluster (Requirement 22). Existing requirements are unchanged except where a criterion below explicitly supersedes a named earlier criterion.
+
+All visual surfaces introduced or modified here MUST follow the Social_Hub_Design_Language already used across the app: Cardfolio-style vibrant cards, the latest Material 3 Expressive components, and live "alive" morphing shapes with expressive motion, so the collaborative task list feels consistent with the Social Hub theme.
+
+### Additional Glossary (Iteration 3)
+
+- **AI_Parse_Phase**: The background phase (the existing `AiParsingWorker`) that refines a task's attributes — title, date, deadline time, tags, priority, recurrence, description, and subtasks — after the task's own local copy is saved, routed through the Mistral model in Cloud Functions when the user is signed in.
+- **Collaborative_Send**: The act of finalizing a Collaborative_Task by creating its canonical Collaborative_Task document and making it available to every Assignee. A collaborative task is "sent" only once its canonical document exists and carries the finalized task content.
+- **Send_Status**: The user-visible status of a collaborative task's Collaborative_Send, exactly one of `parsing`, `queued`, `sending`, `sent`, or `send_failed`.
+- **Connectivity**: The device's network reachability state at a given moment, classified as `online` (a backend write can complete within the Requirement 14.5 write timeout), `slow` (reachable but a write does not complete within that timeout), or `offline` (no reachable network).
+- **Collaborative_Send_Queue**: The durable mechanism that retains a pending Collaborative_Send across connectivity loss, app backgrounding, and process restarts until the send is delivered or determined to be undeliverable.
+- **Member_Avatar**: The per-member visual indicator displayed for a Collaborative_Task member on a task row and in the Avatar_Cluster.
+- **Expressive_Member_Shape**: A live, "alive" Material 3 Expressive shape (a morphing/rounded-polygon shape consistent with the Social_Hub_Design_Language) used as the container of a Member_Avatar, replacing the plain circle previously used.
+- **Google_Profile_Image**: A Member's real Google account profile photograph, obtained from the Google Sign-In account `photoUrl`.
+- **Generated_Initials_Avatar**: An auto-generated placeholder avatar that is not a real photograph of the Member, including an initials or single-letter image returned by Google in place of a real photo.
+- **Default_Avatar**: The app's own bundled fallback Member_Avatar image, used when no real Google_Profile_Image is available for a Member.
+- **Incoming_Task_Card**: The Home_Task_List representation of a pending incoming Collaborative_Task assignment, rendered as a normal task card carrying full task metadata together with inline accept and decline controls.
+
+### Requirement 23: Defer collaborative send until AI parsing completes
+
+**User Story:** As a user who shares a task with friends while the AI is still parsing it, I want the app to wait and send the fully-parsed task, so that my assignees always receive the complete task and I never end up with a saved task that was silently never sent.
+
+#### Acceptance Criteria
+
+1. WHEN a user confirms creation of a Collaborative_Task while the AI_Parse_Phase for that task has not completed, THE Collaboration_System SHALL save the Admin's own local copy within 1 second and SHALL defer the Collaborative_Send until the AI_Parse_Phase completes.
+2. WHILE a confirmed Collaborative_Task is awaiting completion of its AI_Parse_Phase before the Collaborative_Send, THE Collaboration_System SHALL display that task to the Admin with a Send_Status of `parsing`.
+3. WHEN the AI_Parse_Phase for a confirmed Collaborative_Task completes with refined attributes, THE Collaboration_System SHALL perform the Collaborative_Send using the finalized attributes, so that every Assignee receives the fully-parsed task content as defined in Requirement 7.2.
+4. IF the AI_Parse_Phase for a confirmed Collaborative_Task ends without producing refined attributes, including the cases where parsing returns no result or fails without producing attributes, THEN THE Collaboration_System SHALL perform the Collaborative_Send using the attributes as entered by the Admin so that the task is still sent to every Assignee.
+5. WHEN the Collaborative_Send for a confirmed Collaborative_Task completes successfully, THE Collaboration_System SHALL display that task to the Admin with a Send_Status of `sent`.
+6. WHEN a Collaborative_Task is finalized by the Collaborative_Send after its AI_Parse_Phase completes, THE Collaboration_System SHALL record the Admin as both Admin and Member and SHALL record each assigned friend as a Member with an initial Member_Status of `pending`, consistent with Requirement 6.3.
+7. THE Collaboration_System SHALL ensure that, for every confirmed Collaborative_Task, the Collaborative_Send occurs after the AI_Parse_Phase completes under `online` Connectivity, such that no confirmed Collaborative_Task remains saved in the Admin's local list without its canonical Collaborative_Task document having been created.
+8. WHERE a Collaborative_Task's AI_Parse_Phase finalizes refined attributes after the Collaborative_Send has already created the canonical Collaborative_Task document, THE Collaboration_System SHALL write the finalized attributes as a subsequent update to that canonical document while preserving every Member's existing Member_State, consistent with Requirements 7.4 and 8.6.
+
+### Requirement 24: Reliable collaborative delivery over offline and slow connectivity
+
+**User Story:** As a user creating a shared task while my connection is off or slow, I want the assignment to be queued and delivered when my connection returns, so that collaborative tasks work the same offline as they do online instead of silently failing.
+
+#### Acceptance Criteria
+
+1. WHEN a user confirms creation of a Collaborative_Task while Connectivity is `offline` or `slow`, THE Collaboration_System SHALL save the Admin's own local copy within 1 second and SHALL enqueue the Collaborative_Send in the Collaborative_Send_Queue.
+2. WHILE a Collaborative_Send is held in the Collaborative_Send_Queue and has not yet been delivered, THE Collaboration_System SHALL display that task to the Admin with a Send_Status of `queued`.
+3. THE Collaborative_Send_Queue SHALL retain each pending Collaborative_Send across connectivity loss, app backgrounding, and app process restart until that Collaborative_Send is delivered or is determined to be undeliverable.
+4. WHEN Connectivity returns to `online` while a Collaborative_Send is held in the Collaborative_Send_Queue, THE Collaboration_System SHALL retry the Collaborative_Send and SHALL display that task to the Admin with a Send_Status of `sending` for the duration of the in-progress attempt.
+5. WHEN a queued Collaborative_Send is delivered successfully, THE Collaboration_System SHALL make the task available to every Assignee through the canonical Collaborative_Task document and SHALL display that task to the Admin with a Send_Status of `sent`.
+6. IF a queued Collaborative_Send remains undelivered after the Collaborative_Send_Queue exhausts its retry attempts, THEN THE Collaboration_System SHALL retain the Admin's local copy, SHALL display that task to the Admin with a Send_Status of `send_failed`, and SHALL display an error message indicating that the task could not be shared with the collaborators.
+7. WHILE Connectivity is `offline` or `slow`, THE Collaboration_System SHALL NOT discard a pending Collaborative_Send and SHALL NOT report that Collaborative_Send as delivered until its canonical Collaborative_Task document write has completed.
+8. WHERE a Collaborative_Task created offline also has a pending AI_Parse_Phase, THE Collaboration_System SHALL order the Collaborative_Send after the AI_Parse_Phase as defined in Requirement 23 and SHALL still deliver the task once both the AI_Parse_Phase has completed and Connectivity has returned to `online`.
+
+### Requirement 25: Live Material member shapes on task rows
+
+**User Story:** As a user scanning my task list, I want member avatars to appear as lively Material shapes instead of plain circles, so that the collaborative task list feels alive and consistent with the Social Hub theme.
+
+#### Acceptance Criteria
+
+1. WHERE a task row in the Home_Task_List displays a Member_Avatar for a Collaborative_Task Member, THE Home_Task_List SHALL render that Member_Avatar inside an Expressive_Member_Shape rather than a plain circular shape.
+2. THE Expressive_Member_Shape SHALL be a Material 3 Expressive shape consistent with the Social_Hub_Design_Language used elsewhere in the app.
+3. THE Avatar_Cluster SHALL preserve the behavior defined in Requirement 22, displaying individual Member_Avatars for at most 3 Members whose Member_Status is one of `pending`, `accepted`, or `completed` and a "+N" overflow indicator for the remaining displayed Members, with the Member_Avatars now rendered as Expressive_Member_Shapes.
+4. THE Avatar_Cluster SHALL continue to visually distinguish Members whose Member_Status is `accepted` or `completed` from Members whose Member_Status is `pending`, consistent with Requirement 22.4, using the Expressive_Member_Shape treatment.
+5. This requirement supersedes the plain-circle presentation of the Member_Avatar; the displayed-member selection, overflow count, and non-collaborative-row suppression defined in Requirement 22 remain unchanged.
+
+### Requirement 26: Member profile images with default fallback
+
+**User Story:** As a user, I want each member's real Google profile photo shown in their avatar shape when it is available, and a clean default image otherwise, so that I recognize collaborators without seeing low-quality placeholder images.
+
+#### Acceptance Criteria
+
+1. WHERE a Member has an available Google_Profile_Image that is a real photograph, THE Home_Task_List SHALL display that Google_Profile_Image inside the Member's Expressive_Member_Shape.
+2. IF a Member's Google_Profile_Image cannot be fetched, THEN THE Home_Task_List SHALL display the Default_Avatar inside that Member's Expressive_Member_Shape.
+3. IF the image available for a Member is a Generated_Initials_Avatar rather than a real photograph, THEN THE Home_Task_List SHALL display the Default_Avatar inside that Member's Expressive_Member_Shape instead of the Generated_Initials_Avatar.
+4. THE Home_Task_List SHALL select a Member_Avatar image using the following precedence in order: first a real Google_Profile_Image when available, otherwise the Default_Avatar.
+5. WHILE a Member's Google_Profile_Image is being fetched, THE Home_Task_List SHALL display the Default_Avatar until the Google_Profile_Image is available.
+
+> Design-phase note (not an acceptance criterion): The design phase MUST confirm whether the Google Sign-In account `photoUrl` is captured and stored for Collaborative_Task Members (the current build derives row avatars from a generated source rather than the Google `photoUrl`), and MUST define how a Generated_Initials_Avatar / placeholder is detected so the Default_Avatar fallback in criteria 2–3 can be applied reliably.
+
+### Requirement 27: Incoming task request rendered as a normal task card
+
+**User Story:** As a user, I want an incoming shared-task request to look like a normal task card at the top of my list with clear accept and decline controls, so that I can read its full details and respond without a separate oversized banner.
+
+#### Acceptance Criteria
+
+1. WHERE the signed-in user has one or more Collaborative_Tasks for which that user's own Member_Status is `pending`, THE Home_Task_List SHALL render each such task as an Incoming_Task_Card positioned at the top of the Home_Task_List, below the Home_Task_List progress indicators and above all other tasks.
+2. THE Incoming_Task_Card SHALL display the task's metadata in the same form a normal task card uses, including the task title, the deadline time shown the same way a normal task card shows it, and the task's tags and priority when present.
+3. THE Incoming_Task_Card SHALL present an inline Accept control and an inline decline control, where the decline control is presented as a cross (close) affordance.
+4. THE Accept control SHALL have a greater horizontal length than the decline control on the Incoming_Task_Card.
+5. THE Accept control and the decline control SHALL be rendered as live Material 3 Expressive controls consistent with the Social_Hub_Design_Language.
+6. WHEN a user activates the Accept control on an Incoming_Task_Card for which the user's own Member_Status is `pending`, THE Collaboration_System SHALL set that user's Member_Status to `accepted` and SHALL reflect the acceptance in the Home_Task_List within 200 milliseconds of the action and before the backend operation completes, consistent with Requirement 19.3.
+7. WHEN a user activates the decline control on an Incoming_Task_Card for which the user's own Member_Status is `pending`, THE Collaboration_System SHALL set that user's Member_Status to `declined` and SHALL remove that task from the Home_Task_List within 200 milliseconds of the action and before the backend operation completes, consistent with Requirement 19.5.
+8. IF the backend operation for accepting or declining an Incoming_Task_Card fails, THEN THE Collaboration_System SHALL restore the Home_Task_List to the exact state held before the action and SHALL display an error message indicating the operation failed, consistent with Requirement 19.7.
+9. This requirement supersedes the minimal title-and-button presentation of the Incoming_Section row defined in Requirement 19.2; the Incoming_Section placement, header-suppression, pending-only gating, and optimistic accept/decline behavior defined in Requirement 19 otherwise remain unchanged.
+---
+
+## Requirements (Iteration 4: WS2 — Send to Circle + searchable picker)
+
+The following requirements extend task creation so a user can send a task to one or more of their Circles from the task-create sheet, the same way tasks are assigned to friends today, and replace the current inline friend dropdown/chip selector with a single searchable recipient picker that lists both friends and Circles and scales to thousands of entries. They reuse the components, defined terms, and behaviors established in Requirements 1–27 — notably the canonical Collaborative_Task document, the `assignTaskToMultiple` assignment path used by Requirement 6, the 50-Assignee maximum (Requirements 6.1, 6.5, 6.6), the asynchronous own-copy-first save and AI-parse-then-send flow (Requirements 6.2, 6.7, 7, 23, 24), and the per-member acceptance/completion lifecycle (Requirements 8, 10). They also reuse the **Circle** terminology from the `shared-circles` feature. Existing requirements are unchanged except where a criterion below explicitly supersedes a named earlier criterion.
+
+All visual surfaces introduced or modified here MUST follow the Social_Hub_Design_Language already defined for Iteration 3: Cardfolio-style vibrant cards, the latest Material 3 Expressive components, and live "alive" morphing shapes with expressive motion, so the recipient picker feels consistent with the Social Hub theme.
+
+### Chosen "send to a Circle" model (recorded for the design phase)
+
+`shared-circles` exposes two distinct stored shapes: the canonical Circle document at `/circles/{circleId}` (with `adminUid`, `memberUids`, and a `members` list of Circle_Members) and a **separate, deliberately simple** shared list of Circle_Tasks at `/circleTasks` that carry only a title, a single global Shared_Completion flag, and a Circle_Author — with no rich attributes (no description, tags, priority, deadline, recurrence, or subtasks) and no per-member acceptance lifecycle. The `shared-circles` "add a task to the shared list" flow (its Requirement 9) lives inside the Circle, not in the task-create sheet, and `shared-circles` has **no** mechanism for sending a Collaborative_Task to a Circle.
+
+The task-create sheet produces a **rich** task (title, description, tags, priority, deadline, recurrence, subtasks) whose collaborative form is a per-member Collaborative_Task. Therefore this feature defines **"send to a Circle" as the members-as-assignees model**, not the post-to-circle-list model:
+
+- Sending a task to a Circle resolves that Circle's **current Circle_Members** (every member other than the sending user) into Assignees on a single canonical Collaborative_Task, exactly as selecting those people individually as friends would, and reuses the existing `assignTaskToMultiple` assignment path.
+- This preserves the rich task content (Requirement 7.2), the per-member acceptance/completion lifecycle (Requirements 8, 10), the AI-parse-then-send and offline-queue behavior (Requirements 23, 24), and the 50-Assignee maximum (Requirements 6.5, 6.6).
+- The post-to-circle-list model is **rejected** for this flow because it would discard all rich attributes, replace per-member completion with global Shared_Completion, and target the in-Circle shared list rather than the user's task list — none of which matches "the same way tasks are assigned to friends today."
+- Because Assignees are resolved from the Circle's membership **at send time**, the resolved membership is a **snapshot**: the created Collaborative_Task does not record the Circle's identifier and does not stay synchronized to later Circle membership changes. Circle_Members added or removed after the task is created do not change the task's Assignees; subsequent membership of the task is managed only through the existing admin controls (Requirement 11).
+
+### Additional Glossary (Iteration 4)
+
+Terms marked "reused (shared-circles)" carry the same meaning as in the `shared-circles` requirements.
+
+- **Circle**: Reused (shared-circles) — a named shared space owned by one Circle_Admin and joined by one or more Circle_Members, identified by a Circle identifier and a Circle_Name.
+- **Circle_Member**: Reused (shared-circles) — a user who belongs to a Circle, including the Circle_Admin, identified within the Circle's `memberUids`.
+- **Circle_Admin**: Reused (shared-circles) — the single owning user of a Circle.
+- **Circle_Name**: Reused (shared-circles) — the human-readable display name of a Circle.
+- **Recipient**: A selectable target in the Recipient_Picker, exactly one of a Friend (from the user's friend list) or a Circle (from the user's Circle list).
+- **Recipient_Picker**: The searchable Material 3 Expressive modal bottom sheet, launched from the Task_Create_Sheet, that lists the user's Friends and Circles together for multi-selection, replacing the previous inline friend dropdown and assignee chips.
+- **Recipient_Search**: The case-insensitive text search within the Recipient_Picker, matched against a Friend's display name and Preamble_ID and against a Circle's Circle_Name, evaluated over the full Recipient set independently of how many entries are currently rendered. Reuses the Social_Search semantics from the `social-hub-redesign` feature.
+- **Recipient_Paging**: The incremental, lazy rendering of Recipient entries that loads additional entries as the user scrolls, reusing the paging approach (PageWindow) from the `social-hub-redesign` feature, so the Recipient_Picker remains responsive with thousands of entries.
+- **Selected_Recipients**: The set of Recipients the user has currently selected in the Recipient_Picker, before confirmation.
+- **Selected_Count**: The displayed count of currently Selected_Recipients in the Recipient_Picker.
+- **Resolved_Assignee_Set**: The deduplicated set of Assignee identifiers produced by expanding every selected Circle into its current Circle_Members and taking the union with the individually selected Friends, then excluding the sending user's own identifier; the size of this set is the number of Assignees the confirmed task will carry.
+- **Circle_Send**: The act of sending a task to a Circle under the members-as-assignees model, by adding the Circle's current Circle_Members (other than the sending user) to the Resolved_Assignee_Set at send time.
+
+### Requirement 28: Send a task to one or more Circles from the task-create sheet
+
+**User Story:** As a user, I want to send a task to one or more of my Circles while creating it, so that I can assign work to a whole group as easily as I assign it to individual friends.
+
+#### Acceptance Criteria
+
+1. THE Task_Create_Sheet SHALL allow the user to select one or more of the user's Circles as recipients of the task being created, alongside individually selected Friends, through the Recipient_Picker defined in Requirement 30.
+2. WHEN the user confirms creation of a task with one or more selected Circles, THE Collaboration_System SHALL perform a Circle_Send by resolving each selected Circle to its current Circle_Members other than the sending user and adding those Circle_Members to the Resolved_Assignee_Set.
+3. WHEN the user confirms creation of a task with both one or more selected Circles and one or more individually selected Friends, THE Collaboration_System SHALL combine the expanded Circle_Members and the selected Friends into a single Resolved_Assignee_Set in which each Assignee identifier appears exactly once.
+4. WHEN a Circle_Member resolved from a selected Circle has the same identifier as an individually selected Friend or as a Circle_Member resolved from another selected Circle, THE Collaboration_System SHALL include that identifier exactly once in the Resolved_Assignee_Set.
+5. WHEN building the Resolved_Assignee_Set, THE Collaboration_System SHALL exclude the sending user's own identifier from the Assignees, so that the sending user is recorded only as the Admin and Member and not as an Assignee, consistent with Requirements 8.2 and 8.3.
+6. WHEN the user confirms creation of a task whose Resolved_Assignee_Set contains one or more Assignees, THE Collaboration_System SHALL create a single canonical Collaborative_Task through the same assignment path used for friend assignment in Requirement 6.3, recording the sending user as both Admin and Member and recording each identifier in the Resolved_Assignee_Set as a Member with an initial Member_Status of `pending`.
+7. WHERE the Resolved_Assignee_Set is empty after a Circle_Send, including the case where every selected Circle contains only the sending user, THE Collaboration_System SHALL create a normal non-collaborative task and SHALL NOT create a Collaborative_Task document, consistent with Requirement 6.4.
+8. THE Collaboration_System SHALL preserve, for a task sent to one or more Circles, the rich task content defined in Requirement 7.2, the per-member acceptance and completion lifecycle defined in Requirements 8 and 10, and the AI-parse-then-send and offline-queue behavior defined in Requirements 23 and 24.
+9. WHEN a Collaborative_Task is created from a Circle_Send, THE Collaboration_System SHALL record the resolved Assignees as a snapshot taken at the time of the send and SHALL NOT alter that task's Assignees in response to a later change to the membership of any Circle used in the send.
+
+### Requirement 29: Enforce the assignee maximum after Circle expansion
+
+**User Story:** As a user sending a task to large Circles, I want a clear limit and message when the combined recipients exceed the allowed number of assignees, so that I understand why the task cannot be sent as selected.
+
+#### Acceptance Criteria
+
+1. THE Collaboration_System SHALL limit the size of the Resolved_Assignee_Set for a single task to the Assignee maximum of 50 defined in Requirements 6.1 and 6.5, measured after Circle expansion and deduplication.
+2. IF the Resolved_Assignee_Set for a confirmed task contains more than 50 Assignees, THEN THE Collaboration_System SHALL reject the creation, SHALL NOT create a Collaborative_Task document, and SHALL display an error message indicating that the combined recipients exceed the maximum number of assignees.
+3. WHEN the Recipient_Picker is open, THE Recipient_Picker SHALL display the current size of the Resolved_Assignee_Set that the present selection would produce, so that the user can see the combined assignee count before confirming.
+4. IF the present selection in the Recipient_Picker would produce a Resolved_Assignee_Set larger than 50, THEN THE Recipient_Picker SHALL indicate that the assignee maximum is exceeded and SHALL prevent confirmation of that selection.
+
+### Requirement 30: Searchable recipient picker for friends and Circles
+
+**User Story:** As a user with many friends and Circles, I want a searchable picker that lists both, so that I can quickly find and select the people and groups I want to send a task to.
+
+#### Acceptance Criteria
+
+1. WHEN the user opens the recipient selection control in the Task_Create_Sheet, THE Task_Create_Sheet SHALL present the Recipient_Picker as a Material 3 Expressive modal bottom sheet that lists both the user's Friends and the user's Circles as selectable Recipients.
+2. THE Recipient_Picker SHALL render its Recipient entries using Recipient_Paging, loading additional entries incrementally as the user scrolls, so that a Recipient set of at least several thousand entries is displayed without rendering every entry at once.
+3. THE Recipient_Picker SHALL provide a Recipient_Search input that filters the displayed Recipients using Recipient_Search, matching a Friend against the Friend's display name and Preamble_ID and matching a Circle against the Circle_Name, compared case-insensitively.
+4. THE Recipient_Picker SHALL evaluate Recipient_Search over the full Recipient set rather than only over the entries currently loaded by Recipient_Paging, so that a matching Recipient is found regardless of whether it has already been scrolled into view.
+5. WHEN the Recipient_Search input is empty or contains only whitespace, THE Recipient_Picker SHALL display the full Recipient set, subject only to Recipient_Paging.
+6. THE Recipient_Picker SHALL allow the user to select and deselect multiple Recipients, SHALL visually indicate which Recipients are currently selected, and SHALL display the Selected_Count of currently Selected_Recipients.
+7. THE Recipient_Picker SHALL provide a confirm control that, when activated, applies the current Selected_Recipients as the task's recipients and closes the Recipient_Picker.
+8. WHEN the user activates the confirm control, THE Task_Create_Sheet SHALL reflect the confirmed Selected_Recipients, distinguishing selected Friends from selected Circles, in the task being created.
+9. THE Task_Create_Sheet SHALL use the Recipient_Picker as the sole control for selecting task recipients, superseding the previous inline friend dropdown menu and inline assignee chips for recipient selection.
+
+### Requirement 31: Recipient picker edge cases
+
+**User Story:** As a user, I want the recipient picker to behave clearly when I have no contacts, when nothing matches my search, and when I reopen it, so that selecting recipients is predictable.
+
+#### Acceptance Criteria
+
+1. WHERE the user has no Friends and no Circles, THE Recipient_Picker SHALL display an empty-state indication that there are no friends or Circles to send the task to and SHALL NOT present any selectable Recipient entries.
+2. WHERE the user has at least one Friend or at least one Circle, THE Recipient_Picker SHALL present those available Recipients for selection.
+3. IF a Recipient_Search query matches no Friend and no Circle, THEN THE Recipient_Picker SHALL display a no-match indication and SHALL display no Recipient entries while that query is active.
+4. WHEN the user clears a Recipient_Search query that produced a no-match indication, THE Recipient_Picker SHALL restore the full Recipient set, subject only to Recipient_Paging.
+5. WHEN the user reopens the Recipient_Picker after a previous selection within the same task-creation session that has not been cleared, THE Recipient_Picker SHALL display the previously Selected_Recipients as still selected.
+6. WHEN the user changes the Recipient_Search query, THE Recipient_Picker SHALL preserve the current Selected_Recipients across the change, so that selecting a Recipient, searching again, and selecting another Recipient accumulates both selections.

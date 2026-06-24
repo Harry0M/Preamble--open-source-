@@ -61,8 +61,13 @@ object AuthManager {
                 )
             }
 
-            // Sync UserProfile from Firestore to get Preamble ID
-            com.theblankstate.preamble.data.UserProfileStore.fetchFromFirestore(context)
+            // Sync UserProfile from Firestore to get Preamble ID, then persist the
+            // Google account photo URL captured at sign-in (Req 26) so it isn't
+            // clobbered by the fetched profile, and publish it to the public directory.
+            val googlePhotoUrl = authResult.user?.photoUrl?.toString()
+            com.theblankstate.preamble.data.UserProfileStore.fetchFromFirestore(context) {
+                com.theblankstate.preamble.data.UserProfileStore.updatePhotoUrl(context, googlePhotoUrl)
+            }
 
             // Migrate locally-saved AI memories to the real uid + sync to Firestore
             runCatching {

@@ -2,6 +2,8 @@ package com.theblankstate.preamble.planner
 
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.repository.TaskRepository
+import java.time.format.TextStyle
+import java.util.Locale
 
 /**
  * Android-side orchestration edge for Track A (AI Plan-My-Day) task gathering.
@@ -24,6 +26,9 @@ class DayPlanService(
     private val dayStartMinute: Int = DEFAULT_DAY_START_MINUTE,
     private val dayEndMinute: Int = DEFAULT_DAY_END_MINUTE,
     private val slotMinutes: Int = DEFAULT_SLOT_MINUTES,
+    // Deterministic "now" provider (Req 13.1, 13.7); injected so the resolution to
+    // minute-of-day / date / day-of-week stays a pure function of the injected value.
+    private val clock: PlanClock = PlanClock.system(),
 ) {
 
     /**
@@ -32,8 +37,18 @@ class DayPlanService(
      * Reads the current day's tasks (including materialized recurrence instances) and
      * partitions them into Schedulable_Tasks and Fixed_Commitments, mapping `HH:mm`
      * times to minutes-of-day and attaching the working window.
+     *
+     * Time-awareness (Req 13.1, 13.2, 13.5): reads [clock] once, derives the current
+     * minute-of-day, and computes the `Effective_Window_Start` floor via [DayWindow]. The
+     * returned [GatheredInput] also carries the current `date`, `dayOfWeek`, and `nowTime`
+     * so the orchestration edge can hand them to the Cloud AI path as planning context.
      */
-    suspend fun gatherInput(today: String = TaskRepository.todayString()): DayPlanInput {
+    suspend fun gatherInput(today: String = TaskRepository.todayString()): GatheredInput {
+        val now = clock.now()
+        val nowMinuteOfDay = now.hour * 60 + now.minute
+        // Effective_Window_Start: never propose before this floor (Req 13.2).
+        val earliestStartMinute = DayWindow.effectiveWindowStart(dayStartMinute, nowMinuteOfDay)
+
         val tasks = repository.getTasksForDateWithRecurrence(today)
 
         val schedulable = tasks
@@ -42,12 +57,22 @@ class DayPlanService(
 
         val fixed = tasks.mapNotNull { it.toFixedCommitment() }
 
-        return DayPlanInput(
+        val input = DayPlanInput(
             schedulable = schedulable,
             fixed = fixed,
             dayStartMinute = dayStartMinute,
             dayEndMinute = dayEndMinute,
+            // The floor below which the planner must never propose a start (Req 13.2/13.3).
+            earliestStartMinute = earliestStartMinute,
             slotMinutes = slotMinutes,
+        )
+
+        return GatheredInput(
+            input = input,
+            date = today,
+            // Current_Local_Datetime context for the model (Req 13.5).
+            dayOfWeek = now.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.ENGLISH),
+            nowTime = "%02d:%02d".format(now.hour, now.minute),
         )
     }
 
@@ -84,3 +109,20 @@ class DayPlanService(
         private val HHMM = Regex("^([01]\\d|2[0-3]):([0-5]\\d)$")
     }
 }
+
+/**
+ * The result of [DayPlanService.gatherInput]: the pure [DayPlanInput] consumed by the
+ * [ScheduleNormalizer] plus the deterministic Current_Local_Datetime context (Req 13.5)
+ * the orchestration edge forwards to the Cloud AI path.
+ *
+ * @property input the pure planner input, including the `Effective_Window_Start` floor.
+ * @property date the planned day in `yyyy-MM-dd`.
+ * @property dayOfWeek the current day-of-week (e.g. `"Monday"`).
+ * @property nowTime the current time-of-day in `HH:mm`.
+ */
+data class GatheredInput(
+    val input: DayPlanInput,
+    val date: String,
+    val dayOfWeek: String,
+    val nowTime: String,
+)

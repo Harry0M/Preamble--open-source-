@@ -184,3 +184,41 @@ These are recorded here as inputs to the design phase; they are not acceptance c
 2. IF a Member attempts to send a Nudge to a Nudge_Target for a Collaborative_Task within 60 minutes of that Member's previous Nudge to the same Nudge_Target for the same Collaborative_Task, THEN THE Nudge_Service SHALL reject the action, SHALL NOT send a Nudge, and SHALL display a message indicating that the member was nudged recently and can be nudged again later.
 3. WHEN at least 60 minutes have elapsed since a Member's previous Nudge to a given Nudge_Target for a given Collaborative_Task, THE Nudge_Service SHALL permit that Member to send a new Nudge to the same Nudge_Target for the same Collaborative_Task.
 4. THE Nudge_Service SHALL apply the Nudge_Rate_Limit independently for each combination of sending Member, Nudge_Target, and Collaborative_Task.
+
+---
+
+## Iteration 2 — WS6: Reaction visibility latency (bug fix)
+
+This section adds one requirement covering a shipped-bug fix. It does not change the reaction
+semantics of Requirements 1–6; it only guarantees that a remote reaction change actually reaches
+the local mirror so the UI updates within the Requirement 3.2 window.
+
+### Requirement 13: Remote reaction changes reach the local mirror promptly
+
+**User Story:** As a Member of a shared task, I want another member's reaction to appear promptly,
+so that I do not have to perform an unrelated action (such as removing a member) before the
+reaction becomes visible.
+
+#### Background (root cause)
+
+`WorkspaceViewModel.mergeRemoteCollaboration(local, remote)` rebuilds an already-mirrored local
+`Task` via `local.copy(...)`, enumerating the canonical fields to take from the freshly projected
+`remote` task. It omits `reactionsJson` (and `collabSendStatus`), so a reaction-only change to
+`/collaborativeTasks/{taskId}` is projected correctly by `TaskProjection.documentToTask` but then
+dropped during the merge — `taskDao.insertTask(merged)` writes the stale reactions back to Room.
+The reaction only appears after an unrelated mutation (e.g. `removeMember`) rewrites the row.
+
+#### Acceptance Criteria
+
+1. WHEN the canonical `/collaborativeTasks/{taskId}` document's `reactions` change and the task is
+   already mirrored in the local Room database, THE Collaboration_System SHALL update the local
+   mirror's projected reactions to match the canonical document's reactions.
+2. WHEN a reaction is added, changed, or removed by any Member on a mirrored Collaborative_Task,
+   THE Reaction_Service SHALL reflect the change in every Member's task-detail view within the
+   Requirement 3.2 window (5 seconds under normal connectivity) WITHOUT requiring any unrelated
+   mutation to the task.
+3. THE merge of a remote Collaborative_Task into its existing local mirror SHALL preserve the
+   remote `collabSendStatus` as well, so the durable-send status is not reverted by an unrelated
+   remote change (consistency fix carried alongside the reaction fix).
+4. THE fix SHALL change only the field set carried by the merge and SHALL NOT alter reaction
+   semantics, the optimistic self-reaction path, or any other collaborative-task behavior.

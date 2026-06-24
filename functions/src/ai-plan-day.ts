@@ -54,19 +54,51 @@ function isMistralModel(model: string): boolean {
   return model.includes("mistral") || model.includes("mixtral");
 }
 
-interface SchedulableDto { id: string; title: string; priority: number; }
+interface SchedulableDto {
+  id: string;
+  title: string;
+  priority: number;
+  /** Optional free-text detail to help the model infer a realistic Task_Kind_Estimate (Req 16.1). */
+  description?: string;
+  /** Optional comma-separated tags, passed through unmodified to preserve any language/script (Req 16.1, 17.2). */
+  tags?: string;
+}
 interface FixedDto { start: string; end?: string; }
 
-/** Build the server-held planning prompt. Output is a STRICT JSON array [{id,time}]. */
+/** Planning context block: the real day-of-week and current local time so the model is time-aware (Req 13.5). */
+interface PlanContextDto { dayOfWeek?: string; nowTime?: string; }
+/** A prior (id, time) proposal echoed back for conversational replanning (Req 15.2). */
+interface PriorAssignmentDto { id: string; time: string; }
+
+/**
+ * Build the server-held planning prompt. Output is a STRICT JSON array [{id,time}].
+ *
+ * `dayStart` is the Effective_Window_Start the client computed (the real earliest start given
+ * "now" + lead time), so the model bases realism on the actual remaining window (Req 13.5, 16.4).
+ * When `priorAssignments` + `adjustment` are present, the model is asked to REVISE that prior plan
+ * per the adjustment rather than plan from scratch (Req 15.2).
+ */
 function buildPlanPrompt(
   schedulable: SchedulableDto[],
   fixed: FixedDto[],
   date: string,
   dayStart: string,
   dayEnd: string,
+  context: PlanContextDto,
+  priorAssignments: PriorAssignmentDto[],
+  adjustment: string,
 ): string {
   const taskLines = schedulable
-    .map((t) => `- id="${t.id}" priority=${t.priority} title="${String(t.title).replace(/"/g, "'")}"`)
+    .map((t) => {
+      const parts = [
+        `- id="${t.id}"`,
+        `priority=${t.priority}`,
+        `title="${String(t.title).replace(/"/g, "'")}"`,
+      ];
+      if (t.description) parts.push(`description="${String(t.description).replace(/"/g, "'")}"`);
+      if (t.tags) parts.push(`tags="${String(t.tags).replace(/"/g, "'")}"`);
+      return parts.join(" ");
+    })
     .join("\n");
   const fixedLines = fixed.length
     ? fixed
@@ -74,25 +106,59 @@ function buildPlanPrompt(
         .join("\n")
     : "- (none)";
 
-  return [
+  const contextLines: string[] = [];
+  if (context.dayOfWeek) contextLines.push(`- Day of week: ${context.dayOfWeek}`);
+  if (context.nowTime) contextLines.push(`- Current local time: ${context.nowTime}`);
+  contextLines.push(`- Earliest a task may start today: ${dayStart} (do NOT schedule before this — it is already past).`);
+
+  const isRevision = priorAssignments.length > 0 && adjustment.trim().length > 0;
+
+  const lines: string[] = [
     "You are a scheduling assistant. Plan the user's day for " + date + ".",
-    "Assign EACH schedulable task exactly one start time in 24-hour HH:mm format.",
+    "Assign schedulable tasks a start time in 24-hour HH:mm format.",
+    "",
+    "Context:",
+    ...contextLines,
     "",
     "Hard rules:",
     `1. Every assigned time MUST be within the working window [${dayStart}, ${dayEnd}].`,
     "2. Do NOT assign a time that collides with any fixed commitment (busy) time below.",
     "3. Give every task a DISTINCT time (no two tasks at the same time).",
     "4. Schedule higher-priority tasks earlier (priority is 0..3; 3 is highest).",
+    "5. Infer each task's realistic kind and effort/duration from its title, description, and tags.",
+    "6. Schedule ONLY the tasks that realistically fit the actual remaining window above.",
+    "   Leave any task that does NOT fit UNPLACED (simply omit it from your output) rather than",
+    "   inventing collisions, overlapping times, or impossible back-to-back slots.",
     "",
-    "Schedulable tasks (one time each):",
+    "Schedulable tasks:",
     taskLines,
     "",
     "Fixed commitments (already busy — avoid these times):",
     fixedLines,
+  ];
+
+  if (isRevision) {
+    const priorLines = priorAssignments
+      .map((p) => `- id="${p.id}" time="${p.time}"`)
+      .join("\n");
+    lines.push(
+      "",
+      "This is a REVISION of a previously proposed plan. The prior proposal was:",
+      priorLines,
+      "",
+      "The user asked for this adjustment (revise the prior plan accordingly):",
+      `"${adjustment.replace(/"/g, "'")}"`,
+    );
+  }
+
+  lines.push(
     "",
-    "Respond with ONLY a strict JSON array, no prose, no markdown fences:",
+    "Respond with ONLY a strict JSON array, no prose, no markdown fences.",
+    "Omit any task you cannot realistically place:",
     '[{ "id": "<task id>", "time": "HH:mm" }]',
-  ].join("\n");
+  );
+
+  return lines.join("\n");
 }
 
 /** Best-effort parse of a model response into [{id,time}]. Untrusted — client normalizer is authority. */
@@ -142,8 +208,15 @@ export const aiPlanDay = onRequest(
       date = "",
       dayStart = "09:00",
       dayEnd = "21:00",
+      context = {},
+      priorAssignments = [],
+      adjustment = "",
+      // RESERVED for a future iteration — weather is skipped for MVP, so the client sends null.
+      // Parsed here only to reserve the field; the prompt never consumes it.
+      weather = null,
       appVersionCode = 0,
     } = req.body || {};
+    void weather;
 
     if (!Array.isArray(schedulable) || schedulable.length === 0) {
       res.status(400).json({ error: "schedulable required" });
@@ -191,13 +264,32 @@ export const aiPlanDay = onRequest(
         id: String(t?.id ?? ""),
         title: String(t?.title ?? ""),
         priority: Number(t?.priority ?? 0),
+        description: t?.description != null ? String(t.description) : undefined,
+        tags: t?.tags != null ? String(t.tags) : undefined,
       }));
       const fixedDtos: FixedDto[] = (Array.isArray(fixed) ? fixed : []).map((f: any) => ({
         start: String(f?.start ?? ""),
         end: f?.end != null ? String(f.end) : undefined,
       }));
+      const contextDto: PlanContextDto = {
+        dayOfWeek: context?.dayOfWeek != null ? String(context.dayOfWeek) : undefined,
+        nowTime: context?.nowTime != null ? String(context.nowTime) : undefined,
+      };
+      const priorAssignmentDtos: PriorAssignmentDto[] = (Array.isArray(priorAssignments) ? priorAssignments : [])
+        .map((p: any) => ({ id: String(p?.id ?? ""), time: String(p?.time ?? "") }))
+        .filter((p) => p.id !== "" && p.time !== "");
+      const adjustmentText = String(adjustment ?? "");
 
-      const prompt = buildPlanPrompt(schedulableDtos, fixedDtos, String(date), String(dayStart), String(dayEnd));
+      const prompt = buildPlanPrompt(
+        schedulableDtos,
+        fixedDtos,
+        String(date),
+        String(dayStart),
+        String(dayEnd),
+        contextDto,
+        priorAssignmentDtos,
+        adjustmentText,
+      );
 
       // --- Call provider ---
       let responseText = "";

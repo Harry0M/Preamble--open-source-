@@ -214,3 +214,19 @@ Each step builds on the previous ones and ends by wiring the new logic into the 
   ]
 }
 ```
+
+
+## Tasks — Iteration 2: WS6 reaction visibility latency (bug fix)
+
+- [x] 13. Carry `reactionsJson` (and `collabSendStatus`) through the remote→local collaborative merge
+  - In `ui/viewmodels/WorkspaceViewModel.kt`, add `reactionsJson = remote.reactionsJson` to the
+    `local.copy(...)` in `mergeRemoteCollaboration(local, remote)` so a reaction-only change to the
+    canonical `/collaborativeTasks/{taskId}` document is written into the local Room mirror by
+    `synchronizeCollaborativeTasksToRoom` → `taskDao.insertTask(merged)`, making other members'
+    reactions appear promptly (within Req 3.2's 5 s) instead of only after an unrelated mutation.
+    Also add `collabSendStatus = remote.collabSendStatus` to the same copy so the durable-send
+    status is not reverted by an unrelated remote change. Do not change reaction semantics, the
+    optimistic self-reaction path, or any other field-merge behavior.
+  - Verify with `./gradlew :app:compileDebugKotlin` (JVM tests blocked by the JDK 21/jlink
+    constraint — compile-only verification).
+  - _Requirements: 13.1, 13.2, 13.3, 13.4_

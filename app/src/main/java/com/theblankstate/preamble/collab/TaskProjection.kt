@@ -136,6 +136,7 @@ object TaskProjection {
             CollabAssigneeStatus(
                 uid = assigneeUid,
                 name = state["name"] as? String ?: DEFAULT_NAME,
+                photoUrl = state["photoUrl"] as? String,
                 status = status,
                 isCompleted = state["isCompleted"] as? Boolean ?: false,
                 completedTimestamp = (state["completedTimestamp"] as? Number)?.toLong(),

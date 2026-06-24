@@ -107,7 +107,7 @@ export const onCollaborativeTaskReaction = onDocumentUpdated(
               body,
               deepLink: `preamble://task/${event.params.taskId}`,
               type: "kudos",
-              channelType: "broadcast",
+              channelType: "social_kudos",
               taskId: event.params.taskId,
               emoji,
             },

@@ -43,6 +43,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Mic
@@ -65,7 +66,6 @@ import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.InputChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -83,7 +83,6 @@ import androidx.compose.material3.TimePicker
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Checkbox
 import com.theblankstate.preamble.data.PredefinedTags
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.material3.rememberDatePickerState
@@ -117,8 +116,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.sp
 import com.theblankstate.preamble.data.TaskInputValidator
-import com.theblankstate.preamble.collab.CollaborativeDocument
+import com.theblankstate.preamble.collab.Recipient
+import com.theblankstate.preamble.collab.RecipientResolution
+import com.theblankstate.preamble.repository.Circle
 import com.theblankstate.preamble.repository.Friend
+import com.google.firebase.auth.FirebaseAuth
 import androidx.compose.foundation.lazy.LazyRow
 import com.theblankstate.preamble.util.EventIconHelper
 import androidx.compose.foundation.border
@@ -142,7 +144,8 @@ fun AddTaskSheet(
     onAddRecurringTask: ((title: String, date: String?, deadlineTime: String?, priority: Int, description: String?, recurrenceType: String, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, syncToCalendar: Boolean, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?) -> Unit)? = null,
     aiChatViewModel: AiChatViewModel? = null,
     onAddTaskPendingParse: ((rawText: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?, recurrenceType: String?, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, userOverrides: String, assignedToFriends: List<Friend>) -> Unit)? = null,
-    friends: List<Friend> = emptyList()
+    friends: List<Friend> = emptyList(),
+    circles: List<Circle> = emptyList()
 ) {
     val context = LocalContext.current
     // Haptic feedback support
@@ -163,7 +166,49 @@ fun AddTaskSheet(
     var taskDescription by remember { mutableStateOf("") }
     var newSubtasks by remember { mutableStateOf(listOf<String>()) }
     var pendingSubtaskTitle by remember { mutableStateOf("") }
-    var selectedFriends by remember { mutableStateOf<List<Friend>>(emptyList()) }
+    var selectedRecipients by remember { mutableStateOf<List<Recipient>>(emptyList()) }
+    var showRecipientPicker by remember { mutableStateOf(false) }
+    // Sender uid is always excluded from the Resolved_Assignee_Set (Req 28.5).
+    val senderUid = remember { FirebaseAuth.getInstance().currentUser?.uid ?: "" }
+    val circlesById = remember(circles) { circles.associateBy { it.id } }
+
+    // Live Resolved_Assignee_Set for the confirmed selection: dedupe + sender-exclusion applied
+    // once by the pure resolver (Req 28.2-28.5). Used for the summary count and materialization.
+    val resolvedAssignment = remember(selectedRecipients, senderUid) {
+        val friendUids = selectedRecipients
+            .filterIsInstance<Recipient.FriendRecipient>()
+            .map { it.friend.uid }
+        val circleMemberUids = selectedRecipients
+            .filterIsInstance<Recipient.CircleRecipient>()
+            .map { it.circle.memberUids }
+        RecipientResolution.resolve(friendUids, circleMemberUids, senderUid)
+    }
+    // Materialize the Resolved_Assignee_Set into the List<Friend> handed to the unchanged
+    // assignment path: FriendRecipients contribute their Friend; CircleRecipients contribute a
+    // Friend per member (from Circle.members uid/name), all filtered to exactly the resolver's
+    // uid set so dedupe + sender-exclusion apply once (Req 28.6, 28.7).
+    val resolvedAssignedFriends: List<Friend> = remember(selectedRecipients, resolvedAssignment, circlesById) {
+        val candidates = LinkedHashMap<String, Friend>()
+        selectedRecipients.filterIsInstance<Recipient.FriendRecipient>().forEach { fr ->
+            candidates.putIfAbsent(
+                fr.friend.uid,
+                Friend(
+                    uid = fr.friend.uid,
+                    name = fr.friend.name,
+                    preambleId = fr.friend.preambleId,
+                    photoUrl = fr.friend.photoUrl
+                )
+            )
+        }
+        selectedRecipients.filterIsInstance<Recipient.CircleRecipient>().forEach { cr ->
+            circlesById[cr.circle.id]?.members?.forEach { member ->
+                candidates.putIfAbsent(member.uid, Friend(uid = member.uid, name = member.name))
+            }
+        }
+        resolvedAssignment.assigneeUids.map { uid -> candidates[uid] ?: Friend(uid = uid) }
+    }
+    val selectedFriendRecipients = selectedRecipients.filterIsInstance<Recipient.FriendRecipient>()
+    val selectedCircleRecipients = selectedRecipients.filterIsInstance<Recipient.CircleRecipient>()
     var selectedTime by remember { mutableStateOf<String?>(null) }
     var selectedDate by remember { mutableStateOf<String?>(null) }
     var selectedPriority by remember { mutableStateOf(0) }
@@ -411,7 +456,7 @@ fun AddTaskSheet(
                     daysStr,
                     recurrenceEndDate,
                     overrides.joinToString(","),
-                    selectedFriends
+                    resolvedAssignedFriends
                 )
             } else if (recurrenceType != null && onAddRecurringTask != null) {
                 val daysStr = if (recurrenceDays.isNotEmpty()) recurrenceDays.sorted().joinToString(",") else null
@@ -448,7 +493,7 @@ fun AddTaskSheet(
                     isEvent,
                     eventIcon,
                     eventColor,
-                    selectedFriends
+                    resolvedAssignedFriends
                 )
             }
             // Haptic + toast confirmation
@@ -668,45 +713,65 @@ fun AddTaskSheet(
                 )
             }
 
-            // Assignee chips
-            AnimatedVisibility(visible = selectedFriends.isNotEmpty()) {
+            // Confirmed recipient selection summary — distinguishes selected Friends from
+            // selected Circles and shows the live resolved assignee count (Req 30.8).
+            AnimatedVisibility(visible = selectedRecipients.isNotEmpty()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .horizontalScroll(rememberScrollState())
                         .padding(top = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    selectedFriends.forEach { friend ->
-                        InputChip(
-                            selected = true,
-                            onClick = { selectedFriends = selectedFriends.filter { it.uid != friend.uid } },
-                            label = { Text("Assignee: ${friend.name}", style = MaterialTheme.typography.labelSmall) },
-                            avatar = {
-                                Box(
-                                    modifier = Modifier
-                                        .size(16.dp)
-                                        .background(MaterialTheme.colorScheme.primary, CircleShape),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = friend.name.take(1).uppercase(),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onPrimary,
-                                        fontSize = 9.sp
-                                    )
-                                }
+                    if (selectedFriendRecipients.isNotEmpty()) {
+                        SuggestionChip(
+                            onClick = { showRecipientPicker = true },
+                            label = {
+                                Text(
+                                    if (selectedFriendRecipients.size == 1)
+                                        selectedFriendRecipients.first().friend.name
+                                    else "${selectedFriendRecipients.size} friends",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
                             },
-                            trailingIcon = {
+                            icon = {
                                 Icon(
-                                    Icons.Default.Close,
-                                    contentDescription = "Remove assignee",
-                                    modifier = Modifier.size(14.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    Icons.Default.Person,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
                         )
                     }
+                    if (selectedCircleRecipients.isNotEmpty()) {
+                        SuggestionChip(
+                            onClick = { showRecipientPicker = true },
+                            label = {
+                                Text(
+                                    if (selectedCircleRecipients.size == 1)
+                                        selectedCircleRecipients.first().circle.name
+                                    else "${selectedCircleRecipients.size} Circles",
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            },
+                            icon = {
+                                Icon(
+                                    Icons.Default.Group,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        )
+                    }
+                    val resolvedCount = resolvedAssignment.size
+                    Text(
+                        text = "$resolvedCount assignee${if (resolvedCount == 1) "" else "s"}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (resolvedAssignment.withinLimit)
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        else MaterialTheme.colorScheme.error
+                    )
                 }
             }
 
@@ -990,84 +1055,17 @@ fun AddTaskSheet(
                     }
                 }
 
-                // Assign to Friend button (only if user has friends)
-                if (friends.isNotEmpty()) {
-                    var showFriendDropdown by remember { mutableStateOf(false) }
-                    Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
-                        IconButton(onClick = { showFriendDropdown = true }) {
-                            Icon(
-                                Icons.Default.Group,
-                                contentDescription = "Assign to Friend",
-                                tint = if (selectedFriends.isNotEmpty())
-                                    MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = showFriendDropdown,
-                            onDismissRequest = { showFriendDropdown = false },
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier.widthIn(max = 240.dp).heightIn(max = 300.dp),
-                            properties = PopupProperties(focusable = true)
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Unassigned (Self)", style = MaterialTheme.typography.bodyMedium) },
-                                leadingIcon = {
-                                    Icon(Icons.Default.Group, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f))
-                                },
-                                trailingIcon = {
-                                    if (selectedFriends.isEmpty()) {
-                                        Icon(Icons.Default.Check, contentDescription = "Selected", tint = MaterialTheme.colorScheme.primary)
-                                    }
-                                },
-                                onClick = {
-                                    selectedFriends = emptyList()
-                                    showFriendDropdown = false
-                                }
-                            )
-                            
-                            friends.forEach { friend ->
-                                val isSelected = selectedFriends.any { it.uid == friend.uid }
-                                DropdownMenuItem(
-                                    text = { Text(friend.name, style = MaterialTheme.typography.bodyMedium) },
-                                    leadingIcon = {
-                                        val initial = friend.name.take(1).uppercase()
-                                        Box(
-                                            modifier = Modifier
-                                                .size(24.dp)
-                                                .background(
-                                                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                                    shape = CircleShape
-                                                ),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                text = initial,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-                                    },
-                                    trailingIcon = {
-                                        Checkbox(
-                                            checked = isSelected,
-                                            onCheckedChange = null // Handled by DropdownMenuItem click
-                                        )
-                                    },
-                                    onClick = {
-                                        selectedFriends = if (isSelected) {
-                                            selectedFriends.filter { it.uid != friend.uid }
-                                        } else {
-                                            if (selectedFriends.size < CollaborativeDocument.MAX_ASSIGNEES) {
-                                                selectedFriends + friend
-                                            } else {
-                                                selectedFriends
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-                        }
+                // Recipient control — the sole recipient-selection control; opens the
+                // RecipientPicker (Friends + Circles) (Req 30.9).
+                if (friends.isNotEmpty() || circles.isNotEmpty()) {
+                    IconButton(onClick = { showRecipientPicker = true }) {
+                        Icon(
+                            Icons.Default.Group,
+                            contentDescription = "Send to friends or Circles",
+                            tint = if (selectedRecipients.isNotEmpty())
+                                MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
 
@@ -1456,6 +1454,19 @@ fun AddTaskSheet(
                 Text("Add")
             }
         }
+    }
+
+    // Recipient_Picker — the sole recipient-selection control (Friends + Circles), opened from
+    // the recipient control. Keyed selection persists across reopen within the session (Req 31.5).
+    if (showRecipientPicker) {
+        RecipientPicker(
+            friends = friends,
+            circles = circles,
+            senderUid = senderUid,
+            initiallySelectedKeys = selectedRecipients.map { it.key }.toSet(),
+            onConfirm = { selectedRecipients = it },
+            onDismiss = { showRecipientPicker = false }
+        )
     }
 
     // Schedule Dialog - Calendar + optional TimePicker

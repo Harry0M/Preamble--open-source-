@@ -121,6 +121,20 @@ export const AD_COOLDOWN_SECONDS = 300; // 5 minutes between ads
 export const REFERRAL_REWARD = 50;
 
 /**
+ * Master switch for the two-sided Referral_Reward (social-hub-redesign Req 8).
+ *
+ * Sourced from the `REFERRAL_REWARDS_ENABLED` environment variable and defaults
+ * to disabled in Development_Mode (the current pre-launch state). When false,
+ * `gatedReferralDecision` never returns `Eligible`, so the credit-increment
+ * transaction in `onReferralFriendship` never runs and no user's AI-credit
+ * balance is modified on account of a referral (Req 8.1, 8.5). Flipping this
+ * back to "true" re-enables the reward without touching attribution or the
+ * invite/friendship flow (Req 8.4).
+ */
+export const REFERRAL_REWARDS_ENABLED: boolean =
+  (process.env.REFERRAL_REWARDS_ENABLED ?? "false") === "true";
+
+/**
  * "Genuinely new account" tolerance window. The referred account's creation
  * time must fall within ±this many ms of the attribution timestamp for the
  * referral to be eligible (guards against rewarding pre-existing accounts).

@@ -504,8 +504,22 @@ fun PreambleApp(
                 deepLinkTarget.startsWith("calendar") -> selectedTab = 2
                 deepLinkTarget.startsWith("ai") -> selectedTab = 3
                 deepLinkTarget.startsWith("invite/") -> {
-                    selectedTab = 4
+                    // social-hub-redesign Req 7.1: an invite/{id} link lands on the enhanced
+                    // Social_Hub (the Friends overlay) with the id pre-filled, NOT the
+                    // collaborative-tasks workspace tab (selectedTab = 4).
                     initialInviteId = deepLinkTarget.removePrefix("invite/")
+                    showFriendsScreen = true
+                }
+                deepLinkTarget == "social" -> {
+                    // notifications Req 1.3 / 6.4: a plain preamble://social link opens the
+                    // Social_Hub (the Friends overlay) without requiring an invite id.
+                    showFriendsScreen = true
+                }
+                deepLinkTarget.startsWith("task/") -> {
+                    // notifications Req 5.4 / 6.5: a preamble://task/{id} link routes to the
+                    // Shared Tasks (Workspace) tab. Also fixes routing for existing kudos/nudge
+                    // notifications that already emit task/{id}.
+                    selectedTab = 4
                 }
                 deepLinkTarget.startsWith("settings") -> selectedTab = 5
             }

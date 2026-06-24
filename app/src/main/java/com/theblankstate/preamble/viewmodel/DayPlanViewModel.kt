@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.theblankstate.preamble.ai.CloudAiService
+import com.theblankstate.preamble.ai.PlanAssignmentDto
 import com.theblankstate.preamble.ai.PlanDayResult
 import com.theblankstate.preamble.ai.PlanFixedDto
 import com.theblankstate.preamble.ai.PlanTaskDto
@@ -11,6 +12,7 @@ import com.theblankstate.preamble.analytics.AnalyticsManager
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.planner.DayPlanInput
 import com.theblankstate.preamble.planner.DayPlanService
+import com.theblankstate.preamble.planner.GatheredInput
 import com.theblankstate.preamble.planner.PlanOutcome
 import com.theblankstate.preamble.planner.ProposedSchedule
 import com.theblankstate.preamble.planner.RawAssignment
@@ -37,7 +39,8 @@ import kotlinx.coroutines.withTimeout
  *   Idle → Loading → Review → Applying → (Applied | Failed)
  *
  * plus the terminal message states [DayPlanState.NoSchedulableTasks],
- * [DayPlanState.CouldNotGenerate], and [DayPlanState.InsufficientCredits].
+ * [DayPlanState.NoRemainingTimeToday], [DayPlanState.CouldNotGenerate],
+ * [DayPlanState.InsufficientCredits], and the retryable [DayPlanState.Error].
  *
  * Safety: nothing is written to any task until [accept]; [discard] and every terminal
  * message state leave all tasks untouched.
@@ -51,14 +54,33 @@ class DayPlanViewModel(
     private val _state = MutableStateFlow<DayPlanState>(DayPlanState.Idle)
     val state: StateFlow<DayPlanState> = _state.asStateFlow()
 
+    // Cached context from the last [requestPlan] gather so [submitAdjustment] can replan
+    // through the SAME [DayPlanInput] (including the Effective_Window_Start floor) and the
+    // SAME Current_Local_Datetime context (Req 15.2, 15.3). This guarantees a Revised_Schedule
+    // flows through the identical [ScheduleNormalizer.normalize] input as the first request,
+    // so Req 13/16 constraints are enforced unchanged.
+    private var lastGathered: GatheredInput? = null
+    private var lastToday: String? = null
+
+    // The most recently reviewed/proposed schedule, retained so a post-apply Plan_Adjustment
+    // (Req 15.6) can echo the prior assignments even after the Review state has transitioned
+    // to Applied.
+    private var lastSchedule: ProposedSchedule? = null
+
     /**
      * Request a day plan for the current day (Req 1.1, 1.4, 1.5, 5.1–5.3, 5.5, 6.1).
      *
      * Short-circuits to [DayPlanState.NoSchedulableTasks] with **no** AI call when there
      * are no schedulable tasks (Req 1.4). Otherwise records the request analytics (Req 6.1),
-     * calls [CloudAiService.planDay] bounded by [PLAN_TIMEOUT_MS] (Req 5.1), maps timeout /
-     * error / null / insufficient-credits to the matching terminal state with tasks left
-     * untouched (Req 5.2, 5.3, 5.5), and feeds a [PlanDayResult.Success] through the pure
+     * calls [CloudAiService.planDay] bounded by [PLAN_TIMEOUT_MS] (Req 5.1).
+     *
+     * Failure remapping (Req 18.4): timeout, generic exceptions, and a `null` result
+     * (network / HTTP 500 / parse failure) all map to the **retryable**
+     * [DayPlanState.Error]; insufficient-credits maps to [DayPlanState.InsufficientCredits].
+     * [DayPlanState.CouldNotGenerate] is reserved for the case where the model **did**
+     * respond but produced no usable schedule (the [PlanOutcome.CouldNotGenerate] branch
+     * from [ScheduleNormalizer.normalize]). In every failure case all tasks are left
+     * untouched (Req 5.2, 5.3, 5.5). A [PlanDayResult.Success] is fed through the pure
      * [ScheduleNormalizer] (CouldNotGenerate → terminal; Valid → [DayPlanState.Review]).
      */
     fun requestPlan() {
@@ -66,11 +88,24 @@ class DayPlanViewModel(
             _state.value = DayPlanState.Loading
 
             val today = TaskRepository.todayString()
-            val input = dayPlanService.gatherInput(today)
+            val gathered = dayPlanService.gatherInput(today)
+            val input = gathered.input
+
+            // Cache the gather context so a later [submitAdjustment] reuses the SAME input
+            // and Current_Local_Datetime (Req 15.2, 15.3).
+            lastGathered = gathered
+            lastToday = today
 
             // Req 1.4: no schedulable tasks ⇒ no AI call, just a message.
             if (input.schedulable.isEmpty()) {
                 _state.value = DayPlanState.NoSchedulableTasks
+                return@launch
+            }
+
+            // Req 13.6: the Effective_Window_Start is at/after the working-window end ⇒
+            // there is no remaining time today to plan, so make NO AI call.
+            if (input.earliestStartMinute >= input.dayEndMinute) {
+                _state.value = DayPlanState.NoRemainingTimeToday
                 return@launch
             }
 
@@ -83,7 +118,10 @@ class DayPlanViewModel(
             val fixedDtos = input.fixed.map {
                 PlanFixedDto(start = formatHHmm(it.startMinute), end = it.endMinute?.let(::formatHHmm))
             }
-            val dayStart = formatHHmm(input.dayStartMinute)
+            // Tell the model the real earliest start (the Effective_Window_Start floor), not the
+            // raw working-window start, so it is time-aware (Req 13.5). Correctness does not depend
+            // on the model honoring it — the pure normalizer enforces the floor regardless.
+            val dayStart = formatHHmm(input.earliestStartMinute)
             val dayEnd = formatHHmm(input.dayEndMinute)
 
             // Req 5.1: bound the Cloud AI call by a timeout.
@@ -95,21 +133,24 @@ class DayPlanViewModel(
                         date = today,
                         dayStart = dayStart,
                         dayEnd = dayEnd,
+                        // Current_Local_Datetime planning context (Req 13.5).
+                        dayOfWeek = gathered.dayOfWeek,
+                        nowTime = gathered.nowTime,
                     )
                 }
             } catch (e: TimeoutCancellationException) {
-                // Req 5.2: timed out ⇒ abandon, tasks untouched.
-                _state.value = DayPlanState.CouldNotGenerate
+                // Req 5.2 + 18.4: timed out ⇒ retryable Error, tasks untouched.
+                _state.value = DayPlanState.Error
                 return@launch
             } catch (e: Exception) {
-                // Req 5.3: error ⇒ tasks untouched.
-                _state.value = DayPlanState.CouldNotGenerate
+                // Req 5.3 + 18.4: error ⇒ retryable Error, tasks untouched.
+                _state.value = DayPlanState.Error
                 return@launch
             }
 
             when (result) {
-                // Req 5.3: network/parse/limit error.
-                null -> _state.value = DayPlanState.CouldNotGenerate
+                // Req 5.3 + 18.4: network/HTTP 500/parse failure ⇒ retryable Error.
+                null -> _state.value = DayPlanState.Error
                 // Req 5.5: server rejected for insufficient credits.
                 is PlanDayResult.InsufficientCredits -> _state.value = DayPlanState.InsufficientCredits
                 is PlanDayResult.Success -> {
@@ -121,6 +162,9 @@ class DayPlanViewModel(
                             // Capture the original Task objects for the apply lookup.
                             val tasksById = repository.getTasksForDateWithRecurrence(today)
                                 .associateBy { it.id }
+                            // Retain for a possible post-apply adjustment (Req 15.6). The normal
+                            // requestPlan path carries no advisory (advisory = null).
+                            lastSchedule = outcome.schedule
                             _state.value = DayPlanState.Review(outcome.schedule, tasksById)
                         }
                     }
@@ -164,6 +208,123 @@ class DayPlanViewModel(
     }
 
     /**
+     * Submit a free-text Plan_Adjustment to revise the current proposal (Req 15.1–15.6).
+     *
+     * Valid only while in [DayPlanState.Review] (Req 15.1) or, for a post-apply adjustment,
+     * [DayPlanState.Applied] (Req 15.6); from any other state this is a no-op. The prior
+     * schedule's assignments are echoed back to the model as `priorAssignments` and the
+     * user's [text] is passed through **unmodified** as `adjustment` so any language/script
+     * is preserved (Req 15.2).
+     *
+     * The call reuses the cached [GatheredInput] from the originating [requestPlan], so the
+     * Revised_Schedule is produced from the SAME [DayPlanInput] (including the
+     * `Effective_Window_Start` floor) and the SAME Current_Local_Datetime context. The
+     * untrusted response is fed through the SAME [ScheduleNormalizer.normalize] with the SAME
+     * `input`, guaranteeing the Revised_Schedule obeys the Requirement 13/16 constraints
+     * (Req 15.3). On success it re-enters [DayPlanState.Review] writing NOTHING until
+     * [accept] (Req 15.4).
+     *
+     * Failure remapping mirrors [requestPlan]: timeout/exception/`null` ⇒ retryable
+     * [DayPlanState.Error]; insufficient credits ⇒ [DayPlanState.InsufficientCredits];
+     * a usable-but-empty response ⇒ [DayPlanState.CouldNotGenerate].
+     *
+     * Advisory (Req 15.5): when the response is usable but the adjustment cannot be fully
+     * honored (some Schedulable_Tasks remain in [ProposedSchedule.unplaced]), the re-entered
+     * [DayPlanState.Review] carries an [DayPlanState.Review.advisory] message naming the
+     * tasks that could not be placed while still leaving a reviewable schedule.
+     */
+    fun submitAdjustment(text: String) {
+        val current = _state.value
+        // Req 15.1: only from Review; Req 15.6: also allowed post-apply from Applied.
+        val priorSchedule: ProposedSchedule = when (current) {
+            is DayPlanState.Review -> current.schedule
+            DayPlanState.Applied -> lastSchedule ?: return
+            else -> return
+        }
+        // Need the original gather context to replan through the identical input (Req 15.3).
+        val gathered = lastGathered ?: return
+        val input = gathered.input
+        val today = lastToday ?: gathered.date
+
+        viewModelScope.launch {
+            _state.value = DayPlanState.Loading
+
+            val schedulableDtos = input.schedulable.map {
+                PlanTaskDto(id = it.id, title = it.title, priority = it.priority)
+            }
+            val fixedDtos = input.fixed.map {
+                PlanFixedDto(start = formatHHmm(it.startMinute), end = it.endMinute?.let(::formatHHmm))
+            }
+            val dayStart = formatHHmm(input.earliestStartMinute)
+            val dayEnd = formatHHmm(input.dayEndMinute)
+
+            // Echo the prior proposal so the model can revise it (Req 15.2).
+            val priorAssignments = priorSchedule.assignments.map {
+                PlanAssignmentDto(id = it.taskId, time = it.time)
+            }
+
+            // Req 5.1: bound the Cloud AI call by the same timeout as requestPlan.
+            val result: PlanDayResult? = try {
+                withTimeout(PLAN_TIMEOUT_MS) {
+                    CloudAiService.planDay(
+                        schedulable = schedulableDtos,
+                        fixed = fixedDtos,
+                        date = today,
+                        dayStart = dayStart,
+                        dayEnd = dayEnd,
+                        dayOfWeek = gathered.dayOfWeek,
+                        nowTime = gathered.nowTime,
+                        priorAssignments = priorAssignments,
+                        // Passed UNMODIFIED for any language/script (Req 15.2).
+                        adjustment = text,
+                    )
+                }
+            } catch (e: TimeoutCancellationException) {
+                _state.value = DayPlanState.Error
+                return@launch
+            } catch (e: Exception) {
+                _state.value = DayPlanState.Error
+                return@launch
+            }
+
+            when (result) {
+                null -> _state.value = DayPlanState.Error
+                is PlanDayResult.InsufficientCredits -> _state.value = DayPlanState.InsufficientCredits
+                is PlanDayResult.Success -> {
+                    // Untrusted assignments; the pure normalizer with the SAME input is the authority (Req 15.3).
+                    val raw = result.assignments.map { RawAssignment(taskId = it.id, time = it.time) }
+                    when (val outcome = ScheduleNormalizer.normalize(input, raw)) {
+                        is PlanOutcome.CouldNotGenerate -> _state.value = DayPlanState.CouldNotGenerate
+                        is PlanOutcome.Valid -> {
+                            val tasksById = repository.getTasksForDateWithRecurrence(today)
+                                .associateBy { it.id }
+                            lastSchedule = outcome.schedule
+                            // Req 15.4: re-enter Review writing NOTHING until accept().
+                            // Req 15.5: surface an advisory when the adjustment can't be fully honored.
+                            _state.value = DayPlanState.Review(
+                                schedule = outcome.schedule,
+                                tasksById = tasksById,
+                                advisory = buildAdvisory(outcome.schedule),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Build the Req 15.5 advisory message, or null when every schedulable task was placed.
+     * Names the tasks left in [ProposedSchedule.unplaced] so the user understands what could
+     * not be accommodated while a reviewable schedule remains available.
+     */
+    private fun buildAdvisory(schedule: ProposedSchedule): String? {
+        if (schedule.unplaced.isEmpty()) return null
+        val titles = schedule.unplaced.joinToString(", ") { it.title }
+        return "Some tasks couldn't be placed in the remaining time: $titles"
+    }
+
+    /**
      * Discard the reviewed schedule (Req 4.3, 6.3): return to [DayPlanState.Idle] without
      * mutating any task, and record the discard analytics.
      */
@@ -175,6 +336,14 @@ class DayPlanViewModel(
     /** Dismiss a terminal message state back to [DayPlanState.Idle] (no mutation). */
     fun reset() {
         _state.value = DayPlanState.Idle
+    }
+
+    /**
+     * Retry a failed plan request (Req 18.5): re-invoke [requestPlan] from the retryable
+     * [DayPlanState.Error] state. No task is mutated by retrying.
+     */
+    fun retry() {
+        requestPlan()
     }
 
     /** Format a minute-of-day to canonical `HH:mm`. */
@@ -215,10 +384,16 @@ sealed interface DayPlanState {
      * A valid proposal is ready for the user to accept or discard. While in this state
      * nothing is written to any task (Req 3.2). [tasksById] holds the original tasks for
      * the apply lookup.
+     *
+     * [advisory] is null on the normal [requestPlan] path. After a [submitAdjustment] that
+     * could not be fully honored (e.g. tasks remained in [ProposedSchedule.unplaced]), it
+     * carries a human-readable message naming what could not be accommodated while leaving
+     * this schedule reviewable (Req 15.5).
      */
     data class Review(
         val schedule: ProposedSchedule,
         val tasksById: Map<String, Task>,
+        val advisory: String? = null,
     ) : DayPlanState
 
     /** Applying the accepted schedule. */
@@ -233,8 +408,24 @@ sealed interface DayPlanState {
     /** There were no schedulable tasks to plan; no AI call was made (Req 1.4). */
     data object NoSchedulableTasks : DayPlanState
 
-    /** The day plan could not be generated (timeout/error/unusable proposal) (Req 5.2, 5.3). */
+    /**
+     * The Effective_Window_Start is at or after the working-window end, so there is no
+     * remaining time today to plan; no AI call was made (Req 13.6). Terminal message.
+     */
+    data object NoRemainingTimeToday : DayPlanState
+
+    /**
+     * The day plan could not be generated because the AI **responded** but produced no
+     * usable schedule (the [PlanOutcome.CouldNotGenerate] branch). Terminal message
+     * (Req 5.3). For timeout/network/HTTP 500/parse failures see [Error] instead.
+     */
     data object CouldNotGenerate : DayPlanState
+
+    /**
+     * A recoverable failure reaching the AI: timeout, network error, HTTP 500, or an
+     * unparseable response. The user can [retry] (Req 18.4, 18.5). Tasks are untouched.
+     */
+    data object Error : DayPlanState
 
     /** The request was rejected for insufficient AI credits (Req 5.5). */
     data object InsufficientCredits : DayPlanState

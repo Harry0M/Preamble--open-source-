@@ -38,12 +38,26 @@ object Leaderboard {
         val awardedTasks: Set<String> = emptySet()
     )
 
-    /** A single row of the Friends_Leaderboard: a participant and their current-window points. */
+    /**
+     * A single row of the Friends_Leaderboard: a participant and their current-window points.
+     *
+     * Implements [SocialSearch.Searchable] so a leaderboard row can be filtered by the
+     * Social_Search control consistently with the Friends_List, matching against both the
+     * [preambleId] and the display name (Req 9.3). [displayName] aliases [name] to satisfy
+     * the interface without duplicating data.
+     *
+     * @property preambleId the participant's Preamble_ID, populated from the per-uid directory
+     *   map supplied to [ranking]; defaults to "" so existing callers keep compiling and rows
+     *   for uids absent from the directory remain non-matching by Preamble_ID.
+     */
     data class Entry(
         val uid: String,
         val name: String,
-        val weeklyPoints: Int
-    )
+        val weeklyPoints: Int,
+        override val preambleId: String = ""
+    ) : SocialSearch.Searchable {
+        override val displayName: String get() = name
+    }
 
     /**
      * Awards [COMPLETION_AWARD] for [taskId] iff it has not been awarded before (Req 7.1, 7.2).
@@ -75,15 +89,22 @@ object Leaderboard {
      * Each entry is scored by its score document's current-window points
      * (`weeklyPoints[WeeklyWindow.weekKey(now)]`), defaulting to 0 when the uid has no score
      * document or no points in the current window (pre-window points are excluded, Req 9.4).
-     * Entries are ordered by points descending (Req 9.2). Non-friend uids present in [scores] or
-     * [names] are never included.
+     * Entries are ordered by points descending (Req 9.2). Non-friend uids present in [scores],
+     * [names], or [preambleIds] are never included.
+     *
+     * Each entry's `preambleId` is populated from [preambleIds] (sourced from the same friend
+     * directory the caller already holds) so leaderboard rows satisfy [SocialSearch.Searchable]
+     * and can be filtered by Preamble_ID consistently with the Friends_List (Req 9.3). A uid
+     * absent from [preambleIds] gets the default "". [preambleIds] defaults to empty so existing
+     * callers keep compiling. Neither the directory nor the new field affects ordering or points.
      */
     fun ranking(
         selfUid: String,
         friendUids: Set<String>,
         scores: Map<String, ScoreDoc>,
         names: Map<String, String>,
-        now: Long
+        now: Long,
+        preambleIds: Map<String, String> = emptyMap()
     ): List<Entry> {
         val weekKey = WeeklyWindow.weekKey(now)
         val participants = LinkedHashSet<String>().apply {
@@ -96,7 +117,8 @@ object Leaderboard {
                 Entry(
                     uid = uid,
                     name = names[uid] ?: uid,
-                    weeklyPoints = points
+                    weeklyPoints = points,
+                    preambleId = preambleIds[uid] ?: ""
                 )
             }
             .sortedByDescending { it.weeklyPoints }

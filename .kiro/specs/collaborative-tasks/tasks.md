@@ -351,3 +351,215 @@ Implementation language remains **Kotlin** (Android client + pure logic), consis
   ]
 }
 ```
+
+---
+
+## Tasks (Iteration 3: WS3 + WS4)
+
+Iteration 3 implements the two WS3 collaborative-send correctness fixes (Requirements 23–24) and the three WS4 live-task-list visual upgrades (Requirements 25–27), exactly as specified in the "Design Document — Iteration 3" section. It follows the same bottom-up strategy as Iterations 1–2: the two genuinely new pure modules (`CollaborativeSend`, `AvatarSource`) land first in the side-effect-free `com.theblankstate.preamble.collab` package so the two new correctness properties (Properties 21 and 22) can be validated with the established jqwik suite, then the durable WorkManager send pipeline, the Room migration, the data plumbing for member photos, and the Compose surfaces are wired into the running app. Top-level numbering continues from Iteration 2, starting at 18; tasks 1–17 are complete and unchanged.
+
+Implementation language remains **Kotlin** (Android client + pure logic), consistent with the design and Iterations 1–2.
+
+- [x] 18. Implement WS3 collaborative-send pure logic and persistence foundation
+  - [x] 18.1 Implement the `CollaborativeSend` pure module
+    - Create `collab/CollaborativeSend.kt` as a pure object (no Android/Firestore deps): `SendStatus` enum (`PARSING`, `QUEUED`, `SENDING`, `SENT`, `SEND_FAILED`), `Connectivity` enum (`ONLINE`, `SLOW`, `OFFLINE`), the `Event` sealed interface (`Confirmed`, `ParseCompleted`, `ConnectivityOnline`, `ConnectivityLost`, `SendStarted`, `SendSucceeded`, `SendFailed`, `Retry`), `initial(connectivity, parsePending)` and the pure `next(current, event)` transition function
+    - Encode: `SENT` absorbing and reachable only via `SendSucceeded`; `SEND_FAILED` reached only by `SendFailed` with retries exhausted and left only by `Retry` (→ `QUEUED`); `ParseCompleted` advances `PARSING` → `SENDING`; `ConnectivityLost` in flight → `QUEUED`
+    - _Requirements: 23.1, 23.2, 23.3, 23.4, 23.5, 23.7, 24.1, 24.2, 24.4, 24.6, 24.7, 24.8_
+
+  - [ ]* 18.2 Write property test for the Send_Status lifecycle
+    - **Property 21: Send_Status lifecycle is correct and never reports an undelivered send as sent**
+    - Generators produce arbitrary initial `Connectivity`/`parsePending` and arbitrary event sequences; assert `initial` mapping (parsing/queued/sending), that `SENT` is reachable only via `SendSucceeded` and is absorbing, that `SEND_FAILED` is reached only on exhausted retries and exits only via `Retry`, that `ParseCompleted` never strands a task in a terminal non-sent state, and that `ConnectivityLost` in flight returns to `queued`; tag `// Feature: collaborative-tasks, Property 21: ...`, `@Property(tries = 100)` minimum
+    - **Validates: Requirements 23.1, 23.2, 23.3, 23.4, 23.5, 23.7, 24.1, 24.2, 24.4, 24.6, 24.7, 24.8**
+
+  - [x] 18.3 Add the `collabSendStatus` column and Room migration 30 → 31
+    - Add a nullable `collabSendStatus: String?` column to the `Task` Room entity (values `parsing`/`queued`/`sending`/`sent`/`send_failed`, `null` for non-collaborative tasks)
+    - Add `MIGRATION_30_31` to `data/PreambleDatabase.kt` (`ALTER TABLE tasks ADD COLUMN collabSendStatus TEXT DEFAULT NULL`), register it, and bump the database version 30 → 31
+    - **Device/environment-dependent:** the migration's forward-compatibility (open an existing v30 DB and migrate without data loss) should be verified on a device/emulator with a real installed database
+    - _Requirements: 23.2, 24.2_
+
+- [x] 19. Implement the durable collaborative-send pipeline and Send_Status surfacing
+  - [x] 19.1 Create `CollaborativeSendWorker`
+    - Add `ai/CollaborativeSendWorker.kt` as a `CoroutineWorker` taking `taskId`; read the current task from Room (so it picks up AI-refined or as-entered attributes)
+    - Idempotent guards: task missing, no longer collaborative, or already `sent` → `Result.success()`
+    - Build the assignee `Friend` list from `task.collabAssignees` (excluding admin) and call the existing `WorkspaceRepository.writeFinalizedCollaborativeAttributes(task, assignees)` (create-or-update canonical doc, preserving every member's `memberStates`)
+    - Status writes via `CollaborativeSend.next(...)`: set `sending` before the attempt; on success set `sent` and `isSyncing = false`; on transient failure return `Result.retry()` (status stays `queued`); on terminal failure (`runAttemptCount >= MAX_SEND_ATTEMPTS`) set `send_failed`, retain the local copy unchanged, surface the "couldn't share with collaborators" message, and return `Result.failure()`
+    - **Device/environment-dependent:** the durable-send behavior (queue survives process restart, delivers on reconnect, retry/backoff, terminal failure) benefits from device/emulator verification with WorkManager
+    - _Requirements: 23.3, 23.4, 23.5, 23.6, 23.8, 24.4, 24.5, 24.6, 24.7_
+
+  - [x] 19.2 Remove the inline collaborative-send from `AiParsingWorker`
+    - In `ai/AiParsingWorker.kt`, remove the inline collaborative-send (the explicit-pending-collab branch that calls `writeFinalizedCollaborativeAttributes`) from both the happy/tool-calls path and the no-tool-calls early-return paths, so the parse phase ONLY refines and persists attributes and clears `isSyncing` for the parse phase
+    - This is the change that closes the "parse returned nothing ⇒ never sent" bug; leave the natural-language `resolveAndAssignFriends` (voice/notification, Req 9) path untouched
+    - _Requirements: 23.4, 23.7_
+
+  - [x] 19.3 Wire the parse → send unique-work chain in `TaskViewModel.addTaskWithPendingAiParse`
+    - Keep the own-copy `< 1 s` save (`isSyncing = true`); stamp the initial `collabSendStatus` from `CollaborativeSend.initial(connectivity, parsePending = true)` using a small `ConnectivityProbe` (Android `ConnectivityManager`) behind an interface so the pure machine stays testable
+    - Replace the single `WorkManager.enqueue(parseRequest)` with `beginUniqueWork(sendWorkName(taskId), ExistingWorkPolicy.REPLACE, parseRequest).then(sendRequest).enqueue()`; both requests keep `NetworkType.CONNECTED`; leave the non-collaborative path as a single parse work with no send link
+    - **Device/environment-dependent:** confirming the chain durably queues and runs the send when connectivity returns benefits from device/emulator verification
+    - _Requirements: 23.1, 23.2, 24.1, 24.2, 24.3, 24.8_
+
+  - [ ]* 19.4 Write unit tests for the send worker guards and terminal-failure path
+    - Cover idempotent short-circuit (missing/not-collaborative/already-sent → success), transient failure → retry (status stays `queued`), and `runAttemptCount`-driven terminal failure → `send_failed` + retained local copy + message
+    - _Requirements: 23.4, 24.6, 24.7_
+
+  - [x] 19.5 Surface the Send_Status chip on the task row
+    - In `ui/components/TaskItem.kt`, derive the Admin-visible status purely from `task.collabSendStatus` and render a small M3 Expressive status chip (`parsing`/`queued`/`sending`/`sent`/`send_failed`) consistent with the existing `isSyncing`/`syncFailed` indicators, without altering the row's click/completion behavior
+    - _Requirements: 23.2, 23.5, 24.2, 24.4, 24.6_
+
+- [x] 20. WS3 checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+- [x] 21. Implement WS4 avatar-source pure logic
+  - [x] 21.1 Implement the `AvatarSource` pure module
+    - Create `collab/AvatarSource.kt` as a pure object: `Source` enum (`REAL_PHOTO`, `DEFAULT`), `select(hasRealPhoto, isInitialsPlaceholder, fetchFailed)` returning `REAL_PHOTO` iff a real photo is available, not a placeholder, and not fetch-failed (else `DEFAULT`), and `isGeneratedInitialsAvatar(url)` heuristic detecting blank/null and Google default-monogram URL patterns (e.g. `/a/default-user`, `/a-/` monogram variants, `=...-mo` monogram sizing suffix) while treating real `lh3.googleusercontent.com/a/...` photos as non-placeholder
+    - _Requirements: 26.1, 26.2, 26.3, 26.4, 26.5_
+
+  - [ ]* 21.2 Write property test for the avatar-source precedence
+    - **Property 22: Member avatar source selection follows the real-photo-then-default precedence**
+    - Generators enumerate every combination of `hasRealPhoto`, `isInitialsPlaceholder`, `fetchFailed`; assert `REAL_PHOTO` iff (`hasRealPhoto && !isInitialsPlaceholder && !fetchFailed`) and `DEFAULT` in every other case (no photo, placeholder, fetch failure, loading); tag `// Feature: collaborative-tasks, Property 22: ...`, `@Property(tries = 100)` minimum
+    - **Validates: Requirements 26.1, 26.2, 26.3, 26.4, 26.5**
+
+  - [ ]* 21.3 Write edge-case unit tests for `isGeneratedInitialsAvatar`
+    - Test null/blank, Google default-user/monogram URLs (placeholder → true), and real `lh3.googleusercontent.com/a/...` photo URLs (→ false)
+    - _Requirements: 26.3_
+
+- [x] 22. Plumb member `photoUrl` data through the directory, friends, and canonical document (Req 26)
+  - [x] 22.1 Capture and publish the Google `photoUrl` at sign-in
+    - Add `photoUrl: String?` to `UserProfile`; in `auth/AuthManager` sign-in (`signInWithGoogle`) read `authResult.user?.photoUrl?.toString()` and store it in `UserProfile.photoUrl`; add `photoUrl` to the payloads written by `UserProfileStore.syncToFirestore` into `/preambleIds/{ID}` and `/users/{uid}`
+    - **Device/environment-dependent:** confirming a real Google account `photoUrl` is captured at sign-in benefits from device/emulator verification with a real Google account
+    - _Requirements: 26.1_
+
+  - [x] 22.2 Add `photoUrl` to the `Friend` record and populate it on invite-accept
+    - Add a nullable `photoUrl` to the `Friend` model; when a friend relationship is established (invite accept) in `WorkspaceRepository`, populate each reciprocal `Friend` record's `photoUrl` from the counterpart's public directory entry
+    - _Requirements: 26.1_
+
+  - [x] 22.3 Add `photoUrl` to `CollabAssigneeStatus` and write it on Collaborative_Send
+    - Add a nullable `photoUrl` to `CollabAssigneeStatus` (serialized inside the existing `collabAssigneesJson` column — no Room migration needed); on the Collaborative_Send, write each member's `photoUrl` into the canonical doc (admin's own from `UserProfile.photoUrl`, assignees' from their `Friend` records) so every member can read photos from the shared document
+    - _Requirements: 26.1_
+
+- [x] 23. Implement the WS4 live task-list visual surfaces
+  - [x] 23.1 Replace the circle with the Expressive_Member_Shape in `CollaboratorAvatarCluster`
+    - In `ui/components/CollaboratorAvatarCluster.kt`, replace `CircleShape` in the avatar and overflow chip with a Material 3 Expressive morphing shape (`androidx.graphics.shapes` `RoundedPolygon`/`Morph` via a small `Shape` adapter, clipped with `Modifier.clip`), with a subtle alive morph/scale on appearance
+    - Preserve the Req 22 behavior exactly: `CollaboratorView.visibleMembers` selection, `CollaboratorPreview.preview` overflow ("+N"), non-collaborative-row suppression, and the `avatarStatusStyle` accepted/completed-vs-pending fill/outline distinction
+    - _Requirements: 25.1, 25.2, 25.3, 25.4, 25.5_
+
+  - [x] 23.2 Implement the `MemberAvatar` composable with Default_Avatar fallback
+    - Add a `MemberAvatar(photoUrl, name, style, shape)` composable that computes `AvatarSource.select(hasRealPhoto = !url.isNullOrBlank(), isInitialsPlaceholder = isGeneratedInitialsAvatar(url), fetchFailed)` and renders `REAL_PHOTO` → Coil `AsyncImage` clipped to the Expressive shape (with `onError` flipping local `fetchFailed`, and a Default_Avatar `placeholder` while loading) or `DEFAULT` → the bundled Default_Avatar inside the shape
+    - Swap `CollaboratorAvatarCluster`'s `AvatarCircle(name, style)` for `MemberAvatar(...)`, keeping initials as the in-shape fallback content
+    - _Requirements: 26.1, 26.2, 26.3, 26.4, 26.5_
+
+  - [x] 23.3 Replace `IncomingSectionRow` with the `IncomingTaskCard`
+    - In `HomeScreen.kt`, replace the minimal `IncomingSectionRow` with an `IncomingTaskCard(task, onAccept, onDecline)` that renders the task using the same metadata layout a normal task card uses (reuse/factor the `TaskItem` metadata block: title, deadline time formatted exactly as `TaskItem` does, tags, priority) so the two cannot drift
+    - Controls: an inline Accept control with greater horizontal length (wide filled M3 button with `weight`) and a compact cross/`X` decline control, both Material 3 Expressive (alive shape/motion); wire Accept/Decline to the existing `workspaceViewModel.acceptAssignment(task)` / `declineAssignment(task)`, preserving the Req 19 placement, header-suppression, pending-only gating, optimistic `<200 ms`, and exact-state revert
+    - _Requirements: 27.1, 27.2, 27.3, 27.4, 27.5, 27.6, 27.7, 27.8, 27.9_
+
+  - [ ]* 23.4 Write Compose UI tests for the WS4 surfaces
+    - Avatar cluster renders Expressive shapes preserving the 3-member preview, "+N" overflow, accepted/completed-vs-pending distinction, and non-collaborative suppression; `MemberAvatar` shows the Default_Avatar for placeholder/fetch-failed/loading and the photo only for a real URL; the Incoming_Task_Card shows full task metadata with an Accept control wider than the cross decline, and accept/decline reflect within 200 ms and revert on failure against the in-memory fake repository
+    - _Requirements: 25.1, 25.3, 25.4, 26.2, 26.3, 27.2, 27.3, 27.4, 27.6, 27.7, 27.8_
+
+- [x] 24. Iteration 3 final checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+## Notes (Iteration 3)
+
+- Tasks 18–24 are additive; tasks 1–17 (Iterations 1–2) remain complete and unchanged.
+- Tasks marked with `*` are optional test sub-tasks and can be skipped for a faster MVP; core implementation tasks are never optional.
+- Properties 21 and 22 are the only new properties. The rest of Iteration 3 reuses existing properties per the design: canonical-document content/invariants for the deferred/queued send reuse Properties 5, 8, and 9; the cluster's displayed-member selection/overflow reuse Properties 16 and 20; and the Incoming_Task_Card's selection and optimistic accept/decline/revert reuse Properties 19, 10, 11, and 12 (the card calls the same `acceptAssignment`/`declineAssignment` paths).
+- **Device/environment-dependent tasks:** the Room migration verification (18.3), the WorkManager durable-send behavior (19.1, and the chain in 19.3), and the Google-photo capture at sign-in (22.1) benefit from on-device/emulator verification beyond JVM unit tests.
+- **Test execution environment:** as recorded for Iteration 2, JVM unit-test execution (jqwik) may be blocked until a full JDK 21 toolchain with `jlink` is available; until then the property/unit and Compose tests are verified by compilation and revisited at the checkpoints once the toolchain is fixed. The new pure modules (`CollaborativeSend`, `AvatarSource`) carry no Android/Firestore dependencies, so they compile and run under the existing JVM test source set established in task 1.1.
+
+## Task Dependency Graph (Iteration 3)
+
+```json
+{
+  "waves": [
+    { "id": 0, "tasks": ["18.1", "21.1"] },
+    { "id": 1, "tasks": ["18.2", "18.3", "21.2", "22.1", "22.2"] },
+    { "id": 2, "tasks": ["19.1", "19.2", "19.5", "21.3", "23.1"] },
+    { "id": 3, "tasks": ["19.3", "22.3", "23.3"] },
+    { "id": 4, "tasks": ["19.4", "23.2"] },
+    { "id": 5, "tasks": ["23.4"] }
+  ]
+}
+```
+
+---
+
+## Tasks (Iteration 4: WS2 — Send to Circle + searchable recipient picker)
+
+Iteration 4 implements the two WS2 changes from Requirements 28–31, exactly as specified in the "Design Document — Iteration 4: WS2 (Send to Circle + searchable recipient picker)" section: sending a task to one or more **Circles** under the members-as-assignees model, and replacing the inline friend dropdown + assignee-chip selector with a single searchable **Recipient_Picker** that lists Friends and Circles together. It follows the same bottom-up strategy as Iterations 1–3: the two genuinely new pure modules (`Recipient`, `RecipientResolution`) land first in the side-effect-free `com.theblankstate.preamble.collab` package so the one new correctness property (Property 23) can be validated with the established jqwik suite, then the `RecipientPicker` Compose surface is built, and finally the picker is wired into `AddTaskSheet` and `HomeScreen` over the **unchanged** Iteration 1–3 assignment path (`assignTaskToMultiple` / AI-parse-then-send chain / offline `CollaborativeSendWorker` queue). Top-level numbering continues from Iteration 3, starting at 25; tasks 1–24 are complete and unchanged.
+
+Implementation language remains **Kotlin** (Android client + pure logic), consistent with the design and Iterations 1–3. The new pure modules carry no Android/Firestore dependencies, so they live in the existing JVM test source set established in task 1.1 and reuse the property-test tagging convention `// Feature: collaborative-tasks, Property {n}: {property text}` with `@Property(tries = 100)` minimum. No schema or entity changes, and no `circleId` is added to the Collaborative_Task (Req 28.9 snapshot semantics).
+
+- [x] 25. Implement WS2 Circle-send pure logic in `com.theblankstate.preamble.collab`
+  - [x] 25.1 Implement the `Recipient` model + `Searchable` adapter
+    - Create `collab/Recipient.kt` as pure, framework-free types (no Android/Firestore deps): `FriendRef(uid, name, preambleId, photoUrl)` and `CircleRef(id, name, memberUids)`
+    - Define the `Recipient` sealed interface with `FriendRecipient(friend: FriendRef)` and `CircleRecipient(circle: CircleRef)`, each exposing a stable selection `key` (`"f:<uid>"` / `"c:<id>"`)
+    - Implement `Recipient.asSearchable(): SocialSearch.Searchable` so the existing case-insensitive `SocialSearch.filter` matches a Friend on display name AND Preamble_ID and a Circle on Circle_Name (Circle exposes `preambleId = ""`, `displayName = circleName`); add the thin `SearchableRecipient` wrapper used to feed `SocialSearch.filter`/`PageWindow.visible` directly
+    - _Requirements: 30.1, 30.3_
+
+  - [x] 25.2 Implement `RecipientResolution` (dedupe, sender-exclusion, post-expansion cap)
+    - Create `collab/RecipientResolution.kt` as a pure object: `MAX_ASSIGNEES = 50` (= `CollaborativeDocument.MAX_ASSIGNEES`), the `Resolved(assigneeUids: List<String>, withinLimit: Boolean)` data class with a `size` accessor, and `resolve(selectedFriendUids, selectedCircleMemberUids, senderUid): Resolved`
+    - Union the selected friend uids with every selected Circle's member uids using a `LinkedHashSet` for insertion-ordered dedupe (friends first in selection order, then circle members in selection order, each uid exactly once), remove the `senderUid` after the union, and classify `withinLimit = uids.size <= MAX_ASSIGNEES` measured **after** expansion + dedupe; an all-sender-only selection yields the empty set
+    - _Requirements: 28.2, 28.3, 28.4, 28.5, 29.1, 29.4_
+
+  - [ ]* 25.3 Write property test for Circle-send resolution
+    - **Property 23: Circle_Send resolution dedupes, excludes the sender, and caps after expansion**
+    - Generators produce arbitrary friend-uid lists, lists of Circle member-uid lists (including empty circles, sender-only circles, and circles overlapping each other and the friends), and a sender uid (sometimes present among the inputs, sometimes not), spanning the size boundaries that straddle 50 after expansion + dedupe (e.g. 49, 50, 51); assert no duplicates in the result, that the result equals `(selectedFriendUids ∪ allCircleMemberUids) \ {senderUid}` as a set, that the sender is always absent, that an all-sender-only selection yields the empty set, and that `withinLimit == (size <= 50)`; tag `// Feature: collaborative-tasks, Property 23: ...`, `@Property(tries = 100)` minimum
+    - **Validates: Requirements 28.2, 28.3, 28.4, 28.5, 28.7, 29.1, 29.4**
+
+- [x] 26. Build the searchable `RecipientPicker` modal bottom sheet (Req 30, 31)
+  - [x] 26.1 Create `ui/components/RecipientPicker.kt`
+    - Add the Material 3 Expressive `ModalBottomSheet` composable with the design's signature (`friends: List<Friend>`, `circles: List<Circle>`, `senderUid`, `initiallySelectedKeys: Set<String>`, `onConfirm: (List<Recipient>) -> Unit`, `onDismiss`); follow the Social_Hub_Design_Language (Cardfolio-style vibrant cards, alive morphing shapes/motion)
+    - Build `recipients = friends.map { FriendRecipient(it.toRef()) } + circles.map { CircleRecipient(it.toRef()) }`; render each row with the name, a Friend-vs-Circle affordance (Circle rows show `Circle.memberCount`), and a selected indicator (30.1, 30.6)
+    - Search: `filtered = SocialSearch.filter(query, searchableRecipients)` over the **full** recipient set independent of the paging window (30.4); blank/whitespace query ⇒ full set (30.5); paging: `visible = PageWindow.visible(filtered, pageCount)` with `PageWindow.shouldLoadMore(...)` growing `pageCount` per page as the user scrolls (30.2)
+    - Selection: a session-scoped `Set<Recipient.key>` seeded from `initiallySelectedKeys`, keyed (not index-based) so it survives filtering/windowing; preserved across search-query changes (31.6) and across reopen (31.5)
+    - Live count: derive selected friends + selected circles' member uid lists and call `RecipientResolution.resolve(...)`; display the **Selected_Count** and the live **Resolved_Assignee_Set** size (`resolved.size`) (29.3, 30.6); when `!resolved.withinLimit`, show an "exceeds maximum assignees" indication and **disable the confirm control** (29.4)
+    - Empty/no-match states: empty `recipients` ⇒ "no friends or Circles to send to" empty-state with no selectable rows (31.1, 31.2); a non-empty query with no matches ⇒ a no-match indication with no rows, restored to the full set when cleared (31.3, 31.4)
+    - Confirm: invoke `onConfirm(selectedRecipients)` and close the sheet (30.7)
+    - _Requirements: 30.1, 30.2, 30.3, 30.4, 30.5, 30.6, 30.7, 29.3, 29.4, 31.1, 31.2, 31.3, 31.4, 31.5, 31.6_
+
+  - [ ]* 26.2 Write Compose UI tests for the Recipient_Picker
+    - Empty-state when there are no Friends and no Circles with no selectable rows (31.1); all available Recipients listed otherwise (31.2); a no-match query shows the no-match indication with no rows and clearing it restores the full set (31.3, 31.4); selection is preserved across a search-query change and across reopen (31.5, 31.6); the live Resolved_Assignee_Set size is shown and the confirm control is disabled when the resolved size exceeds 50 (29.3, 29.4)
+    - _Requirements: 29.3, 29.4, 31.1, 31.2, 31.3, 31.4, 31.5, 31.6_
+
+- [x] 27. Wire the Recipient_Picker into the task-create flow over the unchanged assignment path
+  - [x] 27.1 Replace the inline selector in `AddTaskSheet` with the `RecipientPicker`
+    - In `ui/components/AddTaskSheet.kt`, remove the `Group`-icon `DropdownMenu` of friend `Checkbox` items and the assignee `InputChip` row; add a single recipient control that opens `RecipientPicker`, making it the sole recipient-selection control (30.9)
+    - Add a `circles: List<Circle>` parameter alongside the existing `friends: List<Friend>`; replace `var selectedFriends` with a session-scoped, keyed `var selectedRecipients by remember { mutableStateOf<List<Recipient>>(emptyList()) }` that persists across reopen (31.5), and pass its keys as the picker's `initiallySelectedKeys`
+    - Show a compact confirmed-selection summary that distinguishes selected Friends from selected Circles and shows the live resolved assignee count (30.8)
+    - On task confirm, materialize the Resolved_Assignee_Set as `List<Friend>`: selected `FriendRecipient`s contribute their `Friend` directly; selected `CircleRecipient`s contribute, for each resolved member uid, a `Friend(uid, name, photoUrl)` built from that Circle's `members` (`CircleMember.uid`/`name`), all filtered to the `RecipientResolution.resolve(...)` uid set so dedupe + sender-exclusion apply once; pass the materialized list to the **unchanged** `onAddTask(...)` / `onAddTaskPendingParse(...)` `assignedToFriends` parameter (an empty set takes the existing non-collaborative branch, 28.7)
+    - Leave `TaskViewModel.addTask` / `addTaskWithPendingAiParse` and `WorkspaceRepository.assignTaskToMultiple` untouched so the canonical-document write, rich content, per-member lifecycle, AI-parse-then-send chain, and offline queue are preserved, and no `circleId` is stored (28.6, 28.8, 28.9)
+    - _Requirements: 28.1, 28.6, 28.7, 28.8, 28.9, 30.8, 30.9_
+
+  - [x] 27.2 Source Circles and wire them through `HomeScreen` into `AddTaskSheet`
+    - In `HomeScreen.kt`, obtain a `CircleViewModel` (`viewModel()`), collect `circles` from `CircleViewModel.circles` (reusing `shared-circles`' `CircleRepository.getCirclesFlow()`), and pass `circles` into `AddTaskSheet` alongside the existing `friends` from `WorkspaceViewModel.friends`
+    - Supply the sender uid from the existing `FirebaseAuth.getInstance().currentUser?.uid` so the picker and resolution exclude the sender
+    - _Requirements: 28.1, 28.2, 28.5, 30.1_
+
+  - [ ]* 27.3 Write Compose UI / integration test for end-to-end Circle send
+    - From the create sheet, selecting one or more Circles (and optionally individual Friends), confirming the picker, and confirming the task produces a `List<Friend>` equal to the deduped, sender-excluded Resolved_Assignee_Set that flows into the unchanged `assignedToFriends` path (collaborative task created with the sender as Admin+Member and each resolved uid as a `pending` Member); a sender-only Circle selection produces an empty set and a normal non-collaborative task (28.7); the canonical document stores no `circleId` (28.9)
+    - _Requirements: 28.2, 28.3, 28.4, 28.5, 28.6, 28.7, 28.9_
+
+- [x] 28. Iteration 4 checkpoint - Ensure all tests pass
+  - Ensure all tests pass, ask the user if questions arise.
+
+## Notes (Iteration 4)
+
+- Tasks 25–28 are additive; tasks 1–24 (Iterations 1–3) remain complete and unchanged.
+- Tasks marked with `*` are optional test sub-tasks and can be skipped for a faster MVP; core implementation tasks are never optional.
+- Property 23 is the only new property. The rest of Iteration 4 reuses existing properties per the design: a Circle-sent task's canonical-document construction and the collaborative-iff-assignees rule reuse Properties 5, 6, and 7 (the resolver only produces the `List<Friend>` fed into the unchanged `assignTaskToMultiple` path); the preserved rich content / per-member lifecycle / send lifecycle reuse Properties 8, 9, and 21; and the picker's search + paging reuse the existing `social-hub-redesign` `SocialSearch`/`PageWindow` properties. The `Recipient → Searchable` adapter and the snapshot-at-send (no `circleId`) behavior are verified by example/UI tests rather than a property.
+- **Test execution environment:** as recorded for Iterations 2–3, JVM unit-test execution (jqwik) may be blocked until a full JDK 21 toolchain with `jlink` is available; until then the property/unit and Compose tests are verified by compilation and revisited at the checkpoint once the toolchain is fixed. The new pure modules (`Recipient`, `RecipientResolution`) carry no Android/Firestore dependencies, so they compile and run under the existing JVM test source set established in task 1.1.
+
+## Task Dependency Graph (Iteration 4)
+
+```json
+{
+  "waves": [
+    { "id": 0, "tasks": ["25.1", "25.2"] },
+    { "id": 1, "tasks": ["25.3", "26.1"] },
+    { "id": 2, "tasks": ["26.2", "27.1"] },
+    { "id": 3, "tasks": ["27.2"] },
+    { "id": 4, "tasks": ["27.3"] }
+  ]
+}
+```

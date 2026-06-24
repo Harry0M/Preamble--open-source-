@@ -658,3 +658,29 @@ The feature is tested with four complementary layers: pure-logic property tests 
 ### Test execution constraint
 
 JVM unit-test **execution** (the jqwik properties and Compose/`Robolectric` tests) currently requires a full **JDK 21 with `jlink`**, which the build environment lacks (`gradle.properties` pins JDK 17). As established in collaborative-tasks, the new pure-logic and Compose test sources are authored to **compile cleanly** and are run once a JDK 21 toolchain is available. The Firestore emulator rules tests and the Cloud Functions tests run under Node and are **not** subject to this constraint, so they provide executable verification of the rules and push paths in the interim.
+
+
+---
+
+## Iteration 2 — WS6: Reaction visibility latency (design note)
+
+**Problem.** `TaskProjection.documentToTask` correctly projects the canonical `reactions` map into
+`Task.reactionsJson`, and the detail UI reactively reads `task.collabReactions` (a `by lazy` parse
+of `reactionsJson`) via `HomeScreen.liveTask`. The break is in the Room mirror step:
+`WorkspaceViewModel.observeCollaborativeTasks()` → `synchronizeCollaborativeTasksToRoom()` →
+`mergeRemoteCollaboration(local, remote)`. For an already-mirrored task it rebuilds the row with
+`local.copy(<enumerated remote fields>)`, and `reactionsJson` is not among the enumerated fields.
+So the merged row keeps the stale local reactions, `taskDao.insertTask(merged)` (OnConflict REPLACE)
+persists the stale value, and other members' reactions never reach the rendered `tasks` list. Only a
+full-row rewrite from an unrelated mutation (e.g. `removeMember`'s optimistic `updateTask`, or the
+`localTask == null` full-copy branch after a prune/re-create) incidentally carries the current
+reactions in — which is exactly the "only visible after removing the user" symptom. The optimistic
+self-reaction path (`updateMyReaction`) already writes the local row directly, so the reactor sees
+their own reaction immediately; the lag is specifically for *remote* reactions.
+
+**Fix.** Add `reactionsJson = remote.reactionsJson` to the `mergeRemoteCollaboration` `local.copy(...)`
+field set. Carry `collabSendStatus = remote.collabSendStatus` in the same copy as a consistency fix
+(it is likewise omitted, so an unrelated remote change could revert the WS3 durable-send status).
+No other layer changes: `TaskProjection`, `Task.collabReactions`, the DAO (`insertTask` is REPLACE),
+and the UI are all already correct. This satisfies Requirement 13 and brings remote reaction
+visibility within the existing Requirement 3.2 5-second window.

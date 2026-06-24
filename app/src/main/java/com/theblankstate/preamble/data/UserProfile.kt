@@ -48,6 +48,7 @@ data class UserProfile(
     val percentile: Int = 0,
     val onboardingCompletedAt: Long = 0L,
     val preambleId: String? = null,
+    val photoUrl: String? = null,
 ) {
     val discountEligible: Boolean
         get() = role == UserRole.STUDENT || (age != null && age < 25)
@@ -96,6 +97,7 @@ object UserProfileStore {
     private const val K_PERCENTILE = "profile_percentile"
     private const val K_COMPLETED_AT = "profile_completed_at"
     private const val K_PREAMBLE_ID = "profile_preamble_id"
+    private const val K_PHOTO_URL = "profile_photo_url"
 
     fun save(ctx: Context, p: UserProfile) {
         val score = if (p.baselineScore > 0) p.baselineScore else computeBaselineScore(p)
@@ -118,6 +120,7 @@ object UserProfileStore {
             putInt(K_PERCENTILE, pct)
             putLong(K_COMPLETED_AT, completedAt)
             putString(K_PREAMBLE_ID, preambleIdToSave)
+            p.photoUrl?.let { putString(K_PHOTO_URL, it) }
             apply()
         }
 
@@ -173,6 +176,7 @@ object UserProfileStore {
             percentile = sp.getInt(K_PERCENTILE, 0),
             onboardingCompletedAt = sp.getLong(K_COMPLETED_AT, 0L),
             preambleId = sp.getString(K_PREAMBLE_ID, null),
+            photoUrl = sp.getString(K_PHOTO_URL, null),
         )
     }
 
@@ -181,14 +185,27 @@ object UserProfileStore {
         return (1..8).map { chars.random() }.joinToString("")
     }
 
-    fun ensurePreambleId(ctx: Context): String {
-        val p = load(ctx)
+    fun ensurePreambleId(ctx: Context): String {        val p = load(ctx)
         if (p.preambleId != null) return p.preambleId
         val newId = generatePreambleId()
         val updated = p.copy(preambleId = newId)
         save(ctx, updated)
         syncToFirestore(updated)
         return newId
+    }
+
+    /**
+     * Persists the user's Google account photo URL captured at sign-in into the local
+     * profile and publishes it to Firestore (`/users/{uid}` + `/preambleIds/{ID}`).
+     * No-ops when [photoUrl] is null/blank.
+     */
+    fun updatePhotoUrl(ctx: Context, photoUrl: String?) {
+        if (photoUrl.isNullOrBlank()) return
+        val current = load(ctx)
+        if (current.photoUrl == photoUrl) return
+        val updated = current.copy(photoUrl = photoUrl)
+        save(ctx, updated)
+        syncToFirestore(updated)
     }
 
     /**
@@ -212,7 +229,8 @@ object UserProfileStore {
                             baselineScore = doc.getLong("baselineScore")?.toInt() ?: 0,
                             percentile = doc.getLong("percentile")?.toInt() ?: 0,
                             onboardingCompletedAt = doc.getLong("onboardingCompletedAt") ?: 0L,
-                            preambleId = doc.getString("preambleId")
+                            preambleId = doc.getString("preambleId"),
+                            photoUrl = doc.getString("photoUrl")
                         )
                         // Note: Ignoring goals list for now to keep it simple, 
                         // as we just need the Preamble ID mostly.
@@ -259,6 +277,7 @@ object UserProfileStore {
         // we should try to use the generated one if possible.
         // Usually syncToFirestore is called with the object from load() or immediately after save().
         profile.preambleId?.let { data["preambleId"] = it }
+        profile.photoUrl?.let { data["photoUrl"] = it }
         
         if (data.isEmpty()) { onResult(false); return }
         try {
@@ -273,7 +292,8 @@ object UserProfileStore {
                         val publicData = mapOf(
                             "uid" to uid,
                             "name" to (profile.name ?: "Anonymous User"),
-                            "preambleId" to pId
+                            "preambleId" to pId,
+                            "photoUrl" to (profile.photoUrl ?: "")
                         )
                         db.collection("preambleIds").document(pId)
                             .set(publicData)

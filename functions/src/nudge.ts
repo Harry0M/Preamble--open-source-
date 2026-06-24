@@ -141,7 +141,7 @@ export const sendNudge = onCall(async (request) => {
           body,
           deepLink: `preamble://task/${taskId}`,
           type: "nudge",
-          channelType: "broadcast",
+          channelType: "social_kudos",
           taskId,
         },
         android: { priority: "high" },

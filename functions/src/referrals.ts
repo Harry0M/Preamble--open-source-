@@ -16,7 +16,11 @@ import { onDocumentCreated } from "firebase-functions/v2/firestore";
 import { logger } from "firebase-functions/v2";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
-import { REFERRAL_REWARD, REFERRAL_NEW_ACCOUNT_WINDOW_MS } from "./config";
+import {
+  REFERRAL_REWARD,
+  REFERRAL_NEW_ACCOUNT_WINDOW_MS,
+  REFERRAL_REWARDS_ENABLED,
+} from "./config";
 
 /** Lifecycle state of a `/referrals/{referredUid}` attribution record. */
 export type ReferralState = "pending" | "rewarded" | "rejected";
@@ -47,7 +51,8 @@ export type ReferralDecision =
   | { kind: "RejectSelfReferral" }    // Req 4.1
   | { kind: "RejectNotNewAccount" }   // Req 4.2
   | { kind: "RejectAlreadyRewarded" } // Req 3.2, 4.3, 4.4
-  | { kind: "RejectNoFriendship" };   // Req 3.1 precondition unmet
+  | { kind: "RejectNoFriendship" }    // Req 3.1 precondition unmet
+  | { kind: "RejectRewardsDisabled" };// social-hub-redesign Req 8.1 — rewards gated off
 
 /**
  * Decides whether a referred signup is eligible for the Referral_Reward.
@@ -95,6 +100,27 @@ export function classifyReferralEligibility(input: ReferralInput): ReferralDecis
 
   // 5. All gates passed.
   return { kind: "Eligible" };
+}
+
+/**
+ * gatedReferralDecision — pure reward-gate wrapper around the eligibility decision
+ * (social-hub-redesign Req 8).
+ *
+ * When `rewardsEnabled` is false (Development_Mode), the referral reward is disabled:
+ * the decision is `RejectRewardsDisabled` regardless of input, so the credit-increment
+ * transaction never runs and no user's AI-credit balance is modified on account of a
+ * referral (Req 8.1, 8.5). When `rewardsEnabled` is true, it delegates unchanged to
+ * `classifyReferralEligibility`, so flipping the flag back on fully restores the
+ * existing eligibility behavior without removing attribution (Req 8.4).
+ *
+ * Pure function — no Firestore/Auth calls — so the gate is property-testable in isolation.
+ */
+export function gatedReferralDecision(
+  input: ReferralInput,
+  rewardsEnabled: boolean,
+): ReferralDecision {
+  if (!rewardsEnabled) return { kind: "RejectRewardsDisabled" };
+  return classifyReferralEligibility(input);
 }
 
 // ---------------------------------------------------------------------------
@@ -226,22 +252,36 @@ export const onReferralFriendship = onDocumentCreated(
       return;
     }
 
-    // (5) Classify eligibility with the pure decision function.
-    const decision = classifyReferralEligibility({
-      referrerUid,
-      referredUid,
-      attributedAt,
-      referredAccountCreatedAt,
-      state,
-      friendshipEstablished,
-      now: Date.now(),
-      windowMs: REFERRAL_NEW_ACCOUNT_WINDOW_MS,
-    });
+    // (5) Classify eligibility through the reward gate. While rewards are disabled
+    //     (Development_Mode), `gatedReferralDecision` returns `RejectRewardsDisabled`
+    //     regardless of input, so the credit-increment transaction below never runs
+    //     and no user's AI-credit balance is modified on account of a referral
+    //     (Req 8.1, 8.5). The gate only short-circuits the reward; the friend-doc
+    //     writes, attribution record, and funnel logging above are untouched, so the
+    //     invite/friendship flow keeps working (Req 8.3) and the flag is reversible
+    //     without removing attribution (Req 8.4).
+    const decision = gatedReferralDecision(
+      {
+        referrerUid,
+        referredUid,
+        attributedAt,
+        referredAccountCreatedAt,
+        state,
+        friendshipEstablished,
+        now: Date.now(),
+        windowMs: REFERRAL_NEW_ACCOUNT_WINDOW_MS,
+      },
+      REFERRAL_REWARDS_ENABLED
+    );
 
     // (5a) Non-eligible → record rejection and exit without incrementing (Req 3.3).
     if (decision.kind !== "Eligible") {
       // Don't clobber an already-granted reward record.
       if (decision.kind === "RejectAlreadyRewarded") return;
+      // Rewards gated off (Development_Mode): leave the attribution untouched so the
+      // referral stays eligible for a later grant once the flag is flipped back on.
+      // Writing a "rejected" state here would make the disablement irreversible (Req 8.4).
+      if (decision.kind === "RejectRewardsDisabled") return;
       await referredRef
         .set({ state: "rejected", rejectedReason: decision.kind }, { merge: true })
         .catch(() => {});

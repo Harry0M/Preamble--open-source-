@@ -26,7 +26,7 @@ import com.theblankstate.preamble.analytics.AnalyticsManager
  *   - deepLink: Optional deep link (preamble://settings/theme)
  *   - url: Optional external URL
  *   - imageUrl: Optional large image URL (future use)
- *   - channelType: "broadcast" (default) or "promo"
+ *   - channelType: "broadcast" (default), "promo", "social_invites", "social_collab", or "social_kudos"
  */
 class PreambleFcmService : FirebaseMessagingService() {
 
@@ -34,6 +34,9 @@ class PreambleFcmService : FirebaseMessagingService() {
         private const val TAG = "PreambleFcm"
         private const val CHANNEL_BROADCAST = "preamble_broadcasts"
         private const val CHANNEL_PROMO = "preamble_promos"
+        private const val CHANNEL_SOCIAL_INVITES = "preamble_social_invites"
+        private const val CHANNEL_SOCIAL_COLLAB = "preamble_social_collab"
+        private const val CHANNEL_SOCIAL_KUDOS = "preamble_social_kudos"
         private const val FIRESTORE_DB_ID = "preamble"
 
         fun createChannels(context: Context) {
@@ -56,8 +59,35 @@ class PreambleFcmService : FirebaseMessagingService() {
                     description = "Special offers, tips, and feature suggestions"
                 }
 
+                val socialInvitesChannel = NotificationChannel(
+                    CHANNEL_SOCIAL_INVITES,
+                    "Invites & Friends",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply {
+                    description = "When friends accept your invites"
+                }
+
+                val socialCollabChannel = NotificationChannel(
+                    CHANNEL_SOCIAL_COLLAB,
+                    "Shared Tasks",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply {
+                    description = "Assignments, changes, and completions on your shared tasks"
+                }
+
+                val socialKudosChannel = NotificationChannel(
+                    CHANNEL_SOCIAL_KUDOS,
+                    "Kudos & Nudges",
+                    NotificationManager.IMPORTANCE_DEFAULT
+                ).apply {
+                    description = "Reactions and nudges from your teammates"
+                }
+
                 nm.createNotificationChannel(broadcastChannel)
                 nm.createNotificationChannel(promoChannel)
+                nm.createNotificationChannel(socialInvitesChannel)
+                nm.createNotificationChannel(socialCollabChannel)
+                nm.createNotificationChannel(socialKudosChannel)
             }
         }
     }
@@ -101,7 +131,13 @@ class PreambleFcmService : FirebaseMessagingService() {
         campaignId: String = "unknown",
         campaignVariant: String = "default"
     ) {
-        val channelId = if (channelType == "promo") CHANNEL_PROMO else CHANNEL_BROADCAST
+        val channelId = when (channelType) {
+            "promo" -> CHANNEL_PROMO
+            "social_invites" -> CHANNEL_SOCIAL_INVITES
+            "social_collab" -> CHANNEL_SOCIAL_COLLAB
+            "social_kudos" -> CHANNEL_SOCIAL_KUDOS
+            else -> CHANNEL_BROADCAST
+        }
 
         // Build intent: deep link > external URL > open app at home
         val intent = when {

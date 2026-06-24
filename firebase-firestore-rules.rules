@@ -348,6 +348,19 @@ service cloud.firestore {
         allow delete: if isOwner(uid) || (signedIn() && inviteId == request.auth.uid);
       }
 
+      // Outgoing-invite mirror (social-hub-redesign Req 4.1): the sender's private
+      // copy of each Friend_Request they have sent, keyed by the recipient's uid at
+      // /users/{senderUid}/outgoingInvites/{targetUid}. It is owner-private — only the
+      // sender reads, creates (in the same batch as the recipient's incoming invite),
+      // and deletes (withdraw) it; it is never updated in place and is never exposed to
+      // anyone else.
+      match /outgoingInvites/{targetId} {
+        allow read: if isOwner(uid);
+        allow create: if isOwner(uid);
+        allow update: if false;
+        allow delete: if isOwner(uid);
+      }
+
       // Deny the buggy per-user collaborative task copy path. Shared tasks now live
       // only at /collaborativeTasks/{taskId}.
       match /collaborativeTasks/{taskId} {
@@ -420,6 +433,15 @@ service cloud.firestore {
 
     // Nudges — written/read only by the sendNudge Cloud Function (Admin SDK).
     match /nudges/{nudgeId} {
+      allow read, write: if false;
+    }
+
+    // Notification idempotency ledger — written/read only by the notification
+    // Cloud Functions (Admin SDK) to dedupe retried event deliveries.
+    // No client may read or forge entries.
+    // Recommended: configure a Firestore TTL policy on the `at` field
+    // (e.g. 7 days) to keep this collection bounded.
+    match /notificationEvents/{doc} {
       allow read, write: if false;
     }
 

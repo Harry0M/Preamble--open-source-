@@ -122,6 +122,15 @@ class TaskViewModel(
     private val database = (appContext.applicationContext as com.theblankstate.preamble.PreambleApplication).database
     private val syncMutationDao = database.syncMutationDao()
 
+    /**
+     * Probe used to classify connectivity when stamping the initial collaborative
+     * Send_Status (collaborative-tasks, Req 23.2/24.2). Behind an interface so the pure
+     * [com.theblankstate.preamble.collab.CollaborativeSend] machine stays testable; tests can
+     * substitute a fake.
+     */
+    internal var connectivityProbe: com.theblankstate.preamble.ai.ConnectivityProbe =
+        com.theblankstate.preamble.ai.AndroidConnectivityProbe(appContext)
+
     private val today = TaskRepository.todayString()
 
     // ── Admin Tasks (broadcasts) ──
@@ -890,7 +899,9 @@ class TaskViewModel(
             val finalTask: com.theblankstate.preamble.data.Task
             if (assignedToFriends.isNotEmpty()) {
                 val adminUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
-                val adminName = com.theblankstate.preamble.data.UserProfileStore.load(appContext).name ?: "Anonymous User"
+                val adminProfile = com.theblankstate.preamble.data.UserProfileStore.load(appContext)
+                val adminName = adminProfile.name ?: "Anonymous User"
+                val adminPhotoUrl = adminProfile.photoUrl
                 if (adminUid != null) {
                     val subtaskObjects = subtasks.map { com.theblankstate.preamble.data.Subtask(title = it) }
                     val subtasksJsonStr = if (subtaskObjects.isNotEmpty()) com.google.gson.Gson().toJson(subtaskObjects) else null
@@ -913,6 +924,7 @@ class TaskViewModel(
                             com.theblankstate.preamble.data.CollabAssigneeStatus(
                                 uid = it.uid,
                                 name = it.name,
+                                photoUrl = it.photoUrl,
                                 isCompleted = false,
                                 completedTimestamp = null,
                                 assignedTimestamp = now
@@ -940,7 +952,8 @@ class TaskViewModel(
                             com.theblankstate.preamble.repository.WorkspaceRepository().assignTaskToMultiple(
                                 assignees = assignedToFriends,
                                 task = finalTask,
-                                adminName = adminName
+                                adminName = adminName,
+                                adminPhotoUrl = adminPhotoUrl
                             )
                         } catch (e: Exception) {
                             android.util.Log.e("TaskViewModel", "Error pushing collaborative task to Firestore", e)
@@ -1114,7 +1127,21 @@ class TaskViewModel(
             val adminUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
             val adminName = com.theblankstate.preamble.data.UserProfileStore.load(appContext).name ?: "Anonymous User"
 
-            val task = if (assignedToFriends.isNotEmpty() && adminUid != null) {
+            val isCollaborative = assignedToFriends.isNotEmpty() && adminUid != null
+            // Stamp the initial Send_Status from the pure machine: `parsing` when online (the
+            // chained CollaborativeSendWorker will send after the AI_Parse_Phase), `queued`
+            // when offline/slow (it stays in the durable queue until connectivity returns).
+            // (Req 23.2, 24.2)
+            val initialSendStatus = if (isCollaborative) {
+                com.theblankstate.preamble.collab.CollaborativeSend.initial(
+                    connectivity = connectivityProbe.current(),
+                    parsePending = true
+                ).name.lowercase()
+            } else {
+                null
+            }
+
+            val task = if (isCollaborative) {
                 com.theblankstate.preamble.data.Task(
                     title = normalizedTitle,
                     createdDate = taskDate,
@@ -1139,6 +1166,7 @@ class TaskViewModel(
                         com.theblankstate.preamble.data.CollabAssigneeStatus(
                             uid = it.uid,
                             name = it.name,
+                            photoUrl = it.photoUrl,
                             isCompleted = false,
                             completedTimestamp = null,
                             assignedTimestamp = now
@@ -1148,7 +1176,8 @@ class TaskViewModel(
                     assignedByName = adminName,
                     assignedToUid = assignedToFriends.firstOrNull()?.uid,
                     assignedToName = assignedToFriends.firstOrNull()?.name,
-                    assignmentStatus = "pending"
+                    assignmentStatus = "pending",
+                    collabSendStatus = initialSendStatus
                 )
             } else {
                 com.theblankstate.preamble.data.Task(
@@ -1188,6 +1217,9 @@ class TaskViewModel(
                 .putString("rawText", rawText)
                 .putString("userOverrides", userOverrides)
                 .build()
+            val parseConstraints = androidx.work.Constraints.Builder()
+                .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                .build()
             val req = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.ai.AiParsingWorker>()
                 .setInputData(data)
                 .setBackoffCriteria(
@@ -1195,14 +1227,43 @@ class TaskViewModel(
                     30_000L,
                     java.util.concurrent.TimeUnit.MILLISECONDS
                 )
-                .setConstraints(
-                    androidx.work.Constraints.Builder()
-                        .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
-                        .build()
-                )
+                .setConstraints(parseConstraints)
                 .build()
-            androidx.work.WorkManager.getInstance(appContext).enqueue(req)
-            android.util.Log.d("TaskViewModel", "Scheduled AiParsingWorker for early-saved task ${task.id}")
+            if (isCollaborative) {
+                // Durable parse→send chain (Req 23.7, 24.3, 24.8): the send is its own
+                // retained WorkManager step that runs after the parse step completes,
+                // regardless of parse outcome, and waits in the persisted queue until
+                // connectivity returns. REPLACE keeps a single send chain per task.
+                val sendData = androidx.work.Data.Builder()
+                    .putString("taskId", task.id)
+                    .build()
+                val sendReq = androidx.work.OneTimeWorkRequestBuilder<com.theblankstate.preamble.ai.CollaborativeSendWorker>()
+                    .setInputData(sendData)
+                    .setBackoffCriteria(
+                        androidx.work.BackoffPolicy.EXPONENTIAL,
+                        30_000L,
+                        java.util.concurrent.TimeUnit.MILLISECONDS
+                    )
+                    .setConstraints(
+                        androidx.work.Constraints.Builder()
+                            .setRequiredNetworkType(androidx.work.NetworkType.CONNECTED)
+                            .build()
+                    )
+                    .build()
+                androidx.work.WorkManager.getInstance(appContext)
+                    .beginUniqueWork(
+                        com.theblankstate.preamble.ai.CollaborativeSendWorker.sendWorkName(task.id),
+                        androidx.work.ExistingWorkPolicy.REPLACE,
+                        req
+                    )
+                    .then(sendReq)
+                    .enqueue()
+                android.util.Log.d("TaskViewModel", "Scheduled parse→send chain for collaborative task ${task.id}")
+            } else {
+                // Non-collaborative path: a single parse work, no send link.
+                androidx.work.WorkManager.getInstance(appContext).enqueue(req)
+                android.util.Log.d("TaskViewModel", "Scheduled AiParsingWorker for early-saved task ${task.id}")
+            }
 
             if (isHabit) {
                 repository.toggleHabit(task.id, true)

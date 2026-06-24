@@ -11,7 +11,7 @@ package com.theblankstate.preamble.collab
  */
 
 /** Lightweight, pure descriptor of an assignee (a member other than the admin). */
-data class AssigneeRef(val uid: String, val name: String)
+data class AssigneeRef(val uid: String, val name: String, val photoUrl: String? = null)
 
 /** Outcome of attempting to build the schema-v2 canonical collaborative document. */
 sealed interface CollaborativeDocumentResult {
@@ -91,6 +91,8 @@ object CollaborativeDocument {
      * @param now timestamp applied to createdAt/updatedAt and member assignedTimestamp.
      * @param adminCompleted the admin's own per-member completion flag.
      * @param adminCompletedTimestamp the admin's own completion timestamp, if any.
+     * @param adminPhotoUrl the admin's own member photo (Req 26), carried into the admin's
+     * `memberStates` entry; nullable/additive.
      *
      * @return [CollaborativeDocumentResult.NotCollaborative] when no friend is
      * assigned, [CollaborativeDocumentResult.TooManyAssignees] when the distinct
@@ -105,7 +107,8 @@ object CollaborativeDocument {
         taskPayload: Map<String, Any?>,
         now: Long,
         adminCompleted: Boolean = false,
-        adminCompletedTimestamp: Long? = null
+        adminCompletedTimestamp: Long? = null,
+        adminPhotoUrl: String? = null
     ): CollaborativeDocumentResult {
         require(adminUid.isNotBlank()) { "adminUid is required" }
 
@@ -125,6 +128,7 @@ object CollaborativeDocument {
                 status = "accepted",
                 isCompleted = adminCompleted,
                 completedTimestamp = adminCompletedTimestamp,
+                photoUrl = adminPhotoUrl,
                 now = now
             )
         )
@@ -136,6 +140,7 @@ object CollaborativeDocument {
                 status = "pending",
                 isCompleted = false,
                 completedTimestamp = null,
+                photoUrl = friend.photoUrl,
                 now = now
             )
         }
@@ -166,6 +171,7 @@ object CollaborativeDocument {
         status: String,
         isCompleted: Boolean,
         completedTimestamp: Long?,
+        photoUrl: String?,
         now: Long
     ): Map<String, Any?> = mapOf(
         "uid" to uid,
@@ -174,6 +180,7 @@ object CollaborativeDocument {
         "status" to status,
         "isCompleted" to isCompleted,
         "completedTimestamp" to completedTimestamp,
+        "photoUrl" to photoUrl,
         "assignedTimestamp" to now
     )
 }

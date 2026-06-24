@@ -79,13 +79,20 @@ fun LeaderboardSection(
 
         entries.forEachIndexed { index, entry ->
             val isMe = currentUserUid != null && entry.uid == currentUserUid
-            LeaderboardRow(rank = index + 1, entry = entry, isMe = isMe)
+            LeaderboardEntryRow(rank = index + 1, entry = entry, isMe = isMe)
         }
     }
 }
 
+/**
+ * A single Friends_Leaderboard row (social-engagement Req 9.1) — a numbered rank, the
+ * participant's display name (with a "(You)" suffix and highlight when it is the signed-in
+ * user), and their current-window points. Exposed (public) so the Social_Hub's
+ * Section_Organizer can render leaderboard entries as individual list items for client-side
+ * Paged_Loading (social-hub-redesign Req 2.8) while preserving this established row styling.
+ */
 @Composable
-private fun LeaderboardRow(
+fun LeaderboardEntryRow(
     rank: Int,
     entry: Leaderboard.Entry,
     isMe: Boolean,

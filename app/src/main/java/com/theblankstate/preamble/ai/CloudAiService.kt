@@ -341,6 +341,10 @@ object CloudAiService {
         date: String,
         dayStart: String,
         dayEnd: String,
+        dayOfWeek: String = "",
+        nowTime: String = "",
+        priorAssignments: List<PlanAssignmentDto>? = null,
+        adjustment: String? = null,
     ): PlanDayResult? = withContext(Dispatchers.IO) {
         val token = runCatching { getAuthToken() }.getOrNull() ?: return@withContext null
 
@@ -348,8 +352,11 @@ object CloudAiService {
         for (t in schedulable) {
             schedulableJson.put(JSONObject().apply {
                 put("id", t.id)
+                // Title/description/tags are passed UNMODIFIED so any language/script is preserved (Req 17.2).
                 put("title", t.title)
                 put("priority", t.priority)
+                if (!t.description.isNullOrBlank()) put("description", t.description)
+                if (!t.tags.isNullOrBlank()) put("tags", t.tags)
             })
         }
         val fixedJson = JSONArray()
@@ -360,12 +367,34 @@ object CloudAiService {
             })
         }
 
+        // Planning context so the model is time-aware (Req 13.5).
+        val contextJson = JSONObject().apply {
+            if (dayOfWeek.isNotBlank()) put("dayOfWeek", dayOfWeek)
+            if (nowTime.isNotBlank()) put("nowTime", nowTime)
+        }
+
         val body = JSONObject().apply {
             put("schedulable", schedulableJson)
             put("fixed", fixedJson)
             put("date", date)
+            // dayStart is the Effective_Window_Start the caller computed (Req 13.5).
             put("dayStart", dayStart)
             put("dayEnd", dayEnd)
+            put("context", contextJson)
+            // Conversational replanning: echo the prior proposal + adjustment text (Req 15.2).
+            if (!priorAssignments.isNullOrEmpty()) {
+                val priorJson = JSONArray()
+                for (a in priorAssignments) {
+                    priorJson.put(JSONObject().apply {
+                        put("id", a.id)
+                        put("time", a.time)
+                    })
+                }
+                put("priorAssignments", priorJson)
+            }
+            if (!adjustment.isNullOrBlank()) put("adjustment", adjustment)
+            // Weather is RESERVED for a future iteration; MVP sends null and never calls a weather API (Req 14.2).
+            put("weather", JSONObject.NULL)
             put("appVersionCode", com.theblankstate.preamble.BuildConfig.VERSION_CODE)
         }
 
@@ -495,7 +524,15 @@ data class ToolResult(val name: String, val result: String)
 data class ParseTaskResult(val toolCalls: List<CloudToolCall>, val text: String, val model: String)
 
 /** Request DTO: a task eligible for auto-scheduling. */
-data class PlanTaskDto(val id: String, val title: String, val priority: Int)
+data class PlanTaskDto(
+    val id: String,
+    val title: String,
+    val priority: Int,
+    /** Optional detail passed through unmodified so the model can infer a realistic estimate (Req 16.1, 17.2). */
+    val description: String? = null,
+    /** Optional comma-separated tags, passed through unmodified to preserve any language/script (Req 16.1, 17.2). */
+    val tags: String? = null,
+)
 
 /** Request DTO: an immovable current-day item. A point commitment has [end] == null. */
 data class PlanFixedDto(val start: String, val end: String? = null)

@@ -258,17 +258,13 @@ class AiParsingWorker(
         }
         val workspaceRepository = WorkspaceRepository()
         val currentUid = FirebaseAuth.getInstance().currentUser?.uid
-        val explicitCollabFriends = updated.collabAssignees
-            .filter { it.uid.isNotBlank() && it.uid != currentUid }
-            .map { Friend(uid = it.uid, name = it.name) }
-            .distinctBy(Friend::uid)
-        val isExplicitPendingCollab = updated.collabAdminUid != null && explicitCollabFriends.isNotEmpty()
 
-        // For selected-friend pending tasks, create the canonical shared document before
-        // repository.updateTask() tries to sync admin edits to that document.
-        if (!isExplicitPendingCollab) {
-            app.repository.updateTask(updated)
-        }
+        // The parse phase only refines and persists the task's attributes and clears
+        // isSyncing. The durable canonical-document send for an explicitly-confirmed
+        // collaborative task is no longer performed here — it is the responsibility of the
+        // chained CollaborativeSendWorker, so the send no longer depends on parsing
+        // producing tool calls (Requirements 23.4, 23.7).
+        app.repository.updateTask(updated)
         if (tags != null) {
             app.repository.saveTagOverride(taskId, tags)
         }
@@ -284,25 +280,6 @@ class AiParsingWorker(
         }
 
         val taskWithSubtasks = packSubtasks(app, updated, taskId)
-
-        if (isExplicitPendingCollab) {
-            val localCollaborativeTask = taskWithSubtasks.copy(assignmentStatus = "accepted")
-            // The own copy was already saved with the admin's as-entered attributes when the
-            // task was confirmed (Requirement 7.4). Now that AI parsing has finalized those
-            // attributes, write them as a subsequent canonical update. This creates the
-            // canonical document if it does not yet exist and otherwise refreshes only the
-            // shared payload, so any member who already accepted/declined is preserved
-            // (Requirements 7.3, 7.4, 8.6).
-            workspaceRepository.writeFinalizedCollaborativeAttributes(
-                task = localCollaborativeTask,
-                assignees = explicitCollabFriends
-            ).onFailure { error ->
-                Log.e(TAG, "Error publishing selected-friend collaborative task after AI parsing", error)
-                surfaceMessage("The collaborative assignment could not be completed.")
-            }
-            app.repository.updateTask(localCollaborativeTask)
-            return
-        }
 
         // Voice/notification/task-sheet raw text can assign friends by natural language.
         // This happens after normal parsing so the core task creation flow stays unchanged.
@@ -378,11 +355,12 @@ class AiParsingWorker(
         currentUid: String,
     ) {
         if (assignees.isEmpty()) return
-        val adminName = com.theblankstate.preamble.data.UserProfileStore
+        val adminProfile = com.theblankstate.preamble.data.UserProfileStore
             .load(applicationContext)
-            .name
+        val adminName = adminProfile.name
             ?.takeIf { it.isNotBlank() }
             ?: "Preamble user"
+        val adminPhotoUrl = adminProfile.photoUrl
         val now = System.currentTimeMillis()
         val collabTask = task.copy(
             collabAdminUid = currentUid,
@@ -391,6 +369,7 @@ class AiParsingWorker(
                 com.theblankstate.preamble.data.CollabAssigneeStatus(
                     uid = friend.uid,
                     name = friend.name,
+                    photoUrl = friend.photoUrl,
                     status = "pending",
                     isCompleted = false,
                     completedTimestamp = null,
@@ -406,7 +385,8 @@ class AiParsingWorker(
         workspaceRepository.assignTaskToMultiple(
             assignees = assignees,
             task = collabTask,
-            adminName = adminName
+            adminName = adminName,
+            adminPhotoUrl = adminPhotoUrl
         ).onFailure { error ->
             Log.e(TAG, "Error publishing natural-language collaborative task after AI parsing", error)
             surfaceMessage("The collaborative assignment could not be completed.")

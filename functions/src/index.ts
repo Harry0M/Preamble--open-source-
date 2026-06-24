@@ -31,6 +31,9 @@ export { onTaskCreated, onTaskDeleted } from "./counters";
 export { sendNudge } from "./nudge";
 export { onCollaborativeTaskReaction } from "./kudos";
 
+// WS7 social/collaborative notifications: invite-accepted + task assigned/changed/completed (data-only FCM)
+export { onInviteAccepted, onCollaborativeTaskCreated, onCollaborativeTaskUpdated } from "./social-notifications";
+
 // Growth loops: two-sided referral reward trigger (Admin-SDK credit transaction)
 export { onReferralFriendship } from "./referrals";
 
