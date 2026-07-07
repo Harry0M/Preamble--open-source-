@@ -1336,11 +1336,10 @@ fun SectionOrganizer(
         // so it stays visible regardless of scroll position. It names both areas
         // ("Leaderboard"/"Friends") and marks the active one via the Material 3 Expressive
         // selected state.
-        Surface(
-            color = MaterialTheme.colorScheme.background,
-            tonalElevation = 3.dp,
-            shadowElevation = 2.dp,
-            modifier = Modifier.fillMaxWidth()
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color.Transparent)
         ) {
             Row(
                 modifier = Modifier

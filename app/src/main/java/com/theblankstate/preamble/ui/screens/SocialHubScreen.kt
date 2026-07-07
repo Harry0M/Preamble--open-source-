@@ -1,12 +1,17 @@
 package com.theblankstate.preamble.ui.screens
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -39,8 +44,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -90,6 +99,7 @@ fun SocialHubScreen(
     modifier: Modifier = Modifier,
 ) {
     var route by remember { mutableStateOf(SocialHubRoute.Friends) }
+    var isTabRowVisible by remember { mutableStateOf(true) }
 
     LaunchedEffect(initialRoute) {
         if (initialRoute != null) {
@@ -98,8 +108,35 @@ fun SocialHubScreen(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
-        SocialHubTabRow(selected = route, onSelect = { route = it })
+    LaunchedEffect(route) {
+        isTabRowVisible = true
+    }
+
+    val nestedScrollConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < -10f) {
+                    isTabRowVisible = false
+                } else if (available.y > 10f) {
+                    isTabRowVisible = true
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(nestedScrollConnection)
+    ) {
+        AnimatedVisibility(
+            visible = isTabRowVisible,
+            enter = expandVertically(animationSpec = tween(250)) + slideInVertically(animationSpec = tween(250)) { -it } + fadeIn(animationSpec = tween(250)),
+            exit = shrinkVertically(animationSpec = tween(250)) + slideOutVertically(animationSpec = tween(250)) { -it } + fadeOut(animationSpec = tween(250))
+        ) {
+            SocialHubTabRow(selected = route, onSelect = { route = it })
+        }
 
         Box(modifier = Modifier.weight(1f)) {
             // Expressive_Motion: panes slide+fade in the direction of travel, mirroring the
