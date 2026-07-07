@@ -74,6 +74,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.Velocity
 import kotlin.math.roundToInt
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -255,6 +256,21 @@ fun FriendsScreen(
     var headerHeightPx by remember { mutableStateOf(0f) }
     var scrollOffsetPx by remember { mutableStateOf(0f) }
 
+    suspend fun animateScrollTo(target: Float) {
+        if (headerHeightPx > 0f) {
+            androidx.compose.animation.core.animate(
+                initialValue = scrollOffsetPx,
+                targetValue = target,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ) { value, _ ->
+                scrollOffsetPx = value
+            }
+        }
+    }
+
     val nestedScrollConnection = remember(headerHeightPx) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
@@ -277,6 +293,29 @@ fun FriendsScreen(
                     return Offset(0f, consumed)
                 }
                 return Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                val deltaY = available.y
+                if (headerHeightPx > 0f && scrollOffsetPx > -headerHeightPx && scrollOffsetPx < 0f) {
+                    val target = if (deltaY < -100f || scrollOffsetPx < -headerHeightPx / 2f) {
+                        -headerHeightPx
+                    } else {
+                        0f
+                    }
+                    animateScrollTo(target)
+                    return Velocity(0f, deltaY)
+                }
+                return Velocity.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                val deltaY = available.y
+                if (headerHeightPx > 0f && deltaY > 100f && scrollOffsetPx < 0f) {
+                    animateScrollTo(0f)
+                    return Velocity(0f, deltaY)
+                }
+                return Velocity.Zero
             }
         }
     }
@@ -467,10 +506,32 @@ fun FriendsScreen(
                 Box(
                     modifier = headerBoxModifier
                         .pointerInput(headerHeightPx) {
-                            detectVerticalDragGestures { change, dragAmount ->
-                                change.consume()
-                                scrollOffsetPx = (scrollOffsetPx + dragAmount).coerceIn(-headerHeightPx, 0f)
-                            }
+                            detectVerticalDragGestures(
+                                onDragEnd = {
+                                    val target = if (scrollOffsetPx < -headerHeightPx / 2f) {
+                                        -headerHeightPx
+                                    } else {
+                                        0f
+                                    }
+                                    coroutineScope.launch {
+                                        animateScrollTo(target)
+                                    }
+                                },
+                                onDragCancel = {
+                                    val target = if (scrollOffsetPx < -headerHeightPx / 2f) {
+                                        -headerHeightPx
+                                    } else {
+                                        0f
+                                    }
+                                    coroutineScope.launch {
+                                        animateScrollTo(target)
+                                    }
+                                },
+                                onVerticalDrag = { change, dragAmount ->
+                                    change.consume()
+                                    scrollOffsetPx = (scrollOffsetPx + dragAmount).coerceIn(-headerHeightPx, 0f)
+                                }
+                            )
                         }
                 ) {
                     Column(
