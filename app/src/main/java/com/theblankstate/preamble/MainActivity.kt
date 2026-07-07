@@ -19,7 +19,7 @@ import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -51,7 +51,8 @@ import com.theblankstate.preamble.ui.components.ExpressiveNavigationBar
 import com.theblankstate.preamble.viewmodel.TaskViewModel
 import com.theblankstate.preamble.analytics.AnalyticsManager
 import com.theblankstate.preamble.ui.viewmodels.WorkspaceViewModel
-import com.theblankstate.preamble.ui.screens.WorkspaceTasksScreen
+import com.theblankstate.preamble.ui.screens.SocialHubScreen
+import com.theblankstate.preamble.ui.screens.SocialHubRoute
 import com.theblankstate.preamble.repository.Friend
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
@@ -165,8 +166,8 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val openRecap by _openRecap
-                    var showChangelog by remember { 
-                        mutableStateOf(prefs.getInt("last_changelog_version", 0) < BuildConfig.VERSION_CODE) 
+                    var showChangelog by remember {
+                        mutableStateOf(prefs.getInt("last_changelog_version", 0) < BuildConfig.VERSION_CODE)
                     }
 
                     androidx.compose.foundation.layout.Box(
@@ -398,19 +399,20 @@ fun PreambleApp(
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var quickAddTrigger by remember { mutableIntStateOf(0) }
-    var showFriendsScreen by remember { mutableStateOf(false) }
-    var showCirclesScreen by remember { mutableStateOf(false) }
 
     var lastTab by remember { mutableIntStateOf(selectedTab) }
     var lastTabStartTime by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     // PostHog: Har tab change pe screen view track karo
     // Compose mein traditional Activity nahi hota, toh manually track karna padta hai
+    // NOTE: index 4's analytics key stays "WorkspaceScreen"/"workspace_screen" on purpose even
+    // though the tab is now labeled "Circles" in the UI (SocialHubScreen) — this keeps existing
+    // PostHog funnels/dashboards built on that key intact. Only the user-facing label changed.
     val screenNames = remember { listOf("HomeScreen", "StatsScreen", "CalendarScreen", "AiChatScreen", "WorkspaceScreen", "SettingsScreen") }
     androidx.compose.runtime.LaunchedEffect(selectedTab) {
         val now = System.currentTimeMillis()
         val elapsedSec = (now - lastTabStartTime) / 1000.0
-        
+
         if (elapsedSec > 0.1) {
             if (lastTab == 1) { // StatsScreen
                 AnalyticsManager.trackScreenClosed("stats_screen", elapsedSec)
@@ -420,7 +422,7 @@ fun PreambleApp(
                 AnalyticsManager.trackScreenClosed("workspace_screen", elapsedSec)
             }
         }
-        
+
         AnalyticsManager.trackScreenView(screenNames[selectedTab])
         if (selectedTab == 1) {
             AnalyticsManager.trackScreenOpened("stats_screen")
@@ -429,7 +431,7 @@ fun PreambleApp(
         } else if (selectedTab == 4) {
             AnalyticsManager.trackScreenOpened("workspace_screen")
         }
-        
+
         lastTab = selectedTab
         lastTabStartTime = now
     }
@@ -471,14 +473,25 @@ fun PreambleApp(
     val pendingAssignmentsCount = remember(incomingAssignments) {
         incomingAssignments.count { it.assignmentStatus == "pending" }
     }
+    // Friends/Circles/Tasks now live behind the single "Circles" tab (SocialHubScreen), so its
+    // bottom-nav badge combines both kinds of actionable items that used to be badged
+    // separately: pending collaborative-task assignments and pending friend requests.
+    val pendingRequestsCount by workspaceViewModel.pendingRequestsCount.collectAsState()
+    val socialHubBadgeCount = pendingAssignmentsCount + pendingRequestsCount
 
-    val expressiveNavItems = remember(pendingAssignmentsCount) {
+    // Holds a one-shot requested landing destination for the Circles hub — set by the avatar
+    // shortcut on Home and by deep links, consumed exactly once by SocialHubScreen.
+    var socialHubInitialRoute by remember { mutableStateOf<SocialHubRoute?>(null) }
+
+    val expressiveNavItems = remember(socialHubBadgeCount) {
         listOf(
             ExpressiveNavItem("Tasks", Icons.Default.Home),
             ExpressiveNavItem("Stats", Icons.Filled.Analytics),
             ExpressiveNavItem("Calendar", Icons.Default.DateRange),
             ExpressiveNavItem("AI", Icons.Filled.AutoAwesome),
-            ExpressiveNavItem("Workspace", Icons.Default.Group, badgeCount = pendingAssignmentsCount),
+            // "Circles" (formerly "Workspace"): the single merged entry point for Friends,
+            // Leaderboard, Circles, and shared/assigned Tasks (SocialHubScreen).
+            ExpressiveNavItem("Circles", Icons.Default.Groups, badgeCount = socialHubBadgeCount),
             ExpressiveNavItem("Settings", Icons.Default.Settings),
         )
     }
@@ -505,20 +518,23 @@ fun PreambleApp(
                 deepLinkTarget.startsWith("ai") -> selectedTab = 3
                 deepLinkTarget.startsWith("invite/") -> {
                     // social-hub-redesign Req 7.1: an invite/{id} link lands on the enhanced
-                    // Social_Hub (the Friends overlay) with the id pre-filled, NOT the
-                    // collaborative-tasks workspace tab (selectedTab = 4).
+                    // Social_Hub with the id pre-filled, NOT the shared-tasks pane. The Circles
+                    // hub now lives on selectedTab = 4, landing on its Friends route.
                     initialInviteId = deepLinkTarget.removePrefix("invite/")
-                    showFriendsScreen = true
+                    socialHubInitialRoute = SocialHubRoute.Friends
+                    selectedTab = 4
                 }
                 deepLinkTarget == "social" -> {
                     // notifications Req 1.3 / 6.4: a plain preamble://social link opens the
-                    // Social_Hub (the Friends overlay) without requiring an invite id.
-                    showFriendsScreen = true
+                    // Social_Hub's Friends route without requiring an invite id.
+                    socialHubInitialRoute = SocialHubRoute.Friends
+                    selectedTab = 4
                 }
                 deepLinkTarget.startsWith("task/") -> {
                     // notifications Req 5.4 / 6.5: a preamble://task/{id} link routes to the
-                    // Shared Tasks (Workspace) tab. Also fixes routing for existing kudos/nudge
-                    // notifications that already emit task/{id}.
+                    // Circles hub's Tasks route (the shared/assigned tasks pane). Also fixes
+                    // routing for existing kudos/nudge notifications that already emit task/{id}.
+                    socialHubInitialRoute = SocialHubRoute.Tasks
                     selectedTab = 4
                 }
                 deepLinkTarget.startsWith("settings") -> selectedTab = 5
@@ -563,7 +579,12 @@ fun PreambleApp(
     ) { innerPadding ->
         when (selectedTab) {
             0 -> HomeScreen(
-                onOpenFriends = { showFriendsScreen = true },
+                onOpenFriends = {
+                    // Left-header avatar-stack shortcut (kept exactly as a shortcut into the
+                    // Circles hub's Friends route, per Requirement: don't remove this route).
+                    socialHubInitialRoute = SocialHubRoute.Friends
+                    selectedTab = 4
+                },
                 tasks = tasks,
                 pastTasks = pastTasks,
                 streak = stats.streak,
@@ -720,8 +741,16 @@ fun PreambleApp(
                 )
             }
             4 -> {
-                WorkspaceTasksScreen(
+                // Circles hub (formerly the standalone "Workspace" tab): merges Friends,
+                // Leaderboard, Circles, and shared/assigned Tasks behind this one bottom-nav
+                // destination, with SocialHubRoute providing the organized routes between them.
+                SocialHubScreen(
                     workspaceViewModel = workspaceViewModel,
+                    taskViewModel = viewModel,
+                    initialInviteId = initialInviteId,
+                    onInviteConsumed = { initialInviteId = null },
+                    initialRoute = socialHubInitialRoute,
+                    onInitialRouteConsumed = { socialHubInitialRoute = null },
                     modifier = Modifier.padding(innerPadding)
                 )
             }
@@ -731,34 +760,9 @@ fun PreambleApp(
             )
         }
     }
-    
-    // Full-screen overlay for Friends screen
-    androidx.compose.animation.AnimatedVisibility(
-        visible = showFriendsScreen,
-        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it }),
-        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { it })
-    ) {
-        androidx.activity.compose.BackHandler { showFriendsScreen = false }
-        com.theblankstate.preamble.ui.screens.WorkspaceScreen(
-            taskViewModel = viewModel,
-            initialInviteId = initialInviteId,
-            onInviteConsumed = { initialInviteId = null },
-            onClose = { showFriendsScreen = false },
-            onOpenCircles = { showCirclesScreen = true },
-            modifier = Modifier.fillMaxSize()
-        )
-    }
-
-    // Full-screen overlay for Shared Circles (shared-circles Requirement 2.4)
-    androidx.compose.animation.AnimatedVisibility(
-        visible = showCirclesScreen,
-        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.slideInVertically(initialOffsetY = { it }),
-        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.slideOutVertically(targetOffsetY = { it })
-    ) {
-        androidx.activity.compose.BackHandler { showCirclesScreen = false }
-        com.theblankstate.preamble.ui.screens.CirclesScreen(
-            onClose = { showCirclesScreen = false },
-            modifier = Modifier.fillMaxSize()
-        )
-    }
+    // Friends and Circles used to render here as separate full-screen overlays reached only via
+    // the Home avatar shortcut / deep links. They're now organized routes inside SocialHubScreen
+    // (selectedTab == 4 above), reached the same way (avatar shortcut + deep links still work,
+    // see onOpenFriends and the deep-link handling above) but consolidated behind the single
+    // "Circles" bottom-nav tab per the merged-navigation redesign.
 }

@@ -37,23 +37,23 @@ fun WorkspaceTasksScreen(
     val context = LocalContext.current
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     val tabs = listOf("Incoming", "Outgoing")
-    
+
     val incoming by workspaceViewModel.incomingAssignments.collectAsState()
     val outgoing by workspaceViewModel.outgoingAssignments.collectAsState()
     val friends by workspaceViewModel.friends.collectAsState()
-    
+
     var showAssignDialog by remember { mutableStateOf(false) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
             CenterAlignedTopAppBar(
-                title = { 
+                title = {
                     Text(
-                        "Workspace Tasks", 
+                        "Shared Tasks",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
-                    ) 
+                    )
                 },
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                     containerColor = MaterialTheme.colorScheme.background
@@ -96,11 +96,11 @@ fun WorkspaceTasksScreen(
                     Tab(
                         selected = selectedTabIndex == index,
                         onClick = { selectedTabIndex = index },
-                        text = { 
+                        text = {
                             Text(
-                                title, 
+                                title,
                                 fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Normal
-                            ) 
+                            )
                         }
                     )
                 }
@@ -155,14 +155,14 @@ fun IncomingAssignmentsView(
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
-                    Icons.Default.Inbox, 
-                    contentDescription = null, 
+                    Icons.Default.Inbox,
+                    contentDescription = null,
                     modifier = Modifier.size(48.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    "No incoming tasks from friends", 
+                    "No incoming tasks from friends",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
@@ -190,14 +190,14 @@ fun OutgoingAssignmentsView(
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(
-                    Icons.Default.Send, 
-                    contentDescription = null, 
+                    Icons.Default.Send,
+                    contentDescription = null,
                     modifier = Modifier.size(48.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    "No assigned tasks out to friends", 
+                    "No assigned tasks out to friends",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
@@ -244,20 +244,20 @@ fun IncomingTaskCard(
                 }
                 Column {
                     Text(
-                        text = task.title, 
+                        text = task.title,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
-                        text = "Assigned by ${task.assignedByName ?: "Friend"}", 
+                        text = "Assigned by ${task.assignedByName ?: "Friend"}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
-            
+
             if (!task.description.isNullOrBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
@@ -268,7 +268,7 @@ fun IncomingTaskCard(
             }
 
             Spacer(modifier = Modifier.height(12.dp))
-            
+
             val status = task.assignmentStatus ?: "pending"
             if (status == "pending") {
                 Row(
@@ -345,24 +345,24 @@ fun OutgoingTaskCard(
                     }
                     Column {
                         Text(
-                            text = task.title, 
+                            text = task.title,
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "Assigned to ${task.assignedToName ?: "Friend"}", 
+                            text = "Assigned to ${task.assignedToName ?: "Friend"}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
-                
+
                 IconButton(onClick = onCancel) {
                     Icon(
-                        Icons.Default.Delete, 
-                        contentDescription = "Recall", 
+                        Icons.Default.Delete,
+                        contentDescription = "Recall",
                         tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
                     )
                 }
@@ -381,7 +381,7 @@ fun OutgoingTaskCard(
 
             val status = task.assignmentStatus ?: "pending"
             val isCompleted = task.isCompleted
-            
+
             val statusLabel = when {
                 isCompleted -> "Completed"
                 status == "declined" -> "Declined"
@@ -441,7 +441,7 @@ fun AssignTaskDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Text(
-                    "Assign New Task", 
+                    "Assign New Task",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )

@@ -64,10 +64,13 @@ import com.theblankstate.preamble.ui.viewmodels.CircleViewModel
  * control bound to [CircleViewModel.createCircle]. Tapping a Circle opens [CircleDetailScreen]
  * via [CircleViewModel.openCircle].
  *
- * Reachable from the friends/workspace area (Requirement 2.4): [MainActivity] renders it as a
- * full-screen overlay alongside the existing Friends overlay, mirroring how [WorkspaceScreen] is
- * reached. [uiState] Error/Success messages are surfaced via Toast like [WorkspaceScreen] and
- * cleared with [CircleViewModel.resetState].
+ * Reachable as one of the organized routes inside [SocialHubScreen] — the single "Circles"
+ * bottom-nav destination that also hosts [FriendsScreen] (Friends/Leaderboard) and
+ * [WorkspaceTasksScreen] (shared/assigned tasks), so all social/collaboration features live
+ * behind one predictable tap target instead of being split across a bottom-nav tab, an
+ * avatar-triggered overlay, and a nested "Circles" pill (Requirement 2.4). [uiState]
+ * Error/Success messages are surfaced via Toast like [FriendsScreen] and cleared with
+ * [CircleViewModel.resetState].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

@@ -176,16 +176,24 @@ private fun Modifier.expressivePressScale(
     return this.scale(scale)
 }
 
+/**
+ * Friends_Screen: the Friends/Leaderboard destination inside the Circles hub
+ * ([SocialHubScreen]). Formerly named `WorkspaceScreen` — renamed because that name described
+ * where it lived, not what it shows. Circles management now lives in its own hub tab
+ * ([CirclesScreen]) instead of being promoted from inside this screen, which is why the old
+ * top-bar "Circles" pill and the CirclesEntryCard header promo are gone: removing that stacked
+ * card reclaims significant vertical space so the Friends/Leaderboard list is no longer squeezed
+ * off small screens.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WorkspaceScreen(
+fun FriendsScreen(
     viewModel: WorkspaceViewModel = viewModel(),
     taskViewModel: TaskViewModel? = null,
     initialInviteId: String? = null,
     onInviteConsumed: () -> Unit = {},
     onClose: (() -> Unit)? = null,
-    onOpenCircles: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val friends by viewModel.friends.collectAsState()
     // Requests_List view model: the signed-in user's Outgoing_Invites and Incoming_Invites
@@ -211,9 +219,9 @@ fun WorkspaceScreen(
     val currentUserUid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid
     val weeklyPointsByUid = remember(leaderboard) { leaderboard.associate { it.uid to it.weeklyPoints } }
     val statsState = taskViewModel?.statsState?.collectAsState()?.value
-    
+
     val myScore = statsState?.productivityScore ?: 0
-    
+
     val context = LocalContext.current
     var showAddFriendDialog by remember { mutableStateOf(initialInviteId != null) }
     // REQUESTS_LIST visibility (social-hub-redesign Req 5). Opened on a successful send via
@@ -224,10 +232,10 @@ fun WorkspaceScreen(
     var friendPendingRemoval by remember { mutableStateOf<Friend?>(null) }
     var removalImpact by remember { mutableStateOf<FriendRemovalImpact?>(null) }
     var transferOwnedTasks by remember { mutableStateOf(false) }
-    
+
     var isRefreshing by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
-    
+
     // Pick random backgrounds on composition
     val heroBackground = remember { RandomBackgrounds.random() }
 
@@ -331,14 +339,12 @@ fun WorkspaceScreen(
 
     Scaffold(
         modifier = modifier,
-        // SOCIAL_HUB SCROLLABILITY / BOTTOM-INSET (social-hub-redesign Req 10.5, Fix 1):
-        // apply the TOP and HORIZONTAL system-bar insets to the content but NOT the bottom, so
-        // the outer PullToRefreshBox no longer consumes the bottom inset. This lets each pane's
-        // LazyColumn extend to the physical bottom edge and scroll its content beneath the
-        // system nav area (the idiomatic edge-to-edge list pattern), avoiding double-counting
-        // the inset. The custom top bar continues to handle the status-bar inset.
-        contentWindowInsets = ScaffoldDefaults.contentWindowInsets
-            .only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
+        // ZERO INSETS: this screen is now hosted as a tab inside SocialHubScreen, which itself
+        // sits inside MainActivity's outer Scaffold content slot — that outer Scaffold already
+        // resolves the status-bar and bottom-nav-bar insets once via its own innerPadding
+        // (the same pattern HomeScreen uses for its own nested Scaffold). Reserving insets again
+        // here would double-count them and push the header/list down with a redundant gap.
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             // Custom Cardfolio-style Top Bar
             Row(
@@ -355,44 +361,18 @@ fun WorkspaceScreen(
                         }
                     }
                     Text(
-                        "Friends", 
-                        fontWeight = FontWeight.Black, 
+                        "Friends",
+                        fontWeight = FontWeight.Black,
                         fontSize = 28.sp,
                         color = MaterialTheme.colorScheme.onBackground
                     )
                 }
-                
+
                 // "Active" Pill / Add button
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if (onOpenCircles != null) {
-                        // Entry into Shared Circles from the friends/workspace area
-                        // (shared-circles Requirement 2.4). Expressive_Motion (Req 1.2, 1.3):
-                        // a bouncy press-scale makes the pill feel alive on tap.
-                        val circlesInteraction = remember { MutableInteractionSource() }
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier
-                                .expressivePressScale(circlesInteraction)
-                                .clip(RoundedCornerShape(50))
-                                .clickable(
-                                    interactionSource = circlesInteraction,
-                                    indication = LocalIndication.current,
-                                ) { onOpenCircles() }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Icon(Icons.Default.Groups, contentDescription = "Circles", modifier = Modifier.size(18.dp))
-                                Text("Circles", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            }
-                        }
-                    }
                     val addInteraction = remember { MutableInteractionSource() }
                     // REQUESTS control (social-hub-redesign Req 5): opens the Requests_List
                     // on demand. A badge surfaces the number of pending Outgoing_Invites and
@@ -551,7 +531,7 @@ fun WorkspaceScreen(
                             .height(180.dp) // More rectangular
                             .padding(bottom = 16.dp),
                         shape = RoundedCornerShape(32.dp),
-                        colors = CardDefaults.cardColors(containerColor = heroColor) 
+                        colors = CardDefaults.cardColors(containerColor = heroColor)
                     ) {
                         Box(modifier = Modifier.fillMaxSize()) {
                             // Lowermost Layer: Random PNG, taking full card but scaled to show top portion
@@ -566,7 +546,7 @@ fun WorkspaceScreen(
                                     colorFilter = ColorFilter.tint(Color.Black, blendMode = BlendMode.SrcAtop)
                                 )
                             }
-                            
+
                             // Content on top
                             Column(modifier = Modifier.padding(24.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
@@ -580,7 +560,7 @@ fun WorkspaceScreen(
                                     ) {
                                         Icon(Icons.Default.Star, contentDescription = null, tint = heroColor, modifier = Modifier.size(28.dp))
                                     }
-                                    
+
                                     // Top right ID overlay
                                     Surface(shape = RoundedCornerShape(50), color = Color.Black.copy(alpha = 0.5f)) {
                                         Text(
@@ -592,7 +572,7 @@ fun WorkspaceScreen(
                                         )
                                     }
                                 }
-                                
+
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
                                     // Real Productivity Score
                                     Column {
@@ -616,7 +596,7 @@ fun WorkspaceScreen(
                                             )
                                         )
                                     }
-                                    
+
                                     // Bottom right action button — expressive press
                                     // treatment (Req 1.2, 1.3) on the share control.
                                     val shareInteraction = remember { MutableInteractionSource() }
@@ -646,7 +626,7 @@ fun WorkspaceScreen(
                         }
                     }
                 }
-                
+
                 // REFERRAL CTA (Growth-loops Req 1). Referral_Reward is disabled in
                 // Development_Mode, so the CTA omits the AI-credit claim (Req 8.2).
                 run {
@@ -656,20 +636,11 @@ fun WorkspaceScreen(
                     )
                 }
 
-                // CIRCLES ENTRY (social-hub-redesign Req 3): a first-class, always-visible
-                // Circles_Entry placed near the top of the existing composition (after the
-                // hero ID card and the Referral_CTA), so it is visible without opening any
-                // menu (Req 3.1). It carries descriptive text — not just an icon — explaining
-                // that a Circle is a shared friend group (Req 3.2) and offers a create option
-                // even when the user belongs to no Circles (Req 3.5). Activating it routes to
-                // the existing CirclesScreen via onOpenCircles (Req 3.3). It is gated on
-                // onOpenCircles being wired, matching the existing top-bar Circles pill.
-                if (onOpenCircles != null) {
-                    CirclesEntryCard(
-                        onOpenCircles = onOpenCircles,
-                        modifier = Modifier.padding(bottom = 16.dp)
-                    )
-                }
+                // Circles now has its own first-class tab in the Circles hub (SocialHubScreen)
+                // instead of a promo card here, which both removes a whole stacked card's worth
+                // of vertical space from this header (fixing the small-screen layout squeeze)
+                // and makes Circles permanently visible in the hub's tab row rather than only
+                // discoverable after scrolling past the hero card.
                     }
                 } // end HEADER AREA
 
@@ -761,7 +732,7 @@ fun WorkspaceScreen(
                     val cardColor = CardColors[index % CardColors.size]
                     var isExpanded by remember { mutableStateOf(false) }
                     val friendBg = remember(friend.uid) { RandomBackgrounds.random() }
-                    
+
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -783,7 +754,7 @@ fun WorkspaceScreen(
                                     colorFilter = ColorFilter.tint(Color.Black, blendMode = BlendMode.SrcAtop)
                                 )
                             }
-                            
+
                             if (isExpanded) {
                                 Column(
                                     modifier = Modifier.padding(24.dp).fillMaxWidth(),
@@ -800,26 +771,26 @@ fun WorkspaceScreen(
                                     )
                                     Spacer(modifier = Modifier.height(16.dp))
                                     Text(
-                                        text = friend.name, 
-                                        fontWeight = FontWeight.Black, 
+                                        text = friend.name,
+                                        fontWeight = FontWeight.Black,
                                         fontSize = 28.sp,
                                         color = Color.Black.copy(alpha = 0.8f)
                                     )
                                     Text(
-                                        "Preamble ID: ${friend.preambleId}", 
-                                        color = Color.Black.copy(alpha = 0.6f), 
+                                        "Preamble ID: ${friend.preambleId}",
+                                        color = Color.Black.copy(alpha = 0.6f),
                                         fontSize = 14.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                     Spacer(modifier = Modifier.height(24.dp))
-                                    
+
                                     // Productivity Points
                                     Surface(
                                         shape = RoundedCornerShape(50),
                                         color = Color.Black.copy(alpha = 0.2f)
                                     ) {
                                         Row(
-                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp), 
+                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFD166)) // Yellow star
@@ -827,9 +798,9 @@ fun WorkspaceScreen(
                                             Text("${weeklyPointsByUid[friend.uid] ?: 0} Points this week", fontWeight = FontWeight.Bold, color = Color.Black)
                                         }
                                     }
-                                    
+
                                     Spacer(modifier = Modifier.height(24.dp))
-                                    
+
                                     // Actions
                                     Button(
                                         onClick = { requestFriendRemoval(friend) },
@@ -858,17 +829,17 @@ fun WorkspaceScreen(
                                         )
                                         Spacer(modifier = Modifier.width(16.dp))
                                         Text(
-                                            text = friend.name, 
-                                            fontWeight = FontWeight.Bold, 
+                                            text = friend.name,
+                                            fontWeight = FontWeight.Bold,
                                             fontSize = 20.sp,
                                             color = Color.Black.copy(alpha = 0.8f)
                                         )
                                     }
-                                    
+
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
-                                            "... ${friend.preambleId}", 
-                                            color = Color.Black.copy(alpha = 0.5f), 
+                                            "... ${friend.preambleId}",
+                                            color = Color.Black.copy(alpha = 0.5f),
                                             fontSize = 14.sp,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -1269,119 +1240,6 @@ private fun InviteEntrySheet(
 }
 
 /**
- * CirclesEntryCard (social-hub-redesign Req 3): the always-visible Circles_Entry on the
- * Social_Hub. It is styled consistently with the Social_Hub_Design_Language — a vibrant
- * Cardfolio-style card with a rounded expressive shape and a [RandomBackgrounds] PNG
- * (Req 3.4) — and carries DESCRIPTIVE TEXT, not just an unlabeled icon, explaining that a
- * Circle is a shared friend group with its own shared task list (Req 3.2). It conveys that
- * meaning and surfaces a "Create a Circle" action even when the signed-in user belongs to
- * no Circles (Req 3.5). Activating the card (or the create action) invokes [onOpenCircles]
- * to navigate to the existing CirclesScreen where the user can view existing Circles and
- * create a new one (Req 3.3).
- */
-@Composable
-private fun CirclesEntryCard(
-    onOpenCircles: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val cardColor = Color(0xFFEAB3FF) // Light Purple from the Cardfolio palette
-    val circlesBg = remember { RandomBackgrounds.random() }
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(24.dp))
-            .clickable { onOpenCircles() },
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = cardColor)
-    ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.matchParentSize()) {
-                Image(
-                    painter = painterResource(id = circlesBg),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    alignment = Alignment.TopCenter,
-                    modifier = Modifier.fillMaxSize(),
-                    // Match the hero ID card's PNG treatment (alpha 0.4f) so the
-                    // RandomBackgrounds imagery reads clearly as Cardfolio PNG-pack imagery
-                    // and the card is unmistakably a Circles_Entry, consistent with the
-                    // Social_Hub_Design_Language (Req 3.4).
-                    alpha = 0.4f,
-                    colorFilter = ColorFilter.tint(Color.Black, blendMode = BlendMode.SrcAtop)
-                )
-            }
-
-            Column(
-                modifier = Modifier.padding(24.dp).fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(Color.Black),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.Groups,
-                            contentDescription = null,
-                            tint = cardColor,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Text(
-                        text = "Circles",
-                        fontWeight = FontWeight.Black,
-                        fontSize = 24.sp,
-                        color = Color.Black.copy(alpha = 0.85f)
-                    )
-                }
-
-                // Descriptive text conveying that a Circle groups friends together — not
-                // just an unlabeled icon (Req 3.2, 3.5).
-                Text(
-                    text = "A Circle is a shared friend group with its own shared task list. Gather your friends together and plan as a group.",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color.Black.copy(alpha = 0.7f)
-                )
-
-                // "Create a Circle" action, present even when the user belongs to no
-                // Circles (Req 3.5); routes to the CirclesScreen via onOpenCircles (Req 3.3).
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = Color.Black,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .clickable { onOpenCircles() }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Add,
-                            contentDescription = null,
-                            tint = cardColor,
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Text(
-                            "Create a Circle",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = cardColor
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
  * Section_Organizer areas (social-hub-redesign Req 2): the two distinct, separately-navigable
  * areas of the Social_Hub — the Friends_Leaderboard and the Friends_List.
  */
@@ -1465,15 +1323,13 @@ fun SectionOrganizer(
     }
 
     Column(modifier = modifier) {
-        // BOTTOM-INSET CLEARANCE (social-hub-redesign Req 10.3, 10.6, Fix 2): resolve the
-        // Bottom_System_Inset once and pass it to BOTH pane LazyColumns as bottom contentPadding,
-        // applied UNCONDITIONALLY (independent of paging state). For the full-screen overlay the
-        // app bottom nav is occluded, so the inset to clear is the system navigation bar inset; a
-        // ~24dp comfortable gap is added so the final row sits clearly above the chin. Because
-        // contentPadding is part of the scrollable extent, the last row always scrolls fully clear
-        // of the inset, and the clearance is >= Bottom_System_Inset by construction on every device.
-        val paneBottomPadding =
-            WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 24.dp
+        // BOTTOM-INSET CLEARANCE (Fix 2, updated): FriendsScreen is now hosted inside the
+        // Circles hub as nested tab content, sitting inside MainActivity's outer Scaffold
+        // content slot. That outer Scaffold's bottomBar (the app's ExpressiveNavigationBar)
+        // already reserves the system navigation-bar inset beneath it, and its innerPadding
+        // already clears the pill bar's full height for this content — so only a small,
+        // fixed comfortable gap is needed here, not another navigationBars inset on top of it.
+        val paneBottomPadding = 24.dp
         val options = listOf(SocialSection.Leaderboard, SocialSection.Friends)
         // PERSISTENT, LABELED, ACTIVE-AWARE CONTROL (Req 2.6): the segmented control is rendered
         // in a header Surface that sits above the active pane, OUTSIDE the scrolling LazyColumns,
@@ -1502,7 +1358,7 @@ fun SectionOrganizer(
                         Color(0xFFEAB3FF) // Cardfolio Light Purple
                     }
                     val interactionSource = remember { MutableInteractionSource() }
-                    
+
                     Box(
                         modifier = Modifier
                             .weight(1f)
