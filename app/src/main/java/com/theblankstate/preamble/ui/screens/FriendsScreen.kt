@@ -246,6 +246,8 @@ fun FriendsScreen(
     var selectedSection by remember { mutableStateOf(SocialSection.Leaderboard) }
     var leaderboardQuery by remember { mutableStateOf("") }
     var friendsQuery by remember { mutableStateOf("") }
+    var isLeaderboardSearchActive by remember { mutableStateOf(false) }
+    var isFriendsSearchActive by remember { mutableStateOf(false) }
 
     val filteredLeaderboard = remember(leaderboardQuery, leaderboard) {
         SocialSearch.filter(leaderboardQuery, leaderboard)
@@ -593,23 +595,91 @@ fun FriendsScreen(
                             }
                         }
 
-                        if (selectedSection == SocialSection.Leaderboard) {
-                            if (leaderboard.size > 8) {
-                                SocialSearchField(
-                                    query = leaderboardQuery,
-                                    onQueryChange = { leaderboardQuery = it },
-                                    placeholder = "Search the leaderboard",
-                                    modifier = Modifier.padding(vertical = 8.dp)
+                        val configuration = LocalConfiguration.current
+                        val scaleFactor = (configuration.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
+                        val currentListSize = if (selectedSection == SocialSection.Leaderboard) leaderboard.size else friends.size
+                        val isSearchActive = if (selectedSection == SocialSection.Leaderboard) isLeaderboardSearchActive else isFriendsSearchActive
+                        val searchQuery = if (selectedSection == SocialSection.Leaderboard) leaderboardQuery else friendsQuery
+                        
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isSearchActive) {
+                                OutlinedTextField(
+                                    value = searchQuery,
+                                    onValueChange = { query ->
+                                        if (selectedSection == SocialSection.Leaderboard) {
+                                            leaderboardQuery = query
+                                        } else {
+                                            friendsQuery = query
+                                        }
+                                    },
+                                    placeholder = { Text(if (selectedSection == SocialSection.Leaderboard) "Search leaderboard..." else "Search friends...", fontSize = (13 * scaleFactor).sp) },
+                                    singleLine = true,
+                                    textStyle = androidx.compose.ui.text.TextStyle(
+                                        fontSize = (13 * scaleFactor).sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height((48 * scaleFactor).dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    trailingIcon = {
+                                        IconButton(
+                                            onClick = {
+                                                if (selectedSection == SocialSection.Leaderboard) {
+                                                    isLeaderboardSearchActive = false
+                                                    leaderboardQuery = ""
+                                                } else {
+                                                    isFriendsSearchActive = false
+                                                    friendsQuery = ""
+                                                }
+                                            },
+                                            modifier = Modifier.size((24 * scaleFactor).dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Close Search",
+                                                modifier = Modifier.size((16 * scaleFactor).dp)
+                                             )
+                                        }
+                                    }
                                 )
-                            }
-                        } else {
-                            if (friends.size > 8) {
-                                SocialSearchField(
-                                    query = friendsQuery,
-                                    onQueryChange = { friendsQuery = it },
-                                    placeholder = "Search your friends",
-                                    modifier = Modifier.padding(vertical = 8.dp)
+                            } else {
+                                Text(
+                                    text = if (selectedSection == SocialSection.Leaderboard) "LEADERBOARD" else "MY FRIENDS",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = (11 * scaleFactor).sp,
+                                    letterSpacing = 1.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                 )
+                                
+                                if (currentListSize > 8) {
+                                    val searchInteraction = remember { MutableInteractionSource() }
+                                    IconButton(
+                                        onClick = {
+                                            if (selectedSection == SocialSection.Leaderboard) {
+                                                isLeaderboardSearchActive = true
+                                            } else {
+                                                isFriendsSearchActive = true
+                                            }
+                                        },
+                                        modifier = Modifier
+                                            .size((28 * scaleFactor).dp)
+                                            .expressivePressScale(searchInteraction)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = "Search",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                            modifier = Modifier.size((18 * scaleFactor).dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
