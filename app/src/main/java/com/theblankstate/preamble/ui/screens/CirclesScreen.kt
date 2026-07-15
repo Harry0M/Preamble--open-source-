@@ -102,6 +102,10 @@ import androidx.compose.runtime.mutableStateListOf
 @Composable
 fun CirclesScreen(
     viewModel: CircleViewModel = viewModel(),
+    openCircleId: String? = null,
+    onOpenCircleChange: (String?) -> Unit = {},
+    pendingNotificationsCount: Int = 0,
+    onNotificationClick: () -> Unit = {},
     onClose: (() -> Unit)? = null,
     registerCreateCircleTrigger: ((() -> Unit) -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -109,10 +113,6 @@ fun CirclesScreen(
     val circles by viewModel.circles.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-
-    // Internal navigation into the Circle_Detail_Screen. Holding the id (not the projection)
-    // keeps the open Circle in sync with the live `circles` StateFlow as membership changes.
-    var openCircleId by remember { mutableStateOf<String?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var newCircleName by remember { mutableStateOf("") }
 
@@ -187,7 +187,9 @@ fun CirclesScreen(
         CircleDetailScreen(
             circleId = selectedId,
             viewModel = viewModel,
-            onBack = { openCircleId = null },
+            onBack = { onOpenCircleChange(null) },
+            pendingNotificationsCount = pendingNotificationsCount,
+            onNotificationClick = onNotificationClick,
             modifier = modifier
         )
         return
@@ -238,7 +240,7 @@ fun CirclesScreen(
                             gridItems = gridItems,
                             onRealClick = { circle ->
                                 viewModel.openCircle(circle.id)
-                                openCircleId = circle.id
+                                onOpenCircleChange(circle.id)
                             },
                             onRealLongClick = { circle ->
                                 showOptionsSheetForCircle = circle
@@ -380,7 +382,7 @@ fun CirclesScreen(
                             iconColor = iconColor,
                             onClick = {
                                 viewModel.openCircle(circle.id)
-                                openCircleId = circle.id
+                                onOpenCircleChange(circle.id)
                             },
                             onLongClick = {
                                 showOptionsSheetForCircle = circle

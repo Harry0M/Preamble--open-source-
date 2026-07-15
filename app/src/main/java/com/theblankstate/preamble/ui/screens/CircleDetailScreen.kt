@@ -66,6 +66,18 @@ import com.theblankstate.preamble.repository.CircleTaskModel
 import com.theblankstate.preamble.repository.Friend
 import com.theblankstate.preamble.ui.viewmodels.CircleUiState
 import com.theblankstate.preamble.ui.viewmodels.CircleViewModel
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.offset
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.ui.geometry.Offset
 
 /**
  * Circle_Detail_Screen (shared-circles Requirements 5.4, 6.1, 6.3, 7.4, 9.1, 10.1, 10.3, 11.1,
@@ -86,6 +98,8 @@ fun CircleDetailScreen(
     circleId: String,
     viewModel: CircleViewModel,
     onBack: () -> Unit,
+    pendingNotificationsCount: Int = 0,
+    onNotificationClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val circles by viewModel.circles.collectAsState()
@@ -158,7 +172,76 @@ fun CircleDetailScreen(
                     )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val configuration = LocalConfiguration.current
+                    val scaleFactor = (configuration.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
+                    val addInteraction = remember { MutableInteractionSource() }
+
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp * scaleFactor)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .expressivePressScale(addInteraction)
+                            .clickable(
+                                interactionSource = addInteraction,
+                                indication = null
+                            ) {
+                                newTaskTitle = ""
+                                showAddTaskDialog = true
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Add task",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp * scaleFactor)
+                        )
+                    }
+
+                    val notifyInteraction = remember { MutableInteractionSource() }
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp * scaleFactor)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .expressivePressScale(notifyInteraction)
+                            .clickable(
+                                interactionSource = notifyInteraction,
+                                indication = null
+                            ) {
+                                onNotificationClick()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        DottedDownwardArrow(
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp * scaleFactor)
+                        )
+                        if (pendingNotificationsCount > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .offset(x = 2.dp, y = (-2).dp)
+                                    .size(16.dp * scaleFactor)
+                                    .clip(CircleShape)
+                                    .background(Color.Red),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(10.dp * scaleFactor)
+                                )
+                            }
+                        }
+                    }
+
                     if (isAdmin && circle != null) {
                         // Admin-only membership controls (Requirements 3.1, 4.1, 5.1, 7.1).
                         IconButton(onClick = { showMembersDialog = true }) {
@@ -256,19 +339,6 @@ fun CircleDetailScreen(
                         )
                     }
                 }
-            }
-
-            // Add-task control (Requirement 9.1).
-            androidx.compose.material3.FloatingActionButton(
-                onClick = {
-                    newTaskTitle = ""
-                    showAddTaskDialog = true
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(24.dp)
-            ) {
-                Icon(Icons.Default.Add, contentDescription = "Add task")
             }
         }
     }
@@ -613,5 +683,53 @@ private fun AddFriendRow(
             }
         }
         Icon(Icons.Default.PersonAdd, contentDescription = "Add ${friend.name}", tint = MaterialTheme.colorScheme.primary)
+    }
+}
+
+@Composable
+private fun Modifier.expressivePressScale(
+    interactionSource: MutableInteractionSource,
+    pressedScale: Float = 0.92f,
+): Modifier {
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) pressedScale else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow,
+        ),
+        label = "expressivePressScale",
+    )
+    return this.scale(scale)
+}
+
+@Composable
+private fun DottedDownwardArrow(color: Color, modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Canvas(modifier = modifier.size(24.dp)) {
+        val width = size.width
+        val height = size.height
+        val dashEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
+
+        drawLine(
+            color = color,
+            start = Offset(width / 2f, height / 5f),
+            end = Offset(width / 2f, 4f * height / 5f),
+            strokeWidth = 2.dp.toPx(),
+            pathEffect = dashEffect
+        )
+        drawLine(
+            color = color,
+            start = Offset(width / 2f - width / 5f, 4f * height / 5f - height / 5f),
+            end = Offset(width / 2f, 4f * height / 5f),
+            strokeWidth = 2.dp.toPx(),
+            pathEffect = dashEffect
+        )
+        drawLine(
+            color = color,
+            start = Offset(width / 2f + width / 5f, 4f * height / 5f - height / 5f),
+            end = Offset(width / 2f, 4f * height / 5f),
+            strokeWidth = 2.dp.toPx(),
+            pathEffect = dashEffect
+        )
     }
 }

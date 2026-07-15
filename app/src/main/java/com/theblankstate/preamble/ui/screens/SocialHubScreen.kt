@@ -112,6 +112,8 @@ fun SocialHubScreen(
     var route by remember { mutableStateOf(initialRoute ?: SocialHubRoute.Friends) }
     var previousRoute by remember { mutableStateOf(SocialHubRoute.Friends) }
     var isTabRowVisible by remember { mutableStateOf(true) }
+    var openCircleId by remember { mutableStateOf<String?>(null) }
+    val isCircleDetailOpen = (route == SocialHubRoute.Circles && openCircleId != null)
 
     var showAddFriendDialog by remember { mutableStateOf(false) }
     var targetId by remember { mutableStateOf("") }
@@ -154,6 +156,9 @@ fun SocialHubScreen(
             previousRoute = route
         }
         isTabRowVisible = true
+        if (route != SocialHubRoute.Circles) {
+            openCircleId = null
+        }
     }
 
     val nestedScrollConnection = remember {
@@ -182,7 +187,7 @@ fun SocialHubScreen(
     val headerHeight = buttonSize + 24.dp
 
     val currentHeaderHeight by animateDpAsState(
-        targetValue = if (isTabRowVisible && route != SocialHubRoute.Tasks) headerHeight else 0.dp,
+        targetValue = if (isTabRowVisible && route != SocialHubRoute.Tasks && !isCircleDetailOpen) headerHeight else 0.dp,
         animationSpec = tween(300),
         label = "headerHeight"
     )
@@ -224,6 +229,10 @@ fun SocialHubScreen(
                         )
                         SocialHubRoute.Circles -> CirclesScreen(
                             viewModel = circleViewModel,
+                            openCircleId = openCircleId,
+                            onOpenCircleChange = { openCircleId = it },
+                            pendingNotificationsCount = pendingRequestsCount + pendingAssignmentsCount,
+                            onNotificationClick = { route = SocialHubRoute.Tasks },
                             onClose = null,
                             registerCreateCircleTrigger = { triggerCreateCircle = it },
                             modifier = Modifier.fillMaxSize(),
@@ -239,7 +248,7 @@ fun SocialHubScreen(
         }
 
         // 2. The Header Overlay (Pills & Buttons)
-        if (route != SocialHubRoute.Tasks) {
+        if (route != SocialHubRoute.Tasks && !isCircleDetailOpen) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -403,7 +412,7 @@ fun SocialHubScreen(
         val addCircleInteraction = remember { MutableInteractionSource() }
 
         AnimatedVisibility(
-            visible = route == SocialHubRoute.Circles,
+            visible = route == SocialHubRoute.Circles && !isCircleDetailOpen,
             enter = fadeIn(animationSpec = tween(200)),
             exit = fadeOut(animationSpec = tween(200)),
             modifier = Modifier.align(Alignment.TopEnd)
