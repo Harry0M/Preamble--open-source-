@@ -476,7 +476,8 @@ fun PreambleApp(
     // Friends/Circles/Tasks now live behind the single "Circles" tab (SocialHubScreen), so its
     // bottom-nav badge combines both kinds of actionable items that used to be badged
     // separately: pending collaborative-task assignments and pending friend requests.
-    val pendingRequestsCount by workspaceViewModel.pendingRequestsCount.collectAsState()
+    val requestsSections by workspaceViewModel.requestsSections.collectAsState()
+    val pendingRequestsCount = remember(requestsSections) { requestsSections.incoming.size }
     val socialHubBadgeCount = pendingAssignmentsCount + pendingRequestsCount
 
     // Holds a one-shot requested landing destination for the Circles hub — set by the avatar

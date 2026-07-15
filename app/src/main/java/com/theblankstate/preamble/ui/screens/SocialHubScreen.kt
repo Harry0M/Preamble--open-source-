@@ -106,7 +106,8 @@ fun SocialHubScreen(
     var previousRoute by remember { mutableStateOf(SocialHubRoute.Friends) }
     var isTabRowVisible by remember { mutableStateOf(true) }
 
-    val pendingRequestsCount by workspaceViewModel.pendingRequestsCount.collectAsState()
+    val requestsSections by workspaceViewModel.requestsSections.collectAsState()
+    val pendingRequestsCount = remember(requestsSections) { requestsSections.incoming.size }
     val incomingAssignments by workspaceViewModel.incomingAssignments.collectAsState()
     val pendingAssignmentsCount = remember(incomingAssignments) {
         incomingAssignments.count { it.assignmentStatus == "pending" }
