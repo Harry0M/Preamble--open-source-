@@ -4,9 +4,11 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
@@ -169,17 +171,14 @@ fun SocialHubScreen(
             .fillMaxSize()
             .nestedScroll(nestedScrollConnection)
     ) {
-        AnimatedVisibility(
-            visible = isTabRowVisible && route != SocialHubRoute.Tasks,
-            enter = expandVertically(animationSpec = tween(250)) + slideInVertically(animationSpec = tween(250)) { -it } + fadeIn(animationSpec = tween(250)),
-            exit = shrinkVertically(animationSpec = tween(250)) + slideOutVertically(animationSpec = tween(250)) { -it } + fadeOut(animationSpec = tween(250))
-        ) {
+        if (route != SocialHubRoute.Tasks) {
             SocialHubTabRow(
                 selected = route,
                 onSelect = { route = it },
                 pendingRequestsCount = pendingRequestsCount,
                 pendingAssignmentsCount = pendingAssignmentsCount,
                 onAddFriendClick = { showAddFriendDialog = true },
+                isTabRowVisible = isTabRowVisible,
             )
         }
 
@@ -252,6 +251,7 @@ private fun SocialHubTabRow(
     pendingRequestsCount: Int,
     pendingAssignmentsCount: Int,
     onAddFriendClick: () -> Unit,
+    isTabRowVisible: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val configuration = androidx.compose.ui.platform.LocalConfiguration.current
@@ -272,49 +272,66 @@ private fun SocialHubTabRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(spacing)
     ) {
-        // Segmented control for Friends and Circles
-        Row(
-            modifier = Modifier
-                .weight(1f)
-                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
-                .padding(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        // Dynamic Spacer that takes up the space when Segmented control is hidden
+        AnimatedVisibility(
+            visible = !isTabRowVisible,
+            enter = fadeIn(animationSpec = tween(200)),
+            exit = fadeOut(animationSpec = tween(200)),
+            modifier = Modifier.weight(1f)
         ) {
-            SocialHubRoute.entries.filter { it != SocialHubRoute.Tasks }.forEach { entry ->
-                val isSelected = entry == selected
-                val accent = routeAccentColor(entry)
-                val backgroundColor by animateColorAsState(
-                    targetValue = if (isSelected) accent else Color.Transparent,
-                    label = "hubTab_${entry.name}",
-                )
-                val contentColor = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
-                val interactionSource = remember { MutableInteractionSource() }
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(tabHeight)
-                        .clip(RoundedCornerShape(50))
-                        .background(backgroundColor)
-                        .clickable(
-                            interactionSource = interactionSource,
-                            indication = null,
-                        ) { onSelect(entry) },
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = entry.icon,
-                        contentDescription = entry.label,
-                        tint = contentColor,
-                        modifier = Modifier.size(iconSize),
+            Spacer(modifier = Modifier.fillMaxWidth())
+        }
+
+        // Segmented control for Friends and Circles
+        AnimatedVisibility(
+            visible = isTabRowVisible,
+            enter = expandHorizontally(animationSpec = tween(250)) + fadeIn(animationSpec = tween(250)),
+            exit = shrinkHorizontally(animationSpec = tween(250)) + fadeOut(animationSpec = tween(250)),
+            modifier = Modifier.weight(1f)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
+                    .padding(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SocialHubRoute.entries.filter { it != SocialHubRoute.Tasks }.forEach { entry ->
+                    val isSelected = entry == selected
+                    val accent = routeAccentColor(entry)
+                    val backgroundColor by animateColorAsState(
+                        targetValue = if (isSelected) accent else Color.Transparent,
+                        label = "hubTab_${entry.name}",
                     )
-                    Spacer(modifier = Modifier.width(8.dp * scaleFactor))
-                    Text(
-                        text = entry.label,
-                        fontWeight = FontWeight.Black,
-                        fontSize = fontSize,
-                        color = contentColor,
-                    )
+                    val contentColor = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
+                    val interactionSource = remember { MutableInteractionSource() }
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(tabHeight)
+                            .clip(RoundedCornerShape(50))
+                            .background(backgroundColor)
+                            .clickable(
+                                interactionSource = interactionSource,
+                                indication = null,
+                            ) { onSelect(entry) },
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = entry.icon,
+                            contentDescription = entry.label,
+                            tint = contentColor,
+                            modifier = Modifier.size(iconSize),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp * scaleFactor))
+                        Text(
+                            text = entry.label,
+                            fontWeight = FontWeight.Black,
+                            fontSize = fontSize,
+                            color = contentColor,
+                        )
+                    }
                 }
             }
         }
