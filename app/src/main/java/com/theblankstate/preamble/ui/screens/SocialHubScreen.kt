@@ -3,6 +3,7 @@ package com.theblankstate.preamble.ui.screens
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
@@ -265,74 +266,82 @@ private fun SocialHubTabRow(
     val iconSize = (18.dp * scaleFactor)
     val fontSize = (14.sp * scaleFactor)
 
+    val verticalPadding by animateDpAsState(
+        targetValue = if (isTabRowVisible) 12.dp else 4.dp,
+        animationSpec = tween(250),
+        label = "tabRowVerticalPadding"
+    )
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = horizontalPadding, vertical = 12.dp),
+            .padding(horizontal = horizontalPadding, vertical = verticalPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(spacing)
     ) {
-        // Dynamic Spacer that takes up the space when Segmented control is hidden
-        AnimatedVisibility(
-            visible = !isTabRowVisible,
-            enter = fadeIn(animationSpec = tween(200)),
-            exit = fadeOut(animationSpec = tween(200)),
-            modifier = Modifier.weight(1f)
-        ) {
-            Spacer(modifier = Modifier.fillMaxWidth())
-        }
-
-        // Segmented control for Friends and Circles
-        AnimatedVisibility(
-            visible = isTabRowVisible,
-            enter = expandHorizontally(animationSpec = tween(250)) + fadeIn(animationSpec = tween(250)),
-            exit = shrinkHorizontally(animationSpec = tween(250)) + fadeOut(animationSpec = tween(250)),
-            modifier = Modifier.weight(1f)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
-                    .padding(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SocialHubRoute.entries.filter { it != SocialHubRoute.Tasks }.forEach { entry ->
-                    val isSelected = entry == selected
-                    val accent = routeAccentColor(entry)
-                    val backgroundColor by animateColorAsState(
-                        targetValue = if (isSelected) accent else Color.Transparent,
-                        label = "hubTab_${entry.name}",
-                    )
-                    val contentColor = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
-                    val interactionSource = remember { MutableInteractionSource() }
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(tabHeight)
-                            .clip(RoundedCornerShape(50))
-                            .background(backgroundColor)
-                            .clickable(
-                                interactionSource = interactionSource,
-                                indication = null,
-                            ) { onSelect(entry) },
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = entry.icon,
-                            contentDescription = entry.label,
-                            tint = contentColor,
-                            modifier = Modifier.size(iconSize),
+        AnimatedContent(
+            targetState = isTabRowVisible,
+            transitionSpec = {
+                (fadeIn(animationSpec = tween(220)) + slideInVertically(animationSpec = tween(220)) { it / 2 }) togetherWith
+                (fadeOut(animationSpec = tween(220)) + slideOutVertically(animationSpec = tween(220)) { -it / 2 })
+            },
+            modifier = Modifier.weight(1f),
+            label = "tabRowHeaderContent"
+        ) { visible ->
+            if (visible) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
+                        .padding(4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    SocialHubRoute.entries.filter { it != SocialHubRoute.Tasks }.forEach { entry ->
+                        val isSelected = entry == selected
+                        val accent = routeAccentColor(entry)
+                        val backgroundColor by animateColorAsState(
+                            targetValue = if (isSelected) accent else Color.Transparent,
+                            label = "hubTab_${entry.name}",
                         )
-                        Spacer(modifier = Modifier.width(8.dp * scaleFactor))
-                        Text(
-                            text = entry.label,
-                            fontWeight = FontWeight.Black,
-                            fontSize = fontSize,
-                            color = contentColor,
-                        )
+                        val contentColor = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
+                        val interactionSource = remember { MutableInteractionSource() }
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(tabHeight)
+                                .clip(RoundedCornerShape(50))
+                                .background(backgroundColor)
+                                .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = null,
+                                ) { onSelect(entry) },
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                imageVector = entry.icon,
+                                contentDescription = entry.label,
+                                tint = contentColor,
+                                modifier = Modifier.size(iconSize),
+                            )
+                            Spacer(modifier = Modifier.width(8.dp * scaleFactor))
+                            Text(
+                                text = entry.label,
+                                fontWeight = FontWeight.Black,
+                                fontSize = fontSize,
+                                color = contentColor,
+                            )
+                        }
                     }
                 }
+            } else {
+                Text(
+                    text = selected.label,
+                    fontWeight = FontWeight.Black,
+                    fontSize = (fontSize * 1.5f), // Larger size for the title!
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(start = 8.dp)
+                )
             }
         }
 
