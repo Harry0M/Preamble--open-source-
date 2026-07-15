@@ -395,37 +395,7 @@ fun FriendsScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     val addInteraction = remember { MutableInteractionSource() }
-                    // REQUESTS control (social-hub-redesign Req 5): opens the Requests_List
-                    // on demand. A badge surfaces the number of pending Outgoing_Invites and
-                    // Incoming_Invites so the user can find sent invites without relying on a
-                    // toast. The same surface is opened automatically after a successful send.
-                    val requestsInteraction = remember { MutableInteractionSource() }
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier
-                            .expressivePressScale(requestsInteraction)
-                            .clip(RoundedCornerShape(50))
-                            .clickable(
-                                interactionSource = requestsInteraction,
-                                indication = LocalIndication.current,
-                            ) { showRequestsList = true }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            if (pendingRequestsCount > 0) {
-                                BadgedBox(badge = { Badge { Text("$pendingRequestsCount") } }) {
-                                    Icon(Icons.Default.MoveToInbox, contentDescription = "Requests", modifier = Modifier.size(18.dp))
-                                }
-                            } else {
-                                Icon(Icons.Default.MoveToInbox, contentDescription = "Requests", modifier = Modifier.size(18.dp))
-                            }
-                            Text("Requests", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        }
-                    }
+
                     Surface(
                         shape = RoundedCornerShape(50),
                         color = MaterialTheme.colorScheme.surfaceVariant,
@@ -979,6 +949,7 @@ fun FriendsScreen(
                 showAddFriendDialog = false
             },
             onDismiss = { showAddFriendDialog = false },
+            viewModel = viewModel,
         )
     }
 
@@ -1094,10 +1065,40 @@ private fun InviteEntrySheet(
     sendEnabled: Boolean,
     onSend: () -> Unit,
     onDismiss: () -> Unit,
+    viewModel: WorkspaceViewModel,
 ) {
     val sheetState = rememberModalBottomSheetState()
     val heroColor = Color(0xFFD4FF70) // Vibrant Lime Green, echoing the hero ID card
     val sheetBg = remember { RandomBackgrounds.random() }
+
+    var searchedProfile by remember { mutableStateOf<Map<String, Any>?>(null) }
+    var isSearching by remember { mutableStateOf(false) }
+    var searchError by remember { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(value) {
+        val normalized = value.trim().uppercase()
+        if (normalized.length == 8) {
+            isSearching = true
+            searchError = null
+            searchedProfile = null
+            try {
+                val result = viewModel.resolvePreambleId(normalized)
+                if (result != null) {
+                    searchedProfile = result
+                } else {
+                    searchError = "Not Found"
+                }
+            } catch (e: Exception) {
+                searchError = "Error"
+            } finally {
+                isSearching = false
+            }
+        } else {
+            searchedProfile = null
+            isSearching = false
+            searchError = null
+        }
+    }
 
     // Expressive_Motion_And_Shape (Req 6.5): an "alive" morphing badge that continuously
     // morphs between a star and a rounded hexagon while slowly rotating, matching the hero
@@ -1148,53 +1149,144 @@ private fun InviteEntrySheet(
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            // On-theme lime header card with a RandomBackgrounds PNG and the morphing badge
-            // (Req 6.1, 6.5).
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(140.dp),
-                shape = RoundedCornerShape(32.dp),
-                colors = CardDefaults.cardColors(containerColor = heroColor),
-            ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Box(modifier = Modifier.matchParentSize()) {
-                        Image(
-                            painter = painterResource(id = sheetBg),
-                            contentDescription = null,
-                            contentScale = ContentScale.Crop,
-                            alignment = Alignment.TopCenter,
-                            modifier = Modifier.fillMaxSize(),
-                            alpha = 0.4f,
-                            colorFilter = ColorFilter.tint(Color.Black, blendMode = BlendMode.SrcAtop),
-                        )
+            // Dynamic Profile/Search Header Area
+            if (isSearching) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp),
+                    shape = RoundedCornerShape(32.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                ) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                     }
-                    Column(
+                }
+            } else if (searchedProfile != null) {
+                val targetName = searchedProfile!!["name"] as? String ?: "Anonymous User"
+                val targetPId = searchedProfile!!["preambleId"] as? String ?: value
+                val targetPhoto = searchedProfile!!["photoUrl"] as? String ?: ""
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp),
+                    shape = RoundedCornerShape(32.dp),
+                    colors = CardDefaults.cardColors(containerColor = heroColor),
+                ) {
+                    Row(
                         modifier = Modifier
-                            .padding(24.dp)
-                            .fillMaxSize(),
-                        verticalArrangement = Arrangement.SpaceBetween,
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
+                        AsyncImage(
+                            model = targetPhoto.ifBlank { "https://api.dicebear.com/9.x/micah/png?seed=$targetPId" },
+                            contentDescription = "User Avatar",
                             modifier = Modifier
-                                .size(48.dp)
-                                .clip(MorphPolygonShape(morph, morphProgress, morphRotation))
-                                .background(Color.Black),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                Icons.Default.GroupAdd,
-                                contentDescription = null,
-                                tint = heroColor,
-                                modifier = Modifier.size(26.dp),
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(Color.White.copy(alpha = 0.3f))
+                        )
+                        Spacer(modifier = Modifier.width(16.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = targetName,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 24.sp,
+                                color = Color.Black
+                            )
+                            Text(
+                                text = "Preamble ID: $targetPId",
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 14.sp,
+                                color = Color.Black.copy(alpha = 0.7f)
                             )
                         }
-                        Text(
-                            text = "Add a Friend",
-                            fontWeight = FontWeight.Black,
-                            fontSize = 28.sp,
-                            color = Color.Black,
+                    }
+                }
+            } else if (searchError != null) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp),
+                    shape = RoundedCornerShape(32.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(36.dp)
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "User not found",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 18.sp,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                        Text(
+                            text = "Check the Preamble ID and try again.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+            } else {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(140.dp),
+                    shape = RoundedCornerShape(32.dp),
+                    colors = CardDefaults.cardColors(containerColor = heroColor),
+                ) {
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        Box(modifier = Modifier.matchParentSize()) {
+                            Image(
+                                painter = painterResource(id = sheetBg),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                alignment = Alignment.TopCenter,
+                                modifier = Modifier.fillMaxSize(),
+                                alpha = 0.4f,
+                                colorFilter = ColorFilter.tint(Color.Black, blendMode = BlendMode.SrcAtop),
+                            )
+                        }
+                        Column(
+                            modifier = Modifier
+                                .padding(24.dp)
+                                .fillMaxSize(),
+                            verticalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(MorphPolygonShape(morph, morphProgress, morphRotation))
+                                    .background(Color.Black),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Default.GroupAdd,
+                                    contentDescription = null,
+                                    tint = heroColor,
+                                    modifier = Modifier.size(26.dp),
+                                )
+                            }
+                            Text(
+                                text = "Add a Friend",
+                                fontWeight = FontWeight.Black,
+                                fontSize = 28.sp,
+                                color = Color.Black,
+                            )
+                        }
                     }
                 }
             }
@@ -1206,8 +1298,6 @@ private fun InviteEntrySheet(
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
             )
 
-            // The entered Preamble_ID. onValueChange normalizes to uppercase as the user
-            // types (Req 6.3).
             OutlinedTextField(
                 value = value,
                 onValueChange = onValueChange,
@@ -1222,13 +1312,11 @@ private fun InviteEntrySheet(
                 )
             )
 
-            // Send control — disabled while the normalized id is blank (Req 6.4). An
-            // expressive bouncy press treatment keeps it consistent with the surface's
-            // primary controls (Req 6.5).
+            val canSend = sendEnabled && searchedProfile != null && !isSearching
             val sendInteraction = remember { MutableInteractionSource() }
             Button(
                 onClick = onSend,
-                enabled = sendEnabled,
+                enabled = canSend,
                 interactionSource = sendInteraction,
                 shape = RoundedCornerShape(50),
                 colors = ButtonDefaults.buttonColors(

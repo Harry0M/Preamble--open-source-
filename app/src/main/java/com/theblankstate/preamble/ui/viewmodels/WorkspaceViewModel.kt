@@ -502,6 +502,10 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
+    suspend fun resolvePreambleId(targetPreambleId: String): Map<String, Any>? {
+        return repo.resolvePreambleId(targetPreambleId)
+    }
+
     fun sendInvite(targetId: String) {
         if (_uiState.value is WorkspaceUiState.Loading) return
 

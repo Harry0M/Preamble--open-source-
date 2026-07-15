@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -130,17 +132,23 @@ fun NotificationCenterScreen(
                                     append(" sent you a friend request.")
                                 },
                                 actions = {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                                         Button(
                                             onClick = {
                                                 viewModel.acceptInvite(invite)
                                                 Toast.makeText(context, "Request accepted ✓", Toast.LENGTH_SHORT).show()
                                             },
                                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                             shape = RoundedCornerShape(8.dp),
                                             modifier = Modifier.height(32.dp)
                                         ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Check,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
                                             Text("Confirm", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                         }
                                         OutlinedButton(
@@ -148,10 +156,17 @@ fun NotificationCenterScreen(
                                                 viewModel.declineInvite(invite.id)
                                                 Toast.makeText(context, "Request deleted", Toast.LENGTH_SHORT).show()
                                             },
-                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                             shape = RoundedCornerShape(8.dp),
                                             modifier = Modifier.height(32.dp)
                                         ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(14.dp),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
                                             Text("Delete", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         }
                                     }
