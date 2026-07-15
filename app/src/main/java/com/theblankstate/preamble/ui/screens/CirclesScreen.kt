@@ -315,9 +315,13 @@ fun CirclesScreen(
                                     onValueChange = { searchQuery = it },
                                     placeholder = { Text("Search circles...", fontSize = (13 * scaleFactor).sp) },
                                     singleLine = true,
+                                    textStyle = androidx.compose.ui.text.TextStyle(
+                                        fontSize = (13 * scaleFactor).sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    ),
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height((40 * scaleFactor).dp),
+                                        .height((48 * scaleFactor).dp),
                                     shape = RoundedCornerShape(12.dp),
                                     trailingIcon = {
                                         IconButton(

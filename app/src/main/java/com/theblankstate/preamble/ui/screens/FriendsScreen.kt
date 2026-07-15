@@ -79,6 +79,7 @@ import androidx.compose.ui.unit.Velocity
 import kotlin.math.roundToInt
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.platform.LocalConfiguration
 import coil.compose.AsyncImage
 import com.theblankstate.preamble.R
 import com.theblankstate.preamble.collab.OutgoingInvite
@@ -757,117 +758,145 @@ fun FriendsScreen(
                             }
                         } else {
                             itemsIndexed(visibleFriends, key = { _, it -> "friend_${it.uid}" }) { index, friend ->
-                                val cardColor = CardColors[index % CardColors.size]
+                                val configuration = LocalConfiguration.current
+                                val scaleFactor = (configuration.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
                                 var isExpanded by remember { mutableStateOf(false) }
-                                val friendBg = remember(friend.uid) { RandomBackgrounds.random() }
+                                val interactionSource = remember { MutableInteractionSource() }
 
-                                Card(
+                                Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .animateItem(fadeInSpec = tween(300), fadeOutSpec = tween(300))
                                         .animateContentSize(animationSpec = tween(300))
-                                        .clickable { isExpanded = !isExpanded }
-                                        .padding(bottom = 12.dp),
-                                    shape = RoundedCornerShape(24.dp),
-                                    colors = CardDefaults.cardColors(containerColor = cardColor)
+                                        .padding(bottom = 8.dp)
                                 ) {
-                                    Box(modifier = Modifier.fillMaxSize()) {
-                                        Box(modifier = Modifier.matchParentSize()) {
-                                            Image(
-                                                painter = painterResource(id = friendBg),
-                                                contentDescription = null,
-                                                contentScale = ContentScale.Crop,
-                                                alignment = Alignment.TopCenter,
-                                                modifier = Modifier.fillMaxSize(),
-                                                alpha = 0.3f,
-                                                colorFilter = ColorFilter.tint(Color.Black, blendMode = BlendMode.SrcAtop)
-                                            )
-                                        }
-
-                                        if (isExpanded) {
+                                    if (isExpanded) {
+                                        Surface(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(24.dp))
+                                                .clickable { isExpanded = false },
+                                            shape = RoundedCornerShape(24.dp),
+                                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                        ) {
                                             Column(
-                                                modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                                                modifier = Modifier.padding(24.dp * scaleFactor).fillMaxWidth(),
                                                 horizontalAlignment = Alignment.CenterHorizontally
                                             ) {
                                                 AsyncImage(
                                                     model = "https://api.dicebear.com/9.x/micah/png?seed=${friend.preambleId}",
                                                     contentDescription = "Avatar",
                                                     modifier = Modifier
-                                                        .size(120.dp)
+                                                        .size(100.dp * scaleFactor)
                                                         .clip(CircleShape)
-                                                        .background(Color.White.copy(alpha=0.3f))
+                                                        .background(MaterialTheme.colorScheme.surfaceVariant)
                                                 )
-                                                Spacer(modifier = Modifier.height(16.dp))
+                                                Spacer(modifier = Modifier.height(16.dp * scaleFactor))
                                                 Text(
                                                     text = friend.name,
                                                     fontWeight = FontWeight.Black,
-                                                    fontSize = 28.sp,
-                                                    color = Color.Black.copy(alpha = 0.8f)
+                                                    fontSize = (24 * scaleFactor).sp,
+                                                    color = MaterialTheme.colorScheme.onSurface
                                                 )
                                                 Text(
                                                     "Preamble ID: ${friend.preambleId}",
-                                                    color = Color.Black.copy(alpha = 0.6f),
-                                                    fontSize = 14.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                                    fontSize = (13 * scaleFactor).sp,
                                                     fontWeight = FontWeight.Bold
                                                 )
-                                                Spacer(modifier = Modifier.height(24.dp))
+                                                Spacer(modifier = Modifier.height(20.dp * scaleFactor))
 
                                                 Surface(
                                                     shape = RoundedCornerShape(50),
-                                                    color = Color.Black.copy(alpha = 0.2f)
+                                                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
                                                 ) {
                                                     Row(
-                                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                                        modifier = Modifier.padding(horizontal = 16.dp * scaleFactor, vertical = 8.dp * scaleFactor),
                                                         verticalAlignment = Alignment.CenterVertically
                                                     ) {
-                                                        Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFD166))
-                                                        Spacer(modifier = Modifier.width(8.dp))
-                                                        Text("${weeklyPointsByUid[friend.uid] ?: 0} Points this week", fontWeight = FontWeight.Bold, color = Color.Black)
+                                                        Icon(
+                                                            imageVector = Icons.Default.Star,
+                                                            contentDescription = null,
+                                                            tint = Color(0xFFFFD166),
+                                                            modifier = Modifier.size(18.dp * scaleFactor)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(8.dp * scaleFactor))
+                                                        Text(
+                                                            text = "${weeklyPointsByUid[friend.uid] ?: 0} Points this week",
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = (13 * scaleFactor).sp,
+                                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                        )
                                                     }
                                                 }
-                                                Spacer(modifier = Modifier.height(24.dp))
+                                                Spacer(modifier = Modifier.height(20.dp * scaleFactor))
 
                                                 Button(
                                                     onClick = { requestFriendRemoval(friend) },
                                                     colors = ButtonDefaults.buttonColors(
-                                                        containerColor = Color.Black,
-                                                        contentColor = Color.White
+                                                        containerColor = MaterialTheme.colorScheme.error,
+                                                        contentColor = MaterialTheme.colorScheme.onError
                                                     ),
                                                     shape = RoundedCornerShape(50)
                                                 ) {
-                                                    Icon(Icons.Default.PersonRemove, contentDescription = null, modifier = Modifier.size(18.dp))
-                                                    Spacer(modifier = Modifier.width(8.dp))
-                                                    Text("Remove Friend")
-                                                }
-                                            }
-                                        } else {
-                                            Row(
-                                                modifier = Modifier.padding(24.dp).fillMaxWidth(),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween
-                                            ) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    AsyncImage(
-                                                        model = "https://api.dicebear.com/9.x/micah/png?seed=${friend.preambleId}",
-                                                        contentDescription = "Avatar",
-                                                        modifier = Modifier
-                                                            .size(56.dp)
-                                                            .clip(CircleShape)
-                                                            .background(Color.White.copy(alpha=0.3f))
+                                                    Icon(
+                                                        imageVector = Icons.Default.PersonRemove,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(18.dp * scaleFactor)
                                                     )
-                                                    Spacer(modifier = Modifier.width(16.dp))
-                                                    Column {
-                                                        Text(friend.name, fontWeight = FontWeight.Black, fontSize = 20.sp, color = Color.Black)
-                                                        Text("ID: ${friend.preambleId}", color = Color.Black.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                                                    }
+                                                    Spacer(modifier = Modifier.width(8.dp * scaleFactor))
+                                                    Text(
+                                                        text = "Remove Friend",
+                                                        fontSize = (14 * scaleFactor).sp
+                                                    )
                                                 }
-                                                Text(
-                                                    text = "${weeklyPointsByUid[friend.uid] ?: 0} pts",
-                                                    fontWeight = FontWeight.Black,
-                                                    fontSize = 18.sp,
-                                                    color = Color.Black
-                                                )
                                             }
+                                        }
+                                    } else {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .expressivePressScale(interactionSource)
+                                                .clip(RoundedCornerShape(16.dp))
+                                                .clickable(
+                                                    interactionSource = interactionSource,
+                                                    indication = androidx.compose.foundation.LocalIndication.current
+                                                ) { isExpanded = true }
+                                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                AsyncImage(
+                                                    model = "https://api.dicebear.com/9.x/micah/png?seed=${friend.preambleId}",
+                                                    contentDescription = "Avatar",
+                                                    modifier = Modifier
+                                                        .size(44.dp * scaleFactor)
+                                                        .clip(CircleShape)
+                                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                )
+                                                Spacer(modifier = Modifier.width(16.dp * scaleFactor))
+                                                Column {
+                                                    Text(
+                                                        text = friend.name,
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = (16 * scaleFactor).sp,
+                                                        color = MaterialTheme.colorScheme.onBackground
+                                                    )
+                                                    Spacer(modifier = Modifier.height(2.dp))
+                                                    Text(
+                                                        text = "ID: ${friend.preambleId}",
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                                        fontSize = (13 * scaleFactor).sp
+                                                    )
+                                                }
+                                            }
+                                            Text(
+                                                text = "${weeklyPointsByUid[friend.uid] ?: 0} pts",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = (14 * scaleFactor).sp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
                                         }
                                     }
                                 }
