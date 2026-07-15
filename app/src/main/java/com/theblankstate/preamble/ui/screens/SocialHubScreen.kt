@@ -102,7 +102,7 @@ fun SocialHubScreen(
     onInitialRouteConsumed: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    var route by remember { mutableStateOf(SocialHubRoute.Friends) }
+    var route by remember { mutableStateOf(initialRoute ?: SocialHubRoute.Friends) }
     var previousRoute by remember { mutableStateOf(SocialHubRoute.Friends) }
     var isTabRowVisible by remember { mutableStateOf(true) }
 
