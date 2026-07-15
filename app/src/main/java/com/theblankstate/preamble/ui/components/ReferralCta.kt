@@ -13,11 +13,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CardGiftcard
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SnackbarHost
@@ -66,6 +68,7 @@ fun ReferralCta(
     inviteLink: String,
     modifier: Modifier = Modifier,
     rewardsEnabled: Boolean = false,
+    onDismiss: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -82,40 +85,62 @@ fun ReferralCta(
             )
             .padding(20.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                modifier = Modifier
-                    .size(40.dp)
-                    .background(Color(0xFFD4FF70), CircleShape),
-                contentAlignment = Alignment.Center,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f)
             ) {
-                Icon(
-                    imageVector = Icons.Default.CardGiftcard,
-                    contentDescription = null,
-                    tint = Color.Black,
-                    modifier = Modifier.size(22.dp),
-                )
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .background(Color(0xFFD4FF70), CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CardGiftcard,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+                Column(modifier = Modifier.padding(start = 12.dp)) {
+                    Text(
+                        text = "Invite a friend",
+                        fontWeight = FontWeight.Black,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        // Reward statement is gated on the Referral_Reward being enabled
+                        // (social-hub-redesign Req 8.2): while disabled, omit the credits
+                        // claim and use neutral copy; when enabled, state both sides earn
+                        // the 50-credit reward (Req 1.1, 1.5).
+                        text = if (rewardsEnabled) {
+                            "You both get $REFERRAL_REWARD credits when they join"
+                        } else {
+                            "Share Preamble with your friends"
+                        },
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            Column(modifier = Modifier.padding(start = 12.dp)) {
-                Text(
-                    text = "Invite a friend",
-                    fontWeight = FontWeight.Black,
-                    fontSize = 18.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Text(
-                    // Reward statement is gated on the Referral_Reward being enabled
-                    // (social-hub-redesign Req 8.2): while disabled, omit the credits
-                    // claim and use neutral copy; when enabled, state both sides earn
-                    // the 50-credit reward (Req 1.1, 1.5).
-                    text = if (rewardsEnabled) {
-                        "You both get $REFERRAL_REWARD credits when they join"
-                    } else {
-                        "Share Preamble with your friends"
-                    },
-                    fontSize = 13.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (onDismiss != null) {
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Dismiss",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
 

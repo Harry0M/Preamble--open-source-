@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
@@ -99,6 +100,7 @@ fun SocialHubScreen(
     modifier: Modifier = Modifier,
 ) {
     var route by remember { mutableStateOf(SocialHubRoute.Friends) }
+    var previousRoute by remember { mutableStateOf(SocialHubRoute.Friends) }
     var isTabRowVisible by remember { mutableStateOf(true) }
 
     LaunchedEffect(initialRoute) {
@@ -109,6 +111,9 @@ fun SocialHubScreen(
     }
 
     LaunchedEffect(route) {
+        if (route != SocialHubRoute.Tasks) {
+            previousRoute = route
+        }
         isTabRowVisible = true
     }
 
@@ -131,7 +136,7 @@ fun SocialHubScreen(
             .nestedScroll(nestedScrollConnection)
     ) {
         AnimatedVisibility(
-            visible = isTabRowVisible,
+            visible = isTabRowVisible && route != SocialHubRoute.Tasks,
             enter = expandVertically(animationSpec = tween(250)) + slideInVertically(animationSpec = tween(250)) { -it } + fadeIn(animationSpec = tween(250)),
             exit = shrinkVertically(animationSpec = tween(250)) + slideOutVertically(animationSpec = tween(250)) { -it } + fadeOut(animationSpec = tween(250))
         ) {
@@ -168,8 +173,9 @@ fun SocialHubScreen(
                         onClose = null,
                         modifier = Modifier.fillMaxSize(),
                     )
-                    SocialHubRoute.Tasks -> WorkspaceTasksScreen(
-                        workspaceViewModel = workspaceViewModel,
+                    SocialHubRoute.Tasks -> NotificationCenterScreen(
+                        viewModel = workspaceViewModel,
+                        onClose = { route = previousRoute },
                         modifier = Modifier.fillMaxSize(),
                     )
                 }
@@ -194,48 +200,114 @@ private fun SocialHubTabRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp)
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
-            .padding(4.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        SocialHubRoute.entries.forEach { entry ->
-            val isSelected = entry == selected
-            val accent = routeAccentColor(entry)
-            val backgroundColor by animateColorAsState(
-                targetValue = if (isSelected) accent else Color.Transparent,
-                label = "hubTab_${entry.name}",
-            )
-            val contentColor = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
-            val interactionSource = remember { MutableInteractionSource() }
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(44.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(backgroundColor)
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = null,
-                    ) { onSelect(entry) },
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = entry.icon,
-                    contentDescription = entry.label,
-                    tint = contentColor,
-                    modifier = Modifier.size(18.dp),
+        // Segmented control for Friends and Circles
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
+                .padding(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SocialHubRoute.entries.filter { it != SocialHubRoute.Tasks }.forEach { entry ->
+                val isSelected = entry == selected
+                val accent = routeAccentColor(entry)
+                val backgroundColor by animateColorAsState(
+                    targetValue = if (isSelected) accent else Color.Transparent,
+                    label = "hubTab_${entry.name}",
                 )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = entry.label,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 14.sp,
-                    color = contentColor,
-                )
+                val contentColor = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
+                val interactionSource = remember { MutableInteractionSource() }
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(backgroundColor)
+                        .clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                        ) { onSelect(entry) },
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = entry.icon,
+                        contentDescription = entry.label,
+                        tint = contentColor,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = entry.label,
+                        fontWeight = FontWeight.Black,
+                        fontSize = 14.sp,
+                        color = contentColor,
+                    )
+                }
             }
         }
+
+        // Separated circular Tasks button with a dotted downward arrow
+        val isTasksSelected = selected == SocialHubRoute.Tasks
+        val accent = routeAccentColor(SocialHubRoute.Tasks)
+        val backgroundColor by animateColorAsState(
+            targetValue = if (isTasksSelected) accent else MaterialTheme.colorScheme.surfaceVariant,
+            label = "hubTab_Tasks",
+        )
+        val interactionSource = remember { MutableInteractionSource() }
+        Box(
+            modifier = Modifier
+                .size(52.dp)
+                .clip(CircleShape)
+                .background(backgroundColor)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                ) { onSelect(SocialHubRoute.Tasks) },
+            contentAlignment = Alignment.Center
+        ) {
+            DottedDownwardArrow(
+                color = if (isTasksSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun DottedDownwardArrow(color: Color, modifier: Modifier = Modifier) {
+    androidx.compose.foundation.Canvas(modifier = modifier.size(24.dp)) {
+        val width = size.width
+        val height = size.height
+        val dashEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(4f, 4f), 0f)
+
+        // Vertical arrow shaft
+        drawLine(
+            color = color,
+            start = Offset(width / 2f, height / 5f),
+            end = Offset(width / 2f, 4f * height / 5f),
+            strokeWidth = 2.dp.toPx(),
+            pathEffect = dashEffect
+        )
+        // Arrow head left side
+        drawLine(
+            color = color,
+            start = Offset(width / 2f - width / 5f, 4f * height / 5f - height / 5f),
+            end = Offset(width / 2f, 4f * height / 5f),
+            strokeWidth = 2.dp.toPx(),
+            pathEffect = dashEffect
+        )
+        // Arrow head right side
+        drawLine(
+            color = color,
+            start = Offset(width / 2f + width / 5f, 4f * height / 5f - height / 5f),
+            end = Offset(width / 2f, 4f * height / 5f),
+            strokeWidth = 2.dp.toPx(),
+            pathEffect = dashEffect
+        )
     }
 }
 

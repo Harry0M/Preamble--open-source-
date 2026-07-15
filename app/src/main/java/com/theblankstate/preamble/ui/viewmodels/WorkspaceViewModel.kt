@@ -32,6 +32,9 @@ import com.theblankstate.preamble.repository.WorkspaceRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -62,8 +65,29 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     private val database = PreambleDatabase.getInstance(application)
     private val taskDao = database.taskDao()
 
-    val myPreambleId: String = UserProfileStore.ensurePreambleId(application)
-    private val myName: String = UserProfileStore.load(application).name ?: "Preamble user"
+    private val sharedPrefs = application.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+
+    private val _myPreambleIdState = MutableStateFlow(UserProfileStore.ensurePreambleId(application))
+    private val _myNameState = MutableStateFlow(UserProfileStore.load(application).name ?: "Preamble user")
+
+    var myPreambleId by androidx.compose.runtime.mutableStateOf(UserProfileStore.ensurePreambleId(application))
+        private set
+
+    var myName by androidx.compose.runtime.mutableStateOf(UserProfileStore.load(application).name ?: "Preamble user")
+        private set
+
+    private val prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "profile_preamble_id" || key == "profile_name") {
+            viewModelScope.launch(Dispatchers.Main) {
+                val newId = UserProfileStore.ensurePreambleId(application)
+                val newName = UserProfileStore.load(application).name ?: "Preamble user"
+                myPreambleId = newId
+                myName = newName
+                _myPreambleIdState.value = newId
+                _myNameState.value = newName
+            }
+        }
+    }
     private val currentUid: String?
         get() = FirebaseAuth.getInstance().currentUser?.uid
 
@@ -226,21 +250,21 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
      * A failure retains the last computed value (`catch` without re-emit).
      */
     val leaderboard: StateFlow<List<Leaderboard.Entry>> =
-        combine(_leaderboardScores, _friends) { scores, friends ->
+        combine(_leaderboardScores, _friends, _myPreambleIdState, _myNameState) { scores, friends, currentPId, currentName ->
             val selfUid = currentUid ?: return@combine emptyList()
             val friendUids = friends
                 .map(Friend::uid)
                 .filter { it.isNotBlank() && it != selfUid }
                 .toSet()
             val names = HashMap<String, String>().apply {
-                put(selfUid, myName)
+                put(selfUid, currentName)
                 friends.forEach { if (it.uid.isNotBlank()) put(it.uid, it.name) }
             }
             // Supply the per-uid Preamble_ID map (self + the friend records already held) so the
             // emitted leaderboard rows carry `preambleId` and are searchable consistently with the
             // Friends_List (Req 9.3). The map does not affect ordering or points.
             val preambleIds = HashMap<String, String>().apply {
-                put(selfUid, myPreambleId)
+                put(selfUid, currentPId)
                 friends.forEach { if (it.uid.isNotBlank()) put(it.uid, it.preambleId) }
             }
             Leaderboard.ranking(
@@ -256,10 +280,16 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     init {
+        sharedPrefs.registerOnSharedPreferenceChangeListener(prefsListener)
         observeFriends()
         observeLeaderboardScores()
         observeInvites()
         observeCollaborativeTasks()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        sharedPrefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
     }
 
     private fun observeFriends() {

@@ -20,6 +20,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
@@ -237,86 +238,67 @@ fun FriendsScreen(
     var isRefreshing by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
 
+    val prefs = remember(context) { context.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE) }
+    var isReferralCtaDismissed by remember {
+        mutableStateOf(prefs.getBoolean("referral_cta_dismissed", false))
+    }
+
     // Pick random backgrounds on composition
     val heroBackground = remember { RandomBackgrounds.random() }
 
-    // SECTION_ORGANIZER state (social-hub-redesign Req 2.1, 2.5): which pane is selected and a
-    // separate LazyListState per pane so the Leaderboard and Friends_List each preserve their
-    // own scroll position independently when the user switches between the two areas.
+    // SECTION_ORGANIZER state: unified single scroll LazyListState for smooth scrolling canvas.
     var selectedSection by remember { mutableStateOf(SocialSection.Leaderboard) }
-    val leaderboardState = rememberLazyListState()
-    val friendsState = rememberLazyListState()
-    // SOCIAL_SEARCH state (social-hub-redesign Req 9.1): a per-pane query so the Leaderboard
-    // and the Friends_List each filter independently. The query is applied to the FULL
-    // in-memory list before paging (Req 9.6); clearing it restores the unfiltered list (Req 9.4).
     var leaderboardQuery by remember { mutableStateOf("") }
     var friendsQuery by remember { mutableStateOf("") }
 
-    val density = LocalDensity.current
-    var headerHeightPx by remember { mutableStateOf(0f) }
-    var scrollOffsetPx by remember { mutableStateOf(0f) }
+    val filteredLeaderboard = remember(leaderboardQuery, leaderboard) {
+        SocialSearch.filter(leaderboardQuery, leaderboard)
+    }
+    val filteredFriends = remember(friendsQuery, friends) {
+        SocialSearch.filter(friendsQuery, friends)
+    }
 
-    suspend fun animateScrollTo(target: Float) {
-        if (headerHeightPx > 0f) {
-            androidx.compose.animation.core.animate(
-                initialValue = scrollOffsetPx,
-                targetValue = target,
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioNoBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            ) { value, _ ->
-                scrollOffsetPx = value
-            }
+    var leaderboardPageCount by remember(leaderboardQuery) { mutableStateOf(1) }
+    var friendsPageCount by remember(friendsQuery) { mutableStateOf(1) }
+
+    val visibleLeaderboard = remember(filteredLeaderboard, leaderboardPageCount) {
+        PageWindow.visible(filteredLeaderboard, leaderboardPageCount)
+    }
+    val visibleFriends = remember(filteredFriends, friendsPageCount) {
+        PageWindow.visible(filteredFriends, friendsPageCount)
+    }
+
+    val mainLazyListState = rememberLazyListState()
+
+    LaunchedEffect(mainLazyListState, filteredLeaderboard, selectedSection) {
+        if (selectedSection == SocialSection.Leaderboard) {
+            snapshotFlow { mainLazyListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
+                .collect { lastVisible ->
+                    val headerOffset = 3
+                    val listVisibleIndex = lastVisible - headerOffset
+                    val loaded = visibleLeaderboard.size
+                    if (loaded < filteredLeaderboard.size &&
+                        PageWindow.shouldLoadMore(listVisibleIndex, loaded)
+                    ) {
+                        leaderboardPageCount++
+                    }
+                }
         }
     }
 
-    val nestedScrollConnection = remember(headerHeightPx) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                val delta = available.y
-                if (delta < 0 && scrollOffsetPx > -headerHeightPx) {
-                    val oldOffset = scrollOffsetPx
-                    scrollOffsetPx = (scrollOffsetPx + delta).coerceIn(-headerHeightPx, 0f)
-                    val consumed = scrollOffsetPx - oldOffset
-                    return Offset(0f, consumed)
-                }
-                return Offset.Zero
-            }
-
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                val delta = available.y
-                if (delta > 0 && scrollOffsetPx < 0f) {
-                    val oldOffset = scrollOffsetPx
-                    scrollOffsetPx = (scrollOffsetPx + delta).coerceIn(-headerHeightPx, 0f)
-                    val consumed = scrollOffsetPx - oldOffset
-                    return Offset(0f, consumed)
-                }
-                return Offset.Zero
-            }
-
-            override suspend fun onPreFling(available: Velocity): Velocity {
-                val deltaY = available.y
-                if (headerHeightPx > 0f && scrollOffsetPx > -headerHeightPx && scrollOffsetPx < 0f) {
-                    val target = if (deltaY < -100f || scrollOffsetPx < -headerHeightPx / 2f) {
-                        -headerHeightPx
-                    } else {
-                        0f
+    LaunchedEffect(mainLazyListState, filteredFriends, selectedSection) {
+        if (selectedSection == SocialSection.Friends) {
+            snapshotFlow { mainLazyListState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
+                .collect { lastVisible ->
+                    val headerOffset = 3
+                    val listVisibleIndex = lastVisible - headerOffset
+                    val loaded = visibleFriends.size
+                    if (loaded < filteredFriends.size &&
+                        PageWindow.shouldLoadMore(listVisibleIndex, loaded)
+                    ) {
+                        friendsPageCount++
                     }
-                    animateScrollTo(target)
-                    return Velocity(0f, deltaY)
                 }
-                return Velocity.Zero
-            }
-
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                val deltaY = available.y
-                if (headerHeightPx > 0f && deltaY > 100f && scrollOffsetPx < 0f) {
-                    animateScrollTo(0f)
-                    return Velocity(0f, deltaY)
-                }
-                return Velocity.Zero
-            }
         }
     }
     val requestFriendRemoval: (Friend) -> Unit = { friend ->
@@ -483,259 +465,275 @@ fun FriendsScreen(
                 .padding(padding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            Column(
+            LazyColumn(
+                state = mainLazyListState,
                 modifier = Modifier
                     .fillMaxSize()
-                    .nestedScroll(nestedScrollConnection)
-                    .padding(horizontal = 16.dp)
+                    .padding(horizontal = 16.dp),
+                contentPadding = PaddingValues(bottom = 24.dp)
             ) {
-                // HEADER AREA (social-hub-redesign Req 1.1): the hero ID card, the
-                // Referral_CTA, and the Circles_Entry stay a fixed header at the top of the
-                // Social_Hub, preserving the established stacked-card composition. Below it the
-                // Section_Organizer switches between the Leaderboard pane and the Friends_List
-                // pane, each keeping its own scroll position (Req 2.1, 2.2, 2.5).
-                val headerBoxModifier = if (headerHeightPx == 0f) {
-                    Modifier.fillMaxWidth()
-                } else {
-                    val headerHeightDp = with(density) { ((headerHeightPx + scrollOffsetPx) / density.density).dp }
-                    Modifier
-                        .fillMaxWidth()
-                        .height(headerHeightDp)
-                        .clipToBounds()
-                }
-                Box(
-                    modifier = headerBoxModifier
-                        .pointerInput(headerHeightPx) {
-                            detectVerticalDragGestures(
-                                onDragEnd = {
-                                    val target = if (scrollOffsetPx < -headerHeightPx / 2f) {
-                                        -headerHeightPx
-                                    } else {
-                                        0f
+                // 1. HERO CARD & REFERRAL CTA (Stacked card composition)
+                item(key = "header_cards") {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy((-12).dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        // HERO CARD (My ID)
+                        run {
+                            val heroColor = Color(0xFFD4FF70) // Vibrant Lime Green
+                            val morph = remember {
+                                Morph(
+                                    start = RoundedPolygon.star(
+                                        numVerticesPerRadius = 8,
+                                        innerRadius = 0.7f,
+                                        rounding = androidx.graphics.shapes.CornerRounding(0.2f),
+                                    ),
+                                    end = RoundedPolygon(
+                                        numVertices = 6,
+                                        rounding = androidx.graphics.shapes.CornerRounding(0.3f),
+                                    ),
+                                )
+                            }
+                            val morphTransition = rememberInfiniteTransition(label = "heroMorph")
+                            val morphProgress by morphTransition.animateFloat(
+                                initialValue = 0f,
+                                targetValue = 1f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(durationMillis = 4000),
+                                    repeatMode = RepeatMode.Reverse,
+                                ),
+                                label = "heroMorphProgress",
+                            )
+                            val morphRotation by morphTransition.animateFloat(
+                                initialValue = 0f,
+                                targetValue = 360f,
+                                animationSpec = infiniteRepeatable(
+                                    animation = tween(durationMillis = 12000),
+                                    repeatMode = RepeatMode.Restart,
+                                ),
+                                label = "heroMorphRotation",
+                            )
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(180.dp)
+                                    .padding(bottom = 16.dp),
+                                shape = RoundedCornerShape(32.dp),
+                                colors = CardDefaults.cardColors(containerColor = heroColor)
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    Box(modifier = Modifier.matchParentSize()) {
+                                        Image(
+                                            painter = painterResource(id = heroBackground),
+                                            contentDescription = null,
+                                            contentScale = ContentScale.Crop,
+                                            alignment = Alignment.TopCenter,
+                                            modifier = Modifier.fillMaxSize(),
+                                            alpha = 0.4f,
+                                            colorFilter = ColorFilter.tint(Color.Black, blendMode = BlendMode.SrcAtop)
+                                        )
                                     }
-                                    coroutineScope.launch {
-                                        animateScrollTo(target)
+
+                                    Column(modifier = Modifier.padding(24.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(48.dp)
+                                                    .clip(MorphPolygonShape(morph, morphProgress, morphRotation))
+                                                    .background(Color.Black),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Star, contentDescription = null, tint = heroColor, modifier = Modifier.size(28.dp))
+                                            }
+
+                                            Surface(shape = RoundedCornerShape(50), color = Color.Black.copy(alpha = 0.5f)) {
+                                                Text(
+                                                    text = "ID: ${viewModel.myPreambleId}",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 14.sp,
+                                                    color = Color.White,
+                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+                                            Column {
+                                                Text(
+                                                    text = "SCORE",
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 12.sp,
+                                                    color = Color.Black.copy(alpha = 0.6f)
+                                                )
+                                                Text(
+                                                    text = "$myScore",
+                                                    style = TextStyle(
+                                                        fontSize = 48.sp,
+                                                        fontWeight = FontWeight.Black,
+                                                        drawStyle = Stroke(
+                                                            miter = 10f,
+                                                            width = 4f,
+                                                            join = androidx.compose.ui.graphics.StrokeJoin.Round
+                                                        ),
+                                                        color = Color.Black
+                                                    )
+                                                )
+                                            }
+
+                                            val shareInteraction = remember { MutableInteractionSource() }
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(56.dp)
+                                                    .expressivePressScale(shareInteraction)
+                                                    .clip(CircleShape)
+                                                    .background(Color.Black)
+                                                    .clickable(
+                                                        interactionSource = shareInteraction,
+                                                        indication = LocalIndication.current,
+                                                    ) {
+                                                        val shareIntent = Intent().apply {
+                                                            action = Intent.ACTION_SEND
+                                                            putExtra(Intent.EXTRA_TEXT, "Add me on Preamble! My ID is ${viewModel.myPreambleId} or click here: https://preamble.theblankstate.com/invite/${viewModel.myPreambleId}")
+                                                            type = "text/plain"
+                                                        }
+                                                        context.startActivity(Intent.createChooser(shareIntent, "Share Preamble ID"))
+                                                    },
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(Icons.Default.Share, contentDescription = "Share", tint = heroColor, modifier = Modifier.size(24.dp))
+                                            }
+                                        }
                                     }
-                                },
-                                onDragCancel = {
-                                    val target = if (scrollOffsetPx < -headerHeightPx / 2f) {
-                                        -headerHeightPx
-                                    } else {
-                                        0f
-                                    }
-                                    coroutineScope.launch {
-                                        animateScrollTo(target)
-                                    }
-                                },
-                                onVerticalDrag = { change, dragAmount ->
-                                    change.consume()
-                                    scrollOffsetPx = (scrollOffsetPx + dragAmount).coerceIn(-headerHeightPx, 0f)
                                 }
+                            }
+                        }
+
+                        // REFERRAL CTA
+                        if (!isReferralCtaDismissed) {
+                            ReferralCta(
+                                inviteLink = viewModel.buildInviteLink(),
+                                onDismiss = {
+                                    prefs.edit().putBoolean("referral_cta_dismissed", true).apply()
+                                    isReferralCtaDismissed = true
+                                },
+                                modifier = Modifier.padding(bottom = 16.dp),
                             )
                         }
-                ) {
+                    }
+                }
+
+                item(key = "header_spacer") {
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                // 2. ERROR STATE (retained data is kept visible below the error banner)
+                if (socialHubLoadState is SocialHubLoadState.Error) {
+                    item(key = "error_banner") {
+                        SocialHubErrorState(
+                            message = (socialHubLoadState as SocialHubLoadState.Error).message,
+                            onRetry = { viewModel.retryLoad() },
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                }
+
+                // 3. STICKY SWITCHER & SEARCH BAR
+                @OptIn(ExperimentalFoundationApi::class)
+                stickyHeader(key = "sticky_controls") {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .onGloballyPositioned { layoutCoordinates ->
-                                if (headerHeightPx == 0f) {
-                                    headerHeightPx = layoutCoordinates.size.height.toFloat()
-                                }
-                            }
-                            .offset { androidx.compose.ui.unit.IntOffset(0, scrollOffsetPx.roundToInt()) },
-                        // Tightly pack the cards!
-                        verticalArrangement = Arrangement.spacedBy((-12).dp)
+                            .background(MaterialTheme.colorScheme.background)
                     ) {
-                // HERO CARD (My ID)
-                run {
-                    val heroColor = Color(0xFFD4FF70) // Vibrant Lime Green
-                    // Expressive_Motion_And_Shape (Req 1.3): an "alive" morphing badge that
-                    // continuously morphs between a star and a rounded hexagon while slowly
-                    // rotating. Built on androidx.graphics.shapes Morph/RoundedPolygon. The
-                    // lime styling, Preamble_ID, productivity score, and RandomBackgrounds PNG
-                    // (Req 1.4, 1.5) are all preserved unchanged below.
-                    val morph = remember {
-                        Morph(
-                            start = RoundedPolygon.star(
-                                numVerticesPerRadius = 8,
-                                innerRadius = 0.7f,
-                                rounding = androidx.graphics.shapes.CornerRounding(0.2f),
-                            ),
-                            end = RoundedPolygon(
-                                numVertices = 6,
-                                rounding = androidx.graphics.shapes.CornerRounding(0.3f),
-                            ),
-                        )
-                    }
-                    val morphTransition = rememberInfiniteTransition(label = "heroMorph")
-                    val morphProgress by morphTransition.animateFloat(
-                        initialValue = 0f,
-                        targetValue = 1f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(durationMillis = 4000),
-                            repeatMode = RepeatMode.Reverse,
-                        ),
-                        label = "heroMorphProgress",
-                    )
-                    val morphRotation by morphTransition.animateFloat(
-                        initialValue = 0f,
-                        targetValue = 360f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(durationMillis = 12000),
-                            repeatMode = RepeatMode.Restart,
-                        ),
-                        label = "heroMorphRotation",
-                    )
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(180.dp) // More rectangular
-                            .padding(bottom = 16.dp),
-                        shape = RoundedCornerShape(32.dp),
-                        colors = CardDefaults.cardColors(containerColor = heroColor)
-                    ) {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            // Lowermost Layer: Random PNG, taking full card but scaled to show top portion
-                            Box(modifier = Modifier.matchParentSize()) {
-                                Image(
-                                    painter = painterResource(id = heroBackground),
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    alignment = Alignment.TopCenter,
-                                    modifier = Modifier.fillMaxSize(),
-                                    alpha = 0.4f,
-                                    colorFilter = ColorFilter.tint(Color.Black, blendMode = BlendMode.SrcAtop)
-                                )
-                            }
-
-                            // Content on top
-                            Column(modifier = Modifier.padding(24.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                                    // Abstract icon — expressive morphing badge (Req 1.3)
+                        val options = listOf(SocialSection.Leaderboard, SocialSection.Friends)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color.Transparent)
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 24.dp, vertical = 12.dp)
+                                    .background(Color.Black.copy(alpha = 0.05f), RoundedCornerShape(50))
+                                    .padding(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                options.forEach { section ->
+                                    val isSelected = selectedSection == section
+                                    val tabColor = if (section == SocialSection.Leaderboard) {
+                                        Color(0xFFFFD166)
+                                    } else {
+                                        Color(0xFFEAB3FF)
+                                    }
+                                    val interactionSource = remember { MutableInteractionSource() }
                                     Box(
                                         modifier = Modifier
-                                            .size(48.dp)
-                                            .clip(MorphPolygonShape(morph, morphProgress, morphRotation))
-                                            .background(Color.Black),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(Icons.Default.Star, contentDescription = null, tint = heroColor, modifier = Modifier.size(28.dp))
-                                    }
-
-                                    // Top right ID overlay
-                                    Surface(shape = RoundedCornerShape(50), color = Color.Black.copy(alpha = 0.5f)) {
-                                        Text(
-                                            text = "ID: ${viewModel.myPreambleId}",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp,
-                                            color = Color.White,
-                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                        )
-                                    }
-                                }
-
-                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
-                                    // Real Productivity Score
-                                    Column {
-                                        Text(
-                                            text = "SCORE",
-                                            fontWeight = FontWeight.Black,
-                                            fontSize = 12.sp,
-                                            color = Color.Black.copy(alpha = 0.6f)
-                                        )
-                                        Text(
-                                            text = "$myScore",
-                                            style = TextStyle(
-                                                fontSize = 48.sp,
-                                                fontWeight = FontWeight.Black,
-                                                drawStyle = Stroke(
-                                                    miter = 10f,
-                                                    width = 4f,
-                                                    join = androidx.compose.ui.graphics.StrokeJoin.Round
-                                                ),
-                                                color = Color.Black
-                                            )
-                                        )
-                                    }
-
-                                    // Bottom right action button — expressive press
-                                    // treatment (Req 1.2, 1.3) on the share control.
-                                    val shareInteraction = remember { MutableInteractionSource() }
-                                    Box(
-                                        modifier = Modifier
-                                            .size(56.dp)
-                                            .expressivePressScale(shareInteraction)
-                                            .clip(CircleShape)
-                                            .background(Color.Black)
+                                            .weight(1f)
+                                            .height(44.dp)
+                                            .expressivePressScale(interactionSource)
+                                            .clip(RoundedCornerShape(50))
+                                            .background(if (isSelected) tabColor else Color.Transparent)
                                             .clickable(
-                                                interactionSource = shareInteraction,
-                                                indication = LocalIndication.current,
-                                            ) {
-                                                val shareIntent = Intent().apply {
-                                                    action = Intent.ACTION_SEND
-                                                    putExtra(Intent.EXTRA_TEXT, "Add me on Preamble! My ID is ${viewModel.myPreambleId} or click here: https://preamble.theblankstate.com/invite/${viewModel.myPreambleId}")
-                                                    type = "text/plain"
-                                                }
-                                                context.startActivity(Intent.createChooser(shareIntent, "Share Preamble ID"))
-                                            },
+                                                interactionSource = interactionSource,
+                                                indication = null
+                                            ) { selectedSection = section },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Icon(Icons.Default.Share, contentDescription = "Share", tint = heroColor, modifier = Modifier.size(24.dp))
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (section == SocialSection.Leaderboard) Icons.Default.EmojiEvents else Icons.Default.Group,
+                                                contentDescription = null,
+                                                tint = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Text(
+                                                text = if (section == SocialSection.Leaderboard) "Leaderboard" else "Friends",
+                                                fontWeight = FontWeight.Black,
+                                                fontSize = 14.sp,
+                                                color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
+
+                        if (selectedSection == SocialSection.Leaderboard) {
+                            SocialSearchField(
+                                query = leaderboardQuery,
+                                onQueryChange = { leaderboardQuery = it },
+                                placeholder = "Search the leaderboard",
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        } else {
+                            SocialSearchField(
+                                query = friendsQuery,
+                                onQueryChange = { friendsQuery = it },
+                                placeholder = "Search your friends",
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
                     }
                 }
 
-                // REFERRAL CTA (Growth-loops Req 1). Referral_Reward is disabled in
-                // Development_Mode, so the CTA omits the AI-credit claim (Req 8.2).
-                run {
-                    ReferralCta(
-                        inviteLink = viewModel.buildInviteLink(),
-                        modifier = Modifier.padding(bottom = 16.dp),
-                    )
-                }
-
-                // Circles now has its own first-class tab in the Circles hub (SocialHubScreen)
-                // instead of a promo card here, which both removes a whole stacked card's worth
-                // of vertical space from this header (fixing the small-screen layout squeeze)
-                // and makes Circles permanently visible in the hub's tab row rather than only
-                // discoverable after scrolling past the hero card.
+                // 4. SKELETON LOADING STATE
+                if (socialHubLoadState is SocialHubLoadState.Loading) {
+                    item(key = "skeleton") {
+                        SocialHubSkeleton(
+                            modifier = Modifier
+                                .fillParentMaxHeight()
+                                .fillMaxWidth()
+                                .padding(top = 8.dp)
+                        )
                     }
-                } // end HEADER AREA
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // SECTION_ORGANIZER (social-hub-redesign Req 2): a Material 3 Expressive
-                // segmented control splits the Friends_Leaderboard and the Friends_List into
-                // two distinct, separately-navigable panes, each with its own LazyListState so
-                // their scroll positions are preserved independently (Req 2.1, 2.2, 2.5). The
-                // Friends pane is a LazyColumn so only visible rows are composed regardless of
-                // total size (Req 2.3); the established card styling is preserved within each
-                // pane, and a no-friends empty-state offers an add-friend control (Req 2.4).
-                // Captured as a composable lambda so it can be rendered both when the Social_Hub
-                // has Loaded and, on a transient Error, BELOW the Error_State banner over the
-                // retained data rather than blanking it (Req 1.7).
-                val sectionOrganizer: @Composable (Modifier) -> Unit = { sectionModifier ->
-                SectionOrganizer(
-                    selected = selectedSection,
-                    onSelect = { selectedSection = it },
-                    leaderboardState = leaderboardState,
-                    friendsState = friendsState,
-                    leaderboardEntries = leaderboard,
-                    friends = friends,
-                    leaderboardQuery = leaderboardQuery,
-                    onLeaderboardQueryChange = { leaderboardQuery = it },
-                    friendsQuery = friendsQuery,
-                    onFriendsQueryChange = { friendsQuery = it },
-                    modifier = sectionModifier,
-                    leaderboardContent = { visibleEntries ->
-                        // FRIENDS LEADERBOARD (social-engagement Requirements 9.1, 9.2, 9.6).
-                        // Rendered as individual list items over the already-filtered, already-
-                        // windowed [visibleEntries] so client-side Paged_Loading bounds the
-                        // composition and grows as the user scrolls (social-hub-redesign Req 2.8).
-                        item(key = "leaderboard_header") {
+                } else {
+                    // 5. PANE DATA CONTENT
+                    if (selectedSection == SocialSection.Leaderboard) {
+                        item(key = "leaderboard_title_row") {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -756,8 +754,8 @@ fun FriendsScreen(
                                 )
                             }
                         }
+
                         if (leaderboard.size <= 1) {
-                            // No-friends empty-state preserved from LeaderboardSection.
                             item(key = "leaderboard_empty") {
                                 Text(
                                     text = "Add friends to see how you stack up this week.",
@@ -767,250 +765,199 @@ fun FriendsScreen(
                                 )
                             }
                         } else {
-                            itemsIndexed(
-                                visibleEntries,
-                                key = { _, entry -> "leaderboard_${entry.uid}" }
-                            ) { index, entry ->
-                                LeaderboardEntryRow(
-                                    rank = index + 1,
-                                    entry = entry,
-                                    isMe = currentUserUid != null && entry.uid == currentUserUid
-                                )
-                            }
-                        }
-                    },
-                    friendsContent = { visibleFriends ->
-                // INCOMING INVITES were relocated into the Requests_List (Req 5.3); the
-                // Friends pane now focuses on the established friends list. The Requests
-                // control in the top bar (and post-send navigation) surfaces pending
-                // invites with their accept/decline/withdraw actions.
-
-                // FRIENDS LIST — rendered over the already-filtered, already-windowed
-                // [visibleFriends] so client-side Paged_Loading bounds the composition and grows
-                // as the user scrolls (social-hub-redesign Req 2.7). The established Cardfolio
-                // card styling is preserved per row.
-                itemsIndexed(visibleFriends, key = { _, it -> "friend_${it.uid}" }) { index, friend ->
-                    val cardColor = CardColors[index % CardColors.size]
-                    var isExpanded by remember { mutableStateOf(false) }
-                    val friendBg = remember(friend.uid) { RandomBackgrounds.random() }
-
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .animateItem(fadeInSpec = tween(300), fadeOutSpec = tween(300))
-                            .animateContentSize(animationSpec = tween(300))
-                            .clickable { isExpanded = !isExpanded },
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = cardColor)
-                    ) {
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            Box(modifier = Modifier.matchParentSize()) {
-                                Image(
-                                    painter = painterResource(id = friendBg),
-                                    contentDescription = null,
-                                    contentScale = ContentScale.Crop,
-                                    alignment = Alignment.TopCenter,
-                                    modifier = Modifier.fillMaxSize(),
-                                    alpha = 0.3f,
-                                    colorFilter = ColorFilter.tint(Color.Black, blendMode = BlendMode.SrcAtop)
-                                )
-                            }
-
-                            if (isExpanded) {
-                                Column(
-                                    modifier = Modifier.padding(24.dp).fillMaxWidth(),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    // Hero Avatar
-                                    AsyncImage(
-                                        model = "https://api.dicebear.com/9.x/micah/png?seed=${friend.preambleId}",
-                                        contentDescription = "Avatar",
-                                        modifier = Modifier
-                                            .size(120.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.White.copy(alpha=0.3f))
-                                    )
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Text(
-                                        text = friend.name,
-                                        fontWeight = FontWeight.Black,
-                                        fontSize = 28.sp,
-                                        color = Color.Black.copy(alpha = 0.8f)
-                                    )
-                                    Text(
-                                        "Preamble ID: ${friend.preambleId}",
-                                        color = Color.Black.copy(alpha = 0.6f),
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Spacer(modifier = Modifier.height(24.dp))
-
-                                    // Productivity Points
-                                    Surface(
-                                        shape = RoundedCornerShape(50),
-                                        color = Color.Black.copy(alpha = 0.2f)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFD166)) // Yellow star
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text("${weeklyPointsByUid[friend.uid] ?: 0} Points this week", fontWeight = FontWeight.Bold, color = Color.Black)
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(24.dp))
-
-                                    // Actions
-                                    Button(
-                                        onClick = { requestFriendRemoval(friend) },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Black.copy(alpha = 0.1f), contentColor = Color.Black)
-                                    ) {
-                                        Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Remove Friend")
-                                    }
+                            if (leaderboardQuery.isNotBlank() && filteredLeaderboard.isEmpty()) {
+                                item(key = "leaderboard_no_match") {
+                                    NoMatchEmptyState(query = leaderboardQuery)
                                 }
                             } else {
-                                Row(
-                                    modifier = Modifier.height(80.dp).padding(horizontal = 24.dp).fillMaxSize(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                                itemsIndexed(
+                                    visibleLeaderboard,
+                                    key = { _, entry -> "leaderboard_${entry.uid}" }
+                                ) { index, entry ->
+                                    LeaderboardEntryRow(
+                                        rank = index + 1,
+                                        entry = entry,
+                                        isMe = currentUserUid != null && entry.uid == currentUserUid
+                                    )
+                                }
+                                item(key = "leaderboard_sentinel") {
+                                    PagingSentinel(hasMore = visibleLeaderboard.size < filteredLeaderboard.size)
+                                }
+                            }
+                        }
+                    } else {
+                        // Friends section
+                        if (friendsQuery.isNotBlank() && filteredFriends.isEmpty()) {
+                            item(key = "friends_no_match") {
+                                NoMatchEmptyState(query = friendsQuery)
+                            }
+                        } else if (friends.isEmpty()) {
+                            item(key = "friends_empty") {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 48.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        // Avatar from DiceBear
-                                        AsyncImage(
-                                            model = "https://api.dicebear.com/9.x/micah/png?seed=${friend.preambleId}",
-                                            contentDescription = "Avatar",
-                                            modifier = Modifier
-                                                .size(40.dp)
-                                                .clip(CircleShape)
-                                                .background(Color.White.copy(alpha=0.3f))
-                                        )
-                                        Spacer(modifier = Modifier.width(16.dp))
-                                        Text(
-                                            text = friend.name,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 20.sp,
-                                            color = Color.Black.copy(alpha = 0.8f)
-                                        )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(100.dp)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(32.dp)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(Icons.Default.Group, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
                                     }
+                                    Spacer(modifier = Modifier.height(24.dp))
+                                    Text(
+                                        "No friends yet.",
+                                        fontSize = 24.sp,
+                                        fontFamily = FontFamily.Serif,
+                                        fontStyle = FontStyle.Italic,
+                                        color = MaterialTheme.colorScheme.onBackground
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        "Invite someone to start building your circle.",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontSize = 16.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(24.dp))
+                                    Button(
+                                        onClick = { showAddFriendDialog = true },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = MaterialTheme.colorScheme.primary,
+                                            contentColor = MaterialTheme.colorScheme.onPrimary
+                                        ),
+                                        shape = RoundedCornerShape(50)
+                                    ) {
+                                        Icon(Icons.Default.GroupAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Add a friend")
+                                    }
+                                }
+                            }
+                        } else {
+                            itemsIndexed(visibleFriends, key = { _, it -> "friend_${it.uid}" }) { index, friend ->
+                                val cardColor = CardColors[index % CardColors.size]
+                                var isExpanded by remember { mutableStateOf(false) }
+                                val friendBg = remember(friend.uid) { RandomBackgrounds.random() }
 
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            "... ${friend.preambleId}",
-                                            color = Color.Black.copy(alpha = 0.5f),
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        IconButton(
-                                            onClick = { requestFriendRemoval(friend) },
-                                            modifier = Modifier.size(32.dp)
-                                        ) {
-                                            Icon(Icons.Default.Close, contentDescription = "Remove Friend", tint = Color.Black.copy(alpha = 0.4f))
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .animateItem(fadeInSpec = tween(300), fadeOutSpec = tween(300))
+                                        .animateContentSize(animationSpec = tween(300))
+                                        .clickable { isExpanded = !isExpanded }
+                                        .padding(bottom = 12.dp),
+                                    shape = RoundedCornerShape(24.dp),
+                                    colors = CardDefaults.cardColors(containerColor = cardColor)
+                                ) {
+                                    Box(modifier = Modifier.fillMaxSize()) {
+                                        Box(modifier = Modifier.matchParentSize()) {
+                                            Image(
+                                                painter = painterResource(id = friendBg),
+                                                contentDescription = null,
+                                                contentScale = ContentScale.Crop,
+                                                alignment = Alignment.TopCenter,
+                                                modifier = Modifier.fillMaxSize(),
+                                                alpha = 0.3f,
+                                                colorFilter = ColorFilter.tint(Color.Black, blendMode = BlendMode.SrcAtop)
+                                            )
+                                        }
+
+                                        if (isExpanded) {
+                                            Column(
+                                                modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                                                horizontalAlignment = Alignment.CenterHorizontally
+                                            ) {
+                                                AsyncImage(
+                                                    model = "https://api.dicebear.com/9.x/micah/png?seed=${friend.preambleId}",
+                                                    contentDescription = "Avatar",
+                                                    modifier = Modifier
+                                                        .size(120.dp)
+                                                        .clip(CircleShape)
+                                                        .background(Color.White.copy(alpha=0.3f))
+                                                )
+                                                Spacer(modifier = Modifier.height(16.dp))
+                                                Text(
+                                                    text = friend.name,
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 28.sp,
+                                                    color = Color.Black.copy(alpha = 0.8f)
+                                                )
+                                                Text(
+                                                    "Preamble ID: ${friend.preambleId}",
+                                                    color = Color.Black.copy(alpha = 0.6f),
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                Spacer(modifier = Modifier.height(24.dp))
+
+                                                Surface(
+                                                    shape = RoundedCornerShape(50),
+                                                    color = Color.Black.copy(alpha = 0.2f)
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Icon(Icons.Default.Star, contentDescription = null, tint = Color(0xFFFFD166))
+                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                        Text("${weeklyPointsByUid[friend.uid] ?: 0} Points this week", fontWeight = FontWeight.Bold, color = Color.Black)
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.height(24.dp))
+
+                                                Button(
+                                                    onClick = { requestFriendRemoval(friend) },
+                                                    colors = ButtonDefaults.buttonColors(
+                                                        containerColor = Color.Black,
+                                                        contentColor = Color.White
+                                                    ),
+                                                    shape = RoundedCornerShape(50)
+                                                ) {
+                                                    Icon(Icons.Default.PersonRemove, contentDescription = null, modifier = Modifier.size(18.dp))
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Text("Remove Friend")
+                                                }
+                                            }
+                                        } else {
+                                            Row(
+                                                modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    AsyncImage(
+                                                        model = "https://api.dicebear.com/9.x/micah/png?seed=${friend.preambleId}",
+                                                        contentDescription = "Avatar",
+                                                        modifier = Modifier
+                                                            .size(56.dp)
+                                                            .clip(CircleShape)
+                                                            .background(Color.White.copy(alpha=0.3f))
+                                                    )
+                                                    Spacer(modifier = Modifier.width(16.dp))
+                                                    Column {
+                                                        Text(friend.name, fontWeight = FontWeight.Black, fontSize = 20.sp, color = Color.Black)
+                                                        Text("ID: ${friend.preambleId}", color = Color.Black.copy(alpha = 0.6f), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+                                                Text(
+                                                    text = "${weeklyPointsByUid[friend.uid] ?: 0} pts",
+                                                    fontWeight = FontWeight.Black,
+                                                    fontSize = 18.sp,
+                                                    color = Color.Black
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                    }
-                }
-
-                // NO-FRIENDS EMPTY STATE (social-hub-redesign Req 2.4): when the signed-in
-                // user has no friends, the Friends pane shows an empty-state indication and
-                // an "Add a friend" control.
-                if (friends.isEmpty()) {
-                    item {
-                        Column(
-                            modifier = Modifier.fillMaxWidth().padding(top = 64.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            // Expressive empty state
-                            Box(
-                                modifier = Modifier
-                                    .size(100.dp)
-                                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(32.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(Icons.Default.Group, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
-                            }
-                            Spacer(modifier = Modifier.height(24.dp))
-                            Text(
-                                "No friends yet.",
-                                fontSize = 24.sp,
-                                fontFamily = FontFamily.Serif,
-                                fontStyle = FontStyle.Italic,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                "Invite someone to start building your circle.",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 16.sp
-                            )
-                            Spacer(modifier = Modifier.height(24.dp))
-                            // "Add a friend" control (Req 2.4): opens the add-friend entry.
-                            Button(
-                                onClick = { showAddFriendDialog = true },
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary,
-                                    contentColor = MaterialTheme.colorScheme.onPrimary
-                                ),
-                                shape = RoundedCornerShape(50)
-                            ) {
-                                Icon(Icons.Default.GroupAdd, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text("Add a friend")
+                            item(key = "friends_sentinel") {
+                                PagingSentinel(hasMore = visibleFriends.size < filteredFriends.size)
                             }
                         }
                     }
-                }
-
-                    },
-                )
-                } // end sectionOrganizer composable lambda
-
-                // LOADING_STATE / ERROR_STATE (social-hub-redesign Req 1.6, 1.7): drive the
-                // Social_Hub content area from the ViewModel's derived load state. While Loading
-                // render an Expressive skeleton/shimmer instead of a blank surface; on Error
-                // render an Expressive Error_State card describing the failure with a retry
-                // control that calls retryLoad(), keeping any previously loaded content visible
-                // BELOW the banner rather than blanking it; once Loaded render the
-                // Section_Organizer as before.
-                when (val loadState = socialHubLoadState) {
-                    SocialHubLoadState.Loading -> SocialHubSkeleton(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                            .padding(top = 8.dp)
-                    )
-                    is SocialHubLoadState.Error -> Column(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxWidth(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        SocialHubErrorState(
-                            message = loadState.message,
-                            onRetry = { viewModel.retryLoad() },
-                        )
-                        // Do not blank previously loaded data on a transient error — keep the
-                        // retained leaderboard/friends visible under the banner (Req 1.7).
-                        if (friends.isNotEmpty() || leaderboard.isNotEmpty()) {
-                            sectionOrganizer(
-                                Modifier
-                                    .weight(1f)
-                                    .fillMaxWidth()
-                            )
-                        }
-                    }
-                    SocialHubLoadState.Loaded -> sectionOrganizer(
-                        Modifier
-                            .weight(1f)
-                            .fillMaxWidth()
-                    )
                 }
             }
         }
@@ -1313,246 +1260,6 @@ enum class SocialSection { Leaderboard, Friends }
  * (Req 2.1). Because the control switches between the two panes, both stay reachable without
  * scrolling through the entire Friends_List to reach the Leaderboard (Req 2.2).
  *
- * Each pane owns its own [LazyListState] ([leaderboardState], [friendsState]), supplied by the
- * caller and remembered across pane switches, so the panes preserve their scroll positions
- * independently of each other (Req 2.5). Only the selected pane is composed, and each pane is a
- * [LazyColumn] so only the visible rows are held in composition regardless of total list size
- * (Req 2.3). The established Cardfolio card styling is preserved within each pane by rendering
- * the caller-supplied [leaderboardContent] / [friendsContent] item composables unchanged.
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun SectionOrganizer(
-    selected: SocialSection,
-    onSelect: (SocialSection) -> Unit,
-    leaderboardState: LazyListState,
-    friendsState: LazyListState,
-    leaderboardEntries: List<Leaderboard.Entry>,
-    friends: List<Friend>,
-    leaderboardQuery: String,
-    onLeaderboardQueryChange: (String) -> Unit,
-    friendsQuery: String,
-    onFriendsQueryChange: (String) -> Unit,
-    leaderboardContent: LazyListScope.(visible: List<Leaderboard.Entry>) -> Unit,
-    friendsContent: LazyListScope.(visible: List<Friend>) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    // SOCIAL_SEARCH (Req 9): filter the FULL in-memory list for each pane BEFORE any paging
-    // window is applied, so search covers the entire set rather than only the loaded pages
-    // (Req 9.6). A blank query returns the list unchanged, restoring the unfiltered list
-    // (Req 9.4) — that behavior lives in the pure SocialSearch.filter.
-    val filteredLeaderboard = remember(leaderboardQuery, leaderboardEntries) {
-        SocialSearch.filter(leaderboardQuery, leaderboardEntries)
-    }
-    val filteredFriends = remember(friendsQuery, friends) {
-        SocialSearch.filter(friendsQuery, friends)
-    }
-
-    // PAGED_LOADING (Req 2.7, 2.8): each pane tracks how many pages it has loaded. The count
-    // resets to one page whenever the active query changes (keying remember on the query) so a
-    // new search starts from the first page of its own result set.
-    var leaderboardPageCount by remember(leaderboardQuery) { mutableStateOf(1) }
-    var friendsPageCount by remember(friendsQuery) { mutableStateOf(1) }
-
-    val visibleLeaderboard = PageWindow.visible(filteredLeaderboard, leaderboardPageCount)
-    val visibleFriends = PageWindow.visible(filteredFriends, friendsPageCount)
-
-    // Grow the leaderboard window by one page as the user scrolls within PREFETCH_THRESHOLD of
-    // the end of the loaded entries, until the whole (filtered) list is shown (Req 2.8).
-    LaunchedEffect(leaderboardState, filteredLeaderboard) {
-        snapshotFlow { leaderboardState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
-            .collect { lastVisible ->
-                val loaded = PageWindow.visible(filteredLeaderboard, leaderboardPageCount).size
-                if (loaded < filteredLeaderboard.size &&
-                    PageWindow.shouldLoadMore(lastVisible, loaded)
-                ) {
-                    leaderboardPageCount++
-                }
-            }
-    }
-    // Same client-side windowing for the Friends_List pane (Req 2.7).
-    LaunchedEffect(friendsState, filteredFriends) {
-        snapshotFlow { friendsState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1 }
-            .collect { lastVisible ->
-                val loaded = PageWindow.visible(filteredFriends, friendsPageCount).size
-                if (loaded < filteredFriends.size &&
-                    PageWindow.shouldLoadMore(lastVisible, loaded)
-                ) {
-                    friendsPageCount++
-                }
-            }
-    }
-
-    Column(modifier = modifier) {
-        // BOTTOM-INSET CLEARANCE (Fix 2, updated): FriendsScreen is now hosted inside the
-        // Circles hub as nested tab content, sitting inside MainActivity's outer Scaffold
-        // content slot. That outer Scaffold's bottomBar (the app's ExpressiveNavigationBar)
-        // already reserves the system navigation-bar inset beneath it, and its innerPadding
-        // already clears the pill bar's full height for this content — so only a small,
-        // fixed comfortable gap is needed here, not another navigationBars inset on top of it.
-        val paneBottomPadding = 24.dp
-        val options = listOf(SocialSection.Leaderboard, SocialSection.Friends)
-        // PERSISTENT, LABELED, ACTIVE-AWARE CONTROL (Req 2.6): the segmented control is rendered
-        // in a header Surface that sits above the active pane, OUTSIDE the scrolling LazyColumns,
-        // so it stays visible regardless of scroll position. It names both areas
-        // ("Leaderboard"/"Friends") and marks the active one via the Material 3 Expressive
-        // selected state.
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Color.Transparent)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 12.dp)
-                    .background(Color.Black.copy(alpha = 0.05f), RoundedCornerShape(50))
-                    .padding(4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                options.forEach { section ->
-                    val isSelected = selected == section
-                    val tabColor = if (section == SocialSection.Leaderboard) {
-                        Color(0xFFFFD166) // Cardfolio Yellow
-                    } else {
-                        Color(0xFFEAB3FF) // Cardfolio Light Purple
-                    }
-                    val interactionSource = remember { MutableInteractionSource() }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(44.dp)
-                            .expressivePressScale(interactionSource)
-                            .clip(RoundedCornerShape(50))
-                            .background(if (isSelected) tabColor else Color.Transparent)
-                            .clickable(
-                                interactionSource = interactionSource,
-                                indication = null
-                            ) { onSelect(section) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (section == SocialSection.Leaderboard) {
-                                    Icons.Default.EmojiEvents
-                                } else {
-                                    Icons.Default.Group
-                                },
-                                contentDescription = null,
-                                tint = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Text(
-                                text = if (section == SocialSection.Leaderboard) "Leaderboard" else "Friends",
-                                fontWeight = FontWeight.Black,
-                                fontSize = 14.sp,
-                                color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        // Only the selected pane is composed; switching back restores the pane's scroll
-        // position because the caller holds each LazyListState across recomposition (Req 2.5).
-        // Expressive_Motion (Req 1.2, 1.3): panes slide+fade in the direction of travel via an
-        // AnimatedContent transition so switching areas feels alive rather than an abrupt swap.
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-        ) {
-            AnimatedContent(
-                targetState = selected,
-                transitionSpec = {
-                    val forward = targetState.ordinal > initialState.ordinal
-                    val direction = if (forward) 1 else -1
-                    (slideInHorizontally(animationSpec = tween(400)) { full -> direction * full } +
-                        fadeIn(animationSpec = tween(400))) togetherWith
-                        (slideOutHorizontally(animationSpec = tween(400)) { full -> -direction * full } +
-                            fadeOut(animationSpec = tween(400)))
-                },
-                label = "sectionPane",
-            ) { section ->
-                when (section) {
-                    SocialSection.Leaderboard -> Column(modifier = Modifier.fillMaxSize()) {
-                        // SOCIAL_SEARCH field above the pane (Req 9.1).
-                        SocialSearchField(
-                            query = leaderboardQuery,
-                            onQueryChange = onLeaderboardQueryChange,
-                            placeholder = "Search the leaderboard",
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
-                        LazyColumn(
-                            state = leaderboardState,
-                            modifier = Modifier.fillMaxSize(),
-                            // Unconditional bottom clearance >= Bottom_System_Inset (Req 10.3, 10.6).
-                            contentPadding = PaddingValues(bottom = paneBottomPadding),
-                        ) {
-                            // NO-MATCH EMPTY STATE (social-hub-redesign Req 9.5): when the
-                            // Social_Search query is non-blank and nothing in the FULL leaderboard
-                            // matches, show an Expressive "no matching results" empty-state in this
-                            // pane instead of an empty list; the search field above stays visible
-                            // so the user can adjust or clear the query.
-                            if (leaderboardQuery.isNotBlank() && filteredLeaderboard.isEmpty()) {
-                                item(key = "leaderboard_no_match") {
-                                    NoMatchEmptyState(query = leaderboardQuery)
-                                }
-                            } else {
-                                leaderboardContent(visibleLeaderboard)
-                                // Trailing sentinel that drives/visualizes Paged_Loading (Req 2.8).
-                                item(key = "leaderboard_sentinel") {
-                                    PagingSentinel(hasMore = visibleLeaderboard.size < filteredLeaderboard.size)
-                                }
-                            }
-                        }
-                    }
-                    SocialSection.Friends -> Column(modifier = Modifier.fillMaxSize()) {
-                        // SOCIAL_SEARCH field above the pane (Req 9.1).
-                        SocialSearchField(
-                            query = friendsQuery,
-                            onQueryChange = onFriendsQueryChange,
-                            placeholder = "Search your friends",
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
-                        LazyColumn(
-                            state = friendsState,
-                            modifier = Modifier.fillMaxSize(),
-                            // Preserve the established tightly-stacked Cardfolio look within the pane.
-                            verticalArrangement = Arrangement.spacedBy((-12).dp),
-                            // Unconditional bottom clearance >= Bottom_System_Inset (Req 10.3, 10.6).
-                            contentPadding = PaddingValues(bottom = paneBottomPadding),
-                        ) {
-                            // NO-MATCH EMPTY STATE (social-hub-redesign Req 9.5): when the
-                            // Social_Search query is non-blank and nothing in the FULL friends list
-                            // matches, show an Expressive "no matching results" empty-state in this
-                            // pane. When the query is blank the no-friends empty-state inside
-                            // friendsContent still handles the genuinely-empty friends list (Req 2.4).
-                            if (friendsQuery.isNotBlank() && filteredFriends.isEmpty()) {
-                                item(key = "friends_no_match") {
-                                    NoMatchEmptyState(query = friendsQuery)
-                                }
-                            } else {
-                                friendsContent(visibleFriends)
-                                // Trailing sentinel that drives/visualizes Paged_Loading (Req 2.7).
-                                item(key = "friends_sentinel") {
-                                    PagingSentinel(hasMore = visibleFriends.size < filteredFriends.size)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/**
  * Social_Search field (social-hub-redesign Req 9.1): a reusable Material 3 Expressive text
  * field rendered above each pane, bound to that pane's query state. It is purely an input —
  * all matching is delegated to the pure [SocialSearch.filter]. A trailing clear control resets
@@ -2168,3 +1875,5 @@ private fun IncomingInviteCard(
         }
     }
 }
+
+
