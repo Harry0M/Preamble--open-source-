@@ -398,132 +398,98 @@ fun FriendsScreen(
                         verticalArrangement = Arrangement.spacedBy((-12).dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        // HERO CARD (My ID)
-                        run {
-                            val heroColor = Color(0xFFD4FF70) // Vibrant Lime Green
-                            val morph = remember {
-                                Morph(
-                                    start = RoundedPolygon.star(
-                                        numVerticesPerRadius = 8,
-                                        innerRadius = 0.7f,
-                                        rounding = androidx.graphics.shapes.CornerRounding(0.2f),
-                                    ),
-                                    end = RoundedPolygon(
-                                        numVertices = 6,
-                                        rounding = androidx.graphics.shapes.CornerRounding(0.3f),
-                                    ),
-                                )
+                        // HERO ROW (My ID & Profile info directly on background)
+                        val configuration = LocalConfiguration.current
+                        val scaleFactor = (configuration.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
+                        
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 16.dp, horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    AsyncImage(
+                                        model = "https://api.dicebear.com/9.x/micah/png?seed=${viewModel.myPreambleId}",
+                                        contentDescription = "My Avatar",
+                                        modifier = Modifier
+                                            .size(56.dp * scaleFactor)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(16.dp * scaleFactor))
+                                Column {
+                                    Text(
+                                        text = "MY PROFILE",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = (11 * scaleFactor).sp,
+                                        letterSpacing = 1.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = "ID: ${viewModel.myPreambleId}",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = (15 * scaleFactor).sp,
+                                        color = MaterialTheme.colorScheme.onBackground
+                                    )
+                                }
                             }
-                            val morphTransition = rememberInfiniteTransition(label = "heroMorph")
-                            val morphProgress by morphTransition.animateFloat(
-                                initialValue = 0f,
-                                targetValue = 1f,
-                                animationSpec = infiniteRepeatable(
-                                    animation = tween(durationMillis = 4000),
-                                    repeatMode = RepeatMode.Reverse,
-                                ),
-                                label = "heroMorphProgress",
-                            )
-                            val morphRotation by morphTransition.animateFloat(
-                                initialValue = 0f,
-                                targetValue = 360f,
-                                animationSpec = infiniteRepeatable(
-                                    animation = tween(durationMillis = 12000),
-                                    repeatMode = RepeatMode.Restart,
-                                ),
-                                label = "heroMorphRotation",
-                            )
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(180.dp)
-                                    .padding(bottom = 16.dp),
-                                shape = RoundedCornerShape(32.dp),
-                                colors = CardDefaults.cardColors(containerColor = heroColor)
+                            
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    Box(modifier = Modifier.matchParentSize()) {
-                                        Image(
-                                            painter = painterResource(id = heroBackground),
-                                            contentDescription = null,
-                                            contentScale = ContentScale.Crop,
-                                            alignment = Alignment.TopCenter,
-                                            modifier = Modifier.fillMaxSize(),
-                                            alpha = 0.4f,
-                                            colorFilter = ColorFilter.tint(Color.Black, blendMode = BlendMode.SrcAtop)
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    modifier = Modifier.padding(end = 4.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = "SCORE",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = (9 * scaleFactor).sp,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.6f)
+                                        )
+                                        Text(
+                                            text = "$myScore",
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = (16 * scaleFactor).sp,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
                                         )
                                     }
+                                }
 
-                                    Column(modifier = Modifier.padding(24.dp).fillMaxSize(), verticalArrangement = Arrangement.SpaceBetween) {
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(48.dp)
-                                                    .clip(MorphPolygonShape(morph, morphProgress, morphRotation))
-                                                    .background(Color.Black),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(Icons.Default.Star, contentDescription = null, tint = heroColor, modifier = Modifier.size(28.dp))
-                                            }
-
-                                            Surface(shape = RoundedCornerShape(50), color = Color.Black.copy(alpha = 0.5f)) {
-                                                Text(
-                                                    text = "ID: ${viewModel.myPreambleId}",
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 14.sp,
-                                                    color = Color.White,
-                                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                                )
-                                            }
+                                val shareInteraction = remember { MutableInteractionSource() }
+                                IconButton(
+                                    onClick = {
+                                        val shareIntent = Intent().apply {
+                                            action = Intent.ACTION_SEND
+                                            putExtra(Intent.EXTRA_TEXT, "Add me on Preamble! My ID is ${viewModel.myPreambleId} or click here: https://preamble.theblankstate.com/invite/${viewModel.myPreambleId}")
+                                            type = "text/plain"
                                         }
-
-                                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
-                                            Column {
-                                                Text(
-                                                    text = "SCORE",
-                                                    fontWeight = FontWeight.Black,
-                                                    fontSize = 12.sp,
-                                                    color = Color.Black.copy(alpha = 0.6f)
-                                                )
-                                                Text(
-                                                    text = "$myScore",
-                                                    style = TextStyle(
-                                                        fontSize = 48.sp,
-                                                        fontWeight = FontWeight.Black,
-                                                        drawStyle = Stroke(
-                                                            miter = 10f,
-                                                            width = 4f,
-                                                            join = androidx.compose.ui.graphics.StrokeJoin.Round
-                                                        ),
-                                                        color = Color.Black
-                                                    )
-                                                )
-                                            }
-
-                                            val shareInteraction = remember { MutableInteractionSource() }
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(56.dp)
-                                                    .expressivePressScale(shareInteraction)
-                                                    .clip(CircleShape)
-                                                    .background(Color.Black)
-                                                    .clickable(
-                                                        interactionSource = shareInteraction,
-                                                        indication = LocalIndication.current,
-                                                    ) {
-                                                        val shareIntent = Intent().apply {
-                                                            action = Intent.ACTION_SEND
-                                                            putExtra(Intent.EXTRA_TEXT, "Add me on Preamble! My ID is ${viewModel.myPreambleId} or click here: https://preamble.theblankstate.com/invite/${viewModel.myPreambleId}")
-                                                            type = "text/plain"
-                                                        }
-                                                        context.startActivity(Intent.createChooser(shareIntent, "Share Preamble ID"))
-                                                    },
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(Icons.Default.Share, contentDescription = "Share", tint = heroColor, modifier = Modifier.size(24.dp))
-                                            }
-                                        }
-                                    }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share Preamble ID"))
+                                    },
+                                    modifier = Modifier
+                                        .size(40.dp * scaleFactor)
+                                        .expressivePressScale(shareInteraction)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Share,
+                                        contentDescription = "Share",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp * scaleFactor)
+                                    )
                                 }
                             }
                         }
@@ -582,9 +548,14 @@ fun FriendsScreen(
                                 options.forEach { section ->
                                     val isSelected = selectedSection == section
                                     val tabColor = if (section == SocialSection.Leaderboard) {
-                                        Color(0xFFFFD166)
+                                        MaterialTheme.colorScheme.primaryContainer
                                     } else {
-                                        Color(0xFFEAB3FF)
+                                        MaterialTheme.colorScheme.secondaryContainer
+                                    }
+                                    val contentColor = if (section == SocialSection.Leaderboard) {
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSecondaryContainer
                                     }
                                     val interactionSource = remember { MutableInteractionSource() }
                                     Box(
@@ -607,14 +578,14 @@ fun FriendsScreen(
                                             Icon(
                                                 imageVector = if (section == SocialSection.Leaderboard) Icons.Default.EmojiEvents else Icons.Default.Group,
                                                 contentDescription = null,
-                                                tint = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                tint = if (isSelected) contentColor else MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.size(18.dp)
                                             )
                                             Text(
                                                 text = if (section == SocialSection.Leaderboard) "Leaderboard" else "Friends",
                                                 fontWeight = FontWeight.Black,
                                                 fontSize = 14.sp,
-                                                color = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
+                                                color = if (isSelected) contentColor else MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                         }
                                     }
@@ -1342,7 +1313,7 @@ private fun SocialSearchField(
     )
     val leadingIconTint by animateColorAsState(
         targetValue = if (focused) {
-            Color(0xFFD4FF70)
+            MaterialTheme.colorScheme.primary
         } else {
             MaterialTheme.colorScheme.onSurfaceVariant
         },
