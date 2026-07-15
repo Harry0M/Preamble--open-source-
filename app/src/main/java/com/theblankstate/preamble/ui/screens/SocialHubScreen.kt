@@ -33,9 +33,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.runtime.collectAsState
+import com.theblankstate.preamble.ui.viewmodels.WorkspaceUiState
+import com.theblankstate.preamble.collab.PreambleId
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -106,6 +109,21 @@ fun SocialHubScreen(
     var previousRoute by remember { mutableStateOf(SocialHubRoute.Friends) }
     var isTabRowVisible by remember { mutableStateOf(true) }
 
+    var showAddFriendDialog by remember { mutableStateOf(false) }
+    var targetId by remember { mutableStateOf("") }
+    val deepLinkInviteToPresent by workspaceViewModel.deepLinkInviteToPresent.collectAsState()
+    val uiState by workspaceViewModel.uiState.collectAsState()
+
+    LaunchedEffect(deepLinkInviteToPresent) {
+        val pending = deepLinkInviteToPresent
+        if (pending != null) {
+            targetId = pending
+            showAddFriendDialog = true
+            workspaceViewModel.onInviteConsumed()
+            onInviteConsumed()
+        }
+    }
+
     val requestsSections by workspaceViewModel.requestsSections.collectAsState()
     val friends by workspaceViewModel.friends.collectAsState()
     val lastCheckedTimestamp = workspaceViewModel.lastCheckedNotificationsTimestamp
@@ -161,6 +179,7 @@ fun SocialHubScreen(
                 onSelect = { route = it },
                 pendingRequestsCount = pendingRequestsCount,
                 pendingAssignmentsCount = pendingAssignmentsCount,
+                onAddFriendClick = { showAddFriendDialog = true },
             )
         }
 
@@ -203,6 +222,20 @@ fun SocialHubScreen(
             }
         }
     }
+
+    if (showAddFriendDialog) {
+        InviteEntrySheet(
+            value = targetId,
+            onValueChange = { targetId = PreambleId.normalize(it) },
+            sendEnabled = !PreambleId.isBlank(targetId) && uiState !is WorkspaceUiState.Loading,
+            onSend = {
+                workspaceViewModel.sendInvite(targetId)
+                showAddFriendDialog = false
+            },
+            onDismiss = { showAddFriendDialog = false },
+            viewModel = workspaceViewModel,
+        )
+    }
 }
 
 /**
@@ -218,14 +251,26 @@ private fun SocialHubTabRow(
     onSelect: (SocialHubRoute) -> Unit,
     pendingRequestsCount: Int,
     pendingAssignmentsCount: Int,
+    onAddFriendClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val screenWidth = configuration.screenWidthDp
+    val scaleFactor = (screenWidth / 360f).coerceIn(0.85f, 1.15f)
+
+    val buttonSize = (48.dp * scaleFactor)
+    val tabHeight = buttonSize - 8.dp
+    val spacing = (8.dp * scaleFactor)
+    val horizontalPadding = (16.dp * scaleFactor)
+    val iconSize = (18.dp * scaleFactor)
+    val fontSize = (14.sp * scaleFactor)
+
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = horizontalPadding, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(spacing)
     ) {
         // Segmented control for Friends and Circles
         Row(
@@ -247,7 +292,7 @@ private fun SocialHubTabRow(
                 Row(
                     modifier = Modifier
                         .weight(1f)
-                        .height(44.dp)
+                        .height(tabHeight)
                         .clip(RoundedCornerShape(50))
                         .background(backgroundColor)
                         .clickable(
@@ -261,13 +306,13 @@ private fun SocialHubTabRow(
                         imageVector = entry.icon,
                         contentDescription = entry.label,
                         tint = contentColor,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(iconSize),
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(8.dp * scaleFactor))
                     Text(
                         text = entry.label,
                         fontWeight = FontWeight.Black,
-                        fontSize = 14.sp,
+                        fontSize = fontSize,
                         color = contentColor,
                     )
                 }
@@ -286,7 +331,7 @@ private fun SocialHubTabRow(
         Box {
             Box(
                 modifier = Modifier
-                    .size(52.dp)
+                    .size(buttonSize)
                     .clip(CircleShape)
                     .background(backgroundColor)
                     .clickable(
@@ -296,7 +341,8 @@ private fun SocialHubTabRow(
                 contentAlignment = Alignment.Center
             ) {
                 DottedDownwardArrow(
-                    color = if (isTasksSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (isTasksSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp * scaleFactor)
                 )
             }
 
@@ -309,7 +355,7 @@ private fun SocialHubTabRow(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .offset(x = 2.dp, y = (-2).dp)
-                        .size(20.dp)
+                        .size(20.dp * scaleFactor)
                         .clip(CircleShape)
                         .background(Color.Red),
                     contentAlignment = Alignment.Center
@@ -318,9 +364,32 @@ private fun SocialHubTabRow(
                         imageVector = badgeIcon,
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(12.dp)
+                        modifier = Modifier.size(12.dp * scaleFactor)
                     )
                 }
+            }
+        }
+
+        // Separated circular Add Friend button (Friends screen context)
+        if (selected == SocialHubRoute.Friends) {
+            val addInteraction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .size(buttonSize)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable(
+                        interactionSource = addInteraction,
+                        indication = null,
+                    ) { onAddFriendClick() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.GroupAdd,
+                    contentDescription = "Add Friend",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(iconSize)
+                )
             }
         }
     }

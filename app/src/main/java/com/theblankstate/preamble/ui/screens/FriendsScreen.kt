@@ -194,6 +194,7 @@ fun FriendsScreen(
     taskViewModel: TaskViewModel? = null,
     initialInviteId: String? = null,
     onInviteConsumed: () -> Unit = {},
+    onAddFriendClick: () -> Unit = {},
     onClose: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -209,10 +210,6 @@ fun FriendsScreen(
     // Deep-link invite presentation routed through the ViewModel so it is consumed
     // exactly once (Req 7.2, 7.3): the ViewModel exposes the pending Preamble_ID to
     // present (or null) via DeepLinkInviteState.
-    val deepLinkInviteToPresent by viewModel.deepLinkInviteToPresent.collectAsState()
-    // Friends_Leaderboard (social-engagement Requirements 9.1, 9.2, 9.6), ranked by current
-    // Weekly_Window points in the ViewModel. Drives both the LeaderboardSection and the
-    // current-week figure that supersedes the legacy friend.productivityPoints display.
     val leaderboard by viewModel.leaderboard.collectAsState()
     // SOCIAL_HUB LOAD STATE (social-hub-redesign Req 1.6, 1.7): Loading until the first
     // friends/leaderboard emission, Loaded once both have emitted, or Error(message) when a
@@ -225,12 +222,10 @@ fun FriendsScreen(
     val myScore = statsState?.productivityScore ?: 0
 
     val context = LocalContext.current
-    var showAddFriendDialog by remember { mutableStateOf(initialInviteId != null) }
     // REQUESTS_LIST visibility (social-hub-redesign Req 5). Opened on a successful send via
     // the ViewModel's one-shot navigateToRequests event, and also reachable on demand from
     // the top-bar Requests control.
     var showRequestsList by remember { mutableStateOf(false) }
-    var targetId by remember { mutableStateOf(initialInviteId ?: "") }
     var friendPendingRemoval by remember { mutableStateOf<Friend?>(null) }
     var removalImpact by remember { mutableStateOf<FriendRemovalImpact?>(null) }
     var transferOwnedTasks by remember { mutableStateOf(false) }
@@ -327,26 +322,7 @@ fun FriendsScreen(
         }
     }
 
-    LaunchedEffect(initialInviteId) {
-        if (initialInviteId != null) {
-            // Hand the deep-linked id to the ViewModel, which normalizes and pre-fills it
-            // and surfaces a not-found message if it cannot be resolved (Req 7.2, 7.4).
-            viewModel.presentDeepLinkInvite(initialInviteId)
-        }
-    }
 
-    // Present the deep-linked invite at most once: when the ViewModel exposes a pending
-    // id, pre-fill the entry surface and open it, then consume it so re-rendering the
-    // Social_Hub never re-presents the same invite (Req 7.3).
-    LaunchedEffect(deepLinkInviteToPresent) {
-        val pending = deepLinkInviteToPresent
-        if (pending != null) {
-            targetId = pending
-            showAddFriendDialog = true
-            viewModel.onInviteConsumed()
-            onInviteConsumed()
-        }
-    }
 
     // Navigate the user to the Requests_List after a successful send (Req 5.1). The
     // ViewModel emits a one-shot event on navigateToRequests; by the time the list opens the
@@ -389,34 +365,7 @@ fun FriendsScreen(
                     )
                 }
 
-                // "Active" Pill / Add button
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    val addInteraction = remember { MutableInteractionSource() }
 
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        modifier = Modifier
-                            .expressivePressScale(addInteraction)
-                            .clip(RoundedCornerShape(50))
-                            .clickable(
-                                interactionSource = addInteraction,
-                                indication = LocalIndication.current,
-                            ) { showAddFriendDialog = true }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Default.GroupAdd, contentDescription = "Add Friend", modifier = Modifier.size(18.dp))
-                            Text("Add", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        }
-                    }
-                }
             }
         }
     ) { padding ->
@@ -793,7 +742,7 @@ fun FriendsScreen(
                                     )
                                     Spacer(modifier = Modifier.height(24.dp))
                                     Button(
-                                        onClick = { showAddFriendDialog = true },
+                                        onClick = onAddFriendClick,
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = MaterialTheme.colorScheme.primary,
                                             contentColor = MaterialTheme.colorScheme.onPrimary
@@ -933,25 +882,7 @@ fun FriendsScreen(
         }
     }
 
-    if (showAddFriendDialog) {
-        // INVITE_ENTRY_EXPERIENCE (social-hub-redesign Req 6): an on-theme entry surface
-        // that supersedes the plain add-friend AlertDialog. The id is normalized to
-        // uppercase as the user types via PreambleId.normalize (Req 6.3), the send control
-        // stays disabled while the normalized id is blank (Req 6.4), and a pre-filled id
-        // from a link/deep link is supported because targetId is set by the deep-link
-        // LaunchedEffect above (Req 6.2, 7.2).
-        InviteEntrySheet(
-            value = targetId,
-            onValueChange = { targetId = PreambleId.normalize(it) },
-            sendEnabled = !PreambleId.isBlank(targetId) && uiState !is WorkspaceUiState.Loading,
-            onSend = {
-                viewModel.sendInvite(targetId)
-                showAddFriendDialog = false
-            },
-            onDismiss = { showAddFriendDialog = false },
-            viewModel = viewModel,
-        )
-    }
+
 
     if (showRequestsList) {
         // REQUESTS_LIST (social-hub-redesign Req 5): an on-theme surface presenting the
@@ -1059,7 +990,7 @@ fun FriendsScreen(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun InviteEntrySheet(
+internal fun InviteEntrySheet(
     value: String,
     onValueChange: (String) -> Unit,
     sendEnabled: Boolean,
