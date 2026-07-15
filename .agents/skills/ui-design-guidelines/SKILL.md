@@ -67,6 +67,15 @@ When representing members or collaborators, use a horizontal stack of overlappin
 
 ---
 
+## 5. Morphing & Moving Floating Buttons
+When implementing layout actions that collapse on scroll (e.g. hiding the top header navbar on swipe up), morph the primary action button and translate its position dynamically to fit next to the floating top row controls:
+
+* **Position Translation**: Animate the $x$ and $y$ offsets between its local header position and the top floating row (e.g., transitioning $x$ from `24.dp` to the scaled button row offset).
+* **Shape Morphing**: Animate the container shape, width, and height between a rounded pill (with custom width/height when fully open) and a compact circle (matching the diameter of the other circular buttons in the floating row).
+* **Content Transitions**: Animate text opacity (`textAlpha`) to fade out the label completely as it collapses, leaving only the central icon scaled and centered.
+
+---
+
 ## How to use this Skill
 When prompting me to design or modify a screen, you can guide me to use this skill by explicitly stating:
 > *"Design the new features using the `custom-ui-design-guidelines` skill"* or
