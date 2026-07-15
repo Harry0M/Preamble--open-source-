@@ -72,6 +72,13 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Flight
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.Delete
+import android.content.Context
+import androidx.compose.runtime.mutableStateListOf
 
 /**
  * Circles_Screen (shared-circles Requirements 1.1, 2.1, 2.2, 2.4).
@@ -121,6 +128,33 @@ fun CirclesScreen(
     }
     var suggestions by remember { mutableStateOf(initialSuggestions) }
     var activeSuggestionOption by remember { mutableStateOf<SuggestionCircle?>(null) }
+
+    val sharedPrefs = remember(context) { context.getSharedPreferences("circles_prefs", Context.MODE_PRIVATE) }
+    var pinnedCircleIds by remember {
+        mutableStateOf(sharedPrefs.getStringSet("pinned_circles", emptySet()) ?: emptySet())
+    }
+    val autoPinSuggestedNames = remember { mutableStateListOf<String>() }
+    var showOptionsSheetForCircle by remember { mutableStateOf<Circle?>(null) }
+
+    LaunchedEffect(circles) {
+        circles.forEach { circle ->
+            if (circle.name in autoPinSuggestedNames && circle.id !in pinnedCircleIds) {
+                val updated = pinnedCircleIds + circle.id
+                sharedPrefs.edit().putStringSet("pinned_circles", updated).apply()
+                pinnedCircleIds = updated
+                autoPinSuggestedNames.remove(circle.name)
+            }
+        }
+    }
+
+    val gridItems = remember(circles, suggestions, pinnedCircleIds) {
+        val pinned = circles.filter { it.id in pinnedCircleIds }
+        val suggestionsToFill = suggestions.filter { sug ->
+            pinned.none { it.name.equals(sug.name, ignoreCase = true) }
+        }
+        val combined = (pinned.map { GridItem.Real(it) } + suggestionsToFill.map { GridItem.Suggest(it) }).take(8)
+        combined
+    }
 
     LaunchedEffect(registerCreateCircleTrigger) {
         registerCreateCircleTrigger?.invoke {
@@ -194,10 +228,17 @@ fun CirclesScreen(
                     .padding(horizontal = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                if (suggestions.isNotEmpty()) {
+                if (gridItems.isNotEmpty()) {
                     item(key = "suggestions_header_grid") {
                         CircleSuggestionsGrid(
-                            suggestions = suggestions,
+                            gridItems = gridItems,
+                            onRealClick = { circle ->
+                                viewModel.openCircle(circle.id)
+                                openCircleId = circle.id
+                            },
+                            onRealLongClick = { circle ->
+                                showOptionsSheetForCircle = circle
+                            },
                             onSuggestClick = { activeSuggestionOption = it }
                         )
                         Spacer(modifier = Modifier.height(16.dp))
@@ -270,6 +311,9 @@ fun CirclesScreen(
                             onClick = {
                                 viewModel.openCircle(circle.id)
                                 openCircleId = circle.id
+                            },
+                            onLongClick = {
+                                showOptionsSheetForCircle = circle
                             }
                         )
                     }
@@ -318,6 +362,7 @@ fun CirclesScreen(
             confirmButton = {
                 Button(
                     onClick = {
+                        autoPinSuggestedNames.add(activeSuggest.name)
                         viewModel.createCircle(activeSuggest.name)
                         suggestions = suggestions.filterNot { it.name == activeSuggest.name }
                         activeSuggestionOption = null
@@ -344,13 +389,105 @@ fun CirclesScreen(
             }
         )
     }
+
+    val optionsCircle = showOptionsSheetForCircle
+    if (optionsCircle != null) {
+        val isPinned = optionsCircle.id in pinnedCircleIds
+        ModalBottomSheet(
+            onDismissRequest = { showOptionsSheetForCircle = null },
+            containerColor = MaterialTheme.colorScheme.surface,
+            dragHandle = { BottomSheetDefaults.DragHandle() }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 24.dp)
+            ) {
+                Text(
+                    text = optionsCircle.name.uppercase(),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    letterSpacing = 1.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp)
+                )
+                
+                val pinInteraction = remember { MutableInteractionSource() }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .expressivePressScale(pinInteraction)
+                        .clickable(
+                            interactionSource = pinInteraction,
+                            indication = androidx.compose.foundation.LocalIndication.current
+                        ) {
+                            val updated = if (isPinned) pinnedCircleIds - optionsCircle.id else pinnedCircleIds + optionsCircle.id
+                            sharedPrefs.edit().putStringSet("pinned_circles", updated).apply()
+                            pinnedCircleIds = updated
+                            showOptionsSheetForCircle = null
+                        }
+                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PushPin,
+                        contentDescription = "Pin Status",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(
+                        text = if (isPinned) "Unpin from Grid" else "Pin to Grid",
+                        fontSize = 16.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                val deleteInteraction = remember { MutableInteractionSource() }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .expressivePressScale(deleteInteraction)
+                        .clickable(
+                            interactionSource = deleteInteraction,
+                            indication = androidx.compose.foundation.LocalIndication.current
+                        ) {
+                            if (isPinned) {
+                                val updated = pinnedCircleIds - optionsCircle.id
+                                sharedPrefs.edit().putStringSet("pinned_circles", updated).apply()
+                                pinnedCircleIds = updated
+                            }
+                            viewModel.deleteCircle(optionsCircle)
+                            showOptionsSheetForCircle = null
+                        }
+                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete Circle",
+                        tint = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Text(
+                        text = "Delete Circle",
+                        fontSize = 16.sp,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        }
+    }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun CircleRowItem(
     circle: Circle,
     iconColor: Color,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -359,10 +496,11 @@ private fun CircleRowItem(
             .fillMaxWidth()
             .expressivePressScale(interactionSource)
             .clip(RoundedCornerShape(16.dp))
-            .clickable(
+            .combinedClickable(
                 interactionSource = interactionSource,
                 indication = androidx.compose.foundation.LocalIndication.current,
-                onClick = onClick
+                onClick = onClick,
+                onLongClick = onLongClick
             )
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -486,9 +624,16 @@ private data class SuggestionCircle(
     val icon: androidx.compose.ui.graphics.vector.ImageVector
 )
 
+private sealed interface GridItem {
+    data class Real(val circle: Circle) : GridItem
+    data class Suggest(val suggestion: SuggestionCircle) : GridItem
+}
+
 @Composable
 private fun CircleSuggestionsGrid(
-    suggestions: List<SuggestionCircle>,
+    gridItems: List<GridItem>,
+    onRealClick: (Circle) -> Unit,
+    onRealLongClick: (Circle) -> Unit,
     onSuggestClick: (SuggestionCircle) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -501,7 +646,7 @@ private fun CircleSuggestionsGrid(
             .padding(horizontal = 8.dp, vertical = 8.dp)
     ) {
         Text(
-            text = "SUGGESTIONS",
+            text = "PINNED & SUGGESTIONS",
             fontWeight = FontWeight.Bold,
             fontSize = (11 * scaleFactor).sp,
             letterSpacing = 1.sp,
@@ -509,7 +654,7 @@ private fun CircleSuggestionsGrid(
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
         )
 
-        val rows = remember(suggestions) { suggestions.chunked(4) }
+        val rows = remember(gridItems) { gridItems.chunked(4) }
         Column(
             modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy((16 * scaleFactor).dp)
@@ -519,12 +664,24 @@ private fun CircleSuggestionsGrid(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceAround
                 ) {
-                    rowItems.forEach { suggestion ->
-                        SuggestionCircleItem(
-                            suggestion = suggestion,
-                            scaleFactor = scaleFactor,
-                            onClick = { onSuggestClick(suggestion) }
-                        )
+                    rowItems.forEach { item ->
+                        when (item) {
+                            is GridItem.Real -> {
+                                PinnedCircleItem(
+                                    circle = item.circle,
+                                    scaleFactor = scaleFactor,
+                                    onClick = { onRealClick(item.circle) },
+                                    onLongClick = { onRealLongClick(item.circle) }
+                                )
+                            }
+                            is GridItem.Suggest -> {
+                                SuggestionCircleItem(
+                                    suggestion = item.suggestion,
+                                    scaleFactor = scaleFactor,
+                                    onClick = { onSuggestClick(item.suggestion) }
+                                )
+                            }
+                        }
                     }
                     if (rowItems.size < 4) {
                         repeat(4 - rowItems.size) {
@@ -534,6 +691,56 @@ private fun CircleSuggestionsGrid(
                 }
             }
         }
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+private fun PinnedCircleItem(
+    circle: Circle,
+    scaleFactor: Float,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val colorIndex = circle.name.length
+    val bgColor = CardColors[colorIndex % CardColors.size]
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .width((68 * scaleFactor).dp)
+            .expressivePressScale(interactionSource)
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick,
+                onLongClick = onLongClick
+            )
+    ) {
+        Box(
+            modifier = Modifier
+                .size((52 * scaleFactor).dp)
+                .clip(CircleShape)
+                .background(bgColor),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Default.Groups,
+                contentDescription = circle.name,
+                tint = Color.Black.copy(alpha = 0.7f),
+                modifier = Modifier.size((24 * scaleFactor).dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = circle.name,
+            fontWeight = FontWeight.Medium,
+            fontSize = (12 * scaleFactor).sp,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
