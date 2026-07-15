@@ -594,19 +594,23 @@ fun FriendsScreen(
                         }
 
                         if (selectedSection == SocialSection.Leaderboard) {
-                            SocialSearchField(
-                                query = leaderboardQuery,
-                                onQueryChange = { leaderboardQuery = it },
-                                placeholder = "Search the leaderboard",
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
+                            if (leaderboard.size > 8) {
+                                SocialSearchField(
+                                    query = leaderboardQuery,
+                                    onQueryChange = { leaderboardQuery = it },
+                                    placeholder = "Search the leaderboard",
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                            }
                         } else {
-                            SocialSearchField(
-                                query = friendsQuery,
-                                onQueryChange = { friendsQuery = it },
-                                placeholder = "Search your friends",
-                                modifier = Modifier.padding(vertical = 8.dp)
-                            )
+                            if (friends.size > 8) {
+                                SocialSearchField(
+                                    query = friendsQuery,
+                                    onQueryChange = { friendsQuery = it },
+                                    placeholder = "Search your friends",
+                                    modifier = Modifier.padding(vertical = 8.dp)
+                                )
+                            }
                         }
                     }
                 }
