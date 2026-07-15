@@ -2,6 +2,7 @@ package com.theblankstate.preamble.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -107,6 +108,7 @@ fun CircleDetailScreen(
     val friends by viewModel.friends.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val scaleFactor = (LocalConfiguration.current.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
 
     val currentUid = FirebaseAuth.getInstance().currentUser?.uid
     val circle = circles.firstOrNull { it.id == circleId }
@@ -150,8 +152,6 @@ fun CircleDetailScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
-            val configuration = LocalConfiguration.current
-            val scaleFactor = (configuration.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -296,7 +296,113 @@ fun CircleDetailScreen(
                 .padding(padding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            if (tasks.isEmpty()) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                val circleMembers = circle?.members ?: emptyList()
+                if (circleMembers.isNotEmpty()) {
+                    val membersInteraction = remember { MutableInteractionSource() }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(
+                                interactionSource = membersInteraction,
+                                indication = null
+                            ) {
+                                showMembersDialog = true
+                            }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy((-12).dp)
+                        ) {
+                            val visibleMembers = circleMembers.take(3)
+                            visibleMembers.forEachIndexed { idx, member ->
+                                val initials = member.name.take(1).uppercase()
+                                val avatarColor = CardColors[idx % CardColors.size]
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp * scaleFactor)
+                                        .clip(CircleShape)
+                                        .background(avatarColor)
+                                        .border(2.dp, MaterialTheme.colorScheme.background, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = initials,
+                                        fontWeight = FontWeight.Black,
+                                        fontSize = (12 * scaleFactor).sp,
+                                        color = Color.Black
+                                    )
+                                }
+                            }
+                            if (circleMembers.size > 3) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp * scaleFactor)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        .border(2.dp, MaterialTheme.colorScheme.background, CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "+${circleMembers.size - 3}",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = (10 * scaleFactor).sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(16.dp * scaleFactor))
+
+                            Column {
+                                Text(
+                                    text = if (circleMembers.size == 1) "1 Member" else "${circleMembers.size} Members",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = (14 * scaleFactor).sp,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                                Text(
+                                    text = "Tap to manage members",
+                                    fontSize = (11 * scaleFactor).sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                )
+                            }
+                        }
+
+                        val completedTasks = tasks.count { it.isCompleted }
+                        val totalTasks = tasks.size
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(50))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "$completedTasks/$totalTasks Done",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = (11 * scaleFactor).sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 24.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                ) {
+                    if (tasks.isEmpty()) {
                 // Empty-state (Requirement 10.3).
                 Column(
                     modifier = Modifier
@@ -363,10 +469,12 @@ fun CircleDetailScreen(
                     }
                 }
             }
+        }
+    }
 
-            val fabScaleFactor = (LocalConfiguration.current.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
-            val addFabInteraction = remember { MutableInteractionSource() }
-            Box(
+        val fabScaleFactor = (LocalConfiguration.current.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
+        val addFabInteraction = remember { MutableInteractionSource() }
+        Box(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(24.dp)
@@ -611,71 +719,112 @@ private fun CircleTaskRow(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+    val scaleFactor = (LocalConfiguration.current.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
+        val toggleInteraction = remember { MutableInteractionSource() }
+        val accentColor = CardColors[0] // Soft Blue
+        val anchorBg = if (task.isCompleted) accentColor.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant
+        val iconColor = if (task.isCompleted) accentColor else MaterialTheme.colorScheme.onSurfaceVariant
+        
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .size(44.dp * scaleFactor)
+                .clip(CircleShape)
+                .background(anchorBg)
+                .expressivePressScale(toggleInteraction)
+                .clickable(
+                    interactionSource = toggleInteraction,
+                    indication = null
+                ) {
+                    onToggleCompletion()
+                },
+            contentAlignment = Alignment.Center
         ) {
-            // Completion toggle (Requirements 11.1, 11.4).
-            IconButton(onClick = onToggleCompletion) {
+            Icon(
+                imageVector = if (task.isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                contentDescription = if (task.isCompleted) "Mark not done" else "Mark done",
+                tint = iconColor,
+                modifier = Modifier.size(20.dp * scaleFactor)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(16.dp * scaleFactor))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = task.title,
+                fontWeight = FontWeight.Bold,
+                fontSize = (15 * scaleFactor).sp,
+                color = MaterialTheme.colorScheme.onSurface,
+                textDecoration = if (task.isCompleted) TextDecoration.LineThrough else TextDecoration.None
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            val subtitle = buildString {
+                if (task.isCompleted) {
+                    val completer = task.completedBy?.name
+                    append(if (!completer.isNullOrBlank()) "Done by $completer" else "Done")
+                } else {
+                    append("Not done")
+                }
+                if (!authorName.isNullOrBlank()) append(" · Added by $authorName")
+            }
+            Text(
+                text = subtitle,
+                fontSize = (12 * scaleFactor).sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+            )
+        }
+
+        if (canEditDelete) {
+            Spacer(modifier = Modifier.width(8.dp * scaleFactor))
+            
+            val editInteraction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .size(36.dp * scaleFactor)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .expressivePressScale(editInteraction)
+                    .clickable(
+                        interactionSource = editInteraction,
+                        indication = null
+                    ) { onEdit() },
+                contentAlignment = Alignment.Center
+            ) {
                 Icon(
-                    imageVector = if (task.isCompleted) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
-                    contentDescription = if (task.isCompleted) "Mark not done" else "Mark done",
-                    tint = if (task.isCompleted) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant
+                    imageVector = Icons.Default.Edit,
+                    contentDescription = "Edit task",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp * scaleFactor)
                 )
             }
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = task.title,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    textDecoration = if (task.isCompleted) TextDecoration.LineThrough else TextDecoration.None
+            
+            Spacer(modifier = Modifier.width(8.dp * scaleFactor))
+            
+            val deleteInteraction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .size(36.dp * scaleFactor)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .expressivePressScale(deleteInteraction)
+                    .clickable(
+                        interactionSource = deleteInteraction,
+                        indication = null
+                    ) { onDelete() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Delete task",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp * scaleFactor)
                 )
-                Spacer(modifier = Modifier.height(2.dp))
-                // Shared_Completion state + Completer name, and Circle_Author (Requirement 10.1).
-                val subtitle = buildString {
-                    if (task.isCompleted) {
-                        val completer = task.completedBy?.name
-                        append(if (!completer.isNullOrBlank()) "Done by $completer" else "Done")
-                    } else {
-                        append("Not done")
-                    }
-                    if (!authorName.isNullOrBlank()) append(" · Added by $authorName")
-                }
-                Text(
-                    text = subtitle,
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            // Author/admin-only edit/delete affordances (Requirements 12.1–12.4).
-            if (canEditDelete) {
-                IconButton(onClick = onEdit, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Default.Edit,
-                        contentDescription = "Edit task",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
-                    Icon(
-                        Icons.Default.Delete,
-                        contentDescription = "Delete task",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
             }
         }
     }
