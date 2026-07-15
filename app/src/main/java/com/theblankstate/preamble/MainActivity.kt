@@ -582,9 +582,11 @@ fun PreambleApp(
                 onOpenFriends = {
                     // Left-header avatar-stack shortcut (kept exactly as a shortcut into the
                     // Circles hub's Friends route, per Requirement: don't remove this route).
-                    socialHubInitialRoute = SocialHubRoute.Friends
+                    socialHubInitialRoute = if (socialHubBadgeCount > 0) SocialHubRoute.Tasks else SocialHubRoute.Friends
                     selectedTab = 4
                 },
+                pendingRequestsCount = pendingRequestsCount,
+                pendingAssignmentsCount = pendingAssignmentsCount,
                 tasks = tasks,
                 pastTasks = pastTasks,
                 streak = stats.streak,

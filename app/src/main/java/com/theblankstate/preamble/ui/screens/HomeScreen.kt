@@ -54,7 +54,10 @@ import androidx.graphics.shapes.CornerRounding
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
 import androidx.graphics.shapes.star
+import androidx.compose.foundation.layout.offset
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Close
@@ -165,6 +168,8 @@ import kotlinx.coroutines.flow.collectLatest
 @Composable
 fun HomeScreen(
     onOpenFriends: () -> Unit = {},
+    pendingRequestsCount: Int = 0,
+    pendingAssignmentsCount: Int = 0,
     tasks: List<Task>,
     pastTasks: Map<String, List<Task>> = emptyMap(),
     streak: Int,
@@ -545,40 +550,65 @@ fun HomeScreen(
                 CenterAlignedTopAppBar(
                     windowInsets = WindowInsets(0, 0, 0, 0),
                     navigationIcon = {
-                        Row(
-                            modifier = Modifier
-                                .padding(start = 16.dp)
-                                .clickable(onClick = onOpenFriends),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val displaySeeds = friends.map { it.preambleId } + listOf("dummy_a", "dummy_b")
-                            val displayAvatars = displaySeeds.take(2)
-                            val extraCount = if (friends.size > 2) friends.size - 2 else 1 // Always show a third circle
-                            
-                            Box(contentAlignment = Alignment.CenterStart) {
-                                displayAvatars.forEachIndexed { index, seed ->
-                                    coil.compose.AsyncImage(
-                                        model = "https://api.dicebear.com/9.x/micah/png?seed=$seed",
-                                        contentDescription = "Friend Avatar",
-                                        modifier = Modifier
-                                            .padding(start = (index * 24).dp)
-                                            .size(36.dp)
-                                            .clip(androidx.compose.foundation.shape.CircleShape)
-                                            .background(Color.White)
-                                            .border(2.dp, MaterialTheme.colorScheme.surface, androidx.compose.foundation.shape.CircleShape)
-                                    )
-                                }
-                                Surface(
-                                    shape = androidx.compose.foundation.shape.CircleShape,
-                                    color = MaterialTheme.colorScheme.surfaceVariant,
-                                    modifier = Modifier
-                                        .padding(start = (2 * 24).dp)
-                                        .size(36.dp)
-                                        .border(2.dp, MaterialTheme.colorScheme.surface, androidx.compose.foundation.shape.CircleShape)
-                                ) {
-                                    Box(contentAlignment = Alignment.Center) {
-                                        Icon(Icons.Default.MoreHoriz, contentDescription = "More friends", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Box {
+                            Row(
+                                modifier = Modifier
+                                    .padding(start = 16.dp)
+                                    .clickable(onClick = onOpenFriends),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                val displaySeeds = friends.map { it.preambleId } + listOf("dummy_a", "dummy_b")
+                                val displayAvatars = displaySeeds.take(2)
+                                val extraCount = if (friends.size > 2) friends.size - 2 else 1 // Always show a third circle
+                                
+                                Box(contentAlignment = Alignment.CenterStart) {
+                                    displayAvatars.forEachIndexed { index, seed ->
+                                        coil.compose.AsyncImage(
+                                            model = "https://api.dicebear.com/9.x/micah/png?seed=$seed",
+                                            contentDescription = "Friend Avatar",
+                                            modifier = Modifier
+                                                .padding(start = (index * 24).dp)
+                                                .size(36.dp)
+                                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                                .background(Color.White)
+                                                .border(2.dp, MaterialTheme.colorScheme.surface, androidx.compose.foundation.shape.CircleShape)
+                                        )
                                     }
+                                    Surface(
+                                        shape = androidx.compose.foundation.shape.CircleShape,
+                                        color = MaterialTheme.colorScheme.surfaceVariant,
+                                        modifier = Modifier
+                                            .padding(start = (2 * 24).dp)
+                                            .size(36.dp)
+                                            .border(2.dp, MaterialTheme.colorScheme.surface, androidx.compose.foundation.shape.CircleShape)
+                                    ) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Default.MoreHoriz, contentDescription = "More friends", modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        }
+                                    }
+                                }
+                            }
+
+                            val showFriendRequestBadge = pendingRequestsCount > 0
+                            val showTaskBadge = pendingAssignmentsCount > 0 && !showFriendRequestBadge
+
+                            if (showFriendRequestBadge || showTaskBadge) {
+                                val badgeIcon = if (showFriendRequestBadge) Icons.Default.Person else Icons.AutoMirrored.Filled.Assignment
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .offset(x = 4.dp, y = (-4).dp)
+                                        .size(18.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Red),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = badgeIcon,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(10.dp)
+                                    )
                                 }
                             }
                         }
