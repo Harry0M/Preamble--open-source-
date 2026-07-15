@@ -4,11 +4,10 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
@@ -45,6 +44,7 @@ import com.theblankstate.preamble.ui.viewmodels.WorkspaceUiState
 import com.theblankstate.preamble.collab.PreambleId
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -224,8 +224,8 @@ fun SocialHubScreen(
                         )
                         SocialHubRoute.Circles -> CirclesScreen(
                             viewModel = circleViewModel,
-                            onCreateCircleTrigger = { triggerCreateCircle = it },
                             onClose = null,
+                            registerCreateCircleTrigger = { triggerCreateCircle = it },
                             modifier = Modifier.fillMaxSize(),
                         )
                         SocialHubRoute.Tasks -> NotificationCenterScreen(
@@ -383,56 +383,65 @@ fun SocialHubScreen(
                             )
                         }
                     }
+                }
+            }
+        }
 
-                    // Circular / Pill Add Circle button (Circles screen context)
-                    if (route == SocialHubRoute.Circles) {
-                        val addInteraction = remember { MutableInteractionSource() }
-                        val buttonWidth by animateDpAsState(
-                            targetValue = if (isTabRowVisible) 90.dp else buttonSize,
-                            animationSpec = tween(300),
-                            label = "addCircleWidth"
+        // 3. Floating Morphing "New" Button for Circles Screen
+        val targetXOffset = if (isTabRowVisible) 24.dp else (horizontalPadding + buttonSize + spacing)
+        val currentXOffset by animateDpAsState(targetXOffset, animationSpec = tween(300), label = "circleButtonX")
+        val paddingY by animateDpAsState(if (isTabRowVisible) 16.dp else 12.dp, animationSpec = tween(300), label = "circleButtonY")
+        val targetWidth = if (isTabRowVisible) 76.dp else buttonSize
+        val currentWidth by animateDpAsState(targetWidth, animationSpec = tween(300), label = "circleButtonWidth")
+        val targetHeight = if (isTabRowVisible) 36.dp else buttonSize
+        val currentHeight by animateDpAsState(targetHeight, animationSpec = tween(300), label = "circleButtonHeight")
+
+        val textAlpha by animateFloatAsState(if (isTabRowVisible) 1f else 0f, animationSpec = tween(150), label = "circleButtonTextAlpha")
+        val currentIconSize by animateDpAsState(if (isTabRowVisible) 18.dp else iconSize, animationSpec = tween(300), label = "circleButtonIconSize")
+        val currentPadHorizontal by animateDpAsState(if (isTabRowVisible) 12.dp else 0.dp, animationSpec = tween(300), label = "circleButtonPad")
+
+        val addCircleInteraction = remember { MutableInteractionSource() }
+
+        AnimatedVisibility(
+            visible = route == SocialHubRoute.Circles,
+            enter = fadeIn(animationSpec = tween(200)),
+            exit = fadeOut(animationSpec = tween(200)),
+            modifier = Modifier.align(Alignment.TopEnd)
+        ) {
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier
+                    .offset(x = -currentXOffset, y = currentHeaderHeight + paddingY)
+                    .size(width = currentWidth, height = currentHeight)
+                    .clip(RoundedCornerShape(50))
+                    .clickable(
+                        interactionSource = addCircleInteraction,
+                        indication = null,
+                    ) { triggerCreateCircle?.invoke() }
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = currentPadHorizontal),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Create Circle",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(currentIconSize)
+                    )
+                    if (isTabRowVisible && textAlpha > 0.05f) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "New",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp * scaleFactor,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = textAlpha),
+                            maxLines = 1
                         )
-                        Box(
-                            modifier = Modifier
-                                .height(buttonSize)
-                                .width(buttonWidth)
-                                .clip(RoundedCornerShape(50))
-                                .background(MaterialTheme.colorScheme.surfaceVariant)
-                                .clickable(
-                                    interactionSource = addInteraction,
-                                    indication = null,
-                                ) { triggerCreateCircle?.invoke() },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center,
-                                modifier = Modifier.padding(horizontal = if (isTabRowVisible) 12.dp else 0.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Add,
-                                    contentDescription = "New Circle",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(iconSize)
-                                )
-                                AnimatedVisibility(
-                                    visible = isTabRowVisible,
-                                    enter = fadeIn(animationSpec = tween(150)) + expandHorizontally(),
-                                    exit = fadeOut(animationSpec = tween(150)) + shrinkHorizontally()
-                                ) {
-                                    Row {
-                                        Spacer(modifier = Modifier.width(6.dp * scaleFactor))
-                                        Text(
-                                            "New",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = fontSize,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1
-                                        )
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
             }

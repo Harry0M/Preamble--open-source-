@@ -76,8 +76,8 @@ import com.theblankstate.preamble.ui.viewmodels.CircleViewModel
 @Composable
 fun CirclesScreen(
     viewModel: CircleViewModel = viewModel(),
-    onCreateCircleTrigger: ((() -> Unit) -> Unit)? = null,
     onClose: (() -> Unit)? = null,
+    registerCreateCircleTrigger: ((() -> Unit) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val circles by viewModel.circles.collectAsState()
@@ -90,8 +90,8 @@ fun CirclesScreen(
     var showCreateDialog by remember { mutableStateOf(false) }
     var newCircleName by remember { mutableStateOf("") }
 
-    LaunchedEffect(onCreateCircleTrigger) {
-        onCreateCircleTrigger?.invoke {
+    LaunchedEffect(registerCreateCircleTrigger) {
+        registerCreateCircleTrigger?.invoke {
             newCircleName = ""
             showCreateDialog = true
         }
@@ -146,7 +146,6 @@ fun CirclesScreen(
                         color = MaterialTheme.colorScheme.onBackground
                     )
                 }
-
 
             }
         }
