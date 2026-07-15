@@ -76,6 +76,7 @@ import com.theblankstate.preamble.ui.viewmodels.CircleViewModel
 @Composable
 fun CirclesScreen(
     viewModel: CircleViewModel = viewModel(),
+    onCreateCircleTrigger: ((() -> Unit) -> Unit)? = null,
     onClose: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -88,6 +89,13 @@ fun CirclesScreen(
     var openCircleId by remember { mutableStateOf<String?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var newCircleName by remember { mutableStateOf("") }
+
+    LaunchedEffect(onCreateCircleTrigger) {
+        onCreateCircleTrigger?.invoke {
+            newCircleName = ""
+            showCreateDialog = true
+        }
+    }
 
     // Surface UI state via Toast exactly like WorkspaceScreen, then clear it.
     LaunchedEffect(uiState) {
@@ -139,25 +147,7 @@ fun CirclesScreen(
                     )
                 }
 
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .clickable {
-                            newCircleName = ""
-                            showCreateDialog = true
-                        }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Create Circle", modifier = Modifier.size(18.dp))
-                        Text("New", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
-                }
+
             }
         }
     ) { padding ->

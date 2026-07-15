@@ -5,8 +5,10 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
@@ -33,6 +35,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Groups
@@ -112,6 +115,7 @@ fun SocialHubScreen(
 
     var showAddFriendDialog by remember { mutableStateOf(false) }
     var targetId by remember { mutableStateOf("") }
+    var triggerCreateCircle by remember { mutableStateOf<(() -> Unit)?>(null) }
     val deepLinkInviteToPresent by workspaceViewModel.deepLinkInviteToPresent.collectAsState()
     val uiState by workspaceViewModel.uiState.collectAsState()
 
@@ -220,6 +224,7 @@ fun SocialHubScreen(
                         )
                         SocialHubRoute.Circles -> CirclesScreen(
                             viewModel = circleViewModel,
+                            onCreateCircleTrigger = { triggerCreateCircle = it },
                             onClose = null,
                             modifier = Modifier.fillMaxSize(),
                         )
@@ -376,6 +381,57 @@ fun SocialHubScreen(
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 modifier = Modifier.size(iconSize)
                             )
+                        }
+                    }
+
+                    // Circular / Pill Add Circle button (Circles screen context)
+                    if (route == SocialHubRoute.Circles) {
+                        val addInteraction = remember { MutableInteractionSource() }
+                        val buttonWidth by animateDpAsState(
+                            targetValue = if (isTabRowVisible) 90.dp else buttonSize,
+                            animationSpec = tween(300),
+                            label = "addCircleWidth"
+                        )
+                        Box(
+                            modifier = Modifier
+                                .height(buttonSize)
+                                .width(buttonWidth)
+                                .clip(RoundedCornerShape(50))
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .clickable(
+                                    interactionSource = addInteraction,
+                                    indication = null,
+                                ) { triggerCreateCircle?.invoke() },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center,
+                                modifier = Modifier.padding(horizontal = if (isTabRowVisible) 12.dp else 0.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "New Circle",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(iconSize)
+                                )
+                                AnimatedVisibility(
+                                    visible = isTabRowVisible,
+                                    enter = fadeIn(animationSpec = tween(150)) + expandHorizontally(),
+                                    exit = fadeOut(animationSpec = tween(150)) + shrinkHorizontally()
+                                ) {
+                                    Row {
+                                        Spacer(modifier = Modifier.width(6.dp * scaleFactor))
+                                        Text(
+                                            "New",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = fontSize,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
