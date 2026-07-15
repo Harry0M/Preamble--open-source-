@@ -391,9 +391,9 @@ fun SocialHubScreen(
         val targetXOffset = if (isTabRowVisible) 24.dp else (horizontalPadding + buttonSize + spacing)
         val currentXOffset by animateDpAsState(targetXOffset, animationSpec = tween(300), label = "circleButtonX")
         val paddingY by animateDpAsState(if (isTabRowVisible) 16.dp else 12.dp, animationSpec = tween(300), label = "circleButtonY")
-        val targetWidth = if (isTabRowVisible) 76.dp else buttonSize
+        val targetWidth = if (isTabRowVisible) (84.dp * scaleFactor) else buttonSize
         val currentWidth by animateDpAsState(targetWidth, animationSpec = tween(300), label = "circleButtonWidth")
-        val targetHeight = if (isTabRowVisible) 36.dp else buttonSize
+        val targetHeight = if (isTabRowVisible) (36.dp * scaleFactor) else buttonSize
         val currentHeight by animateDpAsState(targetHeight, animationSpec = tween(300), label = "circleButtonHeight")
 
         val textAlpha by animateFloatAsState(if (isTabRowVisible) 1f else 0f, animationSpec = tween(150), label = "circleButtonTextAlpha")
