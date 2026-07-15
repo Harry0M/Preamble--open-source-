@@ -3,12 +3,11 @@ package com.theblankstate.preamble.ui.screens
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
@@ -34,7 +33,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.GroupAdd
 import androidx.compose.material.icons.filled.Groups
@@ -116,7 +114,6 @@ fun SocialHubScreen(
     var targetId by remember { mutableStateOf("") }
     val deepLinkInviteToPresent by workspaceViewModel.deepLinkInviteToPresent.collectAsState()
     val uiState by workspaceViewModel.uiState.collectAsState()
-    var createCircleEvent by remember { mutableStateOf(0) }
 
     LaunchedEffect(deepLinkInviteToPresent) {
         val pending = deepLinkInviteToPresent
@@ -168,59 +165,219 @@ fun SocialHubScreen(
         }
     }
 
-    Column(
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    val screenWidth = configuration.screenWidthDp
+    val scaleFactor = (screenWidth / 360f).coerceIn(0.85f, 1.15f)
+
+    val buttonSize = (48.dp * scaleFactor)
+    val tabHeight = buttonSize - 8.dp
+    val spacing = (8.dp * scaleFactor)
+    val horizontalPadding = (16.dp * scaleFactor)
+    val iconSize = (18.dp * scaleFactor)
+    val fontSize = (14.sp * scaleFactor)
+    val headerHeight = buttonSize + 24.dp
+
+    val currentHeaderHeight by animateDpAsState(
+        targetValue = if (isTabRowVisible && route != SocialHubRoute.Tasks) headerHeight else 0.dp,
+        animationSpec = tween(300),
+        label = "headerHeight"
+    )
+
+    Box(
         modifier = modifier
             .fillMaxSize()
             .nestedScroll(nestedScrollConnection)
     ) {
-        if (route != SocialHubRoute.Tasks) {
-            SocialHubTabRow(
-                selected = route,
-                onSelect = { route = it },
-                pendingRequestsCount = pendingRequestsCount,
-                pendingAssignmentsCount = pendingAssignmentsCount,
-                onAddFriendClick = { showAddFriendDialog = true },
-                onCreateCircleClick = { createCircleEvent++ },
-                isTabRowVisible = isTabRowVisible,
-            )
+        // 1. Content Pane (Friends / Circles / Tasks)
+        Column(modifier = Modifier.fillMaxSize()) {
+            Spacer(modifier = Modifier.height(currentHeaderHeight))
+
+            Box(modifier = Modifier.weight(1f)) {
+                // Expressive_Motion: panes slide+fade in the direction of travel, mirroring the
+                // same transition FriendsScreen already uses for its own Leaderboard/Friends
+                // toggle, so switching hub destinations feels consistent with the rest of the app.
+                AnimatedContent(
+                    targetState = route,
+                    transitionSpec = {
+                        val forward = targetState.ordinal > initialState.ordinal
+                        val direction = if (forward) 1 else -1
+                        (slideInHorizontally(animationSpec = tween(300)) { full -> direction * full } +
+                            fadeIn(animationSpec = tween(300))) togetherWith
+                            (slideOutHorizontally(animationSpec = tween(300)) { full -> -direction * full } +
+                                fadeOut(animationSpec = tween(300)))
+                    },
+                    label = "socialHubRoute",
+                ) { targetRoute ->
+                    when (targetRoute) {
+                        SocialHubRoute.Friends -> FriendsScreen(
+                            viewModel = workspaceViewModel,
+                            taskViewModel = taskViewModel,
+                            initialInviteId = initialInviteId,
+                            onInviteConsumed = onInviteConsumed,
+                            onAddFriendClick = { showAddFriendDialog = true },
+                            onClose = null,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        SocialHubRoute.Circles -> CirclesScreen(
+                            viewModel = circleViewModel,
+                            onClose = null,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        SocialHubRoute.Tasks -> NotificationCenterScreen(
+                            viewModel = workspaceViewModel,
+                            onClose = { route = previousRoute },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                }
+            }
         }
 
-        Box(modifier = Modifier.weight(1f)) {
-            // Expressive_Motion: panes slide+fade in the direction of travel, mirroring the
-            // same transition FriendsScreen already uses for its own Leaderboard/Friends
-            // toggle, so switching hub destinations feels consistent with the rest of the app.
-            AnimatedContent(
-                targetState = route,
-                transitionSpec = {
-                    val forward = targetState.ordinal > initialState.ordinal
-                    val direction = if (forward) 1 else -1
-                    (slideInHorizontally(animationSpec = tween(300)) { full -> direction * full } +
-                        fadeIn(animationSpec = tween(300))) togetherWith
-                        (slideOutHorizontally(animationSpec = tween(300)) { full -> -direction * full } +
-                            fadeOut(animationSpec = tween(300)))
-                },
-                label = "socialHubRoute",
-            ) { targetRoute ->
-                when (targetRoute) {
-                    SocialHubRoute.Friends -> FriendsScreen(
-                        viewModel = workspaceViewModel,
-                        taskViewModel = taskViewModel,
-                        initialInviteId = initialInviteId,
-                        onInviteConsumed = onInviteConsumed,
-                        onClose = null,
-                        modifier = Modifier.fillMaxSize(),
+        // 2. The Header Overlay (Pills & Buttons)
+        if (route != SocialHubRoute.Tasks) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = horizontalPadding, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
+            ) {
+                // Segmented control for Friends and Circles
+                AnimatedVisibility(
+                    visible = isTabRowVisible,
+                    enter = slideInHorizontally(animationSpec = tween(300)) { -it } + fadeIn(animationSpec = tween(300)),
+                    exit = slideOutHorizontally(animationSpec = tween(300)) { -it } + fadeOut(animationSpec = tween(300)),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
+                            .padding(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SocialHubRoute.entries.filter { it != SocialHubRoute.Tasks }.forEach { entry ->
+                            val isSelected = entry == route
+                            val accent = routeAccentColor(entry)
+                            val backgroundColor by animateColorAsState(
+                                targetValue = if (isSelected) accent else Color.Transparent,
+                                label = "hubTab_${entry.name}",
+                            )
+                            val contentColor = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
+                            val interactionSource = remember { MutableInteractionSource() }
+                            Row(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(tabHeight)
+                                    .clip(RoundedCornerShape(50))
+                                    .background(backgroundColor)
+                                    .clickable(
+                                        interactionSource = interactionSource,
+                                        indication = null,
+                                    ) { route = entry },
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = entry.icon,
+                                    contentDescription = entry.label,
+                                    tint = contentColor,
+                                    modifier = Modifier.size(iconSize),
+                                )
+                                Spacer(modifier = Modifier.width(8.dp * scaleFactor))
+                                Text(
+                                    text = entry.label,
+                                    fontWeight = FontWeight.Black,
+                                    fontSize = fontSize,
+                                    color = contentColor,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (isTabRowVisible) {
+                    Spacer(modifier = Modifier.width(spacing))
+                }
+
+                // The 2 Circular Buttons Row (Tasks & Add Friend)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(spacing)
+                ) {
+                    // Separated circular Tasks button with a dotted downward arrow and badge overlay
+                    val isTasksSelected = route == SocialHubRoute.Tasks
+                    val accent = routeAccentColor(SocialHubRoute.Tasks)
+                    val backgroundColor by animateColorAsState(
+                        targetValue = if (isTasksSelected) accent else MaterialTheme.colorScheme.surfaceVariant,
+                        label = "hubTab_Tasks",
                     )
-                    SocialHubRoute.Circles -> CirclesScreen(
-                        viewModel = circleViewModel,
-                        createCircleEvent = createCircleEvent,
-                        onClose = null,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                    SocialHubRoute.Tasks -> NotificationCenterScreen(
-                        viewModel = workspaceViewModel,
-                        onClose = { route = previousRoute },
-                        modifier = Modifier.fillMaxSize(),
-                    )
+                    val interactionSource = remember { MutableInteractionSource() }
+
+                    Box {
+                        Box(
+                            modifier = Modifier
+                                .size(buttonSize)
+                                .clip(CircleShape)
+                                .background(backgroundColor)
+                                .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = null,
+                                ) { route = SocialHubRoute.Tasks },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            DottedDownwardArrow(
+                                color = if (isTasksSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(24.dp * scaleFactor)
+                            )
+                        }
+
+                        val showFriendRequestBadge = pendingRequestsCount > 0
+                        val showTaskBadge = pendingAssignmentsCount > 0 && !showFriendRequestBadge
+
+                        if (showFriendRequestBadge || showTaskBadge) {
+                            val badgeIcon = if (showFriendRequestBadge) Icons.Default.Person else Icons.AutoMirrored.Filled.Assignment
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .offset(x = 2.dp, y = (-2).dp)
+                                    .size(20.dp * scaleFactor)
+                                    .clip(CircleShape)
+                                    .background(Color.Red),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = badgeIcon,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(12.dp * scaleFactor)
+                                )
+                            }
+                        }
+                    }
+
+                    // Separated circular Add Friend button (Friends screen context)
+                    if (route == SocialHubRoute.Friends) {
+                        val addInteraction = remember { MutableInteractionSource() }
+                        Box(
+                            modifier = Modifier
+                                .size(buttonSize)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .clickable(
+                                    interactionSource = addInteraction,
+                                    indication = null,
+                                ) { showAddFriendDialog = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.GroupAdd,
+                                contentDescription = "Add Friend",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(iconSize)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -238,189 +395,6 @@ fun SocialHubScreen(
             onDismiss = { showAddFriendDialog = false },
             viewModel = workspaceViewModel,
         )
-    }
-}
-
-/**
- * Compact, persistent pill row that switches between the hub's [SocialHubRoute]s. Deliberately
- * mirrors the app's existing Expressive segmented-control language (the Leaderboard/Friends
- * toggle in `SectionOrganizer`, FriendsScreen.kt) — same pill shape, same selected-state fill
- * from the established [CardColors] palette — so the new router reads as a native part of the
- * social surface rather than a bolted-on addition.
- */
-@Composable
-private fun SocialHubTabRow(
-    selected: SocialHubRoute,
-    onSelect: (SocialHubRoute) -> Unit,
-    pendingRequestsCount: Int,
-    pendingAssignmentsCount: Int,
-    onAddFriendClick: () -> Unit,
-    onCreateCircleClick: () -> Unit,
-    isTabRowVisible: Boolean,
-    modifier: Modifier = Modifier,
-) {
-    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
-    val screenWidth = configuration.screenWidthDp
-    val scaleFactor = (screenWidth / 360f).coerceIn(0.85f, 1.15f)
-
-    val buttonSize = (48.dp * scaleFactor)
-    val tabHeight = buttonSize - 8.dp
-    val spacing = (8.dp * scaleFactor)
-    val horizontalPadding = (16.dp * scaleFactor)
-    val iconSize = (18.dp * scaleFactor)
-    val fontSize = (14.sp * scaleFactor)
-
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .padding(horizontal = horizontalPadding, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(spacing)
-    ) {
-        // Title text ("Friends" or "Circles") shown when Segmented control is collapsed/hidden
-        AnimatedVisibility(
-            visible = !isTabRowVisible,
-            enter = fadeIn(animationSpec = tween(250)) + slideInHorizontally(animationSpec = tween(250)) { -it / 2 },
-            exit = fadeOut(animationSpec = tween(200)) + slideOutHorizontally(animationSpec = tween(200)) { -it / 2 },
-            modifier = Modifier.weight(1f)
-        ) {
-            Text(
-                text = selected.label,
-                fontWeight = FontWeight.Black,
-                fontSize = 24.sp,
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(start = 8.dp)
-            )
-        }
-
-        // Segmented control for Friends and Circles
-        AnimatedVisibility(
-            visible = isTabRowVisible,
-            enter = expandHorizontally(animationSpec = tween(250)) + fadeIn(animationSpec = tween(250)),
-            exit = shrinkHorizontally(animationSpec = tween(250)) + fadeOut(animationSpec = tween(250)),
-            modifier = Modifier.weight(1f)
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50))
-                    .padding(4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SocialHubRoute.entries.filter { it != SocialHubRoute.Tasks }.forEach { entry ->
-                    val isSelected = entry == selected
-                    val accent = routeAccentColor(entry)
-                    val backgroundColor by animateColorAsState(
-                        targetValue = if (isSelected) accent else Color.Transparent,
-                        label = "hubTab_${entry.name}",
-                    )
-                    val contentColor = if (isSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
-                    val interactionSource = remember { MutableInteractionSource() }
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(tabHeight)
-                            .clip(RoundedCornerShape(50))
-                            .background(backgroundColor)
-                            .clickable(
-                                interactionSource = interactionSource,
-                                indication = null,
-                            ) { onSelect(entry) },
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(
-                            imageVector = entry.icon,
-                            contentDescription = entry.label,
-                            tint = contentColor,
-                            modifier = Modifier.size(iconSize),
-                        )
-                        Spacer(modifier = Modifier.width(8.dp * scaleFactor))
-                        Text(
-                            text = entry.label,
-                            fontWeight = FontWeight.Black,
-                            fontSize = fontSize,
-                            color = contentColor,
-                        )
-                    }
-                }
-            }
-        }
-
-        // Separated circular Tasks button with a dotted downward arrow and badge overlay
-        val isTasksSelected = selected == SocialHubRoute.Tasks
-        val accent = routeAccentColor(SocialHubRoute.Tasks)
-        val backgroundColor by animateColorAsState(
-            targetValue = if (isTasksSelected) accent else MaterialTheme.colorScheme.surfaceVariant,
-            label = "hubTab_Tasks",
-        )
-        val interactionSource = remember { MutableInteractionSource() }
-
-        Box {
-            Box(
-                modifier = Modifier
-                    .size(buttonSize)
-                    .clip(CircleShape)
-                    .background(backgroundColor)
-                    .clickable(
-                        interactionSource = interactionSource,
-                        indication = null,
-                    ) { onSelect(SocialHubRoute.Tasks) },
-                contentAlignment = Alignment.Center
-            ) {
-                DottedDownwardArrow(
-                    color = if (isTasksSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp * scaleFactor)
-                )
-            }
-
-            val showFriendRequestBadge = pendingRequestsCount > 0
-            val showTaskBadge = pendingAssignmentsCount > 0 && !showFriendRequestBadge
-
-            if (showFriendRequestBadge || showTaskBadge) {
-                val badgeIcon = if (showFriendRequestBadge) Icons.Default.Person else Icons.AutoMirrored.Filled.Assignment
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .offset(x = 2.dp, y = (-2).dp)
-                        .size(20.dp * scaleFactor)
-                        .clip(CircleShape)
-                        .background(Color.Red),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = badgeIcon,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(12.dp * scaleFactor)
-                    )
-                }
-            }
-        }
-
-        // Separated circular Add Friend or Create Circle button
-        if (selected == SocialHubRoute.Friends || selected == SocialHubRoute.Circles) {
-            val isFriends = selected == SocialHubRoute.Friends
-            val addInteraction = remember { MutableInteractionSource() }
-            Box(
-                modifier = Modifier
-                    .size(buttonSize)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable(
-                        interactionSource = addInteraction,
-                        indication = null,
-                    ) { if (isFriends) onAddFriendClick() else onCreateCircleClick() },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = if (isFriends) Icons.Default.GroupAdd else Icons.Default.Add,
-                    contentDescription = if (isFriends) "Add Friend" else "Create Circle",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(iconSize)
-                )
-            }
-        }
     }
 }
 

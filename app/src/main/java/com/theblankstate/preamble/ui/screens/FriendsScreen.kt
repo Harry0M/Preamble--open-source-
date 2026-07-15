@@ -341,7 +341,33 @@ fun FriendsScreen(
         // resolves the status-bar and bottom-nav-bar insets once via its own innerPadding
         // (the same pattern HomeScreen uses for its own nested Scaffold). Reserving insets again
         // here would double-count them and push the header/list down with a redundant gap.
-        contentWindowInsets = WindowInsets(0, 0, 0, 0)
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        topBar = {
+            // Custom Cardfolio-style Top Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (onClose != null) {
+                        IconButton(onClick = onClose, modifier = Modifier.padding(end = 8.dp)) {
+                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        }
+                    }
+                    Text(
+                        "Friends",
+                        fontWeight = FontWeight.Black,
+                        fontSize = 28.sp,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+
+
+            }
+        }
     ) { padding ->
         PullToRefreshBox(
             isRefreshing = isRefreshing,
@@ -365,15 +391,6 @@ fun FriendsScreen(
                     .padding(horizontal = 16.dp),
                 contentPadding = PaddingValues(bottom = 24.dp)
             ) {
-                item(key = "hdr_friends_title") {
-                    Text(
-                        text = "Friends",
-                        fontWeight = FontWeight.Black,
-                        fontSize = 28.sp,
-                        color = MaterialTheme.colorScheme.onBackground,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 16.dp)
-                    )
-                }
                 // 1. HERO CARD & REFERRAL CTA (Stacked card composition)
                 item(key = "header_cards") {
                     Column(
