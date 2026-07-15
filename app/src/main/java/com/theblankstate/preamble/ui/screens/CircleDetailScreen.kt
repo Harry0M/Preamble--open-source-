@@ -150,6 +150,8 @@ fun CircleDetailScreen(
     Scaffold(
         modifier = modifier,
         topBar = {
+            val configuration = LocalConfiguration.current
+            val scaleFactor = (configuration.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -157,110 +159,131 @@ fun CircleDetailScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.weight(1f)
+                val backInteraction = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .padding(end = 8.dp)
+                        .size(40.dp * scaleFactor)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .expressivePressScale(backInteraction)
+                        .clickable(
+                            interactionSource = backInteraction,
+                            indication = null
+                        ) { onBack() },
+                    contentAlignment = Alignment.Center
                 ) {
-                    IconButton(onClick = onBack, modifier = Modifier.padding(end = 4.dp)) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                    Text(
-                        circle?.name ?: "Circle",
-                        fontWeight = FontWeight.Black,
-                        fontSize = 24.sp,
-                        color = MaterialTheme.colorScheme.onBackground
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp * scaleFactor)
                     )
                 }
+
+                Text(
+                    text = circle?.name ?: "Circle",
+                    fontWeight = FontWeight.Black,
+                    fontSize = (18 * scaleFactor).sp,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    val configuration = LocalConfiguration.current
-                    val scaleFactor = (configuration.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
-                    val addInteraction = remember { MutableInteractionSource() }
-
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp * scaleFactor)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .expressivePressScale(addInteraction)
-                            .clickable(
-                                interactionSource = addInteraction,
-                                indication = null
-                            ) {
-                                newTaskTitle = ""
-                                showAddTaskDialog = true
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Add,
-                            contentDescription = "Add task",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp * scaleFactor)
-                        )
-                    }
-
-                    val notifyInteraction = remember { MutableInteractionSource() }
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp * scaleFactor)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .expressivePressScale(notifyInteraction)
-                            .clickable(
-                                interactionSource = notifyInteraction,
-                                indication = null
-                            ) {
-                                onNotificationClick()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        DottedDownwardArrow(
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp * scaleFactor)
-                        )
-                        if (pendingNotificationsCount > 0) {
-                            Box(
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .offset(x = 2.dp, y = (-2).dp)
-                                    .size(16.dp * scaleFactor)
-                                    .clip(CircleShape)
-                                    .background(Color.Red),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Person,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(10.dp * scaleFactor)
-                                )
-                            }
-                        }
-                    }
-
                     if (isAdmin && circle != null) {
-                        // Admin-only membership controls (Requirements 3.1, 4.1, 5.1, 7.1).
-                        IconButton(onClick = { showMembersDialog = true }) {
-                            Icon(Icons.Default.PersonRemove, contentDescription = "Manage members")
+                        val membersInteraction = remember { MutableInteractionSource() }
+                        val renameInteraction = remember { MutableInteractionSource() }
+                        val deleteInteraction = remember { MutableInteractionSource() }
+
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp * scaleFactor)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .expressivePressScale(membersInteraction)
+                                .clickable(
+                                    interactionSource = membersInteraction,
+                                    indication = null
+                                ) { showMembersDialog = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PersonRemove,
+                                contentDescription = "Manage members",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp * scaleFactor)
+                            )
                         }
-                        IconButton(onClick = {
-                            renameValue = circle.name
-                            showRenameDialog = true
-                        }) {
-                            Icon(Icons.Default.DriveFileRenameOutline, contentDescription = "Rename Circle")
+
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp * scaleFactor)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .expressivePressScale(renameInteraction)
+                                .clickable(
+                                    interactionSource = renameInteraction,
+                                    indication = null
+                                ) {
+                                    renameValue = circle.name
+                                    showRenameDialog = true
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DriveFileRenameOutline,
+                                contentDescription = "Rename Circle",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp * scaleFactor)
+                            )
                         }
-                        IconButton(onClick = { showDeleteCircleDialog = true }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Delete Circle")
+
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp * scaleFactor)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .expressivePressScale(deleteInteraction)
+                                .clickable(
+                                    interactionSource = deleteInteraction,
+                                    indication = null
+                                ) { showDeleteCircleDialog = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete Circle",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp * scaleFactor)
+                            )
                         }
                     } else if (circle != null) {
-                        // Non-admin member: confirmed Leave control only, no admin controls
-                        // (Requirements 5.4, 6.1, 6.3, 7.4).
-                        IconButton(onClick = { showLeaveDialog = true }) {
-                            Icon(Icons.Default.ExitToApp, contentDescription = "Leave Circle")
+                        val leaveInteraction = remember { MutableInteractionSource() }
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp * scaleFactor)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                .expressivePressScale(leaveInteraction)
+                                .clickable(
+                                    interactionSource = leaveInteraction,
+                                    indication = null
+                                ) { showLeaveDialog = true },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ExitToApp,
+                                contentDescription = "Leave Circle",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp * scaleFactor)
+                            )
                         }
                     }
                 }
@@ -339,6 +362,33 @@ fun CircleDetailScreen(
                         )
                     }
                 }
+            }
+
+            val fabScaleFactor = (LocalConfiguration.current.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
+            val addFabInteraction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(24.dp)
+                    .size(56.dp * fabScaleFactor)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .expressivePressScale(addFabInteraction)
+                    .clickable(
+                        interactionSource = addFabInteraction,
+                        indication = null
+                    ) {
+                        newTaskTitle = ""
+                        showAddTaskDialog = true
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = "Add task",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp * fabScaleFactor)
+                )
             }
         }
     }
