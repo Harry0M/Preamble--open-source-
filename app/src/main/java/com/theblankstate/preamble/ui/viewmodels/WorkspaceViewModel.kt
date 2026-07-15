@@ -76,6 +76,17 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     var myName by androidx.compose.runtime.mutableStateOf(UserProfileStore.load(application).name ?: "Preamble user")
         private set
 
+    var lastCheckedNotificationsTimestamp by mutableStateOf(
+        sharedPrefs.getLong("last_checked_notifications_timestamp", 0L)
+    )
+        private set
+
+    fun markNotificationsAsRead() {
+        val now = System.currentTimeMillis()
+        sharedPrefs.edit().putLong("last_checked_notifications_timestamp", now).apply()
+        lastCheckedNotificationsTimestamp = now
+    }
+
     private val prefsListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "profile_preamble_id" || key == "profile_name") {
             viewModelScope.launch(Dispatchers.Main) {

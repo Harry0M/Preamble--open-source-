@@ -107,10 +107,16 @@ fun SocialHubScreen(
     var isTabRowVisible by remember { mutableStateOf(true) }
 
     val requestsSections by workspaceViewModel.requestsSections.collectAsState()
-    val pendingRequestsCount = remember(requestsSections) { requestsSections.incoming.size }
+    val friends by workspaceViewModel.friends.collectAsState()
+    val lastCheckedTimestamp = workspaceViewModel.lastCheckedNotificationsTimestamp
+
+    val pendingRequestsCount = remember(requestsSections, friends, lastCheckedTimestamp) {
+        requestsSections.incoming.count { it.timestamp > lastCheckedTimestamp } +
+        friends.count { it.addedAt > lastCheckedTimestamp }
+    }
     val incomingAssignments by workspaceViewModel.incomingAssignments.collectAsState()
-    val pendingAssignmentsCount = remember(incomingAssignments) {
-        incomingAssignments.count { it.assignmentStatus == "pending" }
+    val pendingAssignmentsCount = remember(incomingAssignments, lastCheckedTimestamp) {
+        incomingAssignments.count { it.assignmentStatus == "pending" && it.createdTimestamp > lastCheckedTimestamp }
     }
 
     LaunchedEffect(initialRoute) {

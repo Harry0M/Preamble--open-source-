@@ -45,13 +45,22 @@ fun NotificationCenterScreen(
     var selectedFilter by remember { mutableStateOf("All") }
     val filters = listOf("All", "Incoming", "Outgoing")
 
+    LaunchedEffect(Unit) {
+        viewModel.markNotificationsAsRead()
+    }
+
     val incomingTasks by viewModel.incomingAssignments.collectAsState()
     val outgoingTasks by viewModel.outgoingAssignments.collectAsState()
     val requestsSections by viewModel.requestsSections.collectAsState()
+    val friends by viewModel.friends.collectAsState()
 
     // Extract friend requests lists
     val incomingRequests = requestsSections.incoming
     val outgoingRequests = requestsSections.outgoing
+
+    val recentlyAddedFriends = remember(friends) {
+        friends.filter { System.currentTimeMillis() - it.addedAt < 7 * 24 * 60 * 60 * 1000L }
+    }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -171,6 +180,27 @@ fun NotificationCenterScreen(
                                         }
                                     }
                                 }
+                            )
+                        }
+                    }
+                }
+
+                // Show Accepted Friend Requests (Updates)
+                if (selectedFilter == "All" || selectedFilter == "Incoming") {
+                    if (recentlyAddedFriends.isNotEmpty()) {
+                        item(key = "hdr_accepted_req") {
+                            NotificationSubHeader("Updates")
+                        }
+                        items(recentlyAddedFriends, key = { "accepted_req_${it.uid}" }) { friend ->
+                            ActivityNotificationRow(
+                                avatarSeed = friend.preambleId,
+                                text = buildAnnotatedString {
+                                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                                        append(friend.name)
+                                    }
+                                    append(" accepted your friend request.")
+                                },
+                                actions = {}
                             )
                         }
                     }
