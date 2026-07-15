@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -76,11 +77,13 @@ import com.theblankstate.preamble.ui.viewmodels.CircleViewModel
 @Composable
 fun CirclesScreen(
     viewModel: CircleViewModel = viewModel(),
+    createCircleEvent: Int = 0,
     onClose: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val circles by viewModel.circles.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
+
     val context = LocalContext.current
 
     // Internal navigation into the Circle_Detail_Screen. Holding the id (not the projection)
@@ -88,6 +91,13 @@ fun CirclesScreen(
     var openCircleId by remember { mutableStateOf<String?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var newCircleName by remember { mutableStateOf("") }
+
+    LaunchedEffect(createCircleEvent) {
+        if (createCircleEvent > 0) {
+            newCircleName = ""
+            showCreateDialog = true
+        }
+    }
 
     // Surface UI state via Toast exactly like WorkspaceScreen, then clear it.
     LaunchedEffect(uiState) {
@@ -117,49 +127,7 @@ fun CirclesScreen(
 
     Scaffold(
         modifier = modifier,
-        topBar = {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp, vertical = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (onClose != null) {
-                        IconButton(onClick = onClose, modifier = Modifier.padding(end = 8.dp)) {
-                            Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                        }
-                    }
-                    Text(
-                        "Circles",
-                        fontWeight = FontWeight.Black,
-                        fontSize = 28.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(50))
-                        .clickable {
-                            newCircleName = ""
-                            showCreateDialog = true
-                        }
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "Create Circle", modifier = Modifier.size(18.dp))
-                        Text("New", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
-                }
-            }
-        }
+        contentWindowInsets = WindowInsets(0, 0, 0, 0)
     ) { padding ->
         Box(
             modifier = Modifier
@@ -167,59 +135,70 @@ fun CirclesScreen(
                 .padding(padding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            if (circles.isEmpty()) {
-                // Empty-state with a create control (Requirement 2.2).
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(100.dp)
-                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(32.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.Groups,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(24.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item(key = "hdr_circles_title") {
                     Text(
-                        "No Circles yet.",
-                        fontSize = 24.sp,
-                        fontFamily = FontFamily.Serif,
-                        fontStyle = FontStyle.Italic,
-                        color = MaterialTheme.colorScheme.onBackground
+                        text = "Circles",
+                        fontWeight = FontWeight.Black,
+                        fontSize = 28.sp,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 16.dp)
                     )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "Create a Circle to share one task list with your friends.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 16.sp
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(onClick = {
-                        newCircleName = ""
-                        showCreateDialog = true
-                    }) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Create a Circle")
-                    }
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
+
+                if (circles.isEmpty()) {
+                    item(key = "circles_empty_state") {
+                        Column(
+                            modifier = Modifier
+                                .fillParentMaxHeight(0.8f)
+                                .fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(100.dp)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(32.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Groups,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(48.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(24.dp))
+                            Text(
+                                "No Circles yet.",
+                                fontSize = 24.sp,
+                                fontFamily = FontFamily.Serif,
+                                fontStyle = FontStyle.Italic,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                "Create a Circle to share one task list with your friends.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 16.sp
+                            )
+                            Spacer(modifier = Modifier.height(24.dp))
+                            Button(onClick = {
+                                newCircleName = ""
+                                showCreateDialog = true
+                            }) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Create a Circle")
+                            }
+                        }
+                    }
+                } else {
                     itemsIndexed(circles, key = { _, circle -> "circle_${circle.id}" }) { index, circle ->
                         val cardColor = CardColors[index % CardColors.size]
                         Card(
