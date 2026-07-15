@@ -77,6 +77,8 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import android.content.Context
 import androidx.compose.runtime.mutableStateListOf
 
@@ -135,6 +137,8 @@ fun CirclesScreen(
     }
     val autoPinSuggestedNames = remember { mutableStateListOf<String>() }
     var showOptionsSheetForCircle by remember { mutableStateOf<Circle?>(null) }
+    var isSearchActive by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
 
     LaunchedEffect(circles) {
         circles.forEach { circle ->
@@ -294,16 +298,78 @@ fun CirclesScreen(
                     }
                 } else {
                     item(key = "my_circles_header") {
-                        Text(
-                            text = "MY CIRCLES",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp,
-                            letterSpacing = 1.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
-                        )
+                        val configuration = LocalConfiguration.current
+                        val scaleFactor = (configuration.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
+                        val searchInteraction = remember { MutableInteractionSource() }
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (isSearchActive) {
+                                OutlinedTextField(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it },
+                                    placeholder = { Text("Search circles...", fontSize = (13 * scaleFactor).sp) },
+                                    singleLine = true,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height((40 * scaleFactor).dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    trailingIcon = {
+                                        IconButton(
+                                            onClick = {
+                                                isSearchActive = false
+                                                searchQuery = ""
+                                            },
+                                            modifier = Modifier.size((24 * scaleFactor).dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Close,
+                                                contentDescription = "Close Search",
+                                                modifier = Modifier.size((16 * scaleFactor).dp)
+                                            )
+                                        }
+                                    }
+                                )
+                            } else {
+                                Text(
+                                    text = "MY CIRCLES",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = (11 * scaleFactor).sp,
+                                    letterSpacing = 1.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                )
+                                
+                                if (circles.size > 6) {
+                                    IconButton(
+                                        onClick = { isSearchActive = true },
+                                        modifier = Modifier
+                                            .size((28 * scaleFactor).dp)
+                                            .expressivePressScale(searchInteraction)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = "Search Circles",
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                            modifier = Modifier.size((18 * scaleFactor).dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
-                    itemsIndexed(circles, key = { _, circle -> "circle_${circle.id}" }) { index, circle ->
+
+                    val filteredCircles = if (searchQuery.isBlank()) {
+                        circles
+                    } else {
+                        circles.filter { it.name.contains(searchQuery, ignoreCase = true) }
+                    }
+
+                    itemsIndexed(filteredCircles, key = { _, circle -> "circle_${circle.id}" }) { index, circle ->
                         val iconColor = CardColors[index % CardColors.size]
                         CircleRowItem(
                             circle = circle,
