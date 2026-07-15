@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,6 +34,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Assignment
 import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.runtime.collectAsState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -103,6 +106,12 @@ fun SocialHubScreen(
     var previousRoute by remember { mutableStateOf(SocialHubRoute.Friends) }
     var isTabRowVisible by remember { mutableStateOf(true) }
 
+    val pendingRequestsCount by workspaceViewModel.pendingRequestsCount.collectAsState()
+    val incomingAssignments by workspaceViewModel.incomingAssignments.collectAsState()
+    val pendingAssignmentsCount = remember(incomingAssignments) {
+        incomingAssignments.count { it.assignmentStatus == "pending" }
+    }
+
     LaunchedEffect(initialRoute) {
         if (initialRoute != null) {
             route = initialRoute
@@ -140,7 +149,12 @@ fun SocialHubScreen(
             enter = expandVertically(animationSpec = tween(250)) + slideInVertically(animationSpec = tween(250)) { -it } + fadeIn(animationSpec = tween(250)),
             exit = shrinkVertically(animationSpec = tween(250)) + slideOutVertically(animationSpec = tween(250)) { -it } + fadeOut(animationSpec = tween(250))
         ) {
-            SocialHubTabRow(selected = route, onSelect = { route = it })
+            SocialHubTabRow(
+                selected = route,
+                onSelect = { route = it },
+                pendingRequestsCount = pendingRequestsCount,
+                pendingAssignmentsCount = pendingAssignmentsCount,
+            )
         }
 
         Box(modifier = Modifier.weight(1f)) {
@@ -195,6 +209,8 @@ fun SocialHubScreen(
 private fun SocialHubTabRow(
     selected: SocialHubRoute,
     onSelect: (SocialHubRoute) -> Unit,
+    pendingRequestsCount: Int,
+    pendingAssignmentsCount: Int,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -251,7 +267,7 @@ private fun SocialHubTabRow(
             }
         }
 
-        // Separated circular Tasks button with a dotted downward arrow
+        // Separated circular Tasks button with a dotted downward arrow and badge overlay
         val isTasksSelected = selected == SocialHubRoute.Tasks
         val accent = routeAccentColor(SocialHubRoute.Tasks)
         val backgroundColor by animateColorAsState(
@@ -259,20 +275,46 @@ private fun SocialHubTabRow(
             label = "hubTab_Tasks",
         )
         val interactionSource = remember { MutableInteractionSource() }
-        Box(
-            modifier = Modifier
-                .size(52.dp)
-                .clip(CircleShape)
-                .background(backgroundColor)
-                .clickable(
-                    interactionSource = interactionSource,
-                    indication = null,
-                ) { onSelect(SocialHubRoute.Tasks) },
-            contentAlignment = Alignment.Center
-        ) {
-            DottedDownwardArrow(
-                color = if (isTasksSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
-            )
+
+        Box {
+            Box(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(CircleShape)
+                    .background(backgroundColor)
+                    .clickable(
+                        interactionSource = interactionSource,
+                        indication = null,
+                    ) { onSelect(SocialHubRoute.Tasks) },
+                contentAlignment = Alignment.Center
+            ) {
+                DottedDownwardArrow(
+                    color = if (isTasksSelected) Color.Black else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            val showFriendRequestBadge = pendingRequestsCount > 0
+            val showTaskBadge = pendingAssignmentsCount > 0 && !showFriendRequestBadge
+
+            if (showFriendRequestBadge || showTaskBadge) {
+                val badgeIcon = if (showFriendRequestBadge) Icons.Default.Person else Icons.AutoMirrored.Filled.Assignment
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .offset(x = 2.dp, y = (-2).dp)
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(Color.Red),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = badgeIcon,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(12.dp)
+                    )
+                }
+            }
         }
     }
 }
