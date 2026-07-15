@@ -64,6 +64,14 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.text.style.TextOverflow
 import com.theblankstate.preamble.repository.Circle
 import com.theblankstate.preamble.repository.CircleMember
+import androidx.compose.material.icons.filled.School
+import androidx.compose.material.icons.filled.Work
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.FitnessCenter
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.Flight
+import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.ui.platform.LocalConfiguration
 
 /**
  * Circles_Screen (shared-circles Requirements 1.1, 2.1, 2.2, 2.4).
@@ -98,6 +106,21 @@ fun CirclesScreen(
     var openCircleId by remember { mutableStateOf<String?>(null) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var newCircleName by remember { mutableStateOf("") }
+
+    val initialSuggestions = remember {
+        listOf(
+            SuggestionCircle("School", Icons.Default.School),
+            SuggestionCircle("Work", Icons.Default.Work),
+            SuggestionCircle("Family", Icons.Default.Home),
+            SuggestionCircle("Friends", Icons.Default.Group),
+            SuggestionCircle("Gym", Icons.Default.FitnessCenter),
+            SuggestionCircle("Project", Icons.Default.Build),
+            SuggestionCircle("Travel", Icons.Default.Flight),
+            SuggestionCircle("Shopping", Icons.Default.ShoppingCart)
+        )
+    }
+    var suggestions by remember { mutableStateOf(initialSuggestions) }
+    var activeSuggestionOption by remember { mutableStateOf<SuggestionCircle?>(null) }
 
     LaunchedEffect(registerCreateCircleTrigger) {
         registerCreateCircleTrigger?.invoke {
@@ -165,59 +188,80 @@ fun CirclesScreen(
                 .padding(padding)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            if (circles.isEmpty()) {
-                // Empty-state with a create control (Requirement 2.2).
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(100.dp)
-                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(32.dp)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.Groups,
-                            contentDescription = null,
-                            modifier = Modifier.size(48.dp),
-                            tint = MaterialTheme.colorScheme.primary
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (suggestions.isNotEmpty()) {
+                    item(key = "suggestions_header_grid") {
+                        CircleSuggestionsGrid(
+                            suggestions = suggestions,
+                            onSuggestClick = { activeSuggestionOption = it }
                         )
-                    }
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Text(
-                        "No Circles yet.",
-                        fontSize = 24.sp,
-                        fontFamily = FontFamily.Serif,
-                        fontStyle = FontStyle.Italic,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "Create a Circle to share one task list with your friends.",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = 16.sp
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(onClick = {
-                        newCircleName = ""
-                        showCreateDialog = true
-                    }) {
-                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Create a Circle")
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
+
+                if (circles.isEmpty()) {
+                    item(key = "empty_circles_state") {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 48.dp, horizontal = 24.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(80.dp)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(24.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.Groups,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(40.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                "No Circles yet.",
+                                fontSize = 20.sp,
+                                fontFamily = FontFamily.Serif,
+                                fontStyle = FontStyle.Italic,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                "Create a Circle to share one task list with your friends.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontSize = 14.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Button(onClick = {
+                                newCircleName = ""
+                                showCreateDialog = true
+                            }) {
+                                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Create a Circle")
+                            }
+                        }
+                    }
+                } else {
+                    item(key = "my_circles_header") {
+                        Text(
+                            text = "MY CIRCLES",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            letterSpacing = 1.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                        )
+                    }
                     itemsIndexed(circles, key = { _, circle -> "circle_${circle.id}" }) { index, circle ->
                         val iconColor = CardColors[index % CardColors.size]
                         CircleRowItem(
@@ -260,6 +304,42 @@ fun CirclesScreen(
             dismissButton = {
                 TextButton(onClick = { showCreateDialog = false }) {
                     Text("Cancel")
+                }
+            }
+        )
+    }
+
+    val activeSuggest = activeSuggestionOption
+    if (activeSuggest != null) {
+        AlertDialog(
+            onDismissRequest = { activeSuggestionOption = null },
+            title = { Text("Create '${activeSuggest.name}' Circle?") },
+            text = { Text("Would you like to create a real '${activeSuggest.name}' circle or remove this suggestion?") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        viewModel.createCircle(activeSuggest.name)
+                        suggestions = suggestions.filterNot { it.name == activeSuggest.name }
+                        activeSuggestionOption = null
+                    }
+                ) {
+                    Text("Create")
+                }
+            },
+            dismissButton = {
+                Row {
+                    TextButton(
+                        onClick = {
+                            suggestions = suggestions.filterNot { it.name == activeSuggest.name }
+                            activeSuggestionOption = null
+                        }
+                    ) {
+                        Text("Remove", color = MaterialTheme.colorScheme.error)
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TextButton(onClick = { activeSuggestionOption = null }) {
+                        Text("Cancel")
+                    }
                 }
             }
         )
@@ -399,4 +479,107 @@ private fun Modifier.expressivePressScale(
         label = "expressivePressScale",
     )
     return this.scale(scale)
+}
+
+private data class SuggestionCircle(
+    val name: String,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector
+)
+
+@Composable
+private fun CircleSuggestionsGrid(
+    suggestions: List<SuggestionCircle>,
+    onSuggestClick: (SuggestionCircle) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val configuration = LocalConfiguration.current
+    val scaleFactor = (configuration.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 8.dp)
+    ) {
+        Text(
+            text = "SUGGESTIONS",
+            fontWeight = FontWeight.Bold,
+            fontSize = (11 * scaleFactor).sp,
+            letterSpacing = 1.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+        )
+
+        val rows = remember(suggestions) { suggestions.chunked(4) }
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy((16 * scaleFactor).dp)
+        ) {
+            rows.forEach { rowItems ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceAround
+                ) {
+                    rowItems.forEach { suggestion ->
+                        SuggestionCircleItem(
+                            suggestion = suggestion,
+                            scaleFactor = scaleFactor,
+                            onClick = { onSuggestClick(suggestion) }
+                        )
+                    }
+                    if (rowItems.size < 4) {
+                        repeat(4 - rowItems.size) {
+                            Spacer(modifier = Modifier.width((60 * scaleFactor).dp))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SuggestionCircleItem(
+    suggestion: SuggestionCircle,
+    scaleFactor: Float,
+    onClick: () -> Unit
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val colorIndex = suggestion.name.length
+    val bgColor = CardColors[colorIndex % CardColors.size]
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .width((68 * scaleFactor).dp)
+            .expressivePressScale(interactionSource)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            )
+    ) {
+        Box(
+            modifier = Modifier
+                .size((52 * scaleFactor).dp)
+                .clip(CircleShape)
+                .background(bgColor),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = suggestion.icon,
+                contentDescription = suggestion.name,
+                tint = Color.Black.copy(alpha = 0.7f),
+                modifier = Modifier.size((24 * scaleFactor).dp)
+            )
+        }
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = suggestion.name,
+            fontWeight = FontWeight.Medium,
+            fontSize = (12 * scaleFactor).sp,
+            color = MaterialTheme.colorScheme.onBackground,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
 }
