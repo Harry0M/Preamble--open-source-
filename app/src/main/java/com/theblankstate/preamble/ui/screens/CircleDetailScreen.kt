@@ -32,9 +32,12 @@ import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -577,32 +580,82 @@ fun CircleDetailScreen(
         )
     }
 
-    // ---- Rename Circle dialog (admin, Requirements 3.1, 3.4) ----
+    // ---- Rename Circle bottom sheet (admin, Requirements 3.1, 3.4) ----
     if (showRenameDialog && circle != null) {
-        AlertDialog(
+        val renameSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
             onDismissRequest = { showRenameDialog = false },
-            title = { Text("Rename Circle") },
-            text = {
+            sheetState = renameSheetState,
+            containerColor = MaterialTheme.colorScheme.background,
+            dragHandle = {
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = 12.dp)
+                        .size(width = 36.dp, height = 4.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                )
+            }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 36.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "RENAME CIRCLE",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = (14 * scaleFactor).sp,
+                    letterSpacing = 1.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    modifier = Modifier.align(Alignment.Start)
+                )
+                Spacer(modifier = Modifier.height(16.dp * scaleFactor))
+                
                 OutlinedTextField(
                     value = renameValue,
                     onValueChange = { renameValue = it },
-                    label = { Text("Circle name") },
-                    singleLine = true
+                    placeholder = { Text("Circle name", fontSize = (14 * scaleFactor).sp) },
+                    singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(
+                        fontSize = (14 * scaleFactor).sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height((48 * scaleFactor).dp),
+                    shape = RoundedCornerShape(12.dp)
                 )
-            },
-            confirmButton = {
+                
+                Spacer(modifier = Modifier.height(24.dp * scaleFactor))
+                
+                val saveInteraction = remember { MutableInteractionSource() }
                 Button(
                     onClick = {
                         viewModel.renameCircle(circle, renameValue)
                         showRenameDialog = false
                     },
-                    enabled = renameValue.isNotBlank()
-                ) { Text("Save") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showRenameDialog = false }) { Text("Cancel") }
+                    enabled = renameValue.isNotBlank(),
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height((48 * scaleFactor).dp)
+                        .expressivePressScale(saveInteraction),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    )
+                ) {
+                    Text(
+                        text = "Save changes",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = (14 * scaleFactor).sp
+                    )
+                }
             }
-        )
+        }
     }
 
     // ---- Delete Circle confirmation (admin, Requirement 7.1) ----
@@ -643,13 +696,39 @@ fun CircleDetailScreen(
         )
     }
 
-    // ---- Manage members dialog (admin, Requirements 4.1, 5.1) ----
+    // ---- Manage members bottom sheet (admin, Requirements 4.1, 5.1) ----
     if (showMembersDialog && circle != null) {
-        AlertDialog(
+        val membersSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(
             onDismissRequest = { showMembersDialog = false },
-            title = { Text("Members") },
-            text = {
-                Column(modifier = Modifier.heightIn(max = 360.dp)) {
+            sheetState = membersSheetState,
+            containerColor = MaterialTheme.colorScheme.background,
+            dragHandle = {
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = 12.dp)
+                        .size(width = 36.dp, height = 4.dp)
+                        .clip(RoundedCornerShape(50))
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                )
+            }
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 36.dp)
+            ) {
+                Text(
+                    text = "CIRCLE MEMBERS",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = (14 * scaleFactor).sp,
+                    letterSpacing = 1.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                )
+                Spacer(modifier = Modifier.height(12.dp * scaleFactor))
+                
+                Box(modifier = Modifier.heightIn(max = 240.dp * scaleFactor)) {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         items(circle.members.filter { it.status == "active" }, key = { it.uid }) { member ->
                             MemberRow(
@@ -659,23 +738,43 @@ fun CircleDetailScreen(
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    HorizontalDivider()
-                    Spacer(modifier = Modifier.height(8.dp))
-                    TextButton(onClick = {
+                }
+                
+                Spacer(modifier = Modifier.height(20.dp * scaleFactor))
+                HorizontalDivider(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                Spacer(modifier = Modifier.height(16.dp * scaleFactor))
+                
+                val addFriendInteraction = remember { MutableInteractionSource() }
+                Button(
+                    onClick = {
                         showMembersDialog = false
                         showAddMemberDialog = true
-                    }) {
-                        Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Add a friend")
-                    }
+                    },
+                    shape = RoundedCornerShape(50),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height((48 * scaleFactor).dp)
+                        .expressivePressScale(addFriendInteraction),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.PersonAdd,
+                        contentDescription = "Add friend",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(18.dp * scaleFactor)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp * scaleFactor))
+                    Text(
+                        text = "Add a friend",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = (14 * scaleFactor).sp
+                    )
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showMembersDialog = false }) { Text("Done") }
             }
-        )
+        }
     }
 
     // ---- Add member from friends dialog (admin, Requirements 4.1, 4.2) ----
@@ -836,26 +935,71 @@ private fun MemberRow(
     isAdminMember: Boolean,
     onRemove: () -> Unit
 ) {
+    val scaleFactor = (LocalConfiguration.current.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp),
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
+        // Visual Anchor on Left
+        val initials = member.name.take(1).uppercase()
+        val avatarColor = CardColors[member.uid.hashCode().coerceAtLeast(0) % CardColors.size]
+        Box(
+            modifier = Modifier
+                .size(36.dp * scaleFactor)
+                .clip(CircleShape)
+                .background(avatarColor),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = initials,
+                fontWeight = FontWeight.Black,
+                fontSize = (13 * scaleFactor).sp,
+                color = Color.Black
+            )
+        }
+
+        Spacer(modifier = Modifier.width(12.dp * scaleFactor))
+
+        // Metadata in Middle
         Column(modifier = Modifier.weight(1f)) {
-            Text(member.name.ifBlank { member.uid }, fontWeight = FontWeight.Bold)
+            Text(
+                text = member.name.ifBlank { member.uid },
+                fontWeight = FontWeight.Bold,
+                fontSize = (14 * scaleFactor).sp,
+                color = MaterialTheme.colorScheme.onSurface
+            )
             if (isAdminMember) {
-                Text("Admin", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    text = "Admin",
+                    fontSize = (11 * scaleFactor).sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
             }
         }
-        // The admin cannot be removed via this control (Requirement 5.3).
+
+        // Actions/Metadata on Right
         if (!isAdminMember) {
-            IconButton(onClick = onRemove) {
+            val removeInteraction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .size(32.dp * scaleFactor)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .expressivePressScale(removeInteraction)
+                    .clickable(
+                        interactionSource = removeInteraction,
+                        indication = null
+                    ) { onRemove() },
+                contentAlignment = Alignment.Center
+            ) {
                 Icon(
-                    Icons.Default.PersonRemove,
-                    contentDescription = "Remove ${member.name}",
-                    tint = Color(0xFFD9534F)
+                    imageVector = Icons.Default.PersonRemove,
+                    contentDescription = "Remove member",
+                    tint = Color(0xFFD9534F),
+                    modifier = Modifier.size(16.dp * scaleFactor)
                 )
             }
         }
