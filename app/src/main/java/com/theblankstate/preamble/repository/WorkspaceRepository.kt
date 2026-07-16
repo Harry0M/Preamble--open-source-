@@ -5,9 +5,11 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.FieldPath
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.WriteBatch
 import com.google.firebase.functions.FirebaseFunctions
 import com.google.firebase.functions.FirebaseFunctionsException
 import com.theblankstate.preamble.collab.AssigneeRef
@@ -178,10 +180,12 @@ class WorkspaceRepository(
             timestamp = System.currentTimeMillis()
         )
 
-        val batch = db.batch()
-        batch.set(incomingRef, invite)
-        batch.set(mirrorRef, mirror)
-        batch.commit().await()
+        commitWithAuthRetry {
+            db.batch().apply {
+                set(incomingRef, invite)
+                set(mirrorRef, mirror)
+            }
+        }
     }.onFailure { Log.e(TAG, "Failed to send invite", it) }
 
     suspend fun acceptInvite(
@@ -209,6 +213,8 @@ class WorkspaceRepository(
             .collection(FRIENDS).document(uid)
         val inviteRef = db.collection(USERS).document(uid)
             .collection(INVITES).document(invite.id.ifBlank { invite.senderUid })
+        val outgoingInviteRef = db.collection(USERS).document(invite.senderUid)
+            .collection(OUTGOING_INVITES).document(uid)
 
         batch.set(
             myFriendRef,
@@ -231,6 +237,7 @@ class WorkspaceRepository(
             )
         )
         batch.delete(inviteRef)
+        batch.delete(outgoingInviteRef)
         batch.commit().await()
     }.onFailure { Log.e(TAG, "Failed to accept invite", it) }
 
@@ -277,6 +284,24 @@ class WorkspaceRepository(
         batch.delete(
             db.collection(USERS).document(friendUid)
                 .collection(FRIENDS).document(uid)
+        )
+        // Clean up any remaining invites or outgoing invites between them in both directions
+        batch.delete(
+            db.collection(USERS).document(uid)
+                .collection(OUTGOING_INVITES).document(friendUid)
+        )
+        // Since OUTGOING_INVITES might not exist, Firestore delete handles it gracefully
+        batch.delete(
+            db.collection(USERS).document(friendUid)
+                .collection(OUTGOING_INVITES).document(uid)
+        )
+        batch.delete(
+            db.collection(USERS).document(uid)
+                .collection(INVITES).document(friendUid)
+        )
+        batch.delete(
+            db.collection(USERS).document(friendUid)
+                .collection(INVITES).document(uid)
         )
         batch.commit().await()
     }.onFailure { Log.e(TAG, "Failed to remove friend", it) }
@@ -1180,6 +1205,28 @@ class WorkspaceRepository(
 
     private fun requireCurrentUid(): String =
         currentUid ?: throw IllegalStateException("Sign in to use collaboration")
+
+    /**
+     * Commits a batch built by [buildBatch], retrying exactly once — after forcing a
+     * fresh ID token — if the first attempt is rejected with PERMISSION_DENIED.
+     *
+     * Firestore's authenticated gRPC stream can briefly lag behind FirebaseAuth right
+     * after sign-in, a token refresh, or the app resuming from background: a write sent
+     * during that window can be rejected by security rules even though the user is
+     * legitimately authorized, and normally succeeds moments later. Forcing a fresh ID
+     * token and rebuilding+recommitting the batch (a committed [WriteBatch] cannot be
+     * reused) resolves that race. Any other failure — including a genuine second
+     * PERMISSION_DENIED after the token refresh — is rethrown unchanged.
+     */
+    private suspend fun commitWithAuthRetry(buildBatch: () -> WriteBatch) {
+        try {
+            buildBatch().commit().await()
+        } catch (exception: FirebaseFirestoreException) {
+            if (exception.code != FirebaseFirestoreException.Code.PERMISSION_DENIED) throw exception
+            auth.currentUser?.getIdToken(true)?.await()
+            buildBatch().commit().await()
+        }
+    }
 
     private companion object {
         const val TAG = "WorkspaceRepository"
