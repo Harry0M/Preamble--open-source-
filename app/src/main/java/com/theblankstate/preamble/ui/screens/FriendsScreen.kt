@@ -1869,127 +1869,125 @@ private fun OutgoingInviteCard(
     errorMessage: String? = null,
     onRetry: (() -> Unit)? = null,
 ) {
+    val scaleFactor = (LocalConfiguration.current.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
     val isFailed = errorMessage != null
-    val cardColor = if (isFailed) Color(0xFF452B2B) else Color(0xFF353551)
-    val accent = if (isFailed) Color(0xFFFF9E9E) else Color(0xFFD4FF70)
-    val bg = remember(invite.targetUid) { RandomBackgrounds.random() }
+    val accent = if (isFailed) Color(0xFFFF9E9E) else MaterialTheme.colorScheme.primary
 
-    Card(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(84.dp),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = cardColor),
-        border = if (isFailed) BorderStroke(1.dp, Color(0xFFE57373).copy(alpha = 0.5f)) else null
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.matchParentSize()) {
-                Image(
-                    painter = painterResource(id = bg),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    alignment = Alignment.TopCenter,
-                    modifier = Modifier.fillMaxSize(),
-                    alpha = if (isFailed) 0.1f else 0.25f,
+        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Box {
+                AsyncImage(
+                    model = "https://api.dicebear.com/9.x/micah/png?seed=${invite.targetPreambleId}",
+                    contentDescription = "Avatar",
+                    modifier = Modifier
+                        .size(44.dp * scaleFactor)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
                 )
-            }
-
-            Row(
-                modifier = Modifier.padding(horizontal = 20.dp).fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                    Box {
-                        AsyncImage(
-                            model = "https://api.dicebear.com/9.x/micah/png?seed=${invite.targetPreambleId}",
-                            contentDescription = "Avatar",
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.3f)),
-                        )
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .size(18.dp)
-                                .clip(CircleShape)
-                                .background(accent),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = if (isFailed) Icons.Default.Warning else Icons.Default.NorthEast,
-                                contentDescription = null,
-                                tint = Color.Black,
-                                modifier = Modifier.size(12.dp),
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "To: ${invite.targetPreambleId}",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 17.sp,
-                            color = Color.White,
-                        )
-                        if (isFailed) {
-                            Text(
-                                text = errorMessage ?: "Failed. Try again.",
-                                color = Color(0xFFE57373),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        } else {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Icon(
-                                    Icons.Default.Schedule,
-                                    contentDescription = null,
-                                    tint = accent,
-                                    modifier = Modifier.size(12.dp),
-                                )
-                                Text(
-                                    "Awaiting response",
-                                    color = accent,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                            }
-                        }
-                    }
-                }
-                
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .size(16.dp * scaleFactor)
+                        .clip(CircleShape)
+                        .background(accent),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    if (isFailed && onRetry != null) {
-                        val retryInteraction = remember { MutableInteractionSource() }
-                        IconButton(
-                            onClick = onRetry,
-                            modifier = Modifier
-                                .background(Color.White.copy(alpha = 0.1f), CircleShape)
-                                .expressivePressScale(retryInteraction)
-                        ) {
-                            Icon(Icons.Default.Refresh, contentDescription = "Retry invite", tint = accent)
-                        }
-                    }
-                    val withdrawInteraction = remember { MutableInteractionSource() }
-                    IconButton(
-                        onClick = onWithdraw,
-                        modifier = Modifier
-                            .background(Color.White.copy(alpha = 0.1f), CircleShape)
-                            .expressivePressScale(withdrawInteraction)
-                    ) {
+                    Icon(
+                        imageVector = if (isFailed) Icons.Default.Warning else Icons.Default.NorthEast,
+                        contentDescription = null,
+                        tint = Color.Black,
+                        modifier = Modifier.size(10.dp * scaleFactor),
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(16.dp * scaleFactor))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "To: ${invite.targetPreambleId}",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = (16 * scaleFactor).sp,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                if (isFailed) {
+                    Text(
+                        text = errorMessage ?: "Failed. Try again.",
+                        color = MaterialTheme.colorScheme.error,
+                        fontSize = (12 * scaleFactor).sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         Icon(
-                            imageVector = if (isFailed) Icons.Default.Close else Icons.AutoMirrored.Filled.Undo,
-                            contentDescription = if (isFailed) "Remove failed invite" else "Withdraw invite",
-                            tint = Color(0xFFFF9E9E)
+                            Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier.size(12.dp * scaleFactor),
+                        )
+                        Text(
+                            text = "Awaiting response",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            fontSize = (12 * scaleFactor).sp,
+                            fontWeight = FontWeight.Medium,
                         )
                     }
                 }
+            }
+        }
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (isFailed && onRetry != null) {
+                val retryInteraction = remember { MutableInteractionSource() }
+                Box(
+                    modifier = Modifier
+                        .size(36.dp * scaleFactor)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .expressivePressScale(retryInteraction)
+                        .clickable(
+                            interactionSource = retryInteraction,
+                            indication = null
+                        ) { onRetry() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Retry",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(16.dp * scaleFactor)
+                    )
+                }
+            }
+            val withdrawInteraction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .size(36.dp * scaleFactor)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .expressivePressScale(withdrawInteraction)
+                    .clickable(
+                        interactionSource = withdrawInteraction,
+                        indication = null
+                    ) { onWithdraw() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = if (isFailed) Icons.Default.Close else Icons.AutoMirrored.Filled.Undo,
+                    contentDescription = "Withdraw",
+                    tint = if (isFailed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp * scaleFactor)
+                )
             }
         }
     }
@@ -1997,8 +1995,7 @@ private fun OutgoingInviteCard(
 
 /**
  * IncomingInviteCard (social-hub-redesign Req 4.2, 5.3): a received Friend_Request within the
- * Requests_List incoming group, preserving the established dark-slate Cardfolio styling and
- * the accept/decline actions ([onAccept] / [onDecline]).
+ * Requests_List incoming group, redesigned to be a clean, borderless list row matching the friends list layout.
  */
 @Composable
 private fun IncomingInviteCard(
@@ -2006,61 +2003,82 @@ private fun IncomingInviteCard(
     onAccept: () -> Unit,
     onDecline: () -> Unit,
 ) {
-    val cardColor = Color(0xFF2C2C2E) // Dark slate for incoming invites (existing styling)
-    val inviteBg = remember(invite.id) { RandomBackgrounds.random() }
+    val scaleFactor = (LocalConfiguration.current.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
 
-    Card(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(80.dp),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = cardColor),
+            .padding(horizontal = 8.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        Box(modifier = Modifier.fillMaxSize()) {
-            Box(modifier = Modifier.matchParentSize()) {
-                Image(
-                    painter = painterResource(id = inviteBg),
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    alignment = Alignment.TopCenter,
-                    modifier = Modifier.fillMaxSize(),
-                    alpha = 0.3f,
+        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            AsyncImage(
+                model = "https://api.dicebear.com/9.x/micah/png?seed=${invite.senderPreambleId}",
+                contentDescription = "Avatar",
+                modifier = Modifier
+                    .size(44.dp * scaleFactor)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+            )
+            Spacer(modifier = Modifier.width(16.dp * scaleFactor))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = invite.senderName,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = (16 * scaleFactor).sp,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "ID: ${invite.senderPreambleId}",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    fontSize = (13 * scaleFactor).sp
+                )
+            }
+        }
+        
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            val acceptInteraction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .size(36.dp * scaleFactor)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer)
+                    .expressivePressScale(acceptInteraction)
+                    .clickable(
+                        interactionSource = acceptInteraction,
+                        indication = null
+                    ) { onAccept() },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Accept",
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(16.dp * scaleFactor)
                 )
             }
 
-            Row(
-                modifier = Modifier.padding(horizontal = 20.dp).fillMaxSize(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
+            val declineInteraction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .size(36.dp * scaleFactor)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .expressivePressScale(declineInteraction)
+                    .clickable(
+                        interactionSource = declineInteraction,
+                        indication = null
+                    ) { onDecline() },
+                contentAlignment = Alignment.Center
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    AsyncImage(
-                        model = "https://api.dicebear.com/9.x/micah/png?seed=${invite.senderPreambleId}",
-                        contentDescription = "Avatar",
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(Color.White.copy(alpha = 0.3f)),
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(
-                            text = "Invite: ${invite.senderName}",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
-                            color = Color.White,
-                        )
-                        Text("ID: ${invite.senderPreambleId}", color = Color.White.copy(alpha = 0.6f), fontSize = 12.sp)
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IconButton(onClick = onAccept, modifier = Modifier.background(Color.White.copy(alpha = 0.1f), CircleShape)) {
-                        Icon(Icons.Default.Check, contentDescription = "Accept", tint = Color(0xFFD4FF70))
-                    }
-                    IconButton(onClick = onDecline, modifier = Modifier.background(Color.White.copy(alpha = 0.1f), CircleShape)) {
-                        Icon(Icons.Default.Close, contentDescription = "Decline", tint = Color(0xFFFF9E9E))
-                    }
-                }
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Decline",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp * scaleFactor)
+                )
             }
         }
     }
