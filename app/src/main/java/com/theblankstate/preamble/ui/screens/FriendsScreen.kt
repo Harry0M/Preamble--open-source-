@@ -341,6 +341,18 @@ fun FriendsScreen(
         }
     }
 
+    var showAllRequestsScreen by remember { mutableStateOf(false) }
+
+    if (showAllRequestsScreen) {
+        AllRequestsScreen(
+            requestsSections = requestsSections,
+            failedInvites = failedInvites,
+            viewModel = viewModel,
+            onBack = { showAllRequestsScreen = false }
+        )
+        return
+    }
+
     Scaffold(
         modifier = modifier,
         // ZERO INSETS: this screen is now hosted as a tab inside SocialHubScreen, which itself
@@ -765,8 +777,9 @@ fun FriendsScreen(
                                     count = requestsSections.outgoing.size,
                                 )
                             }
+                            val displayOutgoing = if (requestsSections.outgoing.size > 7) requestsSections.outgoing.take(7) else requestsSections.outgoing
                             items(
-                                requestsSections.outgoing,
+                                displayOutgoing,
                                 key = { "outgoing_${it.targetUid}" }
                             ) { outgoing ->
                                 val errorMessage = failedInvites[outgoing.targetPreambleId] ?: failedInvites[outgoing.targetUid]
@@ -777,6 +790,31 @@ fun FriendsScreen(
                                     onRetry = { viewModel.sendInvite(outgoing.targetPreambleId) }
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
+                            }
+                            if (requestsSections.outgoing.size > 7) {
+                                item(key = "outgoing_see_more") {
+                                    val interactionSource = remember { MutableInteractionSource() }
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp)
+                                            .clip(RoundedCornerShape(50))
+                                            .expressivePressScale(interactionSource)
+                                            .clickable(
+                                                interactionSource = interactionSource,
+                                                indication = null
+                                            ) { showAllRequestsScreen = true }
+                                            .padding(vertical = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "See more sent requests",
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -789,8 +827,9 @@ fun FriendsScreen(
                                     count = requestsSections.incoming.size,
                                 )
                             }
+                            val displayIncoming = if (requestsSections.incoming.size > 7) requestsSections.incoming.take(7) else requestsSections.incoming
                             items(
-                                requestsSections.incoming,
+                                displayIncoming,
                                 key = { "incoming_${it.id}" }
                             ) { invite ->
                                 IncomingInviteCard(
@@ -799,6 +838,31 @@ fun FriendsScreen(
                                     onDecline = { viewModel.declineInvite(invite.id) }
                                 )
                                 Spacer(modifier = Modifier.height(8.dp))
+                            }
+                            if (requestsSections.incoming.size > 7) {
+                                item(key = "incoming_see_more") {
+                                    val interactionSource = remember { MutableInteractionSource() }
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp)
+                                            .clip(RoundedCornerShape(50))
+                                            .expressivePressScale(interactionSource)
+                                            .clickable(
+                                                interactionSource = interactionSource,
+                                                indication = null
+                                            ) { showAllRequestsScreen = true }
+                                            .padding(vertical = 8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = "See more received requests",
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                }
                             }
                         }
 
@@ -2079,6 +2143,129 @@ private fun IncomingInviteCard(
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(16.dp * scaleFactor)
                 )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AllRequestsScreen(
+    requestsSections: RequestsListOrganizer.Sections,
+    failedInvites: Map<String, String>,
+    viewModel: WorkspaceViewModel,
+    onBack: () -> Unit,
+) {
+    val configuration = LocalConfiguration.current
+    val scaleFactor = (configuration.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = {
+                    Text(
+                        text = "Friend Requests",
+                        fontWeight = FontWeight.Black,
+                        fontSize = (20 * scaleFactor).sp,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                },
+                navigationIcon = {
+                    val backInteraction = remember { MutableInteractionSource() }
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.expressivePressScale(backInteraction)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ArrowBack,
+                            contentDescription = "Back",
+                            modifier = Modifier.size(24.dp * scaleFactor)
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
+            )
+        }
+    ) { paddingValues ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .background(MaterialTheme.colorScheme.background),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+        ) {
+            // 1. Pending Sent Invites
+            if (requestsSections.outgoing.isNotEmpty()) {
+                item(key = "all_requests_header_outgoing") {
+                    RequestsSectionHeader(
+                        icon = Icons.Default.Outbox,
+                        title = "Sent Requests",
+                        count = requestsSections.outgoing.size,
+                    )
+                }
+                items(
+                    requestsSections.outgoing,
+                    key = { "all_outgoing_${it.targetUid}" }
+                ) { outgoing ->
+                    val errorMessage = failedInvites[outgoing.targetPreambleId] ?: failedInvites[outgoing.targetUid]
+                    OutgoingInviteCard(
+                        invite = outgoing,
+                        onWithdraw = { viewModel.withdrawInvite(outgoing.targetUid) },
+                        errorMessage = errorMessage,
+                        onRetry = { viewModel.sendInvite(outgoing.targetPreambleId) }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+
+            // Spacer between sections if both are present
+            if (requestsSections.outgoing.isNotEmpty() && requestsSections.incoming.isNotEmpty()) {
+                item(key = "all_requests_spacer") {
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+
+            // 2. Pending Received Invites
+            if (requestsSections.incoming.isNotEmpty()) {
+                item(key = "all_requests_header_incoming") {
+                    RequestsSectionHeader(
+                        icon = Icons.Default.MoveToInbox,
+                        title = "Received Requests",
+                        count = requestsSections.incoming.size,
+                    )
+                }
+                items(
+                    requestsSections.incoming,
+                    key = { "all_incoming_${it.id}" }
+                ) { invite ->
+                    IncomingInviteCard(
+                        invite = invite,
+                        onAccept = { viewModel.acceptInvite(invite) },
+                        onDecline = { viewModel.declineInvite(invite.id) }
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+            }
+
+            if (requestsSections.outgoing.isEmpty() && requestsSections.incoming.isEmpty()) {
+                item(key = "all_requests_empty") {
+                    Box(
+                        modifier = Modifier
+                            .fillParentMaxHeight(0.8f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No pending requests",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                            fontSize = (15 * scaleFactor).sp
+                        )
+                    }
+                }
             }
         }
     }
