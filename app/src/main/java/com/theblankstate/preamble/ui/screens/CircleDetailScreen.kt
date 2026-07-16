@@ -68,8 +68,12 @@ import com.theblankstate.preamble.circles.CircleTask
 import com.theblankstate.preamble.repository.CircleMember
 import com.theblankstate.preamble.repository.CircleTaskModel
 import com.theblankstate.preamble.repository.Friend
+import com.theblankstate.preamble.repository.Circle
 import com.theblankstate.preamble.ui.viewmodels.CircleUiState
 import com.theblankstate.preamble.ui.viewmodels.CircleViewModel
+import com.theblankstate.preamble.collab.Recipient
+import com.theblankstate.preamble.collab.CircleRef
+import com.theblankstate.preamble.ui.components.AddTaskSheet
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -504,31 +508,21 @@ fun CircleDetailScreen(
         }
     }
 
-    // ---- Add task dialog (Requirement 9.1, 9.2) ----
-    if (showAddTaskDialog) {
-        AlertDialog(
-            onDismissRequest = { showAddTaskDialog = false },
-            title = { Text("Add a shared task") },
-            text = {
-                OutlinedTextField(
-                    value = newTaskTitle,
-                    onValueChange = { newTaskTitle = it },
-                    label = { Text("Task title") },
-                    singleLine = true
-                )
+    // ---- Add task sheet (Requirement 9.1, 9.2) ----
+    if (showAddTaskDialog && circle != null) {
+        val initialRecipient = remember(circle) {
+            listOf(Recipient.CircleRecipient(CircleRef(circle.id, circle.name, circle.memberUids)))
+        }
+        AddTaskSheet(
+            onDismiss = { showAddTaskDialog = false },
+            onAddTask = { title, _, _, _, _, _, _, _, _, _, _, _, _, _ ->
+                viewModel.addTask(circleId, title)
+                showAddTaskDialog = false
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        viewModel.addTask(circleId, newTaskTitle)
-                        showAddTaskDialog = false
-                    },
-                    enabled = newTaskTitle.isNotBlank()
-                ) { Text("Add") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddTaskDialog = false }) { Text("Cancel") }
-            }
+            friends = friends,
+            circles = circles,
+            initiallySelectedRecipients = initialRecipient,
+            isRecipientSelectionLocked = true
         )
     }
 

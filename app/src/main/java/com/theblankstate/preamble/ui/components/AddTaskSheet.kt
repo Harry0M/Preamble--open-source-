@@ -145,7 +145,9 @@ fun AddTaskSheet(
     aiChatViewModel: AiChatViewModel? = null,
     onAddTaskPendingParse: ((rawText: String, date: String?, deadlineTime: String?, syncToGoogle: Boolean, syncToCalendar: Boolean, priority: Int, description: String?, tags: String?, subtasks: List<String>, isHabit: Boolean, isEvent: Boolean, eventIcon: String?, eventColor: String?, recurrenceType: String?, recurrenceInterval: Int, recurrenceDays: String?, recurrenceEndDate: String?, userOverrides: String, assignedToFriends: List<Friend>) -> Unit)? = null,
     friends: List<Friend> = emptyList(),
-    circles: List<Circle> = emptyList()
+    circles: List<Circle> = emptyList(),
+    initiallySelectedRecipients: List<Recipient> = emptyList(),
+    isRecipientSelectionLocked: Boolean = false
 ) {
     val context = LocalContext.current
     // Haptic feedback support
@@ -166,7 +168,7 @@ fun AddTaskSheet(
     var taskDescription by remember { mutableStateOf("") }
     var newSubtasks by remember { mutableStateOf(listOf<String>()) }
     var pendingSubtaskTitle by remember { mutableStateOf("") }
-    var selectedRecipients by remember { mutableStateOf<List<Recipient>>(emptyList()) }
+    var selectedRecipients by remember { mutableStateOf<List<Recipient>>(initiallySelectedRecipients) }
     var showRecipientPicker by remember { mutableStateOf(false) }
     // Sender uid is always excluded from the Resolved_Assignee_Set (Req 28.5).
     val senderUid = remember { FirebaseAuth.getInstance().currentUser?.uid ?: "" }
@@ -726,7 +728,7 @@ fun AddTaskSheet(
                 ) {
                     if (selectedFriendRecipients.isNotEmpty()) {
                         SuggestionChip(
-                            onClick = { showRecipientPicker = true },
+                            onClick = { if (!isRecipientSelectionLocked) showRecipientPicker = true },
                             label = {
                                 Text(
                                     if (selectedFriendRecipients.size == 1)
@@ -746,7 +748,7 @@ fun AddTaskSheet(
                     }
                     if (selectedCircleRecipients.isNotEmpty()) {
                         SuggestionChip(
-                            onClick = { showRecipientPicker = true },
+                            onClick = { if (!isRecipientSelectionLocked) showRecipientPicker = true },
                             label = {
                                 Text(
                                     if (selectedCircleRecipients.size == 1)
@@ -1058,13 +1060,17 @@ fun AddTaskSheet(
                 // Recipient control — the sole recipient-selection control; opens the
                 // RecipientPicker (Friends + Circles) (Req 30.9).
                 if (friends.isNotEmpty() || circles.isNotEmpty()) {
-                    IconButton(onClick = { showRecipientPicker = true }) {
+                    IconButton(
+                        onClick = { showRecipientPicker = true },
+                        enabled = !isRecipientSelectionLocked
+                    ) {
                         Icon(
                             Icons.Default.Group,
                             contentDescription = "Send to friends or Circles",
-                            tint = if (selectedRecipients.isNotEmpty())
+                            tint = (if (selectedRecipients.isNotEmpty())
                                 MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant
+                            else
+                                MaterialTheme.colorScheme.onSurfaceVariant).copy(alpha = if (isRecipientSelectionLocked) 0.5f else 1f)
                         )
                     }
                 }
