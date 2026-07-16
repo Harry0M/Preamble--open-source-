@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,6 +35,8 @@ import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -203,6 +206,7 @@ fun FriendsScreen(
     // Requests_List view model: the signed-in user's Outgoing_Invites and Incoming_Invites
     // grouped into separate sections (Req 5.3, 5.5) via RequestsListOrganizer.
     val requestsSections by viewModel.requestsSections.collectAsState()
+    val failedInvites by viewModel.failedInvites.collectAsState()
     // PENDING REQUESTS COUNT (social-hub-redesign Req 5.6): the single source of truth for
     // the on-demand Requests control badge. Collected from the ViewModel's
     // pendingRequestsCount StateFlow (outgoing + incoming) rather than recomputed inline.
@@ -333,7 +337,7 @@ fun FriendsScreen(
     // outgoing mirror, so the user sees it immediately (Req 5.2).
     LaunchedEffect(Unit) {
         viewModel.navigateToRequests.collect {
-            showRequestsList = true
+            selectedSection = SocialSection.Friends
         }
     }
 
@@ -752,56 +756,130 @@ fun FriendsScreen(
                         }
                     } else {
                         // Friends section
+                        // 1. Pending Sent Invites
+                        if (requestsSections.outgoing.isNotEmpty()) {
+                            item(key = "requests_header_outgoing") {
+                                RequestsSectionHeader(
+                                    icon = Icons.Default.Outbox,
+                                    title = "Sent Requests",
+                                    count = requestsSections.outgoing.size,
+                                )
+                            }
+                            items(
+                                requestsSections.outgoing,
+                                key = { "outgoing_${it.targetUid}" }
+                            ) { outgoing ->
+                                val errorMessage = failedInvites[outgoing.targetPreambleId] ?: failedInvites[outgoing.targetUid]
+                                OutgoingInviteCard(
+                                    invite = outgoing,
+                                    onWithdraw = { viewModel.withdrawInvite(outgoing.targetUid) },
+                                    errorMessage = errorMessage,
+                                    onRetry = { viewModel.sendInvite(outgoing.targetPreambleId) }
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+                        }
+
+                        // 2. Pending Received Invites
+                        if (requestsSections.incoming.isNotEmpty()) {
+                            item(key = "requests_header_incoming") {
+                                RequestsSectionHeader(
+                                    icon = Icons.Default.MoveToInbox,
+                                    title = "Received Requests",
+                                    count = requestsSections.incoming.size,
+                                )
+                            }
+                            items(
+                                requestsSections.incoming,
+                                key = { "incoming_${it.id}" }
+                            ) { invite ->
+                                IncomingInviteCard(
+                                    invite = invite,
+                                    onAccept = { viewModel.acceptInvite(invite) },
+                                    onDecline = { viewModel.declineInvite(invite.id) }
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+                        }
+
+                        // 3. Friends List
                         if (friendsQuery.isNotBlank() && filteredFriends.isEmpty()) {
                             item(key = "friends_no_match") {
                                 NoMatchEmptyState(query = friendsQuery)
                             }
                         } else if (friends.isEmpty()) {
-                            item(key = "friends_empty") {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 48.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Box(
+                            if (requestsSections.outgoing.isEmpty() && requestsSections.incoming.isEmpty()) {
+                                item(key = "friends_empty") {
+                                    Column(
                                         modifier = Modifier
-                                            .size(100.dp)
-                                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(32.dp)),
-                                        contentAlignment = Alignment.Center
+                                            .fillMaxWidth()
+                                            .padding(vertical = 48.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
                                     ) {
-                                        Icon(Icons.Default.Group, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+                                        Box(
+                                            modifier = Modifier
+                                                .size(100.dp)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(32.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(Icons.Default.Group, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+                                        }
+                                        Spacer(modifier = Modifier.height(24.dp))
+                                        Text(
+                                            "No friends yet.",
+                                            fontSize = 24.sp,
+                                            fontFamily = FontFamily.Serif,
+                                            fontStyle = FontStyle.Italic,
+                                            color = MaterialTheme.colorScheme.onBackground
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            "Invite someone to start building your circle.",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 16.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(24.dp))
+                                        Button(
+                                            onClick = onAddFriendClick,
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = MaterialTheme.colorScheme.primary,
+                                                contentColor = MaterialTheme.colorScheme.onPrimary
+                                            ),
+                                            shape = RoundedCornerShape(50)
+                                        ) {
+                                            Icon(Icons.Default.GroupAdd, contentDescription = null, modifier = Modifier.size(18.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text("Add a friend")
+                                        }
                                     }
-                                    Spacer(modifier = Modifier.height(24.dp))
-                                    Text(
-                                        "No friends yet.",
-                                        fontSize = 24.sp,
-                                        fontFamily = FontFamily.Serif,
-                                        fontStyle = FontStyle.Italic,
-                                        color = MaterialTheme.colorScheme.onBackground
+                                }
+                            } else {
+                                item(key = "friends_section_header_empty") {
+                                    RequestsSectionHeader(
+                                        icon = Icons.Default.Group,
+                                        title = "My Friends",
+                                        count = 0
                                     )
-                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
+                                item(key = "friends_empty_simple") {
                                     Text(
-                                        "Invite someone to start building your circle.",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 16.sp
+                                        text = "No active friends yet. Add friends using their Preamble ID.",
+                                        modifier = Modifier.padding(vertical = 16.dp, horizontal = 8.dp),
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        fontSize = 14.sp
                                     )
-                                    Spacer(modifier = Modifier.height(24.dp))
-                                    Button(
-                                        onClick = onAddFriendClick,
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = MaterialTheme.colorScheme.primary,
-                                            contentColor = MaterialTheme.colorScheme.onPrimary
-                                        ),
-                                        shape = RoundedCornerShape(50)
-                                    ) {
-                                        Icon(Icons.Default.GroupAdd, contentDescription = null, modifier = Modifier.size(18.dp))
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Add a friend")
-                                    }
                                 }
                             }
                         } else {
+                            if (requestsSections.outgoing.isNotEmpty() || requestsSections.incoming.isNotEmpty()) {
+                                item(key = "friends_section_header") {
+                                    RequestsSectionHeader(
+                                        icon = Icons.Default.Group,
+                                        title = "My Friends",
+                                        count = friends.size
+                                    )
+                                }
+                            }
                             itemsIndexed(visibleFriends, key = { _, it -> "friend_${it.uid}" }) { index, friend ->
                                 val configuration = LocalConfiguration.current
                                 val scaleFactor = (configuration.screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
@@ -958,23 +1036,7 @@ fun FriendsScreen(
 
 
 
-    if (showRequestsList) {
-        // REQUESTS_LIST (social-hub-redesign Req 5): an on-theme surface presenting the
-        // signed-in user's Outgoing_Invites and Incoming_Invites in grouped sections
-        // (outgoing separated from incoming, Req 5.3) using requestsSections. Each
-        // Outgoing_Invite is shown with prominence comparable to — and visually distinguished
-        // from — incoming invites, including the recipient Preamble_ID and an awaiting-response
-        // status (Req 4.2, 4.3), and offers a withdraw action. Incoming invites keep their
-        // accept/decline actions. An empty-state shows when there are no invites of either
-        // kind (Req 5.5).
-        RequestsList(
-            sections = requestsSections,
-            onAccept = { invite -> viewModel.acceptInvite(invite) },
-            onDecline = { inviteId -> viewModel.declineInvite(inviteId) },
-            onWithdraw = { outgoing -> viewModel.withdrawInvite(outgoing.targetUid) },
-            onDismiss = { showRequestsList = false },
-        )
-    }
+
 
     val pendingFriend = friendPendingRemoval
     val pendingImpact = removalImpact
@@ -1804,19 +1866,21 @@ private fun RequestsSectionHeader(
 private fun OutgoingInviteCard(
     invite: OutgoingInvite,
     onWithdraw: () -> Unit,
+    errorMessage: String? = null,
+    onRetry: (() -> Unit)? = null,
 ) {
-    // Distinct from the dark-slate incoming card: a deep indigo card with a lime accent so
-    // sent invites read clearly apart from received invites (Req 4.3).
-    val cardColor = Color(0xFF353551)
-    val accent = Color(0xFFD4FF70) // Lime, echoing the hero ID card
+    val isFailed = errorMessage != null
+    val cardColor = if (isFailed) Color(0xFF452B2B) else Color(0xFF353551)
+    val accent = if (isFailed) Color(0xFFFF9E9E) else Color(0xFFD4FF70)
     val bg = remember(invite.targetUid) { RandomBackgrounds.random() }
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(80.dp),
+            .height(84.dp),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = cardColor),
+        border = if (isFailed) BorderStroke(1.dp, Color(0xFFE57373).copy(alpha = 0.5f)) else null
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             Box(modifier = Modifier.matchParentSize()) {
@@ -1826,7 +1890,7 @@ private fun OutgoingInviteCard(
                     contentScale = ContentScale.Crop,
                     alignment = Alignment.TopCenter,
                     modifier = Modifier.fillMaxSize(),
-                    alpha = 0.25f,
+                    alpha = if (isFailed) 0.1f else 0.25f,
                 )
             }
 
@@ -1835,7 +1899,7 @@ private fun OutgoingInviteCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
                     Box {
                         AsyncImage(
                             model = "https://api.dicebear.com/9.x/micah/png?seed=${invite.targetPreambleId}",
@@ -1845,7 +1909,6 @@ private fun OutgoingInviteCard(
                                 .clip(CircleShape)
                                 .background(Color.White.copy(alpha = 0.3f)),
                         )
-                        // Outbound badge marks this as a sent invite (Req 4.3).
                         Box(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
@@ -1855,7 +1918,7 @@ private fun OutgoingInviteCard(
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(
-                                Icons.Default.NorthEast,
+                                imageVector = if (isFailed) Icons.Default.Warning else Icons.Default.NorthEast,
                                 contentDescription = null,
                                 tint = Color.Black,
                                 modifier = Modifier.size(12.dp),
@@ -1863,35 +1926,69 @@ private fun OutgoingInviteCard(
                         }
                     }
                     Spacer(modifier = Modifier.width(16.dp))
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "To: ${invite.targetPreambleId}",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp,
+                            fontSize = 17.sp,
                             color = Color.White,
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Icon(
-                                Icons.Default.Schedule,
-                                contentDescription = null,
-                                tint = accent,
-                                modifier = Modifier.size(12.dp),
-                            )
+                        if (isFailed) {
                             Text(
-                                "Awaiting response",
-                                color = accent,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
+                                text = errorMessage ?: "Failed. Try again.",
+                                color = Color(0xFFE57373),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
                             )
+                        } else {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Icon(
+                                    Icons.Default.Schedule,
+                                    contentDescription = null,
+                                    tint = accent,
+                                    modifier = Modifier.size(12.dp),
+                                )
+                                Text(
+                                    "Awaiting response",
+                                    color = accent,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
                         }
                     }
                 }
-                // Withdraw action (Req 4.1 lifecycle / 5.4): removes the Outgoing_Invite.
-                IconButton(
-                    onClick = onWithdraw,
-                    modifier = Modifier.background(Color.White.copy(alpha = 0.1f), CircleShape),
+                
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.Undo, contentDescription = "Withdraw invite", tint = Color(0xFFFF9E9E))
+                    if (isFailed && onRetry != null) {
+                        val retryInteraction = remember { MutableInteractionSource() }
+                        IconButton(
+                            onClick = onRetry,
+                            modifier = Modifier
+                                .background(Color.White.copy(alpha = 0.1f), CircleShape)
+                                .expressivePressScale(retryInteraction)
+                        ) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Retry invite", tint = accent)
+                        }
+                    }
+                    val withdrawInteraction = remember { MutableInteractionSource() }
+                    IconButton(
+                        onClick = onWithdraw,
+                        modifier = Modifier
+                            .background(Color.White.copy(alpha = 0.1f), CircleShape)
+                            .expressivePressScale(withdrawInteraction)
+                    ) {
+                        Icon(
+                            imageVector = if (isFailed) Icons.Default.Close else Icons.AutoMirrored.Filled.Undo,
+                            contentDescription = if (isFailed) "Remove failed invite" else "Withdraw invite",
+                            tint = Color(0xFFFF9E9E)
+                        )
+                    }
                 }
             }
         }

@@ -127,6 +127,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
      * single invite is never shown twice once the listener catches up.
      */
     private val _optimisticOutgoing = MutableStateFlow<List<OutgoingInvite>>(emptyList())
+    val failedInvites = MutableStateFlow<Map<String, String>>(emptyMap())
 
     /**
      * The displayed Outgoing_Invites (Req 4.1, 4.4, 5.2). Derived from the repository's
@@ -538,6 +539,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
         // resolved server-side and arrives via the listener) and deduped against the
         // persisted mirror so it is never shown twice. A failed send reverts it (Req 5.4).
         val normalizedId = PreambleId.normalize(targetId)
+        failedInvites.update { it - normalizedId }
         _optimisticOutgoing.update { current ->
             if (current.any { it.targetPreambleId == normalizedId }) {
                 current
@@ -569,11 +571,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                 onFailure = { error ->
                     // Revert the optimistic mirror so a failed send leaves the outgoing-invite
                     // set unchanged (Req 5.4, Property 4) and surface the error (Req 5.4).
-                    _optimisticOutgoing.update { list ->
-                        list.filterNot { it.targetPreambleId == normalizedId }
-                    }
-                    // Inform the Inviter the invite was NOT sent, naming the recipient
-                    // (notifications Req 2.3). Plain copy, no reward language (Req 2.4).
+                    failedInvites.update { it + (normalizedId to error.userMessage("Couldn't send invite to $normalizedId")) }
                     _uiState.value = WorkspaceUiState.Error(
                         error.userMessage("Couldn't send invite to $normalizedId")
                     )
@@ -589,10 +587,21 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
      * the persisted removal is reflected through the outgoing-invite listener.
      */
     fun withdrawInvite(targetUid: String) {
-        val previousOptimistic = _optimisticOutgoing.value
+        val normalizedId = PreambleId.normalize(targetUid)
+        val isFailed = failedInvites.value.containsKey(normalizedId)
+
         _optimisticOutgoing.update { list ->
             list.filterNot { it.targetUid == targetUid || it.targetPreambleId == targetUid }
         }
+        failedInvites.update { it - normalizedId }
+        failedInvites.update { it - targetUid }
+
+        if (isFailed) {
+            // It failed to send, so it was never created in DB. Just remove locally.
+            return
+        }
+
+        val previousOptimistic = _optimisticOutgoing.value
         viewModelScope.launch {
             withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
                 repo.withdrawInvite(targetUid)
@@ -600,7 +609,9 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                 onSuccess = { _uiState.value = WorkspaceUiState.Success("Invite withdrawn") },
                 onFailure = { error ->
                     _optimisticOutgoing.value = previousOptimistic
-                    _uiState.value = WorkspaceUiState.Error(error.userMessage("Failed to withdraw invite"))
+                    _uiState.value = WorkspaceUiState.Error(
+                        error.userMessage("Couldn't withdraw invite")
+                    )
                 }
             )
         }
@@ -936,6 +947,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun acceptAssignment(task: Task) {
         val uid = currentUid ?: return
+        val previous = _incomingAssignments.value
         val optimistic = task.withMemberStatus(uid, "accepted", false)
         _incomingAssignments.update { list -> list.map { if (it.id == task.id) optimistic else it } }
         viewModelScope.launch {
@@ -947,6 +959,7 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
                 repo.updateCollabAssignmentStatus(task.id, task.collabAdminUid.orEmpty(), uid, "accepted")
             }.onFailure { error ->
                 deleteLocalCollaborativeTask(optimistic)
+                _incomingAssignments.value = previous
                 _uiState.value = WorkspaceUiState.Error(error.userMessage("Failed to accept task"))
             }
         }
@@ -1023,10 +1036,13 @@ class WorkspaceViewModel(application: Application) : AndroidViewModel(applicatio
     }
 
     fun recallAssignment(task: Task) {
+        val previous = _outgoingAssignments.value
+        _outgoingAssignments.update { list -> list.filterNot { it.id == task.id } }
         viewModelScope.launch {
             withWriteTimeout(COLLABORATIVE_WRITE_TIMEOUT_MS) {
                 repo.deleteCollabTaskForAll(task.id, task.collabAssignees)
             }.onFailure { error ->
+                _outgoingAssignments.value = previous
                 _uiState.value = WorkspaceUiState.Error(error.userMessage("Failed to recall task"))
             }
         }
