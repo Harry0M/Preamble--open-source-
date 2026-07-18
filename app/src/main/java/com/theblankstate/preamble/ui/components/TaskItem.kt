@@ -1,6 +1,9 @@
 package com.theblankstate.preamble.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -113,6 +116,7 @@ fun TaskItem(
     isExpanded: Boolean = false,
     onToggleExpand: (() -> Unit)? = null,
     habitStreakData: TaskRepository.HabitStreakData? = null,
+    trailingAlpha: Float = 1f,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -830,97 +834,103 @@ fun TaskItem(
                 }
             }
         }
-        if (task.deadlineTime != null) {
-            Box(
-                modifier = Modifier
-                    .padding(start = 8.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(
-                        if (isOverdue) errorContainerColor
-                        else primaryContainerColor
-                    )
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = if (isOverdue) "⚠ ${task.deadlineTime}" else task.deadlineTime,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 11.sp
-                    ),
-                    color = if (isOverdue) onErrorContainerColor else onPrimaryContainerColor
-                )
-            }
-        }
-        // Collaborative-task avatar cluster (Requirement 22): compact, end-aligned in the row's
-        // header area. Renders nothing for non-collaborative tasks (22.5), and leaves the row's
-        // combinedClickable, the completion toggle, and the completion-driven Home reordering
-        // untouched (22.6).
-        CollaboratorAvatarCluster(
-            task = task,
-            modifier = Modifier.padding(start = 8.dp)
-        )
-        if (isEditable) {
-            Box {
-                IconButton(
-                    onClick = { showMenu = true },
-                    modifier = Modifier.size(32.dp)
+        Row(
+            modifier = Modifier.alpha(trailingAlpha),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.End
+        ) {
+            if (task.deadlineTime != null) {
+                Box(
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            if (isOverdue) errorContainerColor
+                            else primaryContainerColor
+                        )
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
                 ) {
-                    Icon(
-                        Icons.Default.MoreVert,
-                        contentDescription = "Options",
-                        modifier = Modifier.size(18.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    Text(
+                        text = if (isOverdue) "⚠ ${task.deadlineTime}" else task.deadlineTime,
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 11.sp
+                        ),
+                        color = if (isOverdue) onErrorContainerColor else onPrimaryContainerColor
                     )
                 }
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false }
-                ) {
-                    if (onDetail != null) {
-                        DropdownMenuItem(
-                            text = { Text("Details") },
-                            onClick = {
-                                showMenu = false
-                                onDetail()
-                            }
+            }
+            // Collaborative-task avatar cluster (Requirement 22): compact, end-aligned in the row's
+            // header area. Renders nothing for non-collaborative tasks (22.5), and leaves the row's
+            // combinedClickable, the completion toggle, and the completion-driven Home reordering
+            // untouched (22.6).
+            CollaboratorAvatarCluster(
+                task = task,
+                modifier = Modifier.padding(start = 8.dp)
+            )
+            if (isEditable) {
+                Box {
+                    IconButton(
+                        onClick = { showMenu = true },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.MoreVert,
+                            contentDescription = "Options",
+                            modifier = Modifier.size(18.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    if (onEdit != null) {
-                        DropdownMenuItem(
-                            text = { Text("Edit") },
-                            onClick = {
-                                showMenu = false
-                                onEdit()
-                            }
-                        )
-                    }
-                    if (onStartFocus != null) {
-                        DropdownMenuItem(
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(
-                                        Icons.Default.Timer,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Focus Timer")
+                    DropdownMenu(
+                        expanded = showMenu,
+                        onDismissRequest = { showMenu = false }
+                    ) {
+                        if (onDetail != null) {
+                            DropdownMenuItem(
+                                text = { Text("Details") },
+                                onClick = {
+                                    showMenu = false
+                                    onDetail()
                                 }
-                            },
-                            onClick = {
-                                showMenu = false
-                                onStartFocus()
-                            }
-                        )
-                    }
-                    if (!task.isInfoOnly) {
-                        DropdownMenuItem(
-                            text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
-                            onClick = {
-                                showMenu = false
-                                onDelete()
-                            }
-                        )
+                            )
+                        }
+                        if (onEdit != null) {
+                            DropdownMenuItem(
+                                text = { Text("Edit") },
+                                onClick = {
+                                    showMenu = false
+                                    onEdit()
+                                }
+                            )
+                        }
+                        if (onStartFocus != null) {
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(
+                                            Icons.Default.Timer,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Focus Timer")
+                                    }
+                                },
+                                onClick = {
+                                    showMenu = false
+                                    onStartFocus()
+                                }
+                            )
+                        }
+                        if (!task.isInfoOnly) {
+                            DropdownMenuItem(
+                                text = { Text("Delete", color = MaterialTheme.colorScheme.error) },
+                                onClick = {
+                                    showMenu = false
+                                    onDelete()
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -976,41 +986,46 @@ fun SwipeableTaskItem(
         return
     }
 
+    val progress = dismissState.progress
+    // Dissolve trailing actions early (fully gone by 50% swipe) to prevent visual overlap
+    val trailingAlpha = (1f - (progress * 2f)).coerceIn(0f, 1f)
+
     SwipeToDismissBox(
         state = dismissState,
         modifier = modifier,
         backgroundContent = {
             val direction = dismissState.dismissDirection
-            val color = when (direction) {
-                SwipeToDismissBoxValue.EndToStart -> Color(0xFFEF4444) // Red for delete
-                else -> Color.Transparent
-            }
-            val alignment = when (direction) {
-                SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
-                else -> Alignment.Center
-            }
-            val icon = when (direction) {
-                SwipeToDismissBoxValue.EndToStart -> Icons.Default.Delete
-                else -> Icons.Default.Delete
-            }
+            if (direction == SwipeToDismissBoxValue.EndToStart) {
+                val color = Color(0xFFEF4444)
+                // Background red opacity fades in dynamically from 5% to 20%
+                val bgAlpha = 0.05f + (0.15f * progress)
+                
+                // Icon scale gets a poppy spring bounce when getting close to delete threshold
+                val iconScale by animateFloatAsState(
+                    targetValue = if (progress > 0.4f) 1.15f else 0.8f,
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioHighBouncy,
+                        stiffness = Spring.StiffnessMedium
+                    ),
+                    label = "iconScale"
+                )
+                val iconAlpha = progress.coerceIn(0f, 1f)
 
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(8.dp))
-                    .then(
-                        if (color != Color.Transparent) Modifier.background(color.copy(alpha = 0.2f))
-                        else Modifier
-                    )
-                    .padding(horizontal = 20.dp),
-                contentAlignment = alignment
-            ) {
-                if (direction != SwipeToDismissBoxValue.Settled) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(color.copy(alpha = bgAlpha))
+                        .padding(horizontal = 20.dp),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
                     Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = color,
-                        modifier = Modifier.size(28.dp)
+                        imageVector = Icons.Default.Delete,
+                        contentDescription = "Delete",
+                        tint = color.copy(alpha = iconAlpha),
+                        modifier = Modifier
+                            .size(24.dp)
+                            .scale(iconScale)
                     )
                 }
             }
@@ -1030,7 +1045,8 @@ fun SwipeableTaskItem(
             subtaskCount = subtaskCount,
             isExpanded = isExpanded,
             onToggleExpand = onToggleExpand,
-            habitStreakData = habitStreakData
+            habitStreakData = habitStreakData,
+            trailingAlpha = trailingAlpha
         )
     }
 }
