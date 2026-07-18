@@ -3,6 +3,7 @@ package com.theblankstate.preamble.ui.components
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +50,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SuggestionChip
+import androidx.compose.material3.SuggestionChipDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.SelectableDates
@@ -288,136 +291,72 @@ fun TaskDetailSheet(
                 }
             }
 
-            // Snooze / Unsnooze for pending rollover tasks
+            // Snooze / Unsnooze for pending rollover tasks (Material Chips)
             if (task.recurrenceType == "rollover" && !task.isCompleted) {
                 val isSnoozed = task.snoozedUntil != null && task.snoozedUntil > System.currentTimeMillis()
                 if (isSnoozed && onUnsnooze != null) {
-                    // Already snoozed — show unsnooze option
                     val snoozedUntilText = remember(task.snoozedUntil) {
                         val sdf = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
                         sdf.format(java.util.Date(task.snoozedUntil!!))
                     }
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFFFFF3E0),
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
+                        SuggestionChip(
+                            onClick = {
+                                onUnsnooze()
+                                onDismiss()
+                            },
+                            label = { Text("Snoozed until $snoozedUntilText") },
+                            icon = {
                                 Icon(
-                                    Icons.Default.Timer,
+                                    imageVector = Icons.Default.Schedule,
                                     contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = Color(0xFFE65100)
+                                    modifier = Modifier.size(16.dp)
                                 )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    "Snoozed until $snoozedUntilText",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFFE65100)
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = Color(0xFFE65100).copy(alpha = 0.12f),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        onUnsnooze()
-                                        onDismiss()
-                                    }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(vertical = 10.dp),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    content = {
-                                        Icon(
-                                            Icons.Default.Refresh,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp),
-                                            tint = Color(0xFFE65100)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            "Unsnooze Now",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = Color(0xFFE65100)
-                                        )
-                                    }
-                                )
-                            }
-                        }
+                            },
+                            colors = SuggestionChipDefaults.suggestionChipColors(
+                                containerColor = Color(0xFFFFF3E0),
+                                labelColor = Color(0xFFE65100),
+                                iconContentColor = Color(0xFFE65100)
+                            ),
+                            border = null
+                        )
                     }
                 } else if (!isSnoozed && onSnooze != null) {
-                    // Not snoozed — show snooze options
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 8.dp)
+                            .horizontalScroll(rememberScrollState()),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    Icons.Default.AccessTime,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(16.dp),
-                                    tint = MaterialTheme.colorScheme.primary
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    "Snooze this task",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                listOf(
-                                    Triple("1 Hour", "1h", 1 * 60 * 60 * 1000L),
-                                    Triple("4 Hours", "4h", 4 * 60 * 60 * 1000L),
-                                    Triple("Tomorrow", "1d", 24 * 60 * 60 * 1000L)
-                                ).forEach { (label, _, duration) ->
-                                    Surface(
-                                        shape = RoundedCornerShape(8.dp),
-                                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .clickable {
-                                                onSnooze(duration)
-                                                onDismiss()
-                                            }
-                                    ) {
-                                        Column(
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp)
-                                        ) {
-                                            Icon(
-                                                Icons.Default.AccessTime,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp),
-                                                tint = MaterialTheme.colorScheme.primary
-                                            )
-                                            Spacer(modifier = Modifier.height(4.dp))
-                                            Text(
-                                                text = label,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                fontWeight = FontWeight.Medium,
-                                                color = MaterialTheme.colorScheme.primary
-                                            )
-                                        }
-                                    }
+                        Text(
+                            text = "Snooze:",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        listOf(
+                            "1 Hour" to 1 * 60 * 60 * 1000L,
+                            "4 Hours" to 4 * 60 * 60 * 1000L,
+                            "Tomorrow" to 24 * 60 * 60 * 1000L
+                        ).forEach { (label, duration) ->
+                            SuggestionChip(
+                                onClick = {
+                                    onSnooze(duration)
+                                    onDismiss()
+                                },
+                                label = { Text(label) },
+                                icon = {
+                                    Icon(
+                                        imageVector = Icons.Default.AccessTime,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
                                 }
-                            }
+                            )
                         }
                     }
                 }

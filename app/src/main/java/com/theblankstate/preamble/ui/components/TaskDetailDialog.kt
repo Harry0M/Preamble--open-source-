@@ -49,17 +49,26 @@ fun TaskDetailDialog(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val sourceText = if (task.source == "google_calendar") {
-                        if (!task.calendarName.isNullOrBlank()) "🗓 ${task.calendarName}" else "🗓 Google Calendar"
-                    } else if (task.source == "google_tasks") {
-                        "✅ Google Tasks"
-                    } else "📱 Local Task"
+                    val (icon, sourceLabel) = when (task.source) {
+                        "google_calendar" -> Icons.Default.Event to (task.calendarName ?: "Google Calendar")
+                        "google_tasks" -> Icons.Default.CheckCircle to "Google Tasks"
+                        else -> Icons.Default.TaskAlt to "Local Task"
+                    }
                     
-                    Text(
-                        text = sourceText,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = sourceLabel,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
                     
                     if (task.isInfoOnly) {
                         Surface(
