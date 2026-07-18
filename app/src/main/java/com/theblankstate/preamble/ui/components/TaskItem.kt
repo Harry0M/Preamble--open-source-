@@ -232,19 +232,31 @@ fun TaskItem(
             .padding(vertical = 8.dp, horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // For info-only events (holidays, birthdays, etc.) show a styled material icon instead of checkbox
+        // For info-only events (holidays, birthdays, etc.) show a styled material icon inside a circular container instead of checkbox
         if (task.isInfoOnly) {
             if (task.isEvent) {
                 val icon = EventIconHelper.getIconByName(task.eventIcon)
-                Icon(
-                    imageVector = icon,
-                    contentDescription = "Event",
-                    tint = parsedColor,
+                Box(
                     modifier = Modifier
                         .padding(end = 4.dp)
-                        .size(24.dp)
-                        .padding(2.dp)
-                )
+                        .size(40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(FoundationCircleShape)
+                            .background(parsedColor.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = "Event",
+                            tint = parsedColor,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             } else {
                 val icon = when (task.eventType) {
                     "holiday" -> Icons.Default.Festival
@@ -259,15 +271,27 @@ fun TaskItem(
                     "focusTime" -> Color(0xFF9C27B0) // Purple for focus
                     else -> MaterialTheme.colorScheme.primary
                 }
-                Icon(
-                    imageVector = icon,
-                    contentDescription = task.eventType ?: "Event",
-                    tint = tintColor,
+                Box(
                     modifier = Modifier
                         .padding(end = 4.dp)
-                        .size(24.dp)
-                        .padding(2.dp) // slight padding to make it match Checkbox visual weight
-                )
+                        .size(40.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(FoundationCircleShape)
+                            .background(tintColor.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = task.eventType ?: "Event",
+                            tint = tintColor,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
             }
         } else {
             IconButton(
