@@ -79,6 +79,8 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -113,6 +115,7 @@ fun TaskItem(
     isExpanded: Boolean = false,
     onToggleExpand: (() -> Unit)? = null,
     habitStreakData: TaskRepository.HabitStreakData? = null,
+    swipeProgress: Float = 0f,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -192,6 +195,8 @@ fun TaskItem(
             else -> 0
         }
     }
+
+    val rightElementsAlpha = remember(swipeProgress) { (1f - swipeProgress * 5f).coerceIn(0f, 1f) }
 
     val errorColor = MaterialTheme.colorScheme.error
     val errorContainerColor = MaterialTheme.colorScheme.errorContainer
@@ -834,6 +839,7 @@ fun TaskItem(
             Box(
                 modifier = Modifier
                     .padding(start = 8.dp)
+                    .graphicsLayer { alpha = rightElementsAlpha }
                     .clip(RoundedCornerShape(12.dp))
                     .background(
                         if (isOverdue) errorContainerColor
@@ -857,13 +863,16 @@ fun TaskItem(
         // untouched (22.6).
         CollaboratorAvatarCluster(
             task = task,
-            modifier = Modifier.padding(start = 8.dp)
+            modifier = Modifier
+                .padding(start = 8.dp)
+                .graphicsLayer { alpha = rightElementsAlpha }
         )
         if (isEditable) {
-            Box {
+            Box(modifier = Modifier.graphicsLayer { alpha = rightElementsAlpha }) {
                 IconButton(
-                    onClick = { showMenu = true },
-                    modifier = Modifier.size(32.dp)
+                    onClick = { if (rightElementsAlpha > 0.1f) showMenu = true },
+                    modifier = Modifier.size(32.dp),
+                    enabled = rightElementsAlpha > 0.1f
                 ) {
                     Icon(
                         Icons.Default.MoreVert,
@@ -976,41 +985,50 @@ fun SwipeableTaskItem(
         return
     }
 
+    val swipeProgress = if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+        dismissState.progress
+    } else {
+        0f
+    }
+
     SwipeToDismissBox(
         state = dismissState,
         modifier = modifier,
         backgroundContent = {
             val direction = dismissState.dismissDirection
-            val color = when (direction) {
-                SwipeToDismissBoxValue.EndToStart -> Color(0xFFEF4444) // Red for delete
-                else -> Color.Transparent
-            }
-            val alignment = when (direction) {
-                SwipeToDismissBoxValue.EndToStart -> Alignment.CenterEnd
-                else -> Alignment.Center
-            }
-            val icon = when (direction) {
-                SwipeToDismissBoxValue.EndToStart -> Icons.Default.Delete
-                else -> Icons.Default.Delete
-            }
-
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(8.dp))
-                    .then(
-                        if (color != Color.Transparent) Modifier.background(color.copy(alpha = 0.2f))
-                        else Modifier
-                    )
-                    .padding(horizontal = 20.dp),
-                contentAlignment = alignment
-            ) {
-                if (direction != SwipeToDismissBoxValue.Settled) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = color,
-                        modifier = Modifier.size(28.dp)
+            if (direction == SwipeToDismissBoxValue.EndToStart) {
+                val progress = dismissState.progress
+                val backgroundAlpha = (progress * 1.5f).coerceIn(0f, 1f)
+                
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(
+                            Brush.horizontalGradient(
+                                colors = listOf(
+                                    Color(0xFFFF3B30).copy(alpha = backgroundAlpha * 0.3f), // smooth rose red
+                                    Color(0xFFE11D48).copy(alpha = backgroundAlpha * 0.95f) // deep saturated crimson
+                                )
+                            )
+                        )
+                        .padding(horizontal = 24.dp),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
+                    val textAlpha = ((progress - 0.15f) * 3f).coerceIn(0f, 1f)
+                    val scale = 0.85f + (progress * 0.15f).coerceIn(0f, 0.15f)
+                    
+                    Text(
+                        text = "Delete",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier
+                            .graphicsLayer {
+                                alpha = textAlpha
+                                scaleX = scale
+                                scaleY = scale
+                            }
                     )
                 }
             }
@@ -1018,20 +1036,26 @@ fun SwipeableTaskItem(
         enableDismissFromStartToEnd = false,
         enableDismissFromEndToStart = !task.isInfoOnly
     ) {
-        TaskItem(
-            task = task,
-            onToggle = onToggle,
-            onDelete = onDelete,
-            onEdit = onEdit,
-            onDetail = onDetail,
-            onStartFocus = onStartFocus,
-            onRetrySync = onRetrySync,
-            isEditable = true,
-            subtaskCount = subtaskCount,
-            isExpanded = isExpanded,
-            onToggleExpand = onToggleExpand,
-            habitStreakData = habitStreakData
-        )
+        Surface(
+            color = MaterialTheme.colorScheme.background,
+            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+        ) {
+            TaskItem(
+                task = task,
+                onToggle = onToggle,
+                onDelete = onDelete,
+                onEdit = onEdit,
+                onDetail = onDetail,
+                onStartFocus = onStartFocus,
+                onRetrySync = onRetrySync,
+                isEditable = true,
+                subtaskCount = subtaskCount,
+                isExpanded = isExpanded,
+                onToggleExpand = onToggleExpand,
+                habitStreakData = habitStreakData,
+                swipeProgress = swipeProgress
+            )
+        }
     }
 }
 
