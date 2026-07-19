@@ -410,7 +410,10 @@ fun TaskDetailBottomSheet(
             if (showFullCollaboratorsScreen) {
                 androidx.compose.ui.window.Dialog(
                     onDismissRequest = { showFullCollaboratorsScreen = false },
-                    properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+                    properties = androidx.compose.ui.window.DialogProperties(
+                        usePlatformDefaultWidth = false,
+                        decorFitsSystemWindows = false
+                    )
                 ) {
                     TaskCollaboratorsScreen(
                         task = task,
