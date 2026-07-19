@@ -83,17 +83,30 @@ class DayPlanViewModel(
      * untouched (Req 5.2, 5.3, 5.5). A [PlanDayResult.Success] is fed through the pure
      * [ScheduleNormalizer] (CouldNotGenerate → terminal; Valid → [DayPlanState.Review]).
      */
-    fun requestPlan() {
+    private var customDayEndMinuteOverride: Int? = null
+
+    fun requestPlan(
+        customDayEndMinute: Int? = null,
+        userContextPrompt: String? = null,
+        allowRescheduleFixed: Boolean = false,
+    ) {
         viewModelScope.launch {
             _state.value = DayPlanState.Loading
+            if (customDayEndMinute != null) {
+                customDayEndMinuteOverride = customDayEndMinute
+            }
 
             val today = TaskRepository.todayString()
             val gathered = dayPlanService.gatherInput(today)
-            val input = gathered.input
+            val baseInput = gathered.input
+            val promptOverride = extractDayEndOverride(userContextPrompt)
+            val finalDayEnd = promptOverride ?: customDayEndMinuteOverride ?: baseInput.dayEndMinute
+            val activeFixed = if (allowRescheduleFixed) emptyList() else baseInput.fixed
+            val input = baseInput.copy(dayEndMinute = finalDayEnd, fixed = activeFixed)
 
             // Cache the gather context so a later [submitAdjustment] reuses the SAME input
             // and Current_Local_Datetime (Req 15.2, 15.3).
-            lastGathered = gathered
+            lastGathered = gathered.copy(input = input)
             lastToday = today
 
             // Req 1.4: no schedulable tasks ⇒ no AI call, just a message.
@@ -112,8 +125,16 @@ class DayPlanViewModel(
             // Req 6.1: a day plan was requested, including the schedulable count.
             AnalyticsManager.trackDayPlanRequested(input.schedulable.size)
 
-            val schedulableDtos = input.schedulable.map {
-                PlanTaskDto(id = it.id, title = it.title, priority = it.priority)
+            val schedulableDtos = input.schedulable.map { schedTask ->
+                val fullTask = gathered.tasksById[schedTask.id]
+                PlanTaskDto(
+                    id = schedTask.id,
+                    title = schedTask.title,
+                    priority = schedTask.priority,
+                    estimatedMinutes = null,
+                    description = fullTask?.description,
+                    tags = fullTask?.tags
+                )
             }
             val fixedDtos = input.fixed.map {
                 PlanFixedDto(start = formatHHmm(it.startMinute), end = it.endMinute?.let(::formatHHmm))
@@ -136,6 +157,8 @@ class DayPlanViewModel(
                         // Current_Local_Datetime planning context (Req 13.5).
                         dayOfWeek = gathered.dayOfWeek,
                         nowTime = gathered.nowTime,
+                        adjustment = userContextPrompt ?: "",
+                        allowRescheduleFixed = allowRescheduleFixed,
                     )
                 }
             } catch (e: TimeoutCancellationException) {
@@ -165,7 +188,14 @@ class DayPlanViewModel(
                             // Retain for a possible post-apply adjustment (Req 15.6). The normal
                             // requestPlan path carries no advisory (advisory = null).
                             lastSchedule = outcome.schedule
-                            _state.value = DayPlanState.Review(outcome.schedule, tasksById)
+                            val reasons = result.assignments.mapNotNull { a -> a.reason?.let { a.id to it } }.toMap()
+                            _state.value = DayPlanState.Review(
+                                schedule = outcome.schedule,
+                                tasksById = tasksById,
+                                briefing = result.briefing,
+                                recommendation = result.recommendation,
+                                taskReasons = reasons
+                            )
                         }
                     }
                 }
@@ -233,30 +263,44 @@ class DayPlanViewModel(
      * [DayPlanState.Review] carries an [DayPlanState.Review.advisory] message naming the
      * tasks that could not be placed while still leaving a reviewable schedule.
      */
-    fun submitAdjustment(text: String) {
+    fun submitAdjustment(text: String, allowRescheduleFixed: Boolean = false) {
         val current = _state.value
         // Req 15.1: only from Review; Req 15.6: also allowed post-apply from Applied.
-        val priorSchedule: ProposedSchedule = when (current) {
-            is DayPlanState.Review -> current.schedule
-            DayPlanState.Applied -> lastSchedule ?: return
-            else -> return
-        }
-        // Need the original gather context to replan through the identical input (Req 15.3).
+        val input = lastGathered?.input ?: return
+        val today = lastToday ?: return
         val gathered = lastGathered ?: return
-        val input = gathered.input
-        val today = lastToday ?: gathered.date
+        val priorSchedule = lastSchedule ?: return
 
         viewModelScope.launch {
-            _state.value = DayPlanState.Loading
-
-            val schedulableDtos = input.schedulable.map {
-                PlanTaskDto(id = it.id, title = it.title, priority = it.priority)
+            val currentReview = _state.value as? DayPlanState.Review
+            if (currentReview != null) {
+                _state.value = currentReview.copy(isRefining = true)
+            } else {
+                _state.value = DayPlanState.Loading
             }
-            val fixedDtos = input.fixed.map {
+
+            val promptOverride = extractDayEndOverride(text)
+            val baseDayEnd = customDayEndMinuteOverride ?: input.dayEndMinute
+            val finalDayEnd = promptOverride ?: baseDayEnd
+            val activeFixed = if (allowRescheduleFixed) emptyList() else input.fixed
+            val activeInput = input.copy(dayEndMinute = finalDayEnd, fixed = activeFixed)
+
+            val schedulableDtos = activeInput.schedulable.map { schedTask ->
+                val fullTask = gathered.tasksById[schedTask.id]
+                PlanTaskDto(
+                    id = schedTask.id,
+                    title = schedTask.title,
+                    priority = schedTask.priority,
+                    estimatedMinutes = null,
+                    description = fullTask?.description,
+                    tags = fullTask?.tags
+                )
+            }
+            val fixedDtos = activeInput.fixed.map {
                 PlanFixedDto(start = formatHHmm(it.startMinute), end = it.endMinute?.let(::formatHHmm))
             }
-            val dayStart = formatHHmm(input.earliestStartMinute)
-            val dayEnd = formatHHmm(input.dayEndMinute)
+            val dayStart = formatHHmm(activeInput.earliestStartMinute)
+            val dayEnd = formatHHmm(activeInput.dayEndMinute)
 
             // Echo the prior proposal so the model can revise it (Req 15.2).
             val priorAssignments = priorSchedule.assignments.map {
@@ -277,6 +321,7 @@ class DayPlanViewModel(
                         priorAssignments = priorAssignments,
                         // Passed UNMODIFIED for any language/script (Req 15.2).
                         adjustment = text,
+                        allowRescheduleFixed = allowRescheduleFixed,
                     )
                 }
             } catch (e: TimeoutCancellationException) {
@@ -301,16 +346,50 @@ class DayPlanViewModel(
                             lastSchedule = outcome.schedule
                             // Req 15.4: re-enter Review writing NOTHING until accept().
                             // Req 15.5: surface an advisory when the adjustment can't be fully honored.
+                            val reasons = result.assignments.mapNotNull { a -> a.reason?.let { a.id to it } }.toMap()
                             _state.value = DayPlanState.Review(
                                 schedule = outcome.schedule,
                                 tasksById = tasksById,
                                 advisory = buildAdvisory(outcome.schedule),
+                                briefing = result.briefing,
+                                recommendation = result.recommendation,
+                                taskReasons = reasons
                             )
                         }
                     }
                 }
             }
         }
+    }
+
+    private fun extractDayEndOverride(prompt: String?): Int? {
+        if (prompt.isNullOrBlank()) return null
+        val lower = prompt.lowercase()
+        if (lower.contains("midnight") || lower.contains("24:00") || lower.contains("12 am")) {
+            return 23 * 60 + 59
+        }
+        val regex12 = Regex("""(\d{1,2})(?::(\d{2}))?\s*(pm|am)""", RegexOption.IGNORE_CASE)
+        val match12 = regex12.find(prompt)
+        if (match12 != null) {
+            val hStr = match12.groupValues[1]
+            val mStr = match12.groupValues[2]
+            val amPm = match12.groupValues[3].lowercase()
+            var h = hStr.toIntOrNull() ?: return null
+            val m = mStr.toIntOrNull() ?: 0
+            if (amPm == "pm" && h < 12) h += 12
+            if (amPm == "am" && h == 12) h = 0
+            val minute = h * 60 + m
+            if (minute >= 18 * 60) return minute
+        }
+        val regex24 = Regex("""(?:until|till|to|end|at)?\s*([0-2]?\d):([0-5]\d)""", RegexOption.IGNORE_CASE)
+        val match24 = regex24.find(prompt)
+        if (match24 != null) {
+            val h = match24.groupValues[1].toIntOrNull() ?: return null
+            val m = match24.groupValues[2].toIntOrNull() ?: 0
+            val minute = h * 60 + m
+            if (minute >= 18 * 60) return minute
+        }
+        return null
     }
 
     /**
@@ -394,6 +473,10 @@ sealed interface DayPlanState {
         val schedule: ProposedSchedule,
         val tasksById: Map<String, Task>,
         val advisory: String? = null,
+        val briefing: String? = null,
+        val recommendation: String? = null,
+        val taskReasons: Map<String, String> = emptyMap(),
+        val isRefining: Boolean = false
     ) : DayPlanState
 
     /** Applying the accepted schedule. */

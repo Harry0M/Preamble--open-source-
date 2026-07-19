@@ -163,22 +163,10 @@ object ScheduleNormalizer {
 
         if (placements.isEmpty()) return PlanOutcome.CouldNotGenerate
 
-        // --- Step 4: enforce priority ordering by re-zipping ---
-        // Distinct chosen slots, ascending.
-        val chosenSlotsAsc = placements.map { it.slot }.sorted()
-
-        // Order placed tasks by priority DESC, tie-break AI proposed time ascending, then id.
-        val orderedTasks = placements.sortedWith(
-            compareByDescending<Placement> { taskById.getValue(it.taskId).priority }
-                .thenBy { it.proposed ?: Int.MAX_VALUE }
-                .thenBy { it.taskId }
-        )
-
-        // Zip earliest-slot -> highest-priority-task.
-        val assignments = ArrayList<ScheduledAssignment>(orderedTasks.size)
-        for (i in orderedTasks.indices) {
-            assignments.add(ScheduledAssignment(orderedTasks[i].taskId, formatHHmm(chosenSlotsAsc[i])))
-        }
+        // --- Step 4: Preserve exact placement slots, sorted by time ascending ---
+        val assignments = placements
+            .map { ScheduledAssignment(it.taskId, formatHHmm(it.slot)) }
+            .sortedBy { parseHHmm(it.time) ?: 0 }
 
         // --- Step 5: partition — every schedulable id is placed exactly once or surfaced as unplaced ---
         // Surplus tasks that could not fit the remaining window land in `unplaced` (Req 16.2) instead of

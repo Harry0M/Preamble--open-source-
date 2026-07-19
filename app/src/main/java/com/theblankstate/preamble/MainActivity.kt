@@ -492,7 +492,6 @@ fun PreambleApp(
             ExpressiveNavItem("Tasks", Icons.Default.Home),
             ExpressiveNavItem("Stats", Icons.Filled.Analytics),
             ExpressiveNavItem("Calendar", Icons.Default.DateRange),
-            ExpressiveNavItem("AI", Icons.Filled.AutoAwesome),
             // "Circles" (formerly "Workspace"): the single merged entry point for Friends,
             // Leaderboard, Circles, and shared/assigned Tasks (SocialHubScreen).
             ExpressiveNavItem("Circles", Icons.Default.Groups, badgeCount = socialHubBadgeCount),
@@ -519,29 +518,20 @@ fun PreambleApp(
                     viewModel.refreshStats()
                 }
                 deepLinkTarget.startsWith("calendar") -> selectedTab = 2
-                deepLinkTarget.startsWith("ai") -> selectedTab = 3
                 deepLinkTarget.startsWith("invite/") -> {
-                    // social-hub-redesign Req 7.1: an invite/{id} link lands on the enhanced
-                    // Social_Hub with the id pre-filled, NOT the shared-tasks pane. The Circles
-                    // hub now lives on selectedTab = 4, landing on its Friends route.
                     initialInviteId = deepLinkTarget.removePrefix("invite/")
                     socialHubInitialRoute = SocialHubRoute.Friends
-                    selectedTab = 4
+                    selectedTab = 3
                 }
                 deepLinkTarget == "social" -> {
-                    // notifications Req 1.3 / 6.4: a plain preamble://social link opens the
-                    // Social_Hub's Friends route without requiring an invite id.
                     socialHubInitialRoute = SocialHubRoute.Friends
-                    selectedTab = 4
+                    selectedTab = 3
                 }
                 deepLinkTarget.startsWith("task/") -> {
-                    // notifications Req 5.4 / 6.5: a preamble://task/{id} link routes to the
-                    // Circles hub's Tasks route (the shared/assigned tasks pane). Also fixes
-                    // routing for existing kudos/nudge notifications that already emit task/{id}.
                     socialHubInitialRoute = SocialHubRoute.Tasks
-                    selectedTab = 4
+                    selectedTab = 3
                 }
-                deepLinkTarget.startsWith("settings") -> selectedTab = 5
+                deepLinkTarget.startsWith("settings") -> selectedTab = 4
             }
             onDeepLinkConsumed()
         }
@@ -735,21 +725,7 @@ fun PreambleApp(
                 }
             }
             3 -> {
-                val chatScreenVm: com.theblankstate.preamble.ai.AiChatScreenViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
-                    factory = com.theblankstate.preamble.ai.AiChatScreenViewModel.Factory(
-                        androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application,
-                        viewModel
-                    )
-                )
-                AiChatScreen(
-                    viewModel = chatScreenVm,
-                    modifier = Modifier.padding(innerPadding).consumeWindowInsets(innerPadding)
-                )
-            }
-            4 -> {
-                // Circles hub (formerly the standalone "Workspace" tab): merges Friends,
-                // Leaderboard, Circles, and shared/assigned Tasks behind this one bottom-nav
-                // destination, with SocialHubRoute providing the organized routes between them.
+                // Circles hub: merges Friends, Leaderboard, Circles, and shared/assigned Tasks
                 SocialHubScreen(
                     workspaceViewModel = workspaceViewModel,
                     taskViewModel = viewModel,
@@ -760,7 +736,7 @@ fun PreambleApp(
                     modifier = Modifier.padding(innerPadding)
                 )
             }
-            5 -> SettingsScreen(
+            4 -> SettingsScreen(
                 yearlyHeatmap = stats.yearlyHeatmap,
                 modifier = Modifier.padding(innerPadding)
             )

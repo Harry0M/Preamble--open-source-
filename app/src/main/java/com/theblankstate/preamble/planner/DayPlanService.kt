@@ -52,7 +52,7 @@ class DayPlanService(
         val tasks = repository.getTasksForDateWithRecurrence(today)
 
         val schedulable = tasks
-            .filter { !it.isCompleted && it.deadlineTime == null && !it.isEvent }
+            .filter { !it.isCompleted && !it.isEvent }
             .map { SchedulableTask(id = it.id, title = it.title, priority = it.priority) }
 
         val fixed = tasks.mapNotNull { it.toFixedCommitment() }
@@ -73,6 +73,7 @@ class DayPlanService(
             // Current_Local_Datetime context for the model (Req 13.5).
             dayOfWeek = now.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.ENGLISH),
             nowTime = "%02d:%02d".format(now.hour, now.minute),
+            tasksById = tasks.associateBy { it.id }
         )
     }
 
@@ -125,4 +126,5 @@ data class GatheredInput(
     val date: String,
     val dayOfWeek: String,
     val nowTime: String,
+    val tasksById: Map<String, Task> = emptyMap(),
 )

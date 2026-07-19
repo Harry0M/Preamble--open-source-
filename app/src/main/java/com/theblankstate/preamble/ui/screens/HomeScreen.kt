@@ -265,9 +265,8 @@ fun HomeScreen(
         val unlocked = com.theblankstate.preamble.data.FeatureGate.isUnlocked(context, feature)
         com.theblankstate.preamble.analytics.AnalyticsManager.trackGateEvaluated("AI_AUTO_PLANNING", unlocked) // Req 12.1
         if (unlocked) {
-            // Req 20.3 / 18.1: open the Planning_Screen immediately AND kick off the request.
+            // Req 20.3 / 18.1: open the Planning_Screen pre-planning setup surface.
             showPlanningScreen = true
-            dayPlanViewModel.requestPlan()
         } else {
             // Req 20.1, 20.2: locked ⇒ show the upsell and do NOT open planning or call planDay.
             upsellFeature = feature
@@ -1674,16 +1673,25 @@ fun HomeScreen(
             showPlanningScreen = false
             dayPlanViewModel.reset()
         }
+        val aiChatScreenVm: com.theblankstate.preamble.ai.AiChatScreenViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+            factory = com.theblankstate.preamble.ai.AiChatScreenViewModel.Factory(
+                androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application,
+                planTaskViewModel
+            )
+        )
+
         com.theblankstate.preamble.ui.screens.PlanningScreen(
             state = dayPlanState,
+            onRequestPlan = { customDayEndMinute, userContextPrompt, allowRescheduleFixed -> dayPlanViewModel.requestPlan(customDayEndMinute, userContextPrompt, allowRescheduleFixed) },
             onAccept = { dayPlanViewModel.accept() },
             onDiscard = {
                 dayPlanViewModel.discard()
                 showPlanningScreen = false
             },
             onRetry = { dayPlanViewModel.retry() },
-            onSubmitAdjustment = { text -> dayPlanViewModel.submitAdjustment(text) },
+            onSubmitAdjustment = { text, allowRescheduleFixed -> dayPlanViewModel.submitAdjustment(text, allowRescheduleFixed) },
             onClose = closePlanning,
+            aiChatScreenViewModel = aiChatScreenVm,
             modifier = Modifier.fillMaxSize(),
         )
     }

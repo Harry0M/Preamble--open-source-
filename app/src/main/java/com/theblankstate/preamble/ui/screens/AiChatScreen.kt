@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -112,6 +113,9 @@ import kotlinx.coroutines.launch
 @Composable
 fun AiChatScreen(
     viewModel: AiChatScreenViewModel,
+    showInternalHeader: Boolean = false,
+    externalShowChatSheet: Boolean = false,
+    onDismissChatSheet: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val messages by viewModel.messages.collectAsState()
@@ -128,6 +132,13 @@ fun AiChatScreen(
     var input by remember { mutableStateOf("") }
     var editingMessageId by remember { mutableStateOf<String?>(null) }
     var showChatSheet by remember { mutableStateOf(false) }
+
+    LaunchedEffect(externalShowChatSheet) {
+        if (externalShowChatSheet) {
+            showChatSheet = true
+            onDismissChatSheet()
+        }
+    }
     var showOptions by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val keyboard = LocalSoftwareKeyboardController.current
@@ -245,28 +256,27 @@ fun AiChatScreen(
                 }
             }
 
-            AnimatedVisibility(
-                visible = showOptions,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp)
-                    .padding(top = 6.dp, bottom = 74.dp),
-                enter = expandVertically(expandFrom = Alignment.Bottom),
-                exit = shrinkVertically(shrinkTowards = Alignment.Bottom),
-            ) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(22.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 5.dp,
-                    shadowElevation = 5.dp,
+            if (showOptions) {
+                val modelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                ModalBottomSheet(
+                    onDismissRequest = { showOptions = false },
+                    sheetState = modelSheetState,
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+                    containerColor = MaterialTheme.colorScheme.surface
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
+                        Text(
+                            "🤖 AI Model & Response Options",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+
                         // Credit balance + Watch Ad row
                         if (isLoggedIn) {
                             Row(
@@ -275,10 +285,7 @@ fun AiChatScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        "⚡",
-                                        fontSize = 14.sp,
-                                    )
+                                    Text("⚡", fontSize = 14.sp)
                                     Text(
                                         " $creditBalance credits",
                                         style = MaterialTheme.typography.labelMedium,
@@ -295,12 +302,8 @@ fun AiChatScreen(
                                         if (activity != null) {
                                             AiCreditsManager.showAdForCredits(
                                                 activity,
-                                                onReward = { newBal ->
-                                                    adMessage = "✅ +10 credits! Balance: $newBal"
-                                                },
-                                                onError = { err ->
-                                                    adMessage = err
-                                                },
+                                                onReward = { newBal -> adMessage = "✅ +10 credits! Balance: $newBal" },
+                                                onError = { err -> adMessage = err },
                                             )
                                         }
                                     },
@@ -333,20 +336,6 @@ fun AiChatScreen(
                                     }
                                 }
                             }
-
-                            // Ad result message
-                            if (adMessage != null) {
-                                Text(
-                                    adMessage ?: "",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = if (adMessage?.startsWith("✅") == true) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.error,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { adMessage = null }
-                                        .padding(vertical = 2.dp),
-                                )
-                            }
                         }
 
                         Text(
@@ -359,8 +348,6 @@ fun AiChatScreen(
                             modifier = Modifier.horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                         ) {
-                            // Auto = Flash (thinking). Flash Lite = explicit lite/free mode.
-                            // Mistral models are premium (daily token budget, refillable via ads).
                             val models = listOf(
                                 "" to "Auto",
                                 "gemini-2.5-flash-lite" to "Flash Lite",
@@ -372,7 +359,6 @@ fun AiChatScreen(
                                 val isPremium = id.contains("mistral")
                                 val badge = when {
                                     id.isBlank() || id.contains("flash") -> "FREE"
-                                    id.contains("mistral-medium") -> "DAILY"
                                     else -> "DAILY"
                                 }
 
@@ -406,6 +392,7 @@ fun AiChatScreen(
                                 }
                             }
                         }
+
                         Text(
                             "Response Style",
                             style = MaterialTheme.typography.labelSmall,
@@ -432,6 +419,7 @@ fun AiChatScreen(
                                 }
                             }
                         }
+                        Spacer(modifier = Modifier.height(20.dp))
                     }
                 }
             }
@@ -524,13 +512,16 @@ fun AiChatScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
+                .navigationBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 10.dp),
         )
 
-        AiChatHeader(
-            onOpenChats = { showChatSheet = true },
-            modifier = Modifier.align(Alignment.TopCenter),
-        )
+        if (showInternalHeader) {
+            AiChatHeader(
+                onOpenChats = { showChatSheet = true },
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
+        }
     }
 
     if (showChatSheet) {

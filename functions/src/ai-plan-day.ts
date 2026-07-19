@@ -58,6 +58,7 @@ interface SchedulableDto {
   id: string;
   title: string;
   priority: number;
+  estimatedMinutes?: number;
   /** Optional free-text detail to help the model infer a realistic Task_Kind_Estimate (Req 16.1). */
   description?: string;
   /** Optional comma-separated tags, passed through unmodified to preserve any language/script (Req 16.1, 17.2). */
@@ -87,12 +88,14 @@ function buildPlanPrompt(
   context: PlanContextDto,
   priorAssignments: PriorAssignmentDto[],
   adjustment: string,
+  allowRescheduleFixed: boolean = false,
 ): string {
   const taskLines = schedulable
     .map((t) => {
       const parts = [
         `- id="${t.id}"`,
         `priority=${t.priority}`,
+        `duration=${t.estimatedMinutes || 30}m`,
         `title="${String(t.title).replace(/"/g, "'")}"`,
       ];
       if (t.description) parts.push(`description="${String(t.description).replace(/"/g, "'")}"`);
@@ -110,11 +113,12 @@ function buildPlanPrompt(
   if (context.dayOfWeek) contextLines.push(`- Day of week: ${context.dayOfWeek}`);
   if (context.nowTime) contextLines.push(`- Current local time: ${context.nowTime}`);
   contextLines.push(`- Earliest a task may start today: ${dayStart} (do NOT schedule before this — it is already past).`);
+  contextLines.push(`- Day ends strictly at: ${dayEnd}.`);
 
   const isRevision = priorAssignments.length > 0 && adjustment.trim().length > 0;
 
   const lines: string[] = [
-    "You are a scheduling assistant. Plan the user's day for " + date + ".",
+    "You are an expert AI day planner. Optimize the user's schedule for " + date + ".",
     "Assign schedulable tasks a start time in 24-hour HH:mm format.",
     "",
     "Context:",
@@ -123,12 +127,11 @@ function buildPlanPrompt(
     "Hard rules:",
     `1. Every assigned time MUST be within the working window [${dayStart}, ${dayEnd}].`,
     "2. Do NOT assign a time that collides with any fixed commitment (busy) time below.",
-    "3. Give every task a DISTINCT time (no two tasks at the same time).",
-    "4. Schedule higher-priority tasks earlier (priority is 0..3; 3 is highest).",
-    "5. Infer each task's realistic kind and effort/duration from its title, description, and tags.",
-    "6. Schedule ONLY the tasks that realistically fit the actual remaining window above.",
-    "   Leave any task that does NOT fit UNPLACED (simply omit it from your output) rather than",
-    "   inventing collisions, overlapping times, or impossible back-to-back slots.",
+    "3. Account for each task's duration (default 30m). Ensure Task N's start time + duration does not collide with Task N+1 or fixed busy blocks.",
+    "4. Leave 5 to 10 minutes buffer between tasks requiring location or context switches.",
+    "5. Schedule higher-priority tasks earlier (priority is 0..3; 3 is highest).",
+    "6. TIME AWARENESS & SHORT WINDOW FIT: If remaining time today is short (e.g. evening or late afternoon), select a realistic, balanced mix of high-priority tasks and quick-win small tasks that fit the remaining hours.",
+    "7. Leave any task that does NOT fit UNPLACED (simply omit it from your output) rather than inventing collisions, overlapping times, or impossible back-to-back slots.",
     "",
     "Schedulable tasks:",
     taskLines,
@@ -137,54 +140,122 @@ function buildPlanPrompt(
     fixedLines,
   ];
 
-  if (isRevision) {
-    const priorLines = priorAssignments
-      .map((p) => `- id="${p.id}" time="${p.time}"`)
-      .join("\n");
+  if (priorAssignments.length > 0) {
+    const priorLines = priorAssignments.map((p) => `- id="${p.id}" proposed_time="${p.time}"`).join("\n");
     lines.push(
       "",
-      "This is a REVISION of a previously proposed plan. The prior proposal was:",
+      "Prior proposed schedule:",
       priorLines,
-      "",
-      "The user asked for this adjustment (revise the prior plan accordingly):",
-      `"${adjustment.replace(/"/g, "'")}"`,
+      "REVISION REQUIREMENT: You MAY change, shift, or re-assign the proposed times of ANY task above to satisfy the user's new request or optimization constraints."
     );
   }
 
   lines.push(
     "",
-    "Respond with ONLY a strict JSON array, no prose, no markdown fences.",
+    "MULTILINGUAL & LANGUAGE INDEPENDENCE REQUIREMENT:",
+    "Tasks, descriptions, and user instructions may be provided in ANY language, script, or transliterated form (e.g. English, Hindi, Romanized Hinglish like 'bahar jaana pehle kar do', Spanish, French, German, etc.). You MUST interpret the semantic meaning of all tasks and user instructions regardless of language or script.",
+    ""
+  );
+
+  if (adjustment && adjustment.trim() !== "") {
+    lines.push(
+      "=== CRITICAL USER INSTRUCTION & CONSTRAINTS ===",
+      `USER INSTRUCTION: "${adjustment.replace(/"/g, "'")}"`,
+      "STRICT REQUIREMENT: You MUST prioritize fulfilling the user's instruction above over default rules!",
+      "- If the user requests to schedule a specific task earlier (e.g. 'go outside', 'bahar jaana', 'gym', 'run errands'), identify that task by title/description in any language and assign it the EARLIEST available free slot in the working window!",
+      "- If the user specifies a custom day-end time (e.g. 'working late until 11:30 PM', 'day ends at 23:30', 'extending day to 11 PM', 'midnight tak plan karo'), you MAY schedule tasks up to that requested end time (up to 23:59), overriding default working window end.",
+      "- If the user asks to keep a time block free or shift tasks, strictly honor that constraint.",
+      "- Explicitly mention how you fulfilled this request in your briefing and assignment reasons."
+    );
+  }
+  if (allowRescheduleFixed) {
+    lines.push(
+      "",
+      "=== RESCHEDULING PERMISSION GRANTED ===",
+      "The user has granted explicit permission to RESCHEDULE existing scheduled tasks and commitments for a better overall day flow!",
+      "You MAY change, shift, or optimize the start times of all tasks (even those with prior scheduled times) to resolve collisions, create focus blocks, and build the best possible daily schedule."
+    );
+  }
+
+  lines.push(
+    "",
+    "Respond with ONLY a strict JSON object, no prose, no markdown codeblocks.",
     "Omit any task you cannot realistically place:",
-    '[{ "id": "<task id>", "time": "HH:mm" }]',
+    '{ "briefing": "1-2 sentence summary of today\'s plan flow", "recommendation": "1-2 sentence actionable tip on productivity or focus today", "assignments": [{ "id": "<task id>", "time": "HH:mm", "reason": "Short reason" }] }',
   );
 
   return lines.join("\n");
 }
 
-/** Best-effort parse of a model response into [{id,time}]. Untrusted — client normalizer is authority. */
-function parseAssignments(text: string): Array<{ id: string; time: string }> {
-  if (!text) return [];
+interface ParsedPlanDayResponse {
+  briefing: string;
+  recommendation: string;
+  assignments: Array<{ id: string; time: string; reason?: string }>;
+}
+
+/** Best-effort parse of a model response into briefing, recommendation, and assignments. */
+function parsePlanResponse(text: string): ParsedPlanDayResponse {
+  if (!text) return { briefing: "", recommendation: "", assignments: [] };
   let raw = text.trim();
-  // Strip markdown code fences if the model added them.
   const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fence) raw = fence[1].trim();
-  // Isolate the first JSON array if there is surrounding prose.
-  if (!raw.startsWith("[")) {
-    const start = raw.indexOf("[");
-    const end = raw.lastIndexOf("]");
-    if (start !== -1 && end !== -1 && end > start) raw = raw.slice(start, end + 1);
-  }
+
   try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
+    if (Array.isArray(parsed)) {
+      const assignments = parsed
+        .map((entry: any) => ({
+          id: String(entry?.id ?? ""),
+          time: String(entry?.time ?? ""),
+          reason: entry?.reason ? String(entry.reason) : undefined,
+        }))
+        .filter((a) => a.id !== "");
+      return {
+        briefing: `Planned ${assignments.length} tasks for your remaining day.`,
+        recommendation: "Focus on high-priority items first and take short breaks between blocks.",
+        assignments,
+      };
+    }
+
+    const assignmentsArr = Array.isArray(parsed?.assignments) ? parsed.assignments : [];
+    const assignments = assignmentsArr
       .map((entry: any) => ({
         id: String(entry?.id ?? ""),
         time: String(entry?.time ?? ""),
+        reason: entry?.reason ? String(entry.reason) : undefined,
       }))
-      .filter((a) => a.id !== "");
+      .filter((a: any) => a.id !== "");
+
+    return {
+      briefing: parsed?.briefing ? String(parsed.briefing) : `Planned ${assignments.length} tasks for your remaining day.`,
+      recommendation: parsed?.recommendation ? String(parsed.recommendation) : "Focus on high-priority items first and take short breaks between blocks.",
+      assignments,
+    };
   } catch {
-    return [];
+    // Fallback array extraction if model emitted prose around JSON array
+    const start = raw.indexOf("[");
+    const end = raw.lastIndexOf("]");
+    if (start !== -1 && end !== -1 && end > start) {
+      try {
+        const arr = JSON.parse(raw.slice(start, end + 1));
+        if (Array.isArray(arr)) {
+          const assignments = arr
+            .map((entry: any) => ({
+              id: String(entry?.id ?? ""),
+              time: String(entry?.time ?? ""),
+            }))
+            .filter((a) => a.id !== "");
+          return {
+            briefing: `Planned ${assignments.length} tasks for your remaining day.`,
+            recommendation: "Focus on high-priority items first and take short breaks between blocks.",
+            assignments,
+          };
+        }
+      } catch {
+        // ignore
+      }
+    }
+    return { briefing: "", recommendation: "", assignments: [] };
   }
 }
 
@@ -203,7 +274,7 @@ export const aiPlanDay = onRequest(
     }
 
     const {
-      schedulable,
+      schedulable = [],
       fixed = [],
       date = "",
       dayStart = "09:00",
@@ -211,12 +282,9 @@ export const aiPlanDay = onRequest(
       context = {},
       priorAssignments = [],
       adjustment = "",
-      // RESERVED for a future iteration — weather is skipped for MVP, so the client sends null.
-      // Parsed here only to reserve the field; the prompt never consumes it.
-      weather = null,
+      allowRescheduleFixed = false,
       appVersionCode = 0,
     } = req.body || {};
-    void weather;
 
     if (!Array.isArray(schedulable) || schedulable.length === 0) {
       res.status(400).json({ error: "schedulable required" });
@@ -289,6 +357,7 @@ export const aiPlanDay = onRequest(
         contextDto,
         priorAssignmentDtos,
         adjustmentText,
+        Boolean(allowRescheduleFixed)
       );
 
       // --- Call provider ---
@@ -338,7 +407,7 @@ export const aiPlanDay = onRequest(
         }
       }
 
-      const assignments = parseAssignments(responseText);
+      const parsedPlan = parsePlanResponse(responseText);
 
       // --- Deduct usage post-call, consistent with how aiChat charges ---
       const usageUpdate: Record<string, any> = {};
@@ -359,13 +428,19 @@ export const aiPlanDay = onRequest(
         model,
         schedulable: schedulableDtos.length,
         fixed: fixedDtos.length,
-        assignments: assignments.length,
+        assignments: parsedPlan.assignments.length,
         inputTokens,
         outputTokens,
         appVersionCode,
       });
 
-      res.json({ success: true, assignments, model });
+      res.json({
+        success: true,
+        briefing: parsedPlan.briefing,
+        recommendation: parsedPlan.recommendation,
+        assignments: parsedPlan.assignments,
+        model,
+      });
     } catch (err: any) {
       console.error("Plan day error:", err);
       res.status(500).json({

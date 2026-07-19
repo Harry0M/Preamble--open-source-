@@ -345,6 +345,7 @@ object CloudAiService {
         nowTime: String = "",
         priorAssignments: List<PlanAssignmentDto>? = null,
         adjustment: String? = null,
+        allowRescheduleFixed: Boolean = false,
     ): PlanDayResult? = withContext(Dispatchers.IO) {
         val token = runCatching { getAuthToken() }.getOrNull() ?: return@withContext null
 
@@ -355,6 +356,7 @@ object CloudAiService {
                 // Title/description/tags are passed UNMODIFIED so any language/script is preserved (Req 17.2).
                 put("title", t.title)
                 put("priority", t.priority)
+                t.estimatedMinutes?.let { put("estimatedMinutes", it) }
                 if (!t.description.isNullOrBlank()) put("description", t.description)
                 if (!t.tags.isNullOrBlank()) put("tags", t.tags)
             })
@@ -393,6 +395,7 @@ object CloudAiService {
                 put("priorAssignments", priorJson)
             }
             if (!adjustment.isNullOrBlank()) put("adjustment", adjustment)
+            if (allowRescheduleFixed) put("allowRescheduleFixed", true)
             // Weather is RESERVED for a future iteration; MVP sends null and never calls a weather API (Req 14.2).
             put("weather", JSONObject.NULL)
             put("appVersionCode", com.theblankstate.preamble.BuildConfig.VERSION_CODE)
@@ -437,11 +440,17 @@ object CloudAiService {
             val assignmentsArr = json.optJSONArray("assignments") ?: JSONArray()
             val assignments = (0 until assignmentsArr.length()).map { i ->
                 val a = assignmentsArr.getJSONObject(i)
-                PlanAssignmentDto(id = a.optString("id"), time = a.optString("time"))
+                PlanAssignmentDto(
+                    id = a.optString("id"),
+                    time = a.optString("time"),
+                    reason = a.optString("reason").takeIf { it.isNotBlank() }
+                )
             }
 
             PlanDayResult.Success(
                 assignments = assignments,
+                briefing = json.optString("briefing").takeIf { it.isNotBlank() },
+                recommendation = json.optString("recommendation").takeIf { it.isNotBlank() },
                 model = json.optString("model", ""),
             )
         } catch (e: Exception) {
@@ -528,6 +537,7 @@ data class PlanTaskDto(
     val id: String,
     val title: String,
     val priority: Int,
+    val estimatedMinutes: Int? = null,
     /** Optional detail passed through unmodified so the model can infer a realistic estimate (Req 16.1, 17.2). */
     val description: String? = null,
     /** Optional comma-separated tags, passed through unmodified to preserve any language/script (Req 16.1, 17.2). */
@@ -538,12 +548,17 @@ data class PlanTaskDto(
 data class PlanFixedDto(val start: String, val end: String? = null)
 
 /** Response DTO: one untrusted `(id, time)` pair exactly as the model proposed it. */
-data class PlanAssignmentDto(val id: String, val time: String)
+data class PlanAssignmentDto(val id: String, val time: String, val reason: String? = null)
 
 /** Outcome of a [CloudAiService.planDay] call. `null` is reserved for network/parse/limit errors. */
 sealed interface PlanDayResult {
     /** Server returned a (still untrusted) proposal to be validated by the client normalizer. */
-    data class Success(val assignments: List<PlanAssignmentDto>, val model: String) : PlanDayResult
+    data class Success(
+        val assignments: List<PlanAssignmentDto>,
+        val briefing: String? = null,
+        val recommendation: String? = null,
+        val model: String
+    ) : PlanDayResult
 
     /** Server rejected the request because the user has insufficient AI credits (Req 5.5). */
     data object InsufficientCredits : PlanDayResult
