@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
@@ -84,6 +85,7 @@ fun CollaboratorMemberList(
     onNudge: ((String) -> Unit)? = null,
     canNudge: ((String) -> Boolean)? = null,
     nudgeCooldownRemaining: ((String) -> Long)? = null,
+    onOpenFullCollaboratorsScreen: (() -> Unit)? = null,
 ) {
     // Build the displayed list: admin row first, then the non-terminal members
     // (Requirement 20.1, reusing the Property 16 filter).
@@ -145,6 +147,26 @@ fun CollaboratorMemberList(
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = if (expanded) "Show less" else "Show ${preview.overflow} more",
+                    fontSize = 13.sp
+                )
+            }
+        }
+
+        // Dedicated Full-Screen Collaborators Affordance
+        if (onOpenFullCollaboratorsScreen != null) {
+            TextButton(
+                onClick = { onOpenFullCollaboratorsScreen() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Group,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "View Full Collaborators Screen",
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 13.sp
                 )
             }

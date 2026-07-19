@@ -4,8 +4,10 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
@@ -116,6 +118,7 @@ private fun expressiveMemberMorph(): Morph = Morph(
 fun CollaboratorAvatarCluster(
     task: Task,
     modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null
 ) {
     // Non-collaborative / no-members guard (22.5, 22.1 precondition).
     if (task.collabAdminUid == null && task.collabAssignees.isEmpty()) return
@@ -137,8 +140,14 @@ fun CollaboratorAvatarCluster(
     // Shared Expressive morph reused by every avatar + the overflow chip (Req 25).
     val morph = remember { expressiveMemberMorph() }
 
+    val rowModifier = if (onClick != null) {
+        modifier.clip(RoundedCornerShape(16.dp)).clickable { onClick() }
+    } else {
+        modifier
+    }
+
     Row(
-        modifier = modifier,
+        modifier = rowModifier,
         verticalAlignment = Alignment.CenterVertically,
         // Negative spacing makes the avatars overlap.
         horizontalArrangement = Arrangement.spacedBy((-10).dp),

@@ -88,6 +88,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material.icons.automirrored.filled.EventNote
 import com.theblankstate.preamble.data.Task
+import com.theblankstate.preamble.ui.screens.TaskCollaboratorsScreen
 import com.theblankstate.preamble.data.TaskInputValidator
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -131,6 +132,7 @@ fun TaskDetailSheet(
     var selectedTags by remember { mutableStateOf(task.tagList.toSet()) }
     var showTimePicker by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var showFullCollaboratorsScreen by remember { mutableStateOf(false) }
 
     // Recurrence state
     var recurrenceType by remember { mutableStateOf(task.recurrenceType) }
@@ -453,9 +455,31 @@ fun TaskDetailSheet(
                         onNudge = onNudge,
                         canNudge = canNudge,
                         nudgeCooldownRemaining = nudgeCooldownRemaining,
+                        onOpenFullCollaboratorsScreen = { showFullCollaboratorsScreen = true }
                     )
                 }
                 Spacer(modifier = Modifier.height(20.dp))
+            }
+
+            if (showFullCollaboratorsScreen) {
+                androidx.compose.ui.window.Dialog(
+                    onDismissRequest = { showFullCollaboratorsScreen = false },
+                    properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+                ) {
+                    TaskCollaboratorsScreen(
+                        task = task,
+                        currentUserUid = currentUserUid,
+                        onBack = { showFullCollaboratorsScreen = false },
+                        showRoleControls = true,
+                        onRemoveMember = onRemoveCollabMember,
+                        onTransferOwnership = onTransferCollabOwnership,
+                        onLeaveTask = onLeaveCollabTask,
+                        onReact = onReact,
+                        onNudge = onNudge,
+                        canNudge = canNudge,
+                        nudgeCooldownRemaining = nudgeCooldownRemaining
+                    )
+                }
             }
 
             // ═══════════════════════════════════════════════════════════════

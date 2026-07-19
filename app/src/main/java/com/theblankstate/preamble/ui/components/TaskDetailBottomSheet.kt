@@ -93,6 +93,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import com.theblankstate.preamble.ui.screens.TaskCollaboratorsScreen
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -179,6 +180,7 @@ fun TaskDetailBottomSheet(
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showFullCollaboratorsScreen by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.DisposableEffect(Unit) {
         val start = System.currentTimeMillis()
@@ -396,6 +398,25 @@ fun TaskDetailBottomSheet(
                         currentUserUid = currentUserUid,
                         showRoleControls = false,
                         reactions = task.collabReactions,
+                        onReact = onReact,
+                        onNudge = onNudge,
+                        canNudge = canNudge,
+                        nudgeCooldownRemaining = nudgeCooldownRemaining,
+                        onOpenFullCollaboratorsScreen = { showFullCollaboratorsScreen = true }
+                    )
+                }
+            }
+
+            if (showFullCollaboratorsScreen) {
+                androidx.compose.ui.window.Dialog(
+                    onDismissRequest = { showFullCollaboratorsScreen = false },
+                    properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false)
+                ) {
+                    TaskCollaboratorsScreen(
+                        task = task,
+                        currentUserUid = currentUserUid,
+                        onBack = { showFullCollaboratorsScreen = false },
+                        showRoleControls = false,
                         onReact = onReact,
                         onNudge = onNudge,
                         canNudge = canNudge,
