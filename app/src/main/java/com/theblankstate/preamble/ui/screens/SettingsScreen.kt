@@ -82,7 +82,6 @@ private enum class SettingsSubscreen {
     SupportAndAbout,
     OssLicenses,
     ReportProblem,
-    MyReports,
     ReportDetail,
 }
 
@@ -149,8 +148,7 @@ fun SettingsScreen(
 
     BackHandler(enabled = settingsSubscreen != SettingsSubscreen.Main) {
         settingsSubscreen = when (settingsSubscreen) {
-            SettingsSubscreen.ReportDetail -> SettingsSubscreen.MyReports
-            SettingsSubscreen.MyReports -> SettingsSubscreen.SupportAndAbout
+            SettingsSubscreen.ReportDetail -> SettingsSubscreen.ReportProblem
             SettingsSubscreen.ReportProblem -> SettingsSubscreen.SupportAndAbout
             else -> SettingsSubscreen.Main
         }
@@ -413,7 +411,6 @@ fun SettingsScreen(
                     SettingsSubscreen.SupportAndAbout -> {
                         SupportAndAboutSubscreen(
                             onOpenReportProblem = { settingsSubscreen = SettingsSubscreen.ReportProblem },
-                            onOpenMyReports = { settingsSubscreen = SettingsSubscreen.MyReports },
                             onOpenLicenses = { settingsSubscreen = SettingsSubscreen.OssLicenses },
                             onOpenPrivacy = { showPrivacySheet = true },
                             onOpenTerms = { showTermsSheet = true },
@@ -422,10 +419,7 @@ fun SettingsScreen(
                         )
                     }
                     SettingsSubscreen.ReportProblem -> {
-                        ProblemReportSettingsSubscreen(scaleFactor = scaleFactor)
-                    }
-                    SettingsSubscreen.MyReports -> {
-                        MyReportsSubscreen(
+                        ProblemReportSettingsSubscreen(
                             onSelectReport = { report ->
                                 selectedReport = report
                                 settingsSubscreen = SettingsSubscreen.ReportDetail
@@ -437,7 +431,7 @@ fun SettingsScreen(
                         selectedReport?.let { report ->
                             ReportDetailSubscreen(report = report, scaleFactor = scaleFactor)
                         } ?: run {
-                            settingsSubscreen = SettingsSubscreen.MyReports
+                            settingsSubscreen = SettingsSubscreen.ReportProblem
                         }
                     }
                     SettingsSubscreen.OssLicenses -> {
@@ -579,8 +573,7 @@ fun SettingsScreen(
                         Surface(
                             onClick = {
                                 settingsSubscreen = when (settingsSubscreen) {
-                                    SettingsSubscreen.ReportDetail -> SettingsSubscreen.MyReports
-                                    SettingsSubscreen.MyReports -> SettingsSubscreen.SupportAndAbout
+                                    SettingsSubscreen.ReportDetail -> SettingsSubscreen.ReportProblem
                                     SettingsSubscreen.ReportProblem -> SettingsSubscreen.SupportAndAbout
                                     else -> SettingsSubscreen.Main
                                 }
@@ -631,7 +624,6 @@ fun SettingsScreen(
                                     SettingsSubscreen.AlarmsAndGeneral -> "Alarms & Haptics"
                                     SettingsSubscreen.SupportAndAbout -> "Support & About"
                                     SettingsSubscreen.ReportProblem -> "Report a problem"
-                                    SettingsSubscreen.MyReports -> "My Problem Reports"
                                     SettingsSubscreen.ReportDetail -> "Report Details"
                                     SettingsSubscreen.OssLicenses -> "Open-source licenses"
                                 },
@@ -1428,7 +1420,6 @@ private fun AlarmsAndGeneralSubscreen(
 @Composable
 private fun SupportAndAboutSubscreen(
     onOpenReportProblem: () -> Unit,
-    onOpenMyReports: () -> Unit,
     onOpenLicenses: () -> Unit,
     onOpenPrivacy: () -> Unit,
     onOpenTerms: () -> Unit,
@@ -1448,22 +1439,12 @@ private fun SupportAndAboutSubscreen(
         SettingsGroupSection(title = "Support & Feedback", scaleFactor = scaleFactor) {
             SettingsItemRow(
                 title = "Report a problem",
-                subtitle = "Send screenshots or videos to our support team",
+                subtitle = "Send reports, track status & view admin responses",
                 icon = Icons.Default.BugReport,
                 iconTint = Color(0xFF00ACC1),
                 iconBgColor = Color(0xFFE0F7FA),
                 scaleFactor = scaleFactor,
                 onClick = onOpenReportProblem,
-                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-            )
-            SettingsItemRow(
-                title = "My problem reports",
-                subtitle = "View submitted reports and admin responses",
-                icon = Icons.Default.Assignment,
-                iconTint = Color(0xFF00ACC1),
-                iconBgColor = Color(0xFFE0F7FA),
-                scaleFactor = scaleFactor,
-                onClick = onOpenMyReports,
                 trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
             )
             SettingsItemRow(
@@ -2251,6 +2232,7 @@ private fun PersonalTouchSettingsSubscreen(
 
 @Composable
 private fun ProblemReportSettingsSubscreen(
+    onSelectReport: (ProblemReport) -> Unit,
     scaleFactor: Float = 1f,
 ) {
     val context = LocalContext.current
@@ -2263,6 +2245,8 @@ private fun ProblemReportSettingsSubscreen(
     var reports by remember { mutableStateOf<List<ProblemReport>>(emptyList()) }
     var isSubmitting by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
+    var currentPage by remember { mutableIntStateOf(0) }
+    val pageSize = 5
 
     LaunchedEffect(currentUser?.uid) {
         if (currentUser != null) {
@@ -2292,6 +2276,9 @@ private fun ProblemReportSettingsSubscreen(
         !isSubmitting &&
         title.isNotBlank() &&
         description.isNotBlank()
+
+    val totalPages = (reports.size + pageSize - 1).coerceAtLeast(1) / pageSize
+    val pagedReports = reports.drop(currentPage * pageSize).take(pageSize)
 
     Column(
         verticalArrangement = Arrangement.spacedBy(16.dp * scaleFactor),
@@ -2436,6 +2423,119 @@ private fun ProblemReportSettingsSubscreen(
                         Spacer(Modifier.width(8.dp))
                         Text(if (isSubmitting) "Sending" else "Send")
                     }
+                }
+            }
+        }
+
+        // Embedded My Problem Reports Section
+        SettingsGroupSection(title = "My Submitted Reports", scaleFactor = scaleFactor) {
+            Column(modifier = Modifier.padding(6.dp * scaleFactor)) {
+                if (currentUser == null) {
+                    Text(
+                        "Sign in to view your problem reports.",
+                        modifier = Modifier.padding(12.dp * scaleFactor),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else if (reports.isEmpty()) {
+                    Text(
+                        "No problem reports submitted yet.",
+                        modifier = Modifier.padding(12.dp * scaleFactor),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    pagedReports.forEachIndexed { index, report ->
+                        SettingsItemRow(
+                            title = report.title,
+                            subtitle = listOfNotNull(
+                                formatReportDate(report.createdAt),
+                                if (!report.adminNote.isNullOrBlank()) "Response received" else null
+                            ).joinToString(" • "),
+                            icon = when (report.status) {
+                                ProblemReport.STATUS_RESOLVED -> Icons.Default.CheckCircle
+                                ProblemReport.STATUS_IN_PROGRESS -> Icons.Default.HourglassTop
+                                else -> Icons.Default.BugReport
+                            },
+                            iconTint = when (report.status) {
+                                ProblemReport.STATUS_RESOLVED -> Color(0xFF1E8E3E)
+                                ProblemReport.STATUS_IN_PROGRESS -> Color(0xFF1A73E8)
+                                else -> Color(0xFFF9AB00)
+                            },
+                            iconBgColor = when (report.status) {
+                                ProblemReport.STATUS_RESOLVED -> Color(0xFFE6F4EA)
+                                ProblemReport.STATUS_IN_PROGRESS -> Color(0xFFE8F0FE)
+                                else -> Color(0xFFFEF7E0)
+                            },
+                            scaleFactor = scaleFactor,
+                            onClick = { onSelectReport(report) },
+                            trailingContent = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    ProblemReportStatusChip(report.status)
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        )
+                        if (index != pagedReports.lastIndex) HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp))
+                    }
+                }
+            }
+        }
+
+        // Paging Navigation Controls
+        if (reports.size > pageSize) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val prevInteraction = remember { MutableInteractionSource() }
+                Surface(
+                    onClick = { if (currentPage > 0) currentPage-- },
+                    enabled = currentPage > 0,
+                    shape = CircleShape,
+                    color = if (currentPage > 0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier.expressivePressScale(prevInteraction)
+                ) {
+                    Text(
+                        "← Previous",
+                        modifier = Modifier.padding(horizontal = 14.dp * scaleFactor, vertical = 8.dp * scaleFactor),
+                        style = MaterialTheme.typography.labelMedium.copy(fontSize = (12 * scaleFactor).sp),
+                        color = if (currentPage > 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    )
+                }
+
+                Text(
+                    "Page ${currentPage + 1} of $totalPages",
+                    style = MaterialTheme.typography.labelMedium.copy(fontSize = (12 * scaleFactor).sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                val nextInteraction = remember { MutableInteractionSource() }
+                Surface(
+                    onClick = { if (currentPage < totalPages - 1) currentPage++ },
+                    enabled = currentPage < totalPages - 1,
+                    shape = CircleShape,
+                    color = if (currentPage < totalPages - 1) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier.expressivePressScale(nextInteraction)
+                ) {
+                    Text(
+                        "Next →",
+                        modifier = Modifier.padding(horizontal = 14.dp * scaleFactor, vertical = 8.dp * scaleFactor),
+                        style = MaterialTheme.typography.labelMedium.copy(fontSize = (12 * scaleFactor).sp),
+                        color = if (currentPage < totalPages - 1) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    )
                 }
             }
         }

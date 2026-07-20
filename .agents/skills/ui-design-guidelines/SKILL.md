@@ -165,7 +165,24 @@ Scrollable screen surfaces should extend edge-to-edge behind the Android status 
 
 ---
 
+## 10. Categorized Subscreen Architecture
+For complex settings or feature hubs with numerous options, avoid crowding everything on a single screen:
+
+* **High-Level Category Cards**: Simplify the primary screen into 6–8 curated entry rows using circular `42.dp * scaleFactor` visual anchor icons filled with distinct soft pastel tint backgrounds.
+* **Centered Title Pill & Back FAB**: Navigating into a category opens a dedicated subscreen. The floating top header shows a compact wrap-content title capsule pill in the horizontal center and a soft 44dp circle Back FAB on the far left.
+* **Embedded List & Detail Flow**: Subscreens contain both creation/input forms and embedded paged history lists with clean status chips (`Open`, `In review`, `Resolved`). Clicking an item opens a dedicated detail view.
+
+---
+
+## 11. Tactile Rating Bars & Expandable Text Controls
+* **Tactile Rating Stars**: Interactive star selectors use `expressivePressScale` (scale `0.85f`) and instant haptic feedback (`HapticFeedbackType.LongPress`) on tap.
+* **Expandable Long Response Cards**: Detailed notes or admin responses default to `maxLines = 3` with `TextOverflow.Ellipsis`. A soft pill button ("Show more ▼" / "Show less ▲") allows users to expand or collapse long text with bouncy press animation.
+* **Pill Chips**: Option chips (theme modes, filters) use full rounded corners (`RoundedCornerShape(50)` / `CircleShape`) without raw text labels cluttering color selectors.
+
+---
+
 ## How to use this Skill
 When prompting me to design or modify a screen, you can guide me to use this skill by explicitly stating:
 > *"Design the new features using the `custom-ui-design-guidelines` skill"* or
 > *"Implement the UI following the Preamble minimalist layout design rules"*
+
