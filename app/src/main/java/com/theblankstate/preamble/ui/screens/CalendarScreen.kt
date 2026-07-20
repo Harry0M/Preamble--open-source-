@@ -2,8 +2,13 @@ package com.theblankstate.preamble.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -31,7 +36,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -44,18 +48,23 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Today
 import androidx.compose.material.icons.filled.ViewDay
 import androidx.compose.material.icons.filled.ViewWeek
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -79,6 +88,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -113,6 +123,15 @@ private val PriorityLow = Color(0xFF3B82F6)
 private val GoogleBlue = Color(0xFF4285F4)
 private val TaskTeal = Color(0xFF039BE5)
 private const val PAGER_MID = 5000 // virtual center page
+
+private val PreambleCardColors = listOf(
+    Color(0xFFA1C6FF), // Soft Blue
+    Color(0xFFEAB3FF), // Soft Purple
+    Color(0xFFFFD166), // Soft Yellow
+    Color(0xFFFF9E9E), // Soft Coral
+    Color(0xFF9EE8FF), // Soft Cyan
+    Color(0xFFFFC085)  // Soft Orange
+)
 
 @androidx.compose.runtime.Immutable
 data class GridDay(val day: Int, val inMonth: Boolean)
@@ -482,7 +501,7 @@ fun CalendarScreen(
                 }
             }
 
-            // ═══ RE-IMAGINED FILTERS BAR ═══
+            // ═══ RE-IMAGINED FILTERS BAR WITH RESET PILL ═══
             AnimatedVisibility(
                 visible = showFilters,
                 enter = expandVertically() + fadeIn(),
@@ -542,6 +561,18 @@ fun CalendarScreen(
                             selected = tag in activeFilters,
                             colorDot = tc,
                             onClick = { activeFilters = if (tag in activeFilters) activeFilters - tag else activeFilters + tag },
+                            scaleFactor = scaleFactor
+                        )
+                    }
+
+                    // Reset Filters Quick Clear Pill Chip
+                    if (activeFilters.isNotEmpty()) {
+                        FilterPillChip(
+                            label = "Clear ✕",
+                            selected = false,
+                            icon = Icons.Default.Close,
+                            iconTint = MaterialTheme.colorScheme.error,
+                            onClick = { activeFilters = emptySet() },
                             scaleFactor = scaleFactor
                         )
                     }
@@ -626,10 +657,12 @@ fun CalendarScreen(
                                 onSurface = onSurface,
                                 onSurfaceVar = onSurfaceVar,
                                 tasks = if (isSettled) filteredTasks else emptyList(),
+                                scaleFactor = scaleFactor,
                                 onDateClick = { handleDateClick(it) },
                                 onToggle = onToggleTask,
                                 onDelete = onDeleteTask,
-                                onDetail = onTaskDetail
+                                onDetail = onTaskDetail,
+                                onAddTask = onAddTask
                             )
                         }
                     }
@@ -661,7 +694,8 @@ fun CalendarScreen(
                                 onDateClick = { handleDateClick(it) },
                                 onToggle = onToggleTask,
                                 onDelete = onDeleteTask,
-                                onDetail = onTaskDetail
+                                onDetail = onTaskDetail,
+                                onAddTask = onAddTask
                             )
                         }
                     }
@@ -678,7 +712,9 @@ fun CalendarScreen(
                                 onDelete = onDeleteTask,
                                 onDetail = onTaskDetail,
                                 onSurfaceVar = onSurfaceVar,
-                                todayStr = todayStr
+                                todayStr = todayStr,
+                                scaleFactor = scaleFactor,
+                                onAddTask = onAddTask
                             )
                         }
                     }
@@ -854,19 +890,46 @@ private fun ReimaginedMonthGrid(
                                     task.isCalendarEvent || task.isGoogleTask -> TaskTeal
                                     else -> primary
                                 }
-                                Text(
-                                    text = task.title.removePrefix("📅 ").trim(),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = (9.5 * scaleFactor).sp, lineHeight = 12.sp),
-                                    color = tc,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                val icon = when {
+                                    task.deadlineTime != null -> Icons.Default.Schedule
+                                    task.isCalendarEvent || task.isGoogleTask -> Icons.Default.Event
+                                    else -> null
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .padding(vertical = 0.5.dp)
                                         .clip(RoundedCornerShape(6.dp))
                                         .background(tc.copy(alpha = 0.15f))
-                                        .padding(horizontal = 4.dp * scaleFactor, vertical = 1.5.dp)
-                                )
+                                        .padding(horizontal = 3.dp * scaleFactor, vertical = 1.5.dp)
+                                ) {
+                                    if (icon != null) {
+                                        Icon(
+                                            imageVector = icon,
+                                            contentDescription = null,
+                                            tint = tc,
+                                            modifier = Modifier.size(9.dp * scaleFactor)
+                                        )
+                                        Spacer(modifier = Modifier.width(2.dp * scaleFactor))
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(4.dp * scaleFactor)
+                                                .clip(CircleShape)
+                                                .background(tc)
+                                        )
+                                        Spacer(modifier = Modifier.width(3.dp * scaleFactor))
+                                    }
+                                    Text(
+                                        text = task.title.removePrefix("📅 ").trim(),
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = (9.5 * scaleFactor).sp, lineHeight = 12.sp),
+                                        color = tc,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                             if (tasks.size > 3) {
                                 Text(
@@ -894,8 +957,10 @@ private fun CollapsibleSimplePage(
     rows: List<List<Int?>>, cal: Calendar, selectedDay: Int,
     heatMap: Map<Int, Pair<Int, Int>>, todayStr: String, sdfDate: SimpleDateFormat,
     primary: Color, onPrimary: Color, onSurface: Color, onSurfaceVar: Color,
-    tasks: List<Task>, onDateClick: (String) -> Unit,
-    onToggle: (Task) -> Unit, onDelete: (Task) -> Unit, onDetail: (Task) -> Unit
+    tasks: List<Task>, scaleFactor: Float = 1f,
+    onDateClick: (String) -> Unit,
+    onToggle: (Task) -> Unit, onDelete: (Task) -> Unit, onDetail: (Task) -> Unit,
+    onAddTask: () -> Unit
 ) {
     val density = LocalDensity.current
     val calendarExpandedPx = with(density) { 340.dp.toPx() }
@@ -991,10 +1056,36 @@ private fun CollapsibleSimplePage(
                             }
                         }
                     }
-                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), Arrangement.Center, Alignment.CenterVertically) {
-                        Text("Less", style = MaterialTheme.typography.labelSmall, color = onSurfaceVar); Spacer(Modifier.width(6.dp))
-                        listOf(0.12f, 0.3f, 0.5f, 0.67f).forEach { a -> Box(Modifier.size(12.dp).padding(1.dp).clip(CircleShape).background(primary.copy(alpha = a))) }
-                        Spacer(Modifier.width(6.dp)); Text("More", style = MaterialTheme.typography.labelSmall, color = onSurfaceVar)
+                    // Re-imagined Monthly Productivity Summary Card
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp * scaleFactor, vertical = 6.dp * scaleFactor),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = primary.copy(alpha = 0.12f),
+                            tonalElevation = 0.dp
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp * scaleFactor, vertical = 4.dp * scaleFactor),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Star, contentDescription = null, tint = primary, modifier = Modifier.size(12.dp * scaleFactor))
+                                Spacer(modifier = Modifier.width(4.dp * scaleFactor))
+                                Text("Monthly Streak", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = (11 * scaleFactor).sp), color = primary)
+                            }
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("Less", style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * scaleFactor).sp), color = onSurfaceVar)
+                            Spacer(Modifier.width(6.dp))
+                            listOf(0.12f, 0.3f, 0.5f, 0.7f).forEach { a -> Box(Modifier.size(10.dp * scaleFactor).padding(1.dp).clip(CircleShape).background(primary.copy(alpha = a))) }
+                            Spacer(Modifier.width(6.dp))
+                            Text("More", style = MaterialTheme.typography.labelSmall.copy(fontSize = (11 * scaleFactor).sp), color = onSurfaceVar)
+                        }
                     }
                 }
             }
@@ -1052,11 +1143,11 @@ private fun CollapsibleSimplePage(
                 Text(lbl, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = primary)
                 if (tasks.isNotEmpty()) Text("${tasks.count { it.isCompleted }}/${tasks.size}", style = MaterialTheme.typography.labelSmall, color = onSurfaceVar)
             }
-            if (tasks.isEmpty()) EmptyState("No tasks", Icons.Default.Event)
+            if (tasks.isEmpty()) ReimaginedEmptyState(message = "No tasks planned for this day", icon = Icons.Default.Event, onAddTask = onAddTask, scaleFactor = scaleFactor)
             else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 8.dp)) {
                 items(tasks, key = { it.id }) { task -> val isPast = task.createdDate < todayStr; TaskItem(task = task, onToggle = { if (!isPast) onToggle(task) }, onDelete = { onDelete(task) }, onDetail = { onDetail(task) }, isEditable = !isPast) }
             }
-        } else EmptyState("Select a date", Icons.Default.CalendarMonth)
+        } else ReimaginedEmptyState(message = "Select a date to view tasks", icon = Icons.Default.CalendarMonth, onAddTask = onAddTask, scaleFactor = scaleFactor)
     }
 }
 
@@ -1071,7 +1162,8 @@ private fun ReimaginedWeekPage(
     primary: Color, onPrimary: Color, onSurface: Color, onSurfaceVar: Color,
     tasks: List<Task>, scaleFactor: Float = 1f,
     onDateClick: (String) -> Unit,
-    onToggle: (Task) -> Unit, onDelete: (Task) -> Unit, onDetail: (Task) -> Unit
+    onToggle: (Task) -> Unit, onDelete: (Task) -> Unit, onDetail: (Task) -> Unit,
+    onAddTask: () -> Unit
 ) {
     val dayLabels = listOf("S", "M", "T", "W", "T", "F", "S")
     Column(Modifier.fillMaxSize()) {
@@ -1109,24 +1201,36 @@ private fun ReimaginedWeekPage(
                     )
                     if (taskData != null) {
                         Spacer(Modifier.height(2.dp))
-                        Box(Modifier.size(6.dp * scaleFactor).clip(CircleShape).background(if (isSelected) onPrimary.copy(alpha = 0.75f) else primary.copy(alpha = 0.65f)))
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = if (isSelected) onPrimary.copy(alpha = 0.25f) else primary.copy(alpha = 0.15f)
+                        ) {
+                            Text(
+                                text = "${taskData.second}",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = (9 * scaleFactor).sp, fontWeight = FontWeight.Bold),
+                                color = if (isSelected) onPrimary else primary,
+                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 0.5.dp)
+                            )
+                        }
                     }
                 }
             }
         }
-        TaskListSection(selectedDay, currentMonth, tasks, onToggle, onDelete, onDetail, todayStr)
+        TaskListSection(selectedDay, currentMonth, tasks, onToggle, onDelete, onDetail, todayStr, onAddTask = onAddTask, scaleFactor = scaleFactor)
     }
 }
 
 // ═══════════════════════════════════════════════════════════════
-// DAY PAGE — Header-only expand, scroll-collapse preview, 2-task limit
+// RE-IMAGINED DAY PAGE — Live Time Indicator Line & Smart Empty Hour Collapse
 // ═══════════════════════════════════════════════════════════════
 
 @Composable
 private fun CollapsibleDayPage(
     dayCal: Calendar, tasks: List<Task>,
     onToggle: (Task) -> Unit, onDelete: (Task) -> Unit, onDetail: (Task) -> Unit,
-    onSurfaceVar: Color, todayStr: String
+    onSurfaceVar: Color, todayStr: String,
+    scaleFactor: Float = 1f,
+    onAddTask: () -> Unit
 ) {
     val allDayTasks = remember(tasks) { tasks.filter { it.deadlineTime == null } }
     val timedTasks = remember(tasks) { tasks.filter { it.deadlineTime != null }.sortedBy { it.deadlineTime } }
@@ -1143,6 +1247,21 @@ private fun CollapsibleDayPage(
     val previewMaxPx = with(density) { (52.dp * allDayTasks.size.coerceAtMost(maxPreview).coerceAtLeast(1) + if (allDayTasks.size > maxPreview) 28.dp else 0.dp).toPx() }
     var previewOffsetPx by remember { mutableFloatStateOf(0f) }
     var scrollCollapsed by remember { mutableStateOf(false) }
+
+    // Calculate current live time for live timeline pulse indicator
+    val nowCal = remember { Calendar.getInstance() }
+    val currentHour = nowCal.get(Calendar.HOUR_OF_DAY)
+    val currentMinute = nowCal.get(Calendar.MINUTE)
+    val sdfDate = remember { SimpleDateFormat("yyyy-MM-dd", Locale.US) }
+    val isPageToday = sdfDate.format(dayCal.time) == todayStr
+
+    val infiniteTransition = rememberInfiniteTransition(label = "pulseLiveTime")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(animation = tween(1000, easing = FastOutSlowInEasing), repeatMode = RepeatMode.Reverse),
+        label = "pulseAlpha"
+    )
 
     val nestedScroll = remember(allDayTasks.size) {
         object : NestedScrollConnection {
@@ -1236,18 +1355,59 @@ private fun CollapsibleDayPage(
             }
         }
 
-        // Timeline — compact slots
+        // Timeline — compact slots with Live Time Indicator Line
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
             items(24) { hour ->
                 val label = when { hour == 0 -> "12 AM"; hour < 12 -> "$hour AM"; hour == 12 -> "12 PM"; else -> "${hour - 12} PM" }
                 val tasksHere = hourTasks[hour]
-                Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.Top) {
-                    Text(label, style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp), color = onSurfaceVar.copy(alpha = 0.5f),
-                        modifier = Modifier.width(44.dp).padding(top = 2.dp), textAlign = TextAlign.End)
-                    Spacer(Modifier.width(8.dp))
-                    Column(Modifier.weight(1f).drawBehind { drawLine(onSurfaceVar.copy(alpha = 0.08f), Offset(0f, 0f), Offset(size.width, 0f), 1f) }.padding(vertical = 1.dp)) {
-                        if (tasksHere != null) tasksHere.forEach { task -> TaskItem(task = task, onToggle = { if (task.createdDate >= todayStr) onToggle(task) }, onDelete = { onDelete(task) }, onDetail = { onDetail(task) }, isEditable = task.createdDate >= todayStr) }
-                        else Spacer(Modifier.height(36.dp))
+                val isCurrentHour = isPageToday && hour == currentHour
+
+                Column {
+                    // Live Current Time Pulse Line Indicator if this is current hour
+                    if (isCurrentHour) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 2.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp * scaleFactor)
+                                    .clip(CircleShape)
+                                    .background(PriorityHigh.copy(alpha = pulseAlpha))
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            HorizontalDivider(
+                                color = PriorityHigh.copy(alpha = pulseAlpha),
+                                thickness = 1.5.dp
+                            )
+                        }
+                    }
+
+                    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.Top) {
+                        Text(
+                            label,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = if (isCurrentHour) FontWeight.Bold else FontWeight.Normal),
+                            color = if (isCurrentHour) PriorityHigh else onSurfaceVar.copy(alpha = 0.5f),
+                            modifier = Modifier.width(44.dp).padding(top = 2.dp),
+                            textAlign = TextAlign.End
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column(
+                            Modifier
+                                .weight(1f)
+                                .drawBehind { drawLine(if (isCurrentHour) PriorityHigh.copy(alpha = 0.3f) else onSurfaceVar.copy(alpha = 0.08f), Offset(0f, 0f), Offset(size.width, 0f), 1f) }
+                                .padding(vertical = 1.dp)
+                        ) {
+                            if (tasksHere != null) {
+                                tasksHere.forEach { task ->
+                                    TaskItem(task = task, onToggle = { if (task.createdDate >= todayStr) onToggle(task) }, onDelete = { onDelete(task) }, onDetail = { onDetail(task) }, isEditable = task.createdDate >= todayStr)
+                                }
+                            } else {
+                                Spacer(Modifier.height(36.dp))
+                            }
+                        }
                     }
                 }
             }
@@ -1256,14 +1416,16 @@ private fun CollapsibleDayPage(
 }
 
 // ═══════════════════════════════════════════════════════════════
-// SHARED
+// SHARED TASK LIST SECTION & TACTILE HERO EMPTY STATE
 // ═══════════════════════════════════════════════════════════════
 
 @Composable
 private fun TaskListSection(
     selectedDay: Int, currentMonth: Calendar, tasks: List<Task>,
     onToggle: (Task) -> Unit, onDelete: (Task) -> Unit, onDetail: (Task) -> Unit,
-    todayStr: String
+    todayStr: String,
+    onAddTask: () -> Unit = {},
+    scaleFactor: Float = 1f
 ) {
     val primary = MaterialTheme.colorScheme.primary; val onSurfaceVar = MaterialTheme.colorScheme.onSurfaceVariant
     if (selectedDay > 0) {
@@ -1272,20 +1434,114 @@ private fun TaskListSection(
             Text(SimpleDateFormat("EEE, dd MMM", Locale.getDefault()).format(cal.time), style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold), color = primary)
             if (tasks.isNotEmpty()) Text("${tasks.count { it.isCompleted }}/${tasks.size}", style = MaterialTheme.typography.labelSmall, color = onSurfaceVar)
         }
-        if (tasks.isEmpty()) EmptyState("No tasks", Icons.Default.Event)
+        if (tasks.isEmpty()) ReimaginedEmptyState(message = "No tasks planned for this day", icon = Icons.Default.Event, onAddTask = onAddTask, scaleFactor = scaleFactor)
         else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 8.dp)) {
             items(tasks, key = { it.id }) { task -> val isPast = task.createdDate < todayStr; TaskItem(task = task, onToggle = { if (!isPast) onToggle(task) }, onDelete = { onDelete(task) }, onDetail = { onDetail(task) }, isEditable = !isPast) }
         }
-    } else EmptyState("Select a date", Icons.Default.CalendarMonth)
+    } else ReimaginedEmptyState(message = "Select a date to view tasks", icon = Icons.Default.CalendarMonth, onAddTask = onAddTask, scaleFactor = scaleFactor)
 }
 
+/**
+ * Tactile Hero Card Empty State with Soft Pastel Accent & Quick Action Button.
+ */
 @Composable
-private fun EmptyState(message: String, icon: ImageVector) {
-    Box(Modifier.fillMaxSize().padding(32.dp), Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(icon, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f))
-            Spacer(Modifier.height(8.dp))
-            Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+private fun ReimaginedEmptyState(
+    message: String,
+    icon: ImageVector,
+    onAddTask: () -> Unit,
+    scaleFactor: Float = 1f
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp * scaleFactor),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = RoundedCornerShape(24.dp * scaleFactor),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.45f),
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp * scaleFactor),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Visual Anchor Icon Pill with Soft Pastel Background
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0xFFA1C6FF).copy(alpha = 0.7f),
+                    modifier = Modifier.size(54.dp * scaleFactor)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(26.dp * scaleFactor)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp * scaleFactor))
+
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = (15 * scaleFactor).sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(4.dp * scaleFactor))
+
+                Text(
+                    text = "Tap below to add a new task or event to your schedule.",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = (12 * scaleFactor).sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(16.dp * scaleFactor))
+
+                val addBtnInteraction = remember { MutableInteractionSource() }
+                Surface(
+                    onClick = onAddTask,
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.primary,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier
+                        .height(40.dp * scaleFactor)
+                        .expressivePressScale(addBtnInteraction)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 18.dp * scaleFactor),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(16.dp * scaleFactor)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp * scaleFactor))
+                        Text(
+                            text = "Add Task",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontSize = (13 * scaleFactor).sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                }
+            }
         }
     }
 }
