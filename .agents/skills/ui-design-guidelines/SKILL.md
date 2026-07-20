@@ -161,10 +161,10 @@ Scrollable screen surfaces should extend edge-to-edge behind the Android status 
    }
    ```
 
-3. **Top Floating FAB Header Layering & Tab Inset Rule**:
-   - In tab screens (`HomeScreen`, `CalendarScreen`, `FriendsScreen`) hosted inside MainActivity's main scaffold, the parent container already resolves status bar insets.
-   - Do NOT add `statusBarsPadding()` to top navigation bars or headers on tab screens, as doing so double-counts insets and pushes the top FAB navbar too far down the screen.
-   - Use a clean, compact top padding (`padding(horizontal = 14.dp * scaleFactor, vertical = 6.dp * scaleFactor)`) on the top header row so the navbar rests flush at the top of the screen, with sub-controls (view mode chips, search bars) stacked cleanly underneath.
+3. **Unified Top Floating FAB Header Level Standard**:
+   - ALL top navigation headers across the app (in `FriendsScreen`, `CalendarScreen`, `HomeScreen`, `TaskCollaboratorsScreen`, `SettingsScreen`) MUST align at the exact same vertical height (`status_bar_height + 6.dp * scaleFactor`).
+   - **Tab Screens (`HomeScreen`, `CalendarScreen`, `FriendsScreen`)**: Hosted inside `MainActivity`'s main Scaffold (which already clears status bar insets). The top row uses `Modifier.fillMaxWidth().padding(horizontal = 14.dp * scaleFactor, vertical = 6.dp * scaleFactor)` without `statusBarsPadding()`.
+   - **Dialog & Subscreens (`TaskCollaboratorsScreen`, `SettingsSubscreen`)**: Hosted inside full-screen Dialogs (`decorFitsSystemWindows = false`). The top container MUST include `.statusBarsPadding()` before the `padding(horizontal = 14.dp * scaleFactor, vertical = 6.dp * scaleFactor)` top header row so its FAB buttons sit at the EXACT same vertical level as `FriendsScreen` and `CalendarScreen`.
 
 ---
 

@@ -210,7 +210,9 @@ fun TaskCollaboratorsScreen(
                 .background(MaterialTheme.colorScheme.background)
         ) {
             Column(
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
             ) {
                 // ═══ RE-IMAGINED CENTERED TITLE TOP HEADER BAR ═══
                 Surface(
