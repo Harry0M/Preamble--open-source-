@@ -124,11 +124,44 @@ When implementing layout actions that collapse on scroll, morph the primary acti
 ---
 
 ## 9. Immersive Edge-to-Edge Scroll under Status Bar
-Scrollable screen surfaces should extend edge-to-edge behind the Android status bar so content flows seamlessly under the top status bar when swiping up:
+Scrollable screen surfaces should extend edge-to-edge behind the Android status bar so content flows seamlessly under the top status bar when swiping up.
 
-* **Zero Window Insets**: Configure container Scaffold/Box with `contentWindowInsets = WindowInsets(0, 0, 0, 0)` so scrollable content is not hard-cropped below the status bar.
-* **Under-Status-Bar Flow**: Allow scrollable `LazyColumn` / `verticalScroll` content to pass directly underneath translucent/transparent status bars when scrolled up.
-* **Top Header Floating Overlay**: Floating top FAB headers sit overlayed in a top `Box` layer with top clearance (`Spacer(modifier = Modifier.height(76.dp * scaleFactor))`) in the scrollable view so idle content rests cleanly below the floating FAB controls while scroll gestures flow underneath the status bar.
+### Implementation Pattern (from `PlanningScreen.kt`):
+
+1. **Zero Window Insets**: Configure `Scaffold` with `contentWindowInsets = WindowInsets(0, 0, 0, 0)` so the root layout stretches 100% full screen behind system bars:
+   ```kotlin
+   Scaffold(
+       modifier = modifier.fillMaxSize(),
+       contentWindowInsets = WindowInsets(0, 0, 0, 0)
+   ) { paddingValues ->
+       Box(
+           modifier = Modifier
+               .fillMaxSize()
+               .padding(paddingValues)
+               .background(MaterialTheme.colorScheme.background)
+               .navigationBarsPadding(),
+           contentAlignment = Alignment.TopCenter
+       ) { ... }
+   }
+   ```
+
+2. **Under-Status-Bar Flow**: Place the scrollable content container (`verticalScroll` / `LazyColumn`) directly on the root `Box` layer so content flows seamlessly under the status bar when swiped up:
+   ```kotlin
+   Column(
+       modifier = Modifier
+           .fillMaxSize()
+           .verticalScroll(scrollState)
+           .padding(horizontal = 16.dp * scaleFactor)
+   ) {
+       // Explicit top clearance spacer so content rests cleanly below top floating FABs at rest
+       Spacer(modifier = Modifier.height(80.dp * scaleFactor))
+
+       // Scrollable Screen Content
+       ...
+   }
+   ```
+
+3. **Top Floating FAB Header Layering**: Position floating header controls in an overlay layer aligned at `Alignment.TopCenter`, allowing scroll gestures to pass freely underneath.
 
 ---
 
