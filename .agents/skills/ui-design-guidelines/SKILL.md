@@ -184,8 +184,17 @@ For complex settings or feature hubs with numerous options, avoid crowding every
 
 ---
 
+## 12. Tactile Hero Empty States & Calendar Micro-Badges
+* **Tactile Hero Empty State Cards**: When a screen, date, or list is empty, avoid plain text. Present a rounded hero container (`24.dp * scaleFactor`) with a `54.dp` soft pastel circular visual anchor icon (`Color(0xFFA1C6FF)`), title, subtle hint, and an expressively scaled primary action pill button (e.g. `+ Add Task`).
+* **Calendar Cell Task Pills**: Month grid cells display soft rounded capsule task pills with mini type icons (`Schedule` for timed tasks, `Event` for calendar events) and priority color dots.
+* **7-Day Workload Badges**: Week strip cards include mini task count capsule badges (e.g. `3 tasks`) for an instant snapshot of busy days.
+* **Live Timeline Current Time Line**: 24-hour day views display a pulsing accent dot and horizontal line at the exact live current time (`HH:mm`).
+
+---
+
 ## How to use this Skill
 When prompting me to design or modify a screen, you can guide me to use this skill by explicitly stating:
 > *"Design the new features using the `custom-ui-design-guidelines` skill"* or
 > *"Implement the UI following the Preamble minimalist layout design rules"*
+
 
