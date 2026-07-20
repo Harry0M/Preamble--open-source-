@@ -70,10 +70,15 @@ import java.util.Locale
 
 private enum class SettingsSubscreen {
     Main,
+    AccountAndSync,
+    Appearance,
+    Notifications,
     Ai,
     Personal,
-    ReportProblem,
+    AlarmsAndGeneral,
+    SupportAndAbout,
     OssLicenses,
+    ReportProblem,
 }
 
 /**
@@ -156,20 +161,6 @@ fun SettingsScreen(
     val lastSyncTime = maxOf(lastCalSyncTime, lastTasksSyncTime)
     var googleLinkLoading by remember { mutableStateOf(false) }
     val activity = context as? Activity
-
-    val pmGreeting       by ThemePreferences.pmGreeting.collectAsState()
-    val pmSmartProgress  by ThemePreferences.pmSmartProgress.collectAsState()
-    val pmLateNight      by ThemePreferences.pmLateNight.collectAsState()
-    val pmSmartEmpty     by ThemePreferences.pmSmartEmpty.collectAsState()
-    val pmLastTask       by ThemePreferences.pmLastTask.collectAsState()
-    val pmStreakWarn     by ThemePreferences.pmStreakWarn.collectAsState()
-    val pmBests          by ThemePreferences.pmBests.collectAsState()
-    val pmMilestones     by ThemePreferences.pmMilestones.collectAsState()
-    val pmSparkle        by ThemePreferences.pmSparkle.collectAsState()
-    val pmEasterEgg      by ThemePreferences.pmEasterEgg.collectAsState()
-    val pmVariableRewards by ThemePreferences.pmVariableRewards.collectAsState()
-    val colorfulCards    by ThemePreferences.colorfulCards.collectAsState()
-    val showCategoryTags by ThemePreferences.showCategoryTags.collectAsState()
 
     val googleSignInLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -276,17 +267,147 @@ fun SettingsScreen(
                     .fillMaxSize()
                     .verticalScroll(scrollState)
                     .padding(horizontal = 16.dp * scaleFactor),
-                verticalArrangement = Arrangement.spacedBy(20.dp * scaleFactor)
+                verticalArrangement = Arrangement.spacedBy(16.dp * scaleFactor)
             ) {
                 // Top Clearance Spacer so top settings item rests cleanly under floating FAB header
                 Spacer(modifier = Modifier.height(96.dp * scaleFactor))
 
                 when (settingsSubscreen) {
+                    SettingsSubscreen.AccountAndSync -> {
+                        AccountAndSyncSubscreen(
+                            currentUser = currentUser,
+                            signInLoading = signInLoading,
+                            signOutLoading = signOutLoading,
+                            googleLinked = googleLinked,
+                            calendarEmail = calendarEmail,
+                            lastSyncTime = lastSyncTime,
+                            googleSyncing = googleSyncing,
+                            googleLinkLoading = googleLinkLoading,
+                            onSignIn = {
+                                signInLoading = true
+                                scope.launch {
+                                    AuthManager.signInWithGoogle(context)
+                                    signInLoading = false
+                                }
+                            },
+                            onSignOut = {
+                                signOutLoading = true
+                                scope.launch {
+                                    try {
+                                        app.repository.flushAndClearLocalOnLogout()
+                                        AuthManager.signOut()
+                                    } finally {
+                                        signOutLoading = false
+                                    }
+                                }
+                            },
+                            onLinkGoogle = {
+                                googleLinkLoading = true
+                                val signInClient = GoogleCalendarManager.getSignInClient(context)
+                                googleSignInLauncher.launch(signInClient.signInIntent)
+                            },
+                            onUnlinkGoogle = {
+                                scope.launch {
+                                    app.repository.clearCalendarEvents()
+                                    app.repository.clearGoogleTasks()
+                                    GoogleCalendarManager.unlink(context)
+                                    GoogleTasksManager.unlink(context)
+                                    Toast.makeText(context, "Google Calendar & Tasks unlinked", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            onSyncNow = {
+                                scope.launch {
+                                    try {
+                                        val summary = GoogleSyncCoordinator.syncLinkedData(
+                                            context = context,
+                                            forceFull = false,
+                                            isManual = true,
+                                            reason = "settings_sync_now"
+                                        )
+                                        Toast.makeText(context, "Updated ${summary.calendarEvents} events + ${summary.googleTasks} tasks", Toast.LENGTH_SHORT).show()
+                                    } catch (e: Throwable) {
+                                        Toast.makeText(context, "Sync failed: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            },
+                            scaleFactor = scaleFactor
+                        )
+                    }
+                    SettingsSubscreen.Appearance -> {
+                        AppearanceSubscreen(scaleFactor = scaleFactor)
+                    }
+                    SettingsSubscreen.Notifications -> {
+                        NotificationsSubscreen(
+                            hasSystemNotificationPermission = hasSystemNotificationPermission,
+                            notificationPrefEnabled = notificationPrefEnabled,
+                            notificationUpdateMode = notificationUpdateMode,
+                            isBatteryOptimized = isBatteryOptimized,
+                            onNotifPermissionRequest = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                                    })
+                                }
+                            },
+                            onNotificationPrefToggle = { enable ->
+                                if (enable) {
+                                    if (!hasSystemNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                    } else {
+                                        notificationPrefEnabled = true
+                                        context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).edit().putBoolean("notification_enabled", true).apply()
+                                        com.theblankstate.preamble.notification.TaskNotificationService.start(context)
+                                    }
+                                } else {
+                                    notificationPrefEnabled = false
+                                    context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).edit().putBoolean("notification_enabled", false).apply()
+                                    com.theblankstate.preamble.notification.TaskNotificationService.stop(context)
+                                }
+                            },
+                            onUpdateModeChange = { mode ->
+                                notificationUpdateMode = mode
+                                context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                                    .edit().putString("notification_update_mode", mode.name).apply()
+                            },
+                            onRequestIgnoreBattery = { requestIgnoreBatteryOptimizations(context) },
+                            scaleFactor = scaleFactor
+                        )
+                    }
                     SettingsSubscreen.Ai -> {
                         AiSettingsSubscreen(scaleFactor = scaleFactor)
                     }
                     SettingsSubscreen.Personal -> {
                         PersonalTouchSettingsSubscreen(scaleFactor = scaleFactor)
+                    }
+                    SettingsSubscreen.AlarmsAndGeneral -> {
+                        AlarmsAndGeneralSubscreen(
+                            alarmToneName = alarmToneName,
+                            onPickAlarmTone = {
+                                ringtonePickerLauncher.launch(
+                                    Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
+                                        putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
+                                        putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Select Alarm Tone")
+                                        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
+                                        putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
+                                        val saved = context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).getString("alarm_tone_uri", null)
+                                        if (saved != null) putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(saved))
+                                    }
+                                )
+                            },
+                            scaleFactor = scaleFactor
+                        )
+                    }
+                    SettingsSubscreen.SupportAndAbout -> {
+                        SupportAndAboutSubscreen(
+                            onOpenReportProblem = { settingsSubscreen = SettingsSubscreen.ReportProblem },
+                            onOpenLicenses = { settingsSubscreen = SettingsSubscreen.OssLicenses },
+                            onOpenPrivacy = { showPrivacySheet = true },
+                            onOpenTerms = { showTermsSheet = true },
+                            onOpenReview = { showReviewSheet = true },
+                            scaleFactor = scaleFactor
+                        )
                     }
                     SettingsSubscreen.ReportProblem -> {
                         ProblemReportSettingsSubscreen(scaleFactor = scaleFactor)
@@ -295,644 +416,86 @@ fun SettingsScreen(
                         OssLicensesSubscreen(scaleFactor = scaleFactor)
                     }
                     SettingsSubscreen.Main -> {
-                        // Account Section
-                        SettingsGroupSection(title = "Account", scaleFactor = scaleFactor) {
-                            if (currentUser != null) {
-                                SettingsItemRow(
-                                    title = currentUser?.displayName ?: "User",
-                                    subtitle = currentUser?.email ?: "",
-                                    icon = Icons.Default.Person,
-                                    iconTint = Color(0xFF1A73E8),
-                                    iconBgColor = Color(0xFFE8F0FE),
-                                    scaleFactor = scaleFactor,
-                                    trailingContent = {
-                                        val signOutInteraction = remember { MutableInteractionSource() }
-                                        Surface(
-                                            onClick = {
-                                                if (signOutLoading) return@Surface
-                                                signOutLoading = true
-                                                scope.launch {
-                                                    try {
-                                                        app.repository.flushAndClearLocalOnLogout()
-                                                        AuthManager.signOut()
-                                                    } finally {
-                                                        signOutLoading = false
-                                                    }
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
-                                            tonalElevation = 0.dp,
-                                            shadowElevation = 0.dp,
-                                            modifier = Modifier.expressivePressScale(signOutInteraction)
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 14.dp * scaleFactor, vertical = 8.dp * scaleFactor),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                if (signOutLoading) {
-                                                    CircularProgressIndicator(modifier = Modifier.size(16.dp * scaleFactor), strokeWidth = 2.dp)
-                                                } else {
-                                                    Text(
-                                                        "Sign Out",
-                                                        style = MaterialTheme.typography.labelMedium.copy(fontSize = (13 * scaleFactor).sp),
-                                                        color = MaterialTheme.colorScheme.error
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                )
-                            } else {
-                                SettingsItemRow(
-                                    title = "Sign in with Google",
-                                    subtitle = "Sync habits, tasks and backups across devices",
-                                    icon = Icons.Default.Person,
-                                    iconTint = Color(0xFF1A73E8),
-                                    iconBgColor = Color(0xFFE8F0FE),
-                                    scaleFactor = scaleFactor,
-                                    onClick = {
-                                        if (!signInLoading) {
-                                            signInLoading = true
-                                            scope.launch {
-                                                AuthManager.signInWithGoogle(context)
-                                                signInLoading = false
-                                            }
-                                        }
-                                    },
-                                    trailingContent = {
-                                        if (signInLoading) {
-                                            CircularProgressIndicator(modifier = Modifier.size(20.dp * scaleFactor), strokeWidth = 2.dp)
-                                        } else {
-                                            Icon(
-                                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                )
-                            }
-                        }
+                        // Simplified High-Level Settings Menu Categories
+                        SettingsGroupSection(title = "General Settings", scaleFactor = scaleFactor) {
+                            SettingsItemRow(
+                                title = "Account & Cloud Sync",
+                                subtitle = if (currentUser != null) currentUser?.email ?: "Signed in" else "Sign in with Google & sync data",
+                                icon = Icons.Default.Person,
+                                iconTint = Color(0xFF1A73E8),
+                                iconBgColor = Color(0xFFE8F0FE),
+                                scaleFactor = scaleFactor,
+                                onClick = { settingsSubscreen = SettingsSubscreen.AccountAndSync },
+                                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            )
 
-                        // Google Sync Section
-                        SettingsGroupSection(title = "Google Sync", scaleFactor = scaleFactor) {
-                            if (googleLinked) {
-                                val syncTimeString = if (lastSyncTime > 0) {
-                                    SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(lastSyncTime))
-                                } else null
-
-                                SettingsItemRow(
-                                    title = "Linked Google Account",
-                                    subtitle = listOfNotNull(calendarEmail, syncTimeString?.let { "Last synced: $it" }).joinToString(" • "),
-                                    icon = Icons.Default.CloudDone,
-                                    iconTint = Color(0xFF1E8E3E),
-                                    iconBgColor = Color(0xFFE6F4EA),
-                                    scaleFactor = scaleFactor,
-                                    trailingContent = {
-                                        val unlinkInteraction = remember { MutableInteractionSource() }
-                                        Surface(
-                                            onClick = {
-                                                scope.launch {
-                                                    app.repository.clearCalendarEvents()
-                                                    app.repository.clearGoogleTasks()
-                                                    GoogleCalendarManager.unlink(context)
-                                                    GoogleTasksManager.unlink(context)
-                                                    Toast.makeText(context, "Google Calendar & Tasks unlinked", Toast.LENGTH_SHORT).show()
-                                                }
-                                            },
-                                            shape = CircleShape,
-                                            color = MaterialTheme.colorScheme.surfaceVariant,
-                                            tonalElevation = 0.dp,
-                                            shadowElevation = 0.dp,
-                                            modifier = Modifier.expressivePressScale(unlinkInteraction)
-                                        ) {
-                                            Text(
-                                                "Unlink",
-                                                modifier = Modifier.padding(horizontal = 12.dp * scaleFactor, vertical = 6.dp * scaleFactor),
-                                                style = MaterialTheme.typography.labelMedium.copy(fontSize = (12 * scaleFactor).sp),
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                )
-
-                                SettingsItemRow(
-                                    title = "Sync Now",
-                                    subtitle = "Fetch calendar events & Google Tasks",
-                                    icon = Icons.Default.Refresh,
-                                    iconTint = Color(0xFF1E8E3E),
-                                    iconBgColor = Color(0xFFE6F4EA),
-                                    scaleFactor = scaleFactor,
-                                    onClick = {
-                                        if (!googleSyncing) {
-                                            scope.launch {
-                                                try {
-                                                    val summary = GoogleSyncCoordinator.syncLinkedData(
-                                                        context = context,
-                                                        forceFull = false,
-                                                        isManual = true,
-                                                        reason = "settings_sync_now"
-                                                    )
-                                                    Toast.makeText(
-                                                        context,
-                                                        "Updated ${summary.calendarEvents} events + ${summary.googleTasks} tasks",
-                                                        Toast.LENGTH_SHORT
-                                                    ).show()
-                                                } catch (e: Throwable) {
-                                                    Toast.makeText(context, "Sync failed: ${e.message}", Toast.LENGTH_SHORT).show()
-                                                }
-                                            }
-                                        }
-                                    },
-                                    trailingContent = {
-                                        if (googleSyncing) {
-                                            CircularProgressIndicator(modifier = Modifier.size(20.dp * scaleFactor), strokeWidth = 2.dp)
-                                        } else {
-                                            Icon(Icons.Default.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                                        }
-                                    }
-                                )
-
-                                val syncVoice by GoogleTasksManager.syncVoiceTasks.collectAsState()
-                                SettingsToggleItemRow(
-                                    title = "Sync Voice Tasks",
-                                    subtitle = "Auto-add voice tasks to Google Tasks",
-                                    icon = Icons.Default.Mic,
-                                    iconTint = Color(0xFF1E8E3E),
-                                    iconBgColor = Color(0xFFE6F4EA),
-                                    checked = syncVoice,
-                                    onToggle = { GoogleTasksManager.setSyncVoiceTasks(context, it) },
-                                    scaleFactor = scaleFactor
-                                )
-
-                                val autoDelete by GoogleTasksManager.autoDeleteGoogleTasks.collectAsState()
-                                SettingsToggleItemRow(
-                                    title = "Auto-delete synced tasks",
-                                    subtitle = "Delete from app when removed from Google Tasks",
-                                    icon = Icons.Default.DeleteSweep,
-                                    iconTint = Color(0xFF1E8E3E),
-                                    iconBgColor = Color(0xFFE6F4EA),
-                                    checked = autoDelete,
-                                    onToggle = { GoogleTasksManager.setAutoDeleteGoogleTasks(context, it) },
-                                    scaleFactor = scaleFactor
-                                )
-                            } else {
-                                SettingsItemRow(
-                                    title = "Link Google Calendar & Tasks",
-                                    subtitle = "Sync events, holidays & tasks from Google",
-                                    icon = Icons.Default.CalendarMonth,
-                                    iconTint = Color(0xFF1E8E3E),
-                                    iconBgColor = Color(0xFFE6F4EA),
-                                    scaleFactor = scaleFactor,
-                                    onClick = {
-                                        if (!googleLinkLoading) {
-                                            googleLinkLoading = true
-                                            val signInClient = GoogleCalendarManager.getSignInClient(context)
-                                            googleSignInLauncher.launch(signInClient.signInIntent)
-                                        }
-                                    },
-                                    trailingContent = {
-                                        if (googleLinkLoading) {
-                                            CircularProgressIndicator(modifier = Modifier.size(20.dp * scaleFactor), strokeWidth = 2.dp)
-                                        } else {
-                                            Icon(
-                                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                )
-                            }
-                        }
-
-                        // Appearance Section
-                        SettingsGroupSection(title = "Appearance", scaleFactor = scaleFactor) {
-                            ThemePickerCard(context)
-
-                            SettingsToggleItemRow(
-                                title = "Colorful Task Cards",
-                                subtitle = "Give each task card a unique color tint",
+                            SettingsItemRow(
+                                title = "Appearance & Theme",
+                                subtitle = "Light/Dark/AMOLED, colors & card tags",
                                 icon = Icons.Default.Palette,
                                 iconTint = Color(0xFF9334E6),
                                 iconBgColor = Color(0xFFF3E8FD),
-                                checked = colorfulCards,
-                                onToggle = { v -> ThemePreferences.setColorfulCards(context, v) },
-                                scaleFactor = scaleFactor
+                                scaleFactor = scaleFactor,
+                                onClick = { settingsSubscreen = SettingsSubscreen.Appearance },
+                                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                             )
 
-                            SettingsToggleItemRow(
-                                title = "Show Category Tags",
-                                subtitle = "Display category tags below task title",
-                                icon = Icons.Default.Label,
-                                iconTint = Color(0xFF9334E6),
-                                iconBgColor = Color(0xFFF3E8FD),
-                                checked = showCategoryTags,
-                                onToggle = { v -> ThemePreferences.setShowCategoryTags(context, v) },
-                                scaleFactor = scaleFactor
-                            )
-                        }
-
-                        var showAutoStartSheet by remember { mutableStateOf(false) }
-
-                        // Notifications Section
-                        SettingsGroupSection(title = "Notifications", scaleFactor = scaleFactor) {
-                            SettingsToggleItemRow(
-                                title = "Permanent Notification",
-                                subtitle = "Quick Add & Voice Task from notification bar",
+                            SettingsItemRow(
+                                title = "Notifications & Reminders",
+                                subtitle = "Task bar notification, frequency & battery settings",
                                 icon = Icons.Default.NotificationsActive,
                                 iconTint = Color(0xFFF9AB00),
                                 iconBgColor = Color(0xFFFEF7E0),
-                                checked = notificationPrefEnabled && hasSystemNotificationPermission,
-                                onToggle = { enable ->
-                                    if (enable) {
-                                        if (!hasSystemNotificationPermission && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                        } else {
-                                            notificationPrefEnabled = true
-                                            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).edit().putBoolean("notification_enabled", true).apply()
-                                            com.theblankstate.preamble.notification.TaskNotificationService.start(context)
-                                        }
-                                    } else {
-                                        notificationPrefEnabled = false
-                                        context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).edit().putBoolean("notification_enabled", false).apply()
-                                        com.theblankstate.preamble.notification.TaskNotificationService.stop(context)
-                                    }
-                                },
-                                scaleFactor = scaleFactor
-                            )
-
-                            if (!hasSystemNotificationPermission) {
-                                TextButton(
-                                    onClick = {
-                                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                                        } else {
-                                            context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                                                putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                                            })
-                                        }
-                                    },
-                                    modifier = Modifier.padding(start = 12.dp * scaleFactor, bottom = 4.dp * scaleFactor),
-                                    shape = CircleShape
-                                ) { Text("Grant Notification Permission") }
-                            }
-
-                            if (notificationPrefEnabled) {
-                                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp * scaleFactor, vertical = 8.dp * scaleFactor)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("Update Frequency", style = MaterialTheme.typography.bodyLarge.copy(fontSize = (15 * scaleFactor).sp, fontWeight = FontWeight.Medium))
-                                        Text(
-                                            when (notificationUpdateMode) {
-                                                com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE -> "10s"
-                                                com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED -> "30s"
-                                                com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER -> "2 min"
-                                            },
-                                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * scaleFactor).sp),
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        when (notificationUpdateMode) {
-                                            com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE -> "Fastest — changes show in ~10 sec, uses more battery"
-                                            com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED -> "Recommended — changes show in ~30 sec"
-                                            com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER -> "Battery saver — updates every 2 min"
-                                        },
-                                        style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * scaleFactor).sp),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                    )
-                                    val sliderValue = when (notificationUpdateMode) {
-                                        com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER -> 0f
-                                        com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED -> 1f
-                                        com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE -> 2f
-                                    }
-                                    Slider(
-                                        value = sliderValue,
-                                        onValueChange = { raw ->
-                                            val mode = when (raw.toInt()) {
-                                                0 -> com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER
-                                                1 -> com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED
-                                                else -> com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE
-                                            }
-                                            notificationUpdateMode = mode
-                                            context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                                .edit().putString("notification_update_mode", mode.name).apply()
-                                        },
-                                        valueRange = 0f..2f,
-                                        steps = 1,
-                                        modifier = Modifier.fillMaxWidth()
-                                    )
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        Text("2 min", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("30 sec", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                        Text("10 sec", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                }
-                            }
-
-                            val eveningEnabled = remember { mutableStateOf(com.theblankstate.preamble.notification.EveningReminderScheduler.isEnabled(context)) }
-                            SettingsToggleItemRow(
-                                title = "Morning Briefing",
-                                subtitle = "Daily 6 AM summary of today's tasks",
-                                icon = Icons.Default.WbSunny,
-                                iconTint = Color(0xFFF9AB00),
-                                iconBgColor = Color(0xFFFEF7E0),
-                                checked = eveningEnabled.value,
-                                onToggle = {
-                                    eveningEnabled.value = it
-                                    com.theblankstate.preamble.notification.EveningReminderScheduler.setEnabled(context, it)
-                                },
-                                scaleFactor = scaleFactor
-                            )
-
-                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                                SettingsItemRow(
-                                    title = "Battery Optimization",
-                                    subtitle = if (isBatteryOptimized) "Status: Optimized - may stop notification bar" else "Status: Unrestricted",
-                                    icon = Icons.Default.BatteryChargingFull,
-                                    iconTint = Color(0xFFD93025),
-                                    iconBgColor = Color(0xFFFCE8E6),
-                                    scaleFactor = scaleFactor,
-                                    trailingContent = {
-                                        if (isBatteryOptimized) {
-                                            val optInteraction = remember { MutableInteractionSource() }
-                                            Surface(
-                                                onClick = { requestIgnoreBatteryOptimizations(context) },
-                                                shape = CircleShape,
-                                                color = MaterialTheme.colorScheme.primaryContainer,
-                                                tonalElevation = 0.dp,
-                                                shadowElevation = 0.dp,
-                                                modifier = Modifier.expressivePressScale(optInteraction)
-                                            ) {
-                                                Text(
-                                                    "Unrestrict",
-                                                    modifier = Modifier.padding(horizontal = 12.dp * scaleFactor, vertical = 6.dp * scaleFactor),
-                                                    style = MaterialTheme.typography.labelMedium.copy(fontSize = (12 * scaleFactor).sp),
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                                )
-                                            }
-                                        }
-                                    }
-                                )
-                            }
-
-                            SettingsItemRow(
-                                title = "Fix: Always-ready task bar",
-                                subtitle = "Fix background notification stopping issue in 2 steps",
-                                icon = Icons.Default.Build,
-                                iconTint = Color(0xFFD93025),
-                                iconBgColor = Color(0xFFFCE8E6),
                                 scaleFactor = scaleFactor,
-                                onClick = { showAutoStartSheet = true },
-                                trailingContent = {
-                                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
+                                onClick = { settingsSubscreen = SettingsSubscreen.Notifications },
+                                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                             )
                         }
 
-                        if (showAutoStartSheet) {
-                            val batteryUnrestricted = !isBatteryOptimized
-                            ModalBottomSheet(
-                                onDismissRequest = { showAutoStartSheet = false },
-                                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 24.dp)
-                                        .padding(bottom = 40.dp)
-                                ) {
-                                    Text(
-                                        "Fix: Always-ready task bar not showing",
-                                        style = MaterialTheme.typography.titleLarge,
-                                        modifier = Modifier.padding(bottom = 4.dp)
-                                    )
-                                    Text(
-                                        "Quick steps to stop your phone from killing Preamble in background.",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(bottom = 24.dp)
-                                    )
-
-                                    NotifFixStep(
-                                        number = 1,
-                                        title = "Set Battery to Unrestricted",
-                                        body = if (batteryUnrestricted)
-                                            "Already set to Unrestricted — nothing to do here."
-                                        else
-                                            "Prevents the phone from killing Preamble in background.",
-                                        done = batteryUnrestricted
-                                    ) {
-                                        if (!batteryUnrestricted) {
-                                            Button(
-                                                onClick = { requestIgnoreBatteryOptimizations(context) },
-                                                modifier = Modifier.fillMaxWidth(),
-                                                shape = CircleShape
-                                            ) { Text("Set to Unrestricted") }
-                                        }
-                                    }
-
-                                    Spacer(Modifier.height(16.dp))
-
-                                    NotifFixStep(
-                                        number = 2,
-                                        title = "Pin Preamble in Recent Apps",
-                                        body = "Open recent apps → long-press the Preamble card → tap the lock 🔒 icon to pin it.",
-                                        done = false
-                                    ) {}
-
-                                    Spacer(Modifier.height(24.dp))
-                                    TextButton(
-                                        onClick = { showAutoStartSheet = false },
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) { Text("Done") }
-                                }
-                            }
-                        }
-
-                        // Preamble AI Section
-                        SettingsGroupSection(title = "Preamble AI", scaleFactor = scaleFactor) {
+                        SettingsGroupSection(title = "AI & Personalization", scaleFactor = scaleFactor) {
                             SettingsItemRow(
                                 title = "Preamble AI",
-                                subtitle = "Memory, AI task controls, breakdown and reminders",
+                                subtitle = "Memory, smart auto-fill & breakdown intensity",
                                 icon = Icons.Default.AutoAwesome,
                                 iconTint = Color(0xFF00897B),
                                 iconBgColor = Color(0xFFE0F2F1),
                                 scaleFactor = scaleFactor,
                                 onClick = { settingsSubscreen = SettingsSubscreen.Ai },
-                                trailingContent = {
-                                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
+                                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                             )
-                        }
 
-                        // Personal Touches Section
-                        SettingsGroupSection(title = "Personal touches", scaleFactor = scaleFactor) {
                             SettingsItemRow(
                                 title = "Personal touches",
-                                subtitle = "Greetings, progress messages and celebration behavior",
+                                subtitle = "Greetings, progress motivation & celebrations",
                                 icon = Icons.Default.Favorite,
                                 iconTint = Color(0xFFD81B60),
                                 iconBgColor = Color(0xFFFCE4EC),
                                 scaleFactor = scaleFactor,
                                 onClick = { settingsSubscreen = SettingsSubscreen.Personal },
-                                trailingContent = {
-                                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
+                                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                             )
-                        }
 
-                        // Alarms Section
-                        SettingsGroupSection(title = "Alarms", scaleFactor = scaleFactor) {
                             SettingsItemRow(
-                                title = "Alarm Tone",
-                                subtitle = alarmToneName,
-                                icon = Icons.Default.Alarm,
-                                iconTint = Color(0xFFF57C00),
-                                iconBgColor = Color(0xFFFFF3E0),
-                                scaleFactor = scaleFactor,
-                                onClick = {
-                                    ringtonePickerLauncher.launch(
-                                        Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
-                                            putExtra(RingtoneManager.EXTRA_RINGTONE_TYPE, RingtoneManager.TYPE_ALARM)
-                                            putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Select Alarm Tone")
-                                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
-                                            putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
-                                            val saved = context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE).getString("alarm_tone_uri", null)
-                                            if (saved != null) putExtra(RingtoneManager.EXTRA_RINGTONE_EXISTING_URI, Uri.parse(saved))
-                                        }
-                                    )
-                                },
-                                trailingContent = {
-                                    Text("Change", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                                }
-                            )
-                        }
-
-                        // General Section
-                        SettingsGroupSection(title = "General", scaleFactor = scaleFactor) {
-                            var hapticEnabled by remember {
-                                mutableStateOf(
-                                    context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                        .getBoolean("haptic_feedback_enabled", true)
-                                )
-                            }
-                            SettingsToggleItemRow(
-                                title = "Haptic Feedback",
-                                subtitle = "Vibrate on task completion & touch actions",
-                                icon = Icons.Default.Vibration,
+                                title = "Alarms & Haptics",
+                                subtitle = "Alarm ringtone & vibration feedback",
+                                icon = Icons.Default.Tune,
                                 iconTint = Color(0xFF3F51B5),
                                 iconBgColor = Color(0xFFE8EAF6),
-                                checked = hapticEnabled,
-                                onToggle = { enabled ->
-                                    hapticEnabled = enabled
-                                    context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                        .edit().putBoolean("haptic_feedback_enabled", enabled).apply()
-                                },
-                                scaleFactor = scaleFactor
-                            )
-                        }
-
-                        // Support Section
-                        SettingsGroupSection(title = "Support", scaleFactor = scaleFactor) {
-                            SettingsItemRow(
-                                title = "Report a problem",
-                                subtitle = "Send screenshots or videos and track progress",
-                                icon = Icons.Default.BugReport,
-                                iconTint = Color(0xFF00ACC1),
-                                iconBgColor = Color(0xFFE0F7FA),
                                 scaleFactor = scaleFactor,
-                                onClick = { settingsSubscreen = SettingsSubscreen.ReportProblem },
-                                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-                            )
-                            SettingsItemRow(
-                                title = "Email us",
-                                subtitle = "theblankstate@theblankstate.com",
-                                icon = Icons.Default.Email,
-                                iconTint = Color(0xFF00ACC1),
-                                iconBgColor = Color(0xFFE0F7FA),
-                                scaleFactor = scaleFactor,
-                                onClick = { context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:theblankstate@theblankstate.com"))) }
-                            )
-                            SettingsItemRow(
-                                title = "GitHub Repository",
-                                subtitle = "github.com/Harry0M/Preamble",
-                                icon = Icons.Default.Code,
-                                iconTint = Color(0xFF00ACC1),
-                                iconBgColor = Color(0xFFE0F7FA),
-                                scaleFactor = scaleFactor,
-                                onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Harry0M"))) }
-                            )
-                            SettingsItemRow(
-                                title = "Official Website",
-                                subtitle = "theblankstate.com",
-                                icon = Icons.Default.Language,
-                                iconTint = Color(0xFF00ACC1),
-                                iconBgColor = Color(0xFFE0F7FA),
-                                scaleFactor = scaleFactor,
-                                onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://theblankstate.com"))) }
-                            )
-                        }
-
-                        // About Section
-                        var showChangelogSheetManual by remember { mutableStateOf(false) }
-                        if (showChangelogSheetManual) {
-                            com.theblankstate.preamble.ui.components.ChangelogSheet(
-                                onDismissRequest = { showChangelogSheetManual = false }
-                            )
-                        }
-                        SettingsGroupSection(title = "About", scaleFactor = scaleFactor) {
-                            SettingsItemRow(
-                                title = "What's New in v1.6",
-                                subtitle = "Habits, custom events, and smarter AI",
-                                icon = Icons.Default.Info,
-                                iconTint = Color(0xFF546E7A),
-                                iconBgColor = Color(0xFFECEFF1),
-                                scaleFactor = scaleFactor,
-                                onClick = { showChangelogSheetManual = true },
+                                onClick = { settingsSubscreen = SettingsSubscreen.AlarmsAndGeneral },
                                 trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                             )
                         }
 
-                        // Legal Section
-                        SettingsGroupSection(title = "Legal", scaleFactor = scaleFactor) {
+                        SettingsGroupSection(title = "Help & Information", scaleFactor = scaleFactor) {
                             SettingsItemRow(
-                                title = "Privacy Policy",
-                                subtitle = "Data, AI services, Google integrations and analytics",
-                                icon = Icons.Default.Security,
-                                iconTint = Color(0xFF546E7A),
-                                iconBgColor = Color(0xFFECEFF1),
+                                title = "Support & Legal",
+                                subtitle = "Report a problem, What's New v1.6 & licenses",
+                                icon = Icons.Default.HelpOutline,
+                                iconTint = Color(0xFF00ACC1),
+                                iconBgColor = Color(0xFFE0F7FA),
                                 scaleFactor = scaleFactor,
-                                onClick = { showPrivacySheet = true },
-                                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-                            )
-                            SettingsItemRow(
-                                title = "Terms and Conditions",
-                                subtitle = "Usage rules, AI limitations and service availability",
-                                icon = Icons.Default.Gavel,
-                                iconTint = Color(0xFF546E7A),
-                                iconBgColor = Color(0xFFECEFF1),
-                                scaleFactor = scaleFactor,
-                                onClick = { showTermsSheet = true },
-                                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-                            )
-                            SettingsItemRow(
-                                title = "Open-source licenses",
-                                subtitle = "Attribution for open-source libraries",
-                                icon = Icons.Default.Description,
-                                iconTint = Color(0xFF546E7A),
-                                iconBgColor = Color(0xFFECEFF1),
-                                scaleFactor = scaleFactor,
-                                onClick = { settingsSubscreen = SettingsSubscreen.OssLicenses },
+                                onClick = { settingsSubscreen = SettingsSubscreen.SupportAndAbout },
                                 trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                             )
                         }
@@ -946,14 +509,14 @@ fun SettingsScreen(
                             shadowElevation = 0.dp,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(50.dp * scaleFactor)
+                                .height(46.dp * scaleFactor)
                                 .expressivePressScale(rateInteraction)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Text(
                                     "Rate Preamble ★",
                                     style = MaterialTheme.typography.titleMedium.copy(
-                                        fontSize = (16 * scaleFactor).sp,
+                                        fontSize = (15 * scaleFactor).sp,
                                         fontWeight = FontWeight.Bold
                                     ),
                                     color = MaterialTheme.colorScheme.onPrimary
@@ -961,7 +524,8 @@ fun SettingsScreen(
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(40.dp * scaleFactor))
+                        // Compact bottom spacer without extra gap above bottom nav bar
+                        Spacer(modifier = Modifier.height(12.dp * scaleFactor))
                     }
                 }
             }
@@ -1024,13 +588,18 @@ fun SettingsScreen(
                             Text(
                                 text = when (settingsSubscreen) {
                                     SettingsSubscreen.Main -> "Settings"
+                                    SettingsSubscreen.AccountAndSync -> "Account & Cloud Sync"
+                                    SettingsSubscreen.Appearance -> "Appearance & Theme"
+                                    SettingsSubscreen.Notifications -> "Notifications & Reminders"
                                     SettingsSubscreen.Ai -> "Preamble AI"
                                     SettingsSubscreen.Personal -> "Personal touches"
+                                    SettingsSubscreen.AlarmsAndGeneral -> "Alarms & Haptics"
+                                    SettingsSubscreen.SupportAndAbout -> "Support & About"
                                     SettingsSubscreen.ReportProblem -> "Report a problem"
                                     SettingsSubscreen.OssLicenses -> "Open-source licenses"
                                 },
                                 style = MaterialTheme.typography.titleMedium.copy(
-                                    fontSize = (16 * scaleFactor).sp,
+                                    fontSize = (15 * scaleFactor).sp,
                                     fontWeight = FontWeight.Bold
                                 ),
                                 color = MaterialTheme.colorScheme.onSurface
@@ -1111,7 +680,607 @@ fun SettingsScreen(
 }
 
 /**
- * Clean borderless visual anchor item row.
+ * Account & Google Sync Subscreen
+ */
+@Composable
+private fun AccountAndSyncSubscreen(
+    currentUser: com.google.firebase.auth.FirebaseUser?,
+    signInLoading: Boolean,
+    signOutLoading: Boolean,
+    googleLinked: Boolean,
+    calendarEmail: String?,
+    lastSyncTime: Long,
+    googleSyncing: Boolean,
+    googleLinkLoading: Boolean,
+    onSignIn: () -> Unit,
+    onSignOut: () -> Unit,
+    onLinkGoogle: () -> Unit,
+    onUnlinkGoogle: () -> Unit,
+    onSyncNow: () -> Unit,
+    scaleFactor: Float = 1f
+) {
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp * scaleFactor)) {
+        SettingsGroupSection(title = "Account", scaleFactor = scaleFactor) {
+            if (currentUser != null) {
+                SettingsItemRow(
+                    title = currentUser.displayName ?: "User",
+                    subtitle = currentUser.email ?: "",
+                    icon = Icons.Default.Person,
+                    iconTint = Color(0xFF1A73E8),
+                    iconBgColor = Color(0xFFE8F0FE),
+                    scaleFactor = scaleFactor,
+                    trailingContent = {
+                        val signOutInteraction = remember { MutableInteractionSource() }
+                        Surface(
+                            onClick = onSignOut,
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f),
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp,
+                            modifier = Modifier.expressivePressScale(signOutInteraction)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp * scaleFactor, vertical = 6.dp * scaleFactor),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                if (signOutLoading) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp * scaleFactor), strokeWidth = 2.dp)
+                                } else {
+                                    Text(
+                                        "Sign Out",
+                                        style = MaterialTheme.typography.labelMedium.copy(fontSize = (12 * scaleFactor).sp),
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            }
+                        }
+                    }
+                )
+            } else {
+                SettingsItemRow(
+                    title = "Sign in with Google",
+                    subtitle = "Sync habits, tasks and backups across devices",
+                    icon = Icons.Default.Person,
+                    iconTint = Color(0xFF1A73E8),
+                    iconBgColor = Color(0xFFE8F0FE),
+                    scaleFactor = scaleFactor,
+                    onClick = onSignIn,
+                    trailingContent = {
+                        if (signInLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp * scaleFactor), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                )
+            }
+        }
+
+        SettingsGroupSection(title = "Google Sync", scaleFactor = scaleFactor) {
+            if (googleLinked) {
+                val syncTimeString = if (lastSyncTime > 0) {
+                    SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()).format(Date(lastSyncTime))
+                } else null
+
+                SettingsItemRow(
+                    title = "Linked Google Account",
+                    subtitle = listOfNotNull(calendarEmail, syncTimeString?.let { "Last synced: $it" }).joinToString(" • "),
+                    icon = Icons.Default.CloudDone,
+                    iconTint = Color(0xFF1E8E3E),
+                    iconBgColor = Color(0xFFE6F4EA),
+                    scaleFactor = scaleFactor,
+                    trailingContent = {
+                        val unlinkInteraction = remember { MutableInteractionSource() }
+                        Surface(
+                            onClick = onUnlinkGoogle,
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp,
+                            modifier = Modifier.expressivePressScale(unlinkInteraction)
+                        ) {
+                            Text(
+                                "Unlink",
+                                modifier = Modifier.padding(horizontal = 12.dp * scaleFactor, vertical = 6.dp * scaleFactor),
+                                style = MaterialTheme.typography.labelMedium.copy(fontSize = (12 * scaleFactor).sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                )
+
+                SettingsItemRow(
+                    title = "Sync Now",
+                    subtitle = "Fetch calendar events & Google Tasks",
+                    icon = Icons.Default.Refresh,
+                    iconTint = Color(0xFF1E8E3E),
+                    iconBgColor = Color(0xFFE6F4EA),
+                    scaleFactor = scaleFactor,
+                    onClick = onSyncNow,
+                    trailingContent = {
+                        if (googleSyncing) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp * scaleFactor), strokeWidth = 2.dp)
+                        } else {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                )
+
+                val syncVoice by GoogleTasksManager.syncVoiceTasks.collectAsState()
+                SettingsToggleItemRow(
+                    title = "Sync Voice Tasks",
+                    subtitle = "Auto-add voice tasks to Google Tasks",
+                    icon = Icons.Default.Mic,
+                    iconTint = Color(0xFF1E8E3E),
+                    iconBgColor = Color(0xFFE6F4EA),
+                    checked = syncVoice,
+                    onToggle = { GoogleTasksManager.setSyncVoiceTasks(context, it) },
+                    scaleFactor = scaleFactor
+                )
+
+                val autoDelete by GoogleTasksManager.autoDeleteGoogleTasks.collectAsState()
+                SettingsToggleItemRow(
+                    title = "Auto-delete synced tasks",
+                    subtitle = "Delete from app when removed from Google Tasks",
+                    icon = Icons.Default.DeleteSweep,
+                    iconTint = Color(0xFF1E8E3E),
+                    iconBgColor = Color(0xFFE6F4EA),
+                    checked = autoDelete,
+                    onToggle = { GoogleTasksManager.setAutoDeleteGoogleTasks(context, it) },
+                    scaleFactor = scaleFactor
+                )
+            } else {
+                SettingsItemRow(
+                    title = "Link Google Calendar & Tasks",
+                    subtitle = "Sync events, holidays & tasks from Google",
+                    icon = Icons.Default.CalendarMonth,
+                    iconTint = Color(0xFF1E8E3E),
+                    iconBgColor = Color(0xFFE6F4EA),
+                    scaleFactor = scaleFactor,
+                    onClick = onLinkGoogle,
+                    trailingContent = {
+                        if (googleLinkLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp * scaleFactor), strokeWidth = 2.dp)
+                        } else {
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp * scaleFactor))
+    }
+}
+
+/**
+ * Appearance Subscreen
+ */
+@Composable
+private fun AppearanceSubscreen(scaleFactor: Float = 1f) {
+    val context = LocalContext.current
+    val colorfulCards by ThemePreferences.colorfulCards.collectAsState()
+    val showCategoryTags by ThemePreferences.showCategoryTags.collectAsState()
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp * scaleFactor)) {
+        SettingsGroupSection(title = "Appearance & Themes", scaleFactor = scaleFactor) {
+            ThemePickerCard(context)
+
+            SettingsToggleItemRow(
+                title = "Colorful Task Cards",
+                subtitle = "Give each task card a unique color tint",
+                icon = Icons.Default.Palette,
+                iconTint = Color(0xFF9334E6),
+                iconBgColor = Color(0xFFF3E8FD),
+                checked = colorfulCards,
+                onToggle = { v -> ThemePreferences.setColorfulCards(context, v) },
+                scaleFactor = scaleFactor
+            )
+
+            SettingsToggleItemRow(
+                title = "Show Category Tags",
+                subtitle = "Display category tags below task title",
+                icon = Icons.Default.Label,
+                iconTint = Color(0xFF9334E6),
+                iconBgColor = Color(0xFFF3E8FD),
+                checked = showCategoryTags,
+                onToggle = { v -> ThemePreferences.setShowCategoryTags(context, v) },
+                scaleFactor = scaleFactor
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp * scaleFactor))
+    }
+}
+
+/**
+ * Notifications Subscreen
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun NotificationsSubscreen(
+    hasSystemNotificationPermission: Boolean,
+    notificationPrefEnabled: Boolean,
+    notificationUpdateMode: com.theblankstate.preamble.notification.NotificationUpdatePreference,
+    isBatteryOptimized: Boolean,
+    onNotifPermissionRequest: () -> Unit,
+    onNotificationPrefToggle: (Boolean) -> Unit,
+    onUpdateModeChange: (com.theblankstate.preamble.notification.NotificationUpdatePreference) -> Unit,
+    onRequestIgnoreBattery: () -> Unit,
+    scaleFactor: Float = 1f
+) {
+    val context = LocalContext.current
+    var showAutoStartSheet by remember { mutableStateOf(false) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp * scaleFactor)) {
+        SettingsGroupSection(title = "Notifications & Frequency", scaleFactor = scaleFactor) {
+            SettingsToggleItemRow(
+                title = "Permanent Notification",
+                subtitle = "Quick Add & Voice Task from notification bar",
+                icon = Icons.Default.NotificationsActive,
+                iconTint = Color(0xFFF9AB00),
+                iconBgColor = Color(0xFFFEF7E0),
+                checked = notificationPrefEnabled && hasSystemNotificationPermission,
+                onToggle = onNotificationPrefToggle,
+                scaleFactor = scaleFactor
+            )
+
+            if (!hasSystemNotificationPermission) {
+                TextButton(
+                    onClick = onNotifPermissionRequest,
+                    modifier = Modifier.padding(start = 12.dp * scaleFactor, bottom = 4.dp * scaleFactor),
+                    shape = CircleShape
+                ) { Text("Grant Notification Permission", style = MaterialTheme.typography.labelMedium.copy(fontSize = (12 * scaleFactor).sp)) }
+            }
+
+            if (notificationPrefEnabled) {
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp * scaleFactor, vertical = 8.dp * scaleFactor)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Update Frequency", style = MaterialTheme.typography.bodyLarge.copy(fontSize = (14 * scaleFactor).sp, fontWeight = FontWeight.Medium))
+                        Text(
+                            when (notificationUpdateMode) {
+                                com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE -> "10s"
+                                com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED -> "30s"
+                                com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER -> "2 min"
+                            },
+                            style = MaterialTheme.typography.bodyMedium.copy(fontSize = (13 * scaleFactor).sp),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        when (notificationUpdateMode) {
+                            com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE -> "Fastest — changes show in ~10 sec, uses more battery"
+                            com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED -> "Recommended — changes show in ~30 sec"
+                            com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER -> "Battery saver — updates every 2 min"
+                        },
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * scaleFactor).sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                    val sliderValue = when (notificationUpdateMode) {
+                        com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER -> 0f
+                        com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED -> 1f
+                        com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE -> 2f
+                    }
+                    Slider(
+                        value = sliderValue,
+                        onValueChange = { raw ->
+                            val mode = when (raw.toInt()) {
+                                0 -> com.theblankstate.preamble.notification.NotificationUpdatePreference.BATTERY_SAVER
+                                1 -> com.theblankstate.preamble.notification.NotificationUpdatePreference.BALANCED
+                                else -> com.theblankstate.preamble.notification.NotificationUpdatePreference.AGGRESSIVE
+                            }
+                            onUpdateModeChange(mode)
+                        },
+                        valueRange = 0f..2f,
+                        steps = 1,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("2 min", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("30 sec", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("10 sec", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+
+            val eveningEnabled = remember { mutableStateOf(com.theblankstate.preamble.notification.EveningReminderScheduler.isEnabled(context)) }
+            SettingsToggleItemRow(
+                title = "Morning Briefing",
+                subtitle = "Daily 6 AM summary of today's tasks",
+                icon = Icons.Default.WbSunny,
+                iconTint = Color(0xFFF9AB00),
+                iconBgColor = Color(0xFFFEF7E0),
+                checked = eveningEnabled.value,
+                onToggle = {
+                    eveningEnabled.value = it
+                    com.theblankstate.preamble.notification.EveningReminderScheduler.setEnabled(context, it)
+                },
+                scaleFactor = scaleFactor
+            )
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                SettingsItemRow(
+                    title = "Battery Optimization",
+                    subtitle = if (isBatteryOptimized) "Status: Optimized - may stop notification bar" else "Status: Unrestricted",
+                    icon = Icons.Default.BatteryChargingFull,
+                    iconTint = Color(0xFFD93025),
+                    iconBgColor = Color(0xFFFCE8E6),
+                    scaleFactor = scaleFactor,
+                    trailingContent = {
+                        if (isBatteryOptimized) {
+                            val optInteraction = remember { MutableInteractionSource() }
+                            Surface(
+                                onClick = onRequestIgnoreBattery,
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                tonalElevation = 0.dp,
+                                shadowElevation = 0.dp,
+                                modifier = Modifier.expressivePressScale(optInteraction)
+                            ) {
+                                Text(
+                                    "Unrestrict",
+                                    modifier = Modifier.padding(horizontal = 12.dp * scaleFactor, vertical = 6.dp * scaleFactor),
+                                    style = MaterialTheme.typography.labelMedium.copy(fontSize = (12 * scaleFactor).sp),
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                    }
+                )
+            }
+
+            SettingsItemRow(
+                title = "Fix: Always-ready task bar",
+                subtitle = "Fix background notification stopping issue in 2 steps",
+                icon = Icons.Default.Build,
+                iconTint = Color(0xFFD93025),
+                iconBgColor = Color(0xFFFCE8E6),
+                scaleFactor = scaleFactor,
+                onClick = { showAutoStartSheet = true },
+                trailingContent = {
+                    Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            )
+        }
+
+        if (showAutoStartSheet) {
+            val batteryUnrestricted = !isBatteryOptimized
+            ModalBottomSheet(
+                onDismissRequest = { showAutoStartSheet = false },
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp)
+                        .padding(bottom = 40.dp)
+                ) {
+                    Text(
+                        "Fix: Always-ready task bar not showing",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    Text(
+                        "Quick steps to stop your phone from killing Preamble in background.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 24.dp)
+                    )
+
+                    NotifFixStep(
+                        number = 1,
+                        title = "Set Battery to Unrestricted",
+                        body = if (batteryUnrestricted)
+                            "Already set to Unrestricted — nothing to do here."
+                        else
+                            "Prevents the phone from killing Preamble in background.",
+                        done = batteryUnrestricted
+                    ) {
+                        if (!batteryUnrestricted) {
+                            Button(
+                                onClick = onRequestIgnoreBattery,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = CircleShape
+                            ) { Text("Set to Unrestricted") }
+                        }
+                    }
+
+                    Spacer(Modifier.height(16.dp))
+
+                    NotifFixStep(
+                        number = 2,
+                        title = "Pin Preamble in Recent Apps",
+                        body = "Open recent apps → long-press the Preamble card → tap the lock 🔒 icon to pin it.",
+                        done = false
+                    ) {}
+
+                    Spacer(Modifier.height(24.dp))
+                    TextButton(
+                        onClick = { showAutoStartSheet = false },
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Done") }
+                }
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp * scaleFactor))
+    }
+}
+
+/**
+ * Alarms & Haptics Subscreen
+ */
+@Composable
+private fun AlarmsAndGeneralSubscreen(
+    alarmToneName: String,
+    onPickAlarmTone: () -> Unit,
+    scaleFactor: Float = 1f
+) {
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp * scaleFactor)) {
+        SettingsGroupSection(title = "Alarms & Vibration", scaleFactor = scaleFactor) {
+            SettingsItemRow(
+                title = "Alarm Tone",
+                subtitle = alarmToneName,
+                icon = Icons.Default.Alarm,
+                iconTint = Color(0xFFF57C00),
+                iconBgColor = Color(0xFFFFF3E0),
+                scaleFactor = scaleFactor,
+                onClick = onPickAlarmTone,
+                trailingContent = {
+                    Text("Change", style = MaterialTheme.typography.labelLarge.copy(fontSize = (13 * scaleFactor).sp), color = MaterialTheme.colorScheme.primary)
+                }
+            )
+
+            var hapticEnabled by remember {
+                mutableStateOf(
+                    context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                        .getBoolean("haptic_feedback_enabled", true)
+                )
+            }
+            SettingsToggleItemRow(
+                title = "Haptic Feedback",
+                subtitle = "Vibrate on task completion & touch actions",
+                icon = Icons.Default.Vibration,
+                iconTint = Color(0xFF3F51B5),
+                iconBgColor = Color(0xFFE8EAF6),
+                checked = hapticEnabled,
+                onToggle = { enabled ->
+                    hapticEnabled = enabled
+                    context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                        .edit().putBoolean("haptic_feedback_enabled", enabled).apply()
+                },
+                scaleFactor = scaleFactor
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp * scaleFactor))
+    }
+}
+
+/**
+ * Support & About Subscreen
+ */
+@Composable
+private fun SupportAndAboutSubscreen(
+    onOpenReportProblem: () -> Unit,
+    onOpenLicenses: () -> Unit,
+    onOpenPrivacy: () -> Unit,
+    onOpenTerms: () -> Unit,
+    onOpenReview: () -> Unit,
+    scaleFactor: Float = 1f
+) {
+    val context = LocalContext.current
+    var showChangelogSheetManual by remember { mutableStateOf(false) }
+
+    if (showChangelogSheetManual) {
+        com.theblankstate.preamble.ui.components.ChangelogSheet(
+            onDismissRequest = { showChangelogSheetManual = false }
+        )
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp * scaleFactor)) {
+        SettingsGroupSection(title = "Support & Feedback", scaleFactor = scaleFactor) {
+            SettingsItemRow(
+                title = "Report a problem",
+                subtitle = "Send screenshots or videos and track progress",
+                icon = Icons.Default.BugReport,
+                iconTint = Color(0xFF00ACC1),
+                iconBgColor = Color(0xFFE0F7FA),
+                scaleFactor = scaleFactor,
+                onClick = onOpenReportProblem,
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+            )
+            SettingsItemRow(
+                title = "Email us",
+                subtitle = "theblankstate@theblankstate.com",
+                icon = Icons.Default.Email,
+                iconTint = Color(0xFF00ACC1),
+                iconBgColor = Color(0xFFE0F7FA),
+                scaleFactor = scaleFactor,
+                onClick = { context.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:theblankstate@theblankstate.com"))) }
+            )
+            SettingsItemRow(
+                title = "GitHub Repository",
+                subtitle = "github.com/Harry0M/Preamble",
+                icon = Icons.Default.Code,
+                iconTint = Color(0xFF00ACC1),
+                iconBgColor = Color(0xFFE0F7FA),
+                scaleFactor = scaleFactor,
+                onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Harry0M"))) }
+            )
+            SettingsItemRow(
+                title = "Official Website",
+                subtitle = "theblankstate.com",
+                icon = Icons.Default.Language,
+                iconTint = Color(0xFF00ACC1),
+                iconBgColor = Color(0xFFE0F7FA),
+                scaleFactor = scaleFactor,
+                onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://theblankstate.com"))) }
+            )
+        }
+
+        SettingsGroupSection(title = "About & Legal", scaleFactor = scaleFactor) {
+            SettingsItemRow(
+                title = "What's New in v1.6",
+                subtitle = "Habits, custom events, and smarter AI",
+                icon = Icons.Default.Info,
+                iconTint = Color(0xFF546E7A),
+                iconBgColor = Color(0xFFECEFF1),
+                scaleFactor = scaleFactor,
+                onClick = { showChangelogSheetManual = true },
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+            )
+            SettingsItemRow(
+                title = "Privacy Policy",
+                subtitle = "Data, AI services, Google integrations and analytics",
+                icon = Icons.Default.Security,
+                iconTint = Color(0xFF546E7A),
+                iconBgColor = Color(0xFFECEFF1),
+                scaleFactor = scaleFactor,
+                onClick = onOpenPrivacy,
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+            )
+            SettingsItemRow(
+                title = "Terms and Conditions",
+                subtitle = "Usage rules, AI limitations and service availability",
+                icon = Icons.Default.Gavel,
+                iconTint = Color(0xFF546E7A),
+                iconBgColor = Color(0xFFECEFF1),
+                scaleFactor = scaleFactor,
+                onClick = onOpenTerms,
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+            )
+            SettingsItemRow(
+                title = "Open-source licenses",
+                subtitle = "Attribution for open-source libraries",
+                icon = Icons.Default.Description,
+                iconTint = Color(0xFF546E7A),
+                iconBgColor = Color(0xFFECEFF1),
+                scaleFactor = scaleFactor,
+                onClick = onOpenLicenses,
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+            )
+        }
+        Spacer(modifier = Modifier.height(12.dp * scaleFactor))
+    }
+}
+
+/**
+ * Clean borderless visual anchor item row with Home-Screen matched typography.
  */
 @Composable
 private fun SettingsItemRow(
@@ -1158,7 +1327,7 @@ private fun SettingsItemRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.titleMedium.copy(
-                    fontSize = (15 * scaleFactor).sp,
+                    fontSize = (14 * scaleFactor).sp,
                     fontWeight = FontWeight.SemiBold
                 ),
                 color = MaterialTheme.colorScheme.onSurface
@@ -1168,9 +1337,9 @@ private fun SettingsItemRow(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall.copy(
-                        fontSize = (12.5f * scaleFactor).sp
+                        fontSize = (12 * scaleFactor).sp
                     ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
             }
         }
@@ -1287,7 +1456,7 @@ private fun AiSettingsSubscreen(
     }
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(20.dp * scaleFactor),
+        verticalArrangement = Arrangement.spacedBy(16.dp * scaleFactor),
     ) {
         SettingsGroupSection(title = "Preamble AI Memory & Automation", scaleFactor = scaleFactor) {
             SettingsToggleItemRow(
@@ -1371,7 +1540,7 @@ private fun AiSettingsSubscreen(
             AiReminderSettingsCard()
         }
 
-        Spacer(modifier = Modifier.height(32.dp * scaleFactor))
+        Spacer(modifier = Modifier.height(12.dp * scaleFactor))
     }
 
     if (showMemorySheet) {
@@ -1411,7 +1580,7 @@ private fun PersonalTouchSettingsSubscreen(
     val pmVariableRewards by ThemePreferences.pmVariableRewards.collectAsState()
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(20.dp * scaleFactor),
+        verticalArrangement = Arrangement.spacedBy(16.dp * scaleFactor),
     ) {
         SettingsGroupSection(title = "Personal Touches", scaleFactor = scaleFactor) {
             SettingsToggleItemRow(
@@ -1536,7 +1705,7 @@ private fun PersonalTouchSettingsSubscreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(32.dp * scaleFactor))
+        Spacer(modifier = Modifier.height(12.dp * scaleFactor))
     }
 }
 
@@ -1594,7 +1763,7 @@ private fun ProblemReportSettingsSubscreen(
         description.isNotBlank()
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(20.dp * scaleFactor),
+        verticalArrangement = Arrangement.spacedBy(16.dp * scaleFactor),
     ) {
         SettingsGroupSection(title = "Your Reports", scaleFactor = scaleFactor) {
             Column(modifier = Modifier.padding(6.dp * scaleFactor)) {
@@ -1774,7 +1943,7 @@ private fun ProblemReportSettingsSubscreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp * scaleFactor))
+        Spacer(modifier = Modifier.height(12.dp * scaleFactor))
     }
 }
 
@@ -1949,7 +2118,7 @@ private fun SmartTaskBreakdownSetting(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Smart Task Breakdown", style = MaterialTheme.typography.bodyLarge.copy(fontSize = (15 * scaleFactor).sp, fontWeight = FontWeight.SemiBold))
+            Text("Smart Task Breakdown", style = MaterialTheme.typography.bodyLarge.copy(fontSize = (14 * scaleFactor).sp, fontWeight = FontWeight.SemiBold))
             Text(
                 intensityLabels[value],
                 style = MaterialTheme.typography.labelMedium.copy(fontSize = (13 * scaleFactor).sp),
@@ -1958,7 +2127,7 @@ private fun SmartTaskBreakdownSetting(
         }
         Text(
             intensityDescs[value],
-            style = MaterialTheme.typography.bodySmall.copy(fontSize = (12.5f * scaleFactor).sp),
+            style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * scaleFactor).sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             modifier = Modifier.padding(top = 2.dp),
         )
@@ -1988,7 +2157,7 @@ private fun AiNotificationEditSetting(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Preamble AI edit from notification", style = MaterialTheme.typography.bodyLarge.copy(fontSize = (15 * scaleFactor).sp, fontWeight = FontWeight.SemiBold))
+                Text("Preamble AI edit from notification", style = MaterialTheme.typography.bodyLarge.copy(fontSize = (14 * scaleFactor).sp, fontWeight = FontWeight.SemiBold))
                 Surface(shape = RoundedCornerShape(4.dp), color = Color(0xFFFFF3E0)) {
                     Row(
                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -2002,7 +2171,7 @@ private fun AiNotificationEditSetting(
             }
             Text(
                 "Control tasks with voice commands in notification bar",
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = (12.5f * scaleFactor).sp),
+                style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * scaleFactor).sp),
                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
             )
         }
@@ -2152,7 +2321,7 @@ private fun OssLicensesSubscreen(
 
     Column(
         modifier = modifier.padding(vertical = 12.dp * scaleFactor),
-        verticalArrangement = Arrangement.spacedBy(20.dp * scaleFactor)
+        verticalArrangement = Arrangement.spacedBy(16.dp * scaleFactor)
     ) {
         SettingsGroupSection(title = "Open-Source Libraries", scaleFactor = scaleFactor) {
             licenses.forEachIndexed { index, (name, desc, license) ->
@@ -2160,6 +2329,7 @@ private fun OssLicensesSubscreen(
                 if (index != licenses.lastIndex) HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp))
             }
         }
+        Spacer(modifier = Modifier.height(12.dp * scaleFactor))
     }
 }
 
@@ -2173,7 +2343,7 @@ private fun LibraryItemRow(name: String, desc: String, license: String, scaleFac
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-            Text(name, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (15 * scaleFactor).sp, fontWeight = FontWeight.SemiBold))
+            Text(name, style = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * scaleFactor).sp, fontWeight = FontWeight.SemiBold))
             Text(desc, style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * scaleFactor).sp), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
         }
         Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)) {

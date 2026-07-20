@@ -175,6 +175,7 @@ import kotlinx.coroutines.flow.collectLatest
 @Composable
 fun HomeScreen(
     onOpenFriends: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     pendingRequestsCount: Int = 0,
     pendingAssignmentsCount: Int = 0,
     tasks: List<Task>,
@@ -563,7 +564,7 @@ fun HomeScreen(
                             Row(
                                 modifier = Modifier
                                     .padding(start = 16.dp)
-                                    .clickable(onClick = onOpenFriends),
+                                    .clickable(onClick = onOpenSettings),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 val displaySeeds = friends.map { it.preambleId } + listOf("dummy_a", "dummy_b")
