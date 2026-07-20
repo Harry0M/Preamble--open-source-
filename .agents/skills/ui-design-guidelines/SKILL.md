@@ -1,6 +1,6 @@
 ---
 name: custom-ui-design-guidelines
-description: Apply the Preamble project's premium minimalist UI design guidelines, including borderless list items, responsive scale factor adjustments, tactile press animations, and avatar stacks.
+description: Apply the Preamble project's premium minimalist UI design guidelines, including borderless list items, responsive scale factor adjustments, tactile press animations, avatar stacks, FAB-style floating headers, scroll-to-hide bars, and floating bottom navbars.
 ---
 
 # Preamble UI Design Guidelines
@@ -67,11 +67,58 @@ When representing members or collaborators, use a horizontal stack of overlappin
 
 ---
 
-## 5. Morphing & Moving Floating Buttons
-When implementing layout actions that collapse on scroll (e.g. hiding the top header navbar on swipe up), morph the primary action button and translate its position dynamically to fit next to the floating top row controls:
+## 5. Floating Action Bar Headers (FAB-Style Top Bar)
+Replace standard heavy top app bars with a floating row of rounded FAB components:
 
-* **Position Translation**: Animate the $x$ and $y$ offsets between its local header position and the top floating row (e.g., transitioning $x$ from `24.dp` to the scaled button row offset).
-* **Shape Morphing**: Animate the container shape, width, and height between a rounded pill (with custom width/height when fully open) and a compact circle (matching the diameter of the other circular buttons in the floating row).
+* **Floating Action Row**: Arrange Back FAB (e.g. `Color(0xFFA1C6FF)` soft blue), Center Title/Capsule FAB (e.g. `Color(0xFFFFD166)` soft amber), and Close/Action FAB (e.g. `Color(0xFFFF9E9E)` soft coral) floating over content.
+* **Friends Palette Accents**: Use soft vibrant colors from `PreambleCardColors` for FAB backgrounds and icons.
+* **Top Clearance Spacer**: Provide explicit top clearance (`Spacer(modifier = Modifier.height(80.dp * scaleFactor))`) in scrollable views so content starts cleanly below the floating header FABs without being hidden behind them.
+
+---
+
+## 6. Scroll / Swipe-to-Hide Floating Bars (Header & Bottom Nav)
+Floating header and bottom navigation bars should dynamically respond to scroll gestures to maximize screen real estate:
+
+```kotlin
+val scrollState = rememberScrollState()
+var isBarVisible by remember { mutableStateOf(true) }
+var lastScrollPosition by remember { mutableIntStateOf(0) }
+
+LaunchedEffect(scrollState.value) {
+    val currentScroll = scrollState.value
+    val diff = currentScroll - lastScrollPosition
+    if (diff > 12) {
+        isBarVisible = false // Hide on swipe up / scroll down
+    } else if (diff < -12 || currentScroll < 30) {
+        isBarVisible = true  // Show on swipe down / scroll up / near top
+    }
+    lastScrollPosition = currentScroll
+}
+
+AnimatedVisibility(
+    visible = isBarVisible,
+    enter = fadeIn() + slideInVertically { -it },
+    exit = fadeOut() + slideOutVertically { -it },
+) {
+    // Render Floating Header or Bottom Nav Bar
+}
+```
+
+---
+
+## 7. Floating FAB-Style Bottom Navigation Bars
+Bottom navigation bars should mirror the floating top FAB aesthetic:
+
+* **Floating Pill Surface**: Wrap navigation items inside a rounded capsule container (`shape = RoundedCornerShape(50)`) floating above the screen bottom.
+* **Gesture & Insets Clearance**: Wrap floating bottom bars in `navigationBarsPadding()` and `imePadding()` to prevent overlaps with system gesture bars and soft keyboards.
+
+---
+
+## 8. Morphing & Moving Floating Buttons
+When implementing layout actions that collapse on scroll, morph the primary action button and translate its position dynamically to fit next to the floating top row controls:
+
+* **Position Translation**: Animate $x$ and $y$ offsets between its local header position and the top floating row.
+* **Shape Morphing**: Animate container shape, width, and height between a rounded pill and a compact circle.
 * **Content Transitions**: Animate text opacity (`textAlpha`) to fade out the label completely as it collapses, leaving only the central icon scaled and centered.
 
 ---
