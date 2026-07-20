@@ -13,10 +13,12 @@ import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -27,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -55,29 +58,104 @@ fun ExpressiveNavigationBar(
     onItemSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(
+    Row(
         modifier = modifier
-            .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 22.dp)
-            .navigationBarsPadding()
+            .fillMaxWidth()
+            .padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 12.dp)
+            .navigationBarsPadding(),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(60.dp)
-                .clip(RoundedCornerShape(50))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
+        // Main Floating Capsule for Home (Tasks), Stats, Calendar, Circles (Items 0..3)
+        Surface(
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
         ) {
-            items.forEachIndexed { index, item ->
-                ExpressiveNavItemView(
-                    item = item,
-                    selected = selectedIndex == index,
-                    onClick = { onItemSelected(index) },
-                )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(58.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                items.take(4).forEachIndexed { index, item ->
+                    ExpressiveNavItemView(
+                        item = item,
+                        selected = selectedIndex == index,
+                        onClick = { onItemSelected(index) },
+                    )
+                }
+            }
+        }
+
+        // Separate Circle FAB for Settings (Item 4)
+        if (items.size > 4) {
+            val settingsItem = items[4]
+            val isSettingsSelected = selectedIndex == 4
+            val settingsInteraction = remember { MutableInteractionSource() }
+
+            val fabColor by animateColorAsState(
+                targetValue = if (isSettingsSelected)
+                    MaterialTheme.colorScheme.primary
+                else
+                    MaterialTheme.colorScheme.surfaceVariant,
+                animationSpec = spring(stiffness = Spring.StiffnessMedium),
+                label = "settings_fab_color"
+            )
+
+            val iconTint by animateColorAsState(
+                targetValue = if (isSettingsSelected)
+                    MaterialTheme.colorScheme.onPrimary
+                else
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                animationSpec = tween(200),
+                label = "settings_icon_tint"
+            )
+
+            Surface(
+                onClick = { onItemSelected(4) },
+                shape = CircleShape,
+                color = fabColor,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
+                modifier = Modifier
+                    .size(58.dp)
+                    .expressivePressScale(settingsInteraction)
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = settingsItem.icon,
+                        contentDescription = settingsItem.contentDescription,
+                        tint = iconTint,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun Modifier.expressivePressScale(
+    interactionSource: MutableInteractionSource,
+    pressedScale: Float = 0.92f
+): Modifier {
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) pressedScale else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "expressivePressScale"
+    )
+    return this.scale(scale)
 }
 
 @Composable
@@ -119,6 +197,7 @@ private fun ExpressiveNavItemView(
     Box(
         modifier = Modifier
             .scale(scale)
+            .expressivePressScale(interactionSource)
             .clip(RoundedCornerShape(50))
             .background(pillColor)
             .clickable(
