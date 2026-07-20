@@ -482,8 +482,8 @@ fun AiChatScreen(
             Surface(
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.primary,
-                tonalElevation = 6.dp,
-                shadowElevation = 6.dp,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
                 modifier = Modifier
                     .size(38.dp)
                     .clip(CircleShape)
@@ -585,8 +585,8 @@ private fun AiChatErrorBanner(
         color = MaterialTheme.colorScheme.errorContainer,
         modifier = modifier,
         shape = RoundedCornerShape(14.dp),
-        tonalElevation = 6.dp,
-        shadowElevation = 6.dp,
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
     ) {
         Row(
             Modifier
@@ -665,8 +665,8 @@ private fun AiChatComposer(
             Surface(
                 shape = RoundedCornerShape(50),
                 color = MaterialTheme.colorScheme.primaryContainer,
-                tonalElevation = 4.dp,
-                shadowElevation = 4.dp,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
                 modifier = Modifier.align(Alignment.End),
             ) {
                 Row(
@@ -720,8 +720,8 @@ private fun AiChatComposer(
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(50),
                 color = MaterialTheme.colorScheme.surfaceVariant,
-                tonalElevation = 6.dp,
-                shadowElevation = 6.dp,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
             ) {
                 Row(
                     modifier = Modifier
@@ -776,7 +776,8 @@ private fun AiChatComposer(
                         shape = CircleShape,
                         color = if (canSend) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                        tonalElevation = if (canSend) 2.dp else 0.dp,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
                         modifier = Modifier
                             .padding(start = 6.dp * scaleFactor)
                             .size(36.dp * scaleFactor)
@@ -856,8 +857,8 @@ private fun AiChatHeader(
         Surface(
             shape = RoundedCornerShape(999.dp),
             color = MaterialTheme.colorScheme.primaryContainer,
-            tonalElevation = 4.dp,
-            shadowElevation = 4.dp,
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
@@ -881,8 +882,8 @@ private fun AiChatHeader(
         Surface(
             shape = CircleShape,
             color = MaterialTheme.colorScheme.primary,
-            tonalElevation = 4.dp,
-            shadowElevation = 4.dp,
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
             modifier = Modifier
                 .size(38.dp)
                 .clip(CircleShape)
@@ -2058,6 +2059,63 @@ private fun WigglingMaterialShapeHeader(scaleFactor: Float) {
     }
 }
 
+private data class AiSuggestionItem(val text: String, val notationType: String)
+
+private val AI_CHAT_50_SUGGESTIONS = listOf(
+    AiSuggestionItem("Focus on right now", "solid"),
+    AiSuggestionItem("Gym task for tomorrow 7am", "solid"),
+    AiSuggestionItem("Move hospital task to Friday", "half_dotted"),
+    AiSuggestionItem("Summarize my week", "fully_dotted"),
+    AiSuggestionItem("Plan my evening workflow", "solid"),
+    AiSuggestionItem("Schedule morning workout at 6am", "solid"),
+    AiSuggestionItem("What tasks are urgent today?", "half_dotted"),
+    AiSuggestionItem("Add grocery shopping at 5pm", "solid"),
+    AiSuggestionItem("How many habits did I complete?", "fully_dotted"),
+    AiSuggestionItem("Reschedule missed tasks to tomorrow", "half_dotted"),
+    AiSuggestionItem("Plan a productive 4-hour sprint", "solid"),
+    AiSuggestionItem("Show my productivity stats", "fully_dotted"),
+    AiSuggestionItem("Set reminder for dentist on Monday", "solid"),
+    AiSuggestionItem("Draft my daily to-do list", "solid"),
+    AiSuggestionItem("Clear my afternoon schedule", "half_dotted"),
+    AiSuggestionItem("Suggest a quick break exercise", "fully_dotted"),
+    AiSuggestionItem("Organize tasks by priority", "solid"),
+    AiSuggestionItem("Add team sync meeting at 2pm", "solid"),
+    AiSuggestionItem("Highlight my top 3 goals", "half_dotted"),
+    AiSuggestionItem("Review my progress for today", "fully_dotted"),
+    AiSuggestionItem("Schedule study session for 8pm", "solid"),
+    AiSuggestionItem("Postpone non-urgent tasks", "half_dotted"),
+    AiSuggestionItem("How much deep work time today?", "fully_dotted"),
+    AiSuggestionItem("Add client call at 11am", "solid"),
+    AiSuggestionItem("Plan a relaxed Sunday schedule", "solid"),
+    AiSuggestionItem("Break down project into small steps", "half_dotted"),
+    AiSuggestionItem("Check my completed habits count", "fully_dotted"),
+    AiSuggestionItem("Add evening reading habit at 9pm", "solid"),
+    AiSuggestionItem("Optimise my morning routine", "solid"),
+    AiSuggestionItem("Find free slots for a 30m walk", "half_dotted"),
+    AiSuggestionItem("Summarize overdue items", "fully_dotted"),
+    AiSuggestionItem("Schedule meditation at 7am", "solid"),
+    AiSuggestionItem("Create a quick meal prep task", "solid"),
+    AiSuggestionItem("Re-align my weekly priorities", "half_dotted"),
+    AiSuggestionItem("Track my daily focus score", "fully_dotted"),
+    AiSuggestionItem("Add weekly planning session on Sun", "solid"),
+    AiSuggestionItem("Move low priority items to weekend", "half_dotted"),
+    AiSuggestionItem("What is my next upcoming task?", "solid"),
+    AiSuggestionItem("Suggest time management tips", "fully_dotted"),
+    AiSuggestionItem("Schedule car service on Wednesday", "solid"),
+    AiSuggestionItem("Set 15-min pomodoro focus timer", "solid"),
+    AiSuggestionItem("Reorganize my evening routine", "half_dotted"),
+    AiSuggestionItem("Calculate total planned hours today", "fully_dotted"),
+    AiSuggestionItem("Add water intake reminder", "solid"),
+    AiSuggestionItem("Shift all morning tasks by 1 hour", "half_dotted"),
+    AiSuggestionItem("Show list of recurring habits", "fully_dotted"),
+    AiSuggestionItem("Plan a zero-distraction focus block", "solid"),
+    AiSuggestionItem("Schedule stretch break at 3pm", "solid"),
+    AiSuggestionItem("What tasks take less than 10 mins?", "half_dotted"),
+    AiSuggestionItem("Summarize my habit streaks", "fully_dotted"),
+    AiSuggestionItem("Add doctor appointment next Tuesday", "solid"),
+    AiSuggestionItem("Prepare end-of-day reflection note", "solid")
+)
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun EmptyChatPlaceholder(modifier: Modifier = Modifier, onSuggestion: (String) -> Unit) {
@@ -2091,9 +2149,9 @@ private fun EmptyChatPlaceholder(modifier: Modifier = Modifier, onSuggestion: (S
 
         Spacer(modifier = Modifier.height(20.dp * scaleFactor))
 
-        // Dynamic Energetic Title
+        // Dynamic Energetic Title (without hand emoji)
         Text(
-            text = if (name != null) "Hi $name 👋\n${motivational.first}" else "${motivational.first} 👋",
+            text = if (name != null) "Hi $name\n${motivational.first}" else motivational.first,
             fontWeight = FontWeight.Black,
             fontSize = 20.sp * scaleFactor,
             color = MaterialTheme.colorScheme.onBackground,
@@ -2113,16 +2171,8 @@ private fun EmptyChatPlaceholder(modifier: Modifier = Modifier, onSuggestion: (S
 
         Spacer(modifier = Modifier.height(24.dp * scaleFactor))
 
-        data class SuggestionItem(val text: String, val notationType: String)
-        val suggestions = remember {
-            listOf(
-                SuggestionItem("Focus on right now", "solid"),
-                SuggestionItem("Gym task for tomorrow 7am", "solid"),
-                SuggestionItem("Move hospital task to Friday", "half_dotted"),
-                SuggestionItem("Summarize my week", "fully_dotted"),
-                SuggestionItem("Plan my evening workflow", "solid"),
-            )
-        }
+        // Sample 6 random suggestions from the 50+ variant pool
+        val suggestions = remember { AI_CHAT_50_SUGGESTIONS.shuffled().take(6) }
 
         // FlowRow staggered horizontal chips layout matching:
         //   ----------
@@ -2139,8 +2189,8 @@ private fun EmptyChatPlaceholder(modifier: Modifier = Modifier, onSuggestion: (S
                     onClick = { onSuggestion(s.text) },
                     shape = RoundedCornerShape(50),
                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f),
-                    tonalElevation = 3.dp,
-                    shadowElevation = 2.dp,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
                     modifier = Modifier
                         .padding(horizontal = 4.dp * scaleFactor)
                         .expressivePressScale(suggestionInteraction),
