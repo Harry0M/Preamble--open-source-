@@ -1,6 +1,6 @@
 ---
 name: custom-ui-design-guidelines
-description: Apply the Preamble project's premium minimalist UI design guidelines, including borderless list items, responsive scale factor adjustments, tactile press animations, avatar stacks, FAB-style floating headers, scroll-to-hide bars, and floating bottom navbars.
+description: Apply the Preamble project's premium minimalist UI design guidelines, including borderless list items, responsive scale factor adjustments, tactile press animations, avatar stacks, FAB-style floating headers, scroll-to-hide bars, floating bottom navbars, and immersive edge-to-edge status bar scroll.
 ---
 
 # Preamble UI Design Guidelines
@@ -120,6 +120,15 @@ When implementing layout actions that collapse on scroll, morph the primary acti
 * **Position Translation**: Animate $x$ and $y$ offsets between its local header position and the top floating row.
 * **Shape Morphing**: Animate container shape, width, and height between a rounded pill and a compact circle.
 * **Content Transitions**: Animate text opacity (`textAlpha`) to fade out the label completely as it collapses, leaving only the central icon scaled and centered.
+
+---
+
+## 9. Immersive Edge-to-Edge Scroll under Status Bar
+Scrollable screen surfaces should extend edge-to-edge behind the Android status bar so content flows seamlessly under the top status bar when swiping up:
+
+* **Zero Window Insets**: Configure container Scaffold/Box with `contentWindowInsets = WindowInsets(0, 0, 0, 0)` so scrollable content is not hard-cropped below the status bar.
+* **Under-Status-Bar Flow**: Allow scrollable `LazyColumn` / `verticalScroll` content to pass directly underneath translucent/transparent status bars when scrolled up.
+* **Top Header Floating Overlay**: Floating top FAB headers sit overlayed in a top `Box` layer with top clearance (`Spacer(modifier = Modifier.height(76.dp * scaleFactor))`) in the scrollable view so idle content rests cleanly below the floating FAB controls while scroll gestures flow underneath the status bar.
 
 ---
 
