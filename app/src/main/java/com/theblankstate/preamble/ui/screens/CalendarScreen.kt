@@ -250,8 +250,8 @@ fun CalendarScreen(
 
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Top Clearance for Floating Header Bar (includes statusBarsPadding so navbar never overlaps)
-            Spacer(modifier = Modifier.statusBarsPadding().height(56.dp * scaleFactor))
+            // Compact Top Clearance for Floating Header Bar (shifts entire content up slightly)
+            Spacer(modifier = Modifier.statusBarsPadding().height(40.dp * scaleFactor))
 
             // ═══ RE-IMAGINED FLOATING PILL VIEW MODE SELECTOR ═══
             Surface(
