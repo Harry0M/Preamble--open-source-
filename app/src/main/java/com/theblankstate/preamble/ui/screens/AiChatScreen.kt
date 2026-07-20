@@ -17,6 +17,12 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -234,7 +240,7 @@ fun AiChatScreen(
                     modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                     state = listState,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(top = 52.dp, bottom = 100.dp)
+                    contentPadding = PaddingValues(top = 52.dp, bottom = 140.dp)
                 ) {
                     items(visibleMessages, key = { it.id }) { msg ->
                         MessageRow(
@@ -513,7 +519,9 @@ fun AiChatScreen(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .imePadding()
+                .padding(horizontal = 14.dp)
+                .padding(bottom = 74.dp),
         )
 
         if (showInternalHeader) {
@@ -585,6 +593,23 @@ private fun AiChatErrorBanner(
 }
 
 @Composable
+private fun Modifier.expressivePressScale(
+    interactionSource: MutableInteractionSource,
+    pressedScale: Float = 0.92f
+): Modifier {
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) pressedScale else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "expressivePressScale"
+    )
+    return this.scale(scale)
+}
+
+@Composable
 private fun AiChatComposer(
     input: String,
     onInputChange: (String) -> Unit,
@@ -597,8 +622,13 @@ private fun AiChatComposer(
     onSend: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val scaleFactor = (screenWidth.value / 360f).coerceIn(0.85f, 1.15f)
+
     val canSend = input.isNotBlank() && !isSending
-    val adjustInteractionSource = remember { MutableInteractionSource() }
+    val optionsInteraction = remember { MutableInteractionSource() }
+    val sendInteraction = remember { MutableInteractionSource() }
+
     val scheme = MaterialTheme.colorScheme
     val surface = scheme.surface.copy(alpha = 1f)
     val adjustBackground = solidThemeColor(
@@ -612,25 +642,26 @@ private fun AiChatComposer(
 
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp * scaleFactor),
     ) {
         if (isEditing) {
             Surface(
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(50),
                 color = MaterialTheme.colorScheme.primaryContainer,
                 tonalElevation = 4.dp,
                 shadowElevation = 4.dp,
                 modifier = Modifier.align(Alignment.End),
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 12.dp * scaleFactor, vertical = 6.dp * scaleFactor),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp * scaleFactor),
                 ) {
                     Text(
                         "Editing question",
                         style = MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.SemiBold,
+                        fontSize = 11.sp * scaleFactor,
                         color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                     Text(
@@ -638,7 +669,8 @@ private fun AiChatComposer(
                         modifier = Modifier.clickable { onCancelEdit() },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 11.sp * scaleFactor,
+                        fontWeight = FontWeight.Bold,
                     )
                 }
             }
@@ -646,103 +678,105 @@ private fun AiChatComposer(
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp * scaleFactor),
         ) {
-            Box(
+            // Options Button with tactile expressivePressScale animation
+            Surface(
+                onClick = onToggleOptions,
+                shape = CircleShape,
+                color = adjustBackground,
                 modifier = Modifier
-                    .size(46.dp)
-                    .clip(CircleShape)
-                    .background(adjustBackground, CircleShape)
-                    .border(1.dp, adjustForeground.copy(alpha = if (showOptions) 0f else 0.18f), CircleShape)
-                    .semantics { contentDescription = "Options" }
-                    .clickable(
-                        interactionSource = adjustInteractionSource,
-                        indication = null,
-                    ) { onToggleOptions() },
-                contentAlignment = Alignment.Center,
+                    .size(46.dp * scaleFactor)
+                    .expressivePressScale(optionsInteraction)
             ) {
-                AdjustmentGlyph(
-                    color = adjustForeground,
-                    modifier = Modifier.size(20.dp),
-                )
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    AdjustmentGlyph(
+                        color = adjustForeground,
+                        modifier = Modifier.size(20.dp * scaleFactor),
+                    )
+                }
             }
 
-        Surface(
-            modifier = Modifier.weight(1f),
-            shape = RoundedCornerShape(26.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant,
-            tonalElevation = 5.dp,
-            shadowElevation = 5.dp,
-        ) {
-            Row(
-                modifier = Modifier
-                    .heightIn(min = 46.dp)
-                    .padding(start = 15.dp, end = 6.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            // Text Input Bar with Pill Surface & Expressive Send Button
+            Surface(
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                tonalElevation = 6.dp,
+                shadowElevation = 6.dp,
             ) {
-                BasicTextField(
-                    value = input,
-                    onValueChange = onInputChange,
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .onFocusChanged { focusState ->
-                            if (focusState.isFocused) onFocus()
-                        },
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        color = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    keyboardOptions = KeyboardOptions(
-                        capitalization = KeyboardCapitalization.Sentences,
-                        imeAction = ImeAction.Send,
-                    ),
-                    keyboardActions = KeyboardActions(
-                        onSend = {
-                            if (canSend) onSend()
-                        },
-                    ),
-                    maxLines = 4,
-                    decorationBox = { innerTextField ->
-                        Box(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = Alignment.CenterStart,
-                        ) {
-                            if (input.isBlank()) {
-                                Text(
-                                    "Ask anything...",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.58f),
-                                )
-                            }
-                            innerTextField()
-                        }
-                    },
-                )
-
-                Surface(
-                    shape = CircleShape,
-                    color = if (canSend) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.surface,
-                    tonalElevation = if (canSend) 2.dp else 0.dp,
-                    modifier = Modifier
-                        .padding(start = 8.dp)
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .clickable(enabled = canSend) { onSend() },
+                        .heightIn(min = 46.dp * scaleFactor)
+                        .padding(start = 16.dp * scaleFactor, end = 6.dp * scaleFactor, top = 4.dp * scaleFactor, bottom = 4.dp * scaleFactor),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.Send,
-                            contentDescription = "Send",
-                            modifier = Modifier.size(17.dp),
-                            tint = if (canSend) MaterialTheme.colorScheme.onPrimary
-                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f),
-                        )
+                    BasicTextField(
+                        value = input,
+                        onValueChange = onInputChange,
+                        modifier = Modifier
+                            .weight(1f)
+                            .onFocusChanged { focusState ->
+                                if (focusState.isFocused) onFocus()
+                            },
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                            fontSize = 13.5.sp * scaleFactor
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Sentences,
+                            imeAction = ImeAction.Send,
+                        ),
+                        keyboardActions = KeyboardActions(
+                            onSend = {
+                                if (canSend) onSend()
+                            },
+                        ),
+                        maxLines = 4,
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.CenterStart,
+                            ) {
+                                if (input.isBlank()) {
+                                    Text(
+                                        "Ask anything...",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontSize = 13.5.sp * scaleFactor,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.58f),
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
+                    )
+
+                    Surface(
+                        onClick = { if (canSend) onSend() },
+                        enabled = canSend,
+                        shape = CircleShape,
+                        color = if (canSend) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                        tonalElevation = if (canSend) 2.dp else 0.dp,
+                        modifier = Modifier
+                            .padding(start = 6.dp * scaleFactor)
+                            .size(36.dp * scaleFactor)
+                            .expressivePressScale(sendInteraction)
+                    ) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send",
+                                modifier = Modifier.size(16.dp * scaleFactor),
+                                tint = if (canSend) MaterialTheme.colorScheme.onPrimary
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f),
+                            )
+                        }
                     }
                 }
             }
-        }
         }
     }
 }
