@@ -2533,154 +2533,129 @@ private fun ToolsSpeedDialFab(
 ) {
     var isExpanded by remember { mutableStateOf(false) }
 
-    Column(
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+    val animProgress by animateFloatAsState(
+        targetValue = if (isExpanded) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "radial_speed_dial_progress"
+    )
+
+    val rotationAngle by animateFloatAsState(
+        targetValue = if (isExpanded) 135f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "cross_rotation"
+    )
+
+    Box(
+        contentAlignment = Alignment.BottomEnd
     ) {
-        // Expandable Sub-FABs column
-        AnimatedVisibility(
-            visible = isExpanded,
-            enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
-                    expandVertically() + slideInVertically { it / 2 },
-            exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessHigh)) +
-                   shrinkVertically() + slideOutVertically { it / 2 }
-        ) {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+        if (animProgress > 0.01f) {
+            // 1. Focus Timer Sub-FAB (Straight Left: X = -64.dp)
+            val timerInteraction = remember { MutableInteractionSource() }
+            Surface(
+                onClick = {
+                    isExpanded = false
+                    onOpenFocus()
+                },
+                shape = CircleShape,
+                color = if (focusState.isRunning)
+                    MaterialTheme.colorScheme.tertiary
+                else MaterialTheme.colorScheme.secondaryContainer,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
+                modifier = Modifier
+                    .offset(x = (-64).dp * scaleFactor * animProgress, y = 0.dp)
+                    .scale(animProgress)
+                    .graphicsLayer(alpha = animProgress)
+                    .size(44.dp * scaleFactor)
+                    .expressivePressScale(timerInteraction)
             ) {
-                // 1. Focus Timer Sub-FAB
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        tonalElevation = 0.dp,
-                        shadowElevation = 0.dp,
-                        modifier = Modifier.padding(end = 8.dp)
-                    ) {
+                Box(contentAlignment = Alignment.Center) {
+                    if (focusState.isRunning) {
+                        val mins = focusState.remainingSeconds / 60
+                        val secs = focusState.remainingSeconds % 60
                         Text(
-                            text = if (focusState.isRunning) "Focus Active" else "Focus Timer",
-                            fontSize = 12.sp * scaleFactor,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            String.format(Locale.US, "%02d:%02d", mins, secs),
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = MaterialTheme.colorScheme.onTertiary
                         )
-                    }
-
-                    val timerInteraction = remember { MutableInteractionSource() }
-                    FloatingActionButton(
-                        onClick = {
-                            isExpanded = false
-                            onOpenFocus()
-                        },
-                        shape = CircleShape,
-                        containerColor = if (focusState.isRunning)
-                            MaterialTheme.colorScheme.tertiary
-                        else MaterialTheme.colorScheme.secondaryContainer,
-                        modifier = Modifier
-                            .size(44.dp * scaleFactor)
-                            .expressivePressScale(timerInteraction)
-                    ) {
-                        if (focusState.isRunning) {
-                            val mins = focusState.remainingSeconds / 60
-                            val secs = focusState.remainingSeconds % 60
-                            Text(
-                                String.format(Locale.US, "%02d:%02d", mins, secs),
-                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp)
-                            )
-                        } else {
-                            Icon(
-                                Icons.Default.Timer,
-                                contentDescription = "Focus timer",
-                                modifier = Modifier.size(20.dp * scaleFactor)
-                            )
-                        }
-                    }
-                }
-
-                // 2. Voice Input Sub-FAB
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(50),
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        tonalElevation = 0.dp,
-                        shadowElevation = 0.dp,
-                        modifier = Modifier.padding(end = 8.dp)
-                    ) {
-                        Text(
-                            text = if (isVoiceListening) "Listening..." else "Voice Input",
-                            fontSize = 12.sp * scaleFactor,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-                        )
-                    }
-
-                    val voiceInteraction = remember { MutableInteractionSource() }
-                    FloatingActionButton(
-                        onClick = {
-                            isExpanded = false
-                            onToggleVoice()
-                        },
-                        shape = CircleShape,
-                        containerColor = if (isVoiceListening)
-                            MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.secondaryContainer,
-                        modifier = Modifier
-                            .size(44.dp * scaleFactor)
-                            .expressivePressScale(voiceInteraction)
-                    ) {
+                    } else {
                         Icon(
-                            imageVector = if (isVoiceListening) Icons.Filled.Stop else Icons.Filled.Mic,
-                            contentDescription = if (isVoiceListening) "Stop" else "Voice Input",
+                            imageVector = Icons.Default.Timer,
+                            contentDescription = "Focus timer",
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
                             modifier = Modifier.size(20.dp * scaleFactor)
                         )
                     }
+                }
+            }
+
+            // 2. Voice Input Sub-FAB (Up-Left Arc: X = -45.dp, Y = -45.dp)
+            val voiceInteraction = remember { MutableInteractionSource() }
+            Surface(
+                onClick = {
+                    isExpanded = false
+                    onToggleVoice()
+                },
+                shape = CircleShape,
+                color = if (isVoiceListening)
+                    MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.secondaryContainer,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
+                modifier = Modifier
+                    .offset(x = (-45).dp * scaleFactor * animProgress, y = (-45).dp * scaleFactor * animProgress)
+                    .scale(animProgress)
+                    .graphicsLayer(alpha = animProgress)
+                    .size(44.dp * scaleFactor)
+                    .expressivePressScale(voiceInteraction)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = if (isVoiceListening) Icons.Filled.Stop else Icons.Filled.Mic,
+                        contentDescription = if (isVoiceListening) "Stop" else "Voice Input",
+                        tint = if (isVoiceListening) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(20.dp * scaleFactor)
+                    )
                 }
             }
         }
 
         // Primary Speed Dial Master FAB (Toggles tools & morphs to Cross icon 'X')
         val mainInteraction = remember { MutableInteractionSource() }
-        val rotationAngle by animateFloatAsState(
-            targetValue = if (isExpanded) 135f else 0f,
-            animationSpec = spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessLow
-            ),
-            label = "speed_dial_cross_rotation"
-        )
-
-        FloatingActionButton(
+        Surface(
             onClick = { isExpanded = !isExpanded },
             shape = CircleShape,
-            containerColor = if (isExpanded)
+            color = if (isExpanded)
                 MaterialTheme.colorScheme.errorContainer
             else if (focusState.isRunning || isVoiceListening)
                 MaterialTheme.colorScheme.primaryContainer
             else
                 MaterialTheme.colorScheme.secondaryContainer,
-            contentColor = if (isExpanded)
-                MaterialTheme.colorScheme.onErrorContainer
-            else
-                MaterialTheme.colorScheme.onSecondaryContainer,
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
             modifier = Modifier
                 .size(48.dp * scaleFactor)
                 .expressivePressScale(mainInteraction)
         ) {
-            Icon(
-                imageVector = if (isExpanded) Icons.Filled.Close else Icons.Default.Widgets,
-                contentDescription = if (isExpanded) "Close tools" else "Tools menu",
-                modifier = Modifier
-                    .size(22.dp * scaleFactor)
-                    .graphicsLayer(rotationZ = rotationAngle)
-            )
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (isExpanded) Icons.Filled.Close else Icons.Default.Widgets,
+                    contentDescription = if (isExpanded) "Close tools" else "Tools menu",
+                    tint = if (isExpanded)
+                        MaterialTheme.colorScheme.onErrorContainer
+                    else
+                        MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier
+                        .size(22.dp * scaleFactor)
+                        .graphicsLayer(rotationZ = rotationAngle)
+                )
+            }
         }
     }
 }
