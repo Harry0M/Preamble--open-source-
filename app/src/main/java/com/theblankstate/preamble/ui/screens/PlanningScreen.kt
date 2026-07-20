@@ -641,9 +641,11 @@ private fun DayPlanSetupContent(
             scaleFactor = scaleFactor
         )
 
+        Spacer(modifier = Modifier.height(28.dp * scaleFactor))
+
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp * scaleFactor),
+            horizontalArrangement = Arrangement.spacedBy(10.dp * scaleFactor),
             verticalAlignment = Alignment.CenterVertically
         ) {
             val analyzeInteraction = remember { MutableInteractionSource() }
@@ -652,8 +654,8 @@ private fun DayPlanSetupContent(
                 shape = RoundedCornerShape(50),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 modifier = Modifier
-                    .weight(0.65f)
-                    .height(48.dp * scaleFactor)
+                    .weight(0.58f)
+                    .height(50.dp * scaleFactor)
                     .expressivePressScale(analyzeInteraction)
             ) {
                 HalfDottedCircleAiLogo(
@@ -664,7 +666,9 @@ private fun DayPlanSetupContent(
                 Text(
                     text = "Analyze & Plan",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp * scaleFactor
+                    fontSize = 13.sp * scaleFactor,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
 
@@ -673,24 +677,27 @@ private fun DayPlanSetupContent(
                 onClick = onDiscuss,
                 shape = RoundedCornerShape(50),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    containerColor = Color.Black,
+                    contentColor = Color.White
                 ),
                 modifier = Modifier
-                    .weight(0.35f)
-                    .height(48.dp * scaleFactor)
+                    .weight(0.42f)
+                    .height(50.dp * scaleFactor)
                     .expressivePressScale(discussInteraction)
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.Chat,
                     contentDescription = "Discuss",
+                    tint = Color.White,
                     modifier = Modifier.size(16.dp * scaleFactor)
                 )
-                Spacer(modifier = Modifier.width(4.dp * scaleFactor))
+                Spacer(modifier = Modifier.width(5.dp * scaleFactor))
                 Text(
                     text = "Discuss",
                     fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp * scaleFactor
+                    fontSize = 13.sp * scaleFactor,
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
         }
