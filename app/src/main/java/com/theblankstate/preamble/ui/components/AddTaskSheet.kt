@@ -967,7 +967,7 @@ fun AddTaskSheet(
                 val scheduleInteraction = remember { MutableInteractionSource() }
                 Row(
                     modifier = Modifier
-                        .height(38.dp)
+                        .height(40.dp)
                         .clip(CircleShape)
                         .background(
                             if (hasSchedule) MaterialTheme.colorScheme.primaryContainer
@@ -987,7 +987,7 @@ fun AddTaskSheet(
                         tint = if (hasSchedule)
                             MaterialTheme.colorScheme.onPrimaryContainer
                         else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                     if (hasSchedule) {
                         Spacer(modifier = Modifier.width(6.dp))
@@ -1015,7 +1015,7 @@ fun AddTaskSheet(
                 Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
                     Row(
                         modifier = Modifier
-                            .height(38.dp)
+                            .height(40.dp)
                             .clip(CircleShape)
                             .background(
                                 if (hasPriority) priorityColorsCache[selectedPriority].copy(alpha = 0.15f)
@@ -1033,7 +1033,7 @@ fun AddTaskSheet(
                             if (hasPriority) Icons.Default.Flag else Icons.Outlined.Flag,
                             contentDescription = "Priority",
                             tint = if (hasPriority) priorityColorsCache[selectedPriority] else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                         if (hasPriority) {
                             Spacer(modifier = Modifier.width(6.dp))
@@ -1101,7 +1101,7 @@ fun AddTaskSheet(
                 Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
                     Row(
                         modifier = Modifier
-                            .height(38.dp)
+                            .height(40.dp)
                             .clip(CircleShape)
                             .background(
                                 if (hasTags) MaterialTheme.colorScheme.secondaryContainer
@@ -1121,7 +1121,7 @@ fun AddTaskSheet(
                             tint = if (hasTags)
                                 MaterialTheme.colorScheme.onSecondaryContainer
                             else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                         if (hasTags) {
                             Spacer(modifier = Modifier.width(6.dp))
@@ -1171,7 +1171,7 @@ fun AddTaskSheet(
                     val habitInteraction = remember { MutableInteractionSource() }
                     Row(
                         modifier = Modifier
-                            .height(38.dp)
+                            .height(40.dp)
                             .clip(CircleShape)
                             .background(
                                 if (isHabit) Color(0xFFFF6D00).copy(alpha = 0.15f)
@@ -1200,7 +1200,7 @@ fun AddTaskSheet(
                             contentDescription = "Track as habit",
                             tint = if (isHabit) Color(0xFFFF6D00)
                             else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                         if (isHabit) {
                             Spacer(modifier = Modifier.width(6.dp))
@@ -1215,35 +1215,7 @@ fun AddTaskSheet(
                     }
                 }
 
-                // Greater-Than / Arrow Toggle Chip (Expands extended linear list)
-                val expandInteraction = remember { MutableInteractionSource() }
-                Surface(
-                    onClick = { isActionListExpanded = !isActionListExpanded },
-                    shape = CircleShape,
-                    color = if (isActionListExpanded)
-                        MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.surfaceVariant,
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp,
-                    modifier = Modifier
-                        .size(36.dp)
-                        .expressivePressScale(expandInteraction)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (isActionListExpanded)
-                                Icons.AutoMirrored.Filled.KeyboardArrowLeft
-                            else Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = if (isActionListExpanded) "Collapse options" else "More options",
-                            tint = if (isActionListExpanded)
-                                MaterialTheme.colorScheme.onPrimaryContainer
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-
-                // Extended Action Items (Revealed when isActionListExpanded is True)
+                // Extended Action Items (Revealed BEFORE the Arrow button when isActionListExpanded is True)
                 AnimatedVisibility(
                     visible = isActionListExpanded,
                     enter = fadeIn() + slideInHorizontally { -it / 2 },
@@ -1258,7 +1230,7 @@ fun AddTaskSheet(
                         val descInteraction = remember { MutableInteractionSource() }
                         Row(
                             modifier = Modifier
-                                .height(38.dp)
+                                .height(40.dp)
                                 .clip(CircleShape)
                                 .background(
                                     if (hasDesc || showDescription) MaterialTheme.colorScheme.primaryContainer
@@ -1278,7 +1250,7 @@ fun AddTaskSheet(
                                 tint = if (hasDesc || showDescription)
                                     MaterialTheme.colorScheme.onPrimaryContainer
                                 else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                             if (hasDesc) {
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -1298,7 +1270,7 @@ fun AddTaskSheet(
                             val recipientInteraction = remember { MutableInteractionSource() }
                             Row(
                                 modifier = Modifier
-                                    .height(38.dp)
+                                    .height(40.dp)
                                     .clip(CircleShape)
                                     .background(
                                         if (hasRecipients) MaterialTheme.colorScheme.secondaryContainer
@@ -1319,7 +1291,7 @@ fun AddTaskSheet(
                                     tint = if (hasRecipients)
                                         MaterialTheme.colorScheme.onSecondaryContainer
                                     else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(20.dp)
+                                    modifier = Modifier.size(24.dp)
                                 )
                                 if (hasRecipients) {
                                     Spacer(modifier = Modifier.width(6.dp))
@@ -1341,7 +1313,7 @@ fun AddTaskSheet(
 
                         Row(
                             modifier = Modifier
-                                .height(38.dp)
+                                .height(40.dp)
                                 .clip(CircleShape)
                                 .background(
                                     if (isEvent) eventColorParsed.copy(alpha = 0.15f)
@@ -1372,7 +1344,7 @@ fun AddTaskSheet(
                                 imageVector = Icons.AutoMirrored.Filled.EventNote,
                                 contentDescription = "Mark as custom event",
                                 tint = if (isEvent) eventColorParsed else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(24.dp)
                             )
                             if (isEvent) {
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -1395,9 +1367,35 @@ fun AddTaskSheet(
                                 Icons.Default.Info,
                                 contentDescription = "Task options info",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.size(18.dp)
+                                modifier = Modifier.size(20.dp)
                             )
                         }
+                    }
+                }
+
+                // Greater-Than / Arrow Toggle Chip (ALWAYS AT THE VERY END OF THE ROW!)
+                val expandInteraction = remember { MutableInteractionSource() }
+                Surface(
+                    onClick = { isActionListExpanded = !isActionListExpanded },
+                    shape = CircleShape,
+                    color = if (isActionListExpanded)
+                        MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier
+                        .size(40.dp)
+                        .expressivePressScale(expandInteraction)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = if (isActionListExpanded) "Collapse options" else "More options",
+                            tint = if (isActionListExpanded)
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(24.dp)
+                        )
                     }
                 }
             }
