@@ -976,12 +976,11 @@ fun SettingsScreen(
                     .statusBarsPadding()
                     .padding(top = 10.dp * scaleFactor)
             ) {
-                Row(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp * scaleFactor),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp * scaleFactor),
-                    verticalAlignment = Alignment.CenterVertically
+                    contentAlignment = Alignment.Center
                 ) {
                     if (settingsSubscreen != SettingsSubscreen.Main) {
                         val backInteraction = remember { MutableInteractionSource() }
@@ -992,6 +991,7 @@ fun SettingsScreen(
                             tonalElevation = 0.dp,
                             shadowElevation = 0.dp,
                             modifier = Modifier
+                                .align(Alignment.CenterStart)
                                 .size(44.dp * scaleFactor)
                                 .expressivePressScale(backInteraction)
                         ) {
@@ -1012,12 +1012,14 @@ fun SettingsScreen(
                         tonalElevation = 0.dp,
                         shadowElevation = 0.dp,
                         modifier = Modifier
-                            .weight(1f)
+                            .align(Alignment.Center)
                             .height(44.dp * scaleFactor)
                     ) {
                         Box(
-                            modifier = Modifier.fillMaxSize().padding(horizontal = 18.dp * scaleFactor),
-                            contentAlignment = Alignment.CenterStart
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .padding(horizontal = 22.dp * scaleFactor),
+                            contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = when (settingsSubscreen) {
@@ -1028,7 +1030,7 @@ fun SettingsScreen(
                                     SettingsSubscreen.OssLicenses -> "Open-source licenses"
                                 },
                                 style = MaterialTheme.typography.titleMedium.copy(
-                                    fontSize = (17 * scaleFactor).sp,
+                                    fontSize = (16 * scaleFactor).sp,
                                     fontWeight = FontWeight.Bold
                                 ),
                                 color = MaterialTheme.colorScheme.onSurface
