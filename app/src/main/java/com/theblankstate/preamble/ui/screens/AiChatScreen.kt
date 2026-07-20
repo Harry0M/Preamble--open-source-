@@ -19,11 +19,26 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.graphics.shapes.CornerRounding
+import androidx.graphics.shapes.Morph
+import androidx.graphics.shapes.RoundedPolygon
+import androidx.graphics.shapes.star
+import com.theblankstate.preamble.ui.screens.MorphPolygonShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -116,7 +131,7 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun AiChatScreen(
     viewModel: AiChatScreenViewModel,
@@ -490,6 +505,7 @@ fun AiChatScreen(
             }
         }
 
+        val isImeVisible = WindowInsets.isImeVisible
         AiChatComposer(
             input = input,
             onInputChange = { input = it },
@@ -522,7 +538,7 @@ fun AiChatScreen(
                 .navigationBarsPadding()
                 .imePadding()
                 .padding(horizontal = 14.dp)
-                .padding(bottom = 104.dp),
+                .padding(bottom = if (isImeVisible) 8.dp else 104.dp),
         )
 
         if (showInternalHeader) {
@@ -1990,6 +2006,60 @@ private fun TypingIndicator() {
 }
 
 @Composable
+private fun WigglingMaterialShapeHeader(scaleFactor: Float) {
+    val shapeColor = MaterialTheme.colorScheme.secondaryContainer
+
+    val morph = remember {
+        Morph(
+            start = RoundedPolygon.star(
+                numVerticesPerRadius = 6,
+                innerRadius = 0.65f,
+                rounding = CornerRounding(0.25f),
+            ),
+            end = RoundedPolygon(
+                numVertices = 8,
+                rounding = CornerRounding(0.35f),
+            ),
+        )
+    }
+    val transition = rememberInfiniteTransition(label = "chatSetupWiggle")
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1600, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "chatSetupMorphProgress",
+    )
+    val rotation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(12000),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "chatSetupRotation",
+    )
+
+    Box(
+        modifier = Modifier
+            .size(100.dp * scaleFactor)
+            .clip(MorphPolygonShape(morph, progress, rotation))
+            .background(shapeColor),
+        contentAlignment = Alignment.Center,
+    ) {
+        com.theblankstate.preamble.ui.components.NotationIcon(
+            type = "half_dotted",
+            size = 40.dp * scaleFactor,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            spinning = true,
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
 private fun EmptyChatPlaceholder(modifier: Modifier = Modifier, onSuggestion: (String) -> Unit) {
     val context = LocalContext.current
     val name = remember { UserProfileStore.load(context).name?.takeIf { it.isNotBlank() } }
@@ -2009,30 +2079,15 @@ private fun EmptyChatPlaceholder(modifier: Modifier = Modifier, onSuggestion: (S
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp * scaleFactor)
+            .padding(horizontal = 20.dp * scaleFactor)
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Spacer(modifier = Modifier.height(58.dp * scaleFactor))
+        Spacer(modifier = Modifier.height(50.dp * scaleFactor))
 
-        // Hero Icon Badge with Preamble Friends Soft Accent
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            tonalElevation = 6.dp,
-            shadowElevation = 6.dp,
-            modifier = Modifier.size(68.dp * scaleFactor)
-        ) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                com.theblankstate.preamble.ui.components.NotationIcon(
-                    type = "half_dotted",
-                    size = 34.dp * scaleFactor,
-                    color = MaterialTheme.colorScheme.primary,
-                    spinning = true,
-                )
-            }
-        }
+        // Wiggling Morphing Material Shape Header (same as Plan Day Init screen!)
+        WigglingMaterialShapeHeader(scaleFactor = scaleFactor)
 
         Spacer(modifier = Modifier.height(20.dp * scaleFactor))
 
@@ -2056,19 +2111,25 @@ private fun EmptyChatPlaceholder(modifier: Modifier = Modifier, onSuggestion: (S
             modifier = Modifier.padding(horizontal = 12.dp * scaleFactor)
         )
 
-        Spacer(modifier = Modifier.height(28.dp * scaleFactor))
+        Spacer(modifier = Modifier.height(24.dp * scaleFactor))
 
         data class SuggestionItem(val text: String, val notationType: String)
         val suggestions = remember {
             listOf(
-                SuggestionItem("What should I focus on right now?", "solid"),
-                SuggestionItem("Add a gym task for tomorrow 7am", "solid"),
-                SuggestionItem("Move my hospital task to Friday", "half_dotted"),
-                SuggestionItem("Summarize what I got done this week", "fully_dotted"),
+                SuggestionItem("Focus on right now", "solid"),
+                SuggestionItem("Gym task for tomorrow 7am", "solid"),
+                SuggestionItem("Move hospital task to Friday", "half_dotted"),
+                SuggestionItem("Summarize my week", "fully_dotted"),
+                SuggestionItem("Plan my evening workflow", "solid"),
             )
         }
 
-        Column(
+        // FlowRow staggered horizontal chips layout matching:
+        //   ----------
+        //   -- ----  ---
+        // ----------------
+        FlowRow(
+            horizontalArrangement = Arrangement.Center,
             verticalArrangement = Arrangement.spacedBy(10.dp * scaleFactor),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -2077,45 +2138,45 @@ private fun EmptyChatPlaceholder(modifier: Modifier = Modifier, onSuggestion: (S
                 Surface(
                     onClick = { onSuggestion(s.text) },
                     shape = RoundedCornerShape(50),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.60f),
-                    tonalElevation = 2.dp,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.70f),
+                    tonalElevation = 3.dp,
+                    shadowElevation = 2.dp,
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .padding(horizontal = 4.dp * scaleFactor)
                         .expressivePressScale(suggestionInteraction),
                 ) {
                     Row(
                         modifier = Modifier.padding(
-                            horizontal = 18.dp * scaleFactor,
-                            vertical = 12.dp * scaleFactor
+                            horizontal = 14.dp * scaleFactor,
+                            vertical = 10.dp * scaleFactor
                         ),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp * scaleFactor),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp * scaleFactor),
                     ) {
                         com.theblankstate.preamble.ui.components.NotationIcon(
                             type = s.notationType,
-                            size = 16.dp * scaleFactor,
+                            size = 14.dp * scaleFactor,
                             color = MaterialTheme.colorScheme.primary,
                         )
                         Text(
                             s.text,
-                            modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodyMedium,
-                            fontSize = 12.5.sp * scaleFactor,
-                            fontWeight = FontWeight.Medium,
+                            fontSize = 12.sp * scaleFactor,
+                            fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Icon(
                             Icons.AutoMirrored.Filled.Send,
                             contentDescription = null,
-                            modifier = Modifier.size(13.dp * scaleFactor),
-                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
+                            modifier = Modifier.size(12.dp * scaleFactor),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f),
                         )
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(160.dp * scaleFactor))
+        Spacer(modifier = Modifier.height(150.dp * scaleFactor))
     }
 }
 
