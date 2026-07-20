@@ -1,15 +1,15 @@
 package com.theblankstate.preamble.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -56,9 +56,7 @@ import androidx.compose.material.icons.filled.ViewDay
 import androidx.compose.material.icons.filled.ViewWeek
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -249,291 +247,16 @@ fun CalendarScreen(
     val onSurfaceVar = MaterialTheme.colorScheme.onSurfaceVariant
 
     Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Compact Top Clearance for Floating Header Bar (shifts entire content up slightly)
-            Spacer(modifier = Modifier.statusBarsPadding().height(40.dp * scaleFactor))
-
-            // ═══ RE-IMAGINED FLOATING PILL VIEW MODE SELECTOR ═══
-            Surface(
-                shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp,
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+        ) {
+            // ═══ TOP NAVBAR HEADER ═══
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp * scaleFactor)
-                    .height(42.dp * scaleFactor)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(4.dp * scaleFactor),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp * scaleFactor),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    CalendarViewMode.entries.forEach { mode ->
-                        val active = viewMode == mode
-                        val bgAnim by animateColorAsState(
-                            targetValue = if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
-                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
-                            label = "viewModeBg_${mode.name}"
-                        )
-                        val textTint by animateColorAsState(
-                            targetValue = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            animationSpec = tween(200),
-                            label = "viewModeText_${mode.name}"
-                        )
-                        val interaction = remember { MutableInteractionSource() }
-
-                        Surface(
-                            onClick = {
-                                viewMode = mode
-                                if (mode != CalendarViewMode.Month) {
-                                    selectedDay = todayCal.get(Calendar.DAY_OF_MONTH)
-                                    onDateSelected(todayStr)
-                                }
-                            },
-                            shape = CircleShape,
-                            color = bgAnim,
-                            tonalElevation = 0.dp,
-                            shadowElevation = 0.dp,
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                                .expressivePressScale(interaction)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = mode.icon,
-                                    contentDescription = mode.label,
-                                    tint = textTint,
-                                    modifier = Modifier.size(15.dp * scaleFactor)
-                                )
-                                Spacer(modifier = Modifier.width(4.dp * scaleFactor))
-                                Text(
-                                    text = mode.label,
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        fontSize = (12 * scaleFactor).sp,
-                                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
-                                    ),
-                                    color = textTint
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ═══ RE-IMAGINED FILTERS BAR ═══
-            AnimatedVisibility(
-                visible = showFilters,
-                enter = expandVertically() + fadeIn(),
-                exit = shrinkVertically() + fadeOut()
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 16.dp * scaleFactor, vertical = 8.dp * scaleFactor),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp * scaleFactor),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    FilterPillChip(
-                        label = "All",
-                        selected = activeFilters.isEmpty(),
-                        onClick = { activeFilters = emptySet() },
-                        scaleFactor = scaleFactor
-                    )
-
-                    listOf(
-                        "high" to "High" to PriorityHigh,
-                        "medium" to "Med" to PriorityMedium,
-                        "low" to "Low" to PriorityLow
-                    ).forEach { (pair, color) ->
-                        val (key, label) = pair
-                        FilterPillChip(
-                            label = label,
-                            selected = key in activeFilters,
-                            colorDot = color,
-                            onClick = { activeFilters = if (key in activeFilters) activeFilters - key else activeFilters + key },
-                            scaleFactor = scaleFactor
-                        )
-                    }
-
-                    FilterPillChip(
-                        label = "Timed",
-                        selected = "timed" in activeFilters,
-                        icon = Icons.Default.Schedule,
-                        onClick = { activeFilters = if ("timed" in activeFilters) activeFilters - "timed" else activeFilters + "timed" },
-                        scaleFactor = scaleFactor
-                    )
-
-                    FilterPillChip(
-                        label = "Google",
-                        selected = "google" in activeFilters,
-                        icon = Icons.Default.Event,
-                        iconTint = GoogleBlue,
-                        onClick = { activeFilters = if ("google" in activeFilters) activeFilters - "google" else activeFilters + "google" },
-                        scaleFactor = scaleFactor
-                    )
-
-                    activeTags.forEach { tag ->
-                        val tc = PredefinedTags.colorForTag(tag)
-                        FilterPillChip(
-                            label = tag,
-                            selected = tag in activeFilters,
-                            colorDot = tc,
-                            onClick = { activeFilters = if (tag in activeFilters) activeFilters - tag else activeFilters + tag },
-                            scaleFactor = scaleFactor
-                        )
-                    }
-                }
-            }
-
-            Spacer(Modifier.height(4.dp * scaleFactor))
-
-            // ═══ CONTENT ═══
-            when (viewMode) {
-                // ── MONTH ──
-                CalendarViewMode.Month -> {
-                    HorizontalPager(state = monthPager, beyondViewportPageCount = 1, modifier = Modifier.fillMaxSize()) { page ->
-                        val pageYear = remember(page) { monthFromPage(page).get(Calendar.YEAR) }
-                        val pageMonth = remember(page) { monthFromPage(page).get(Calendar.MONTH) }
-                        val pageKey = remember(page) { "$pageYear-$pageMonth" }
-                        val pageCal = remember(page) { monthFromPage(page) }
-                        val grid = remember(page) {
-                            val cal = pageCal.clone() as Calendar; cal.set(Calendar.DAY_OF_MONTH, 1)
-                            val firstDow = cal.get(Calendar.DAY_OF_WEEK) - 1; val maxDays = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                            val prevCal = (pageCal.clone() as Calendar).apply { add(Calendar.MONTH, -1) }; val prevMax = prevCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                            val prevDays = (0 until firstDow).map { GridDay(prevMax - firstDow + 1 + it, false) }
-                            val curDays = (1..maxDays).map { GridDay(it, true) }
-                            val total = prevDays.size + curDays.size; val needed = if (total <= 35) 35 - total else 42 - total
-                            (prevDays + curDays + (1..needed).map { GridDay(it, false) }).chunked(7)
-                        }
-                        val pageData by produceState<com.theblankstate.preamble.viewmodel.TaskViewModel.MonthData?>(initialValue = getCachedMonthData(pageKey), key1 = page, key2 = refreshTick) {
-                            value = loadMonthData(pageYear, pageMonth)
-                        }
-                        val isSettled by remember(page) { derivedStateOf { monthPager.settledPage == page } }
-                        ReimaginedMonthGrid(
-                            grid = grid,
-                            cal = pageCal,
-                            selectedDay = if (isSettled) selectedDay else -1,
-                            monthTasks = pageData?.tasksByDay ?: emptyMap(),
-                            todayStr = todayStr,
-                            sdfDate = sdfDate,
-                            primary = primary,
-                            onPrimary = onPrimary,
-                            onSurface = onSurface,
-                            onSurfaceVar = onSurfaceVar,
-                            scaleFactor = scaleFactor,
-                            onDayClick = { dateStr ->
-                                handleDateClick(dateStr)
-                                viewMode = CalendarViewMode.Day
-                                scope.launch { dayPager.scrollToPage(PAGER_MID) }
-                            }
-                        )
-                    }
-                }
-
-                // ── SIMPLE ──
-                CalendarViewMode.Simple -> {
-                    HorizontalPager(state = simplePager, beyondViewportPageCount = 1, modifier = Modifier.fillMaxSize()) { page ->
-                        val pageYear = remember(page) { monthFromPage(page).get(Calendar.YEAR) }
-                        val pageMonth = remember(page) { monthFromPage(page).get(Calendar.MONTH) }
-                        val pageKey = remember(page) { "$pageYear-$pageMonth" }
-                        val pageCal = remember(page) { monthFromPage(page) }
-                        val pageRows = remember(page) {
-                            val cal = pageCal.clone() as Calendar; cal.set(Calendar.DAY_OF_MONTH, 1)
-                            val firstDow = cal.get(Calendar.DAY_OF_WEEK) - 1; val maxDays = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
-                            (MutableList<Int?>(firstDow) { null } + (1..maxDays).toList()).chunked(7)
-                        }
-                        val pageData by produceState<com.theblankstate.preamble.viewmodel.TaskViewModel.MonthData?>(initialValue = getCachedMonthData(pageKey), key1 = page, key2 = refreshTick) {
-                            value = loadMonthData(pageYear, pageMonth)
-                        }
-                        val isSettled by remember(page) { derivedStateOf { simplePager.settledPage == page } }
-                        CollapsibleSimplePage(
-                            rows = pageRows,
-                            cal = pageCal,
-                            selectedDay = if (isSettled) selectedDay else -1,
-                            heatMap = pageData?.heatMap ?: emptyMap(),
-                            todayStr = todayStr,
-                            sdfDate = sdfDate,
-                            primary = primary,
-                            onPrimary = onPrimary,
-                            onSurface = onSurface,
-                            onSurfaceVar = onSurfaceVar,
-                            tasks = if (isSettled) filteredTasks else emptyList(),
-                            onDateClick = { handleDateClick(it) },
-                            onToggle = onToggleTask,
-                            onDelete = onDeleteTask,
-                            onDetail = onTaskDetail
-                        )
-                    }
-                }
-
-                // ── WEEK ──
-                CalendarViewMode.Week -> {
-                    HorizontalPager(state = weekPager, beyondViewportPageCount = 1, modifier = Modifier.fillMaxSize()) { page ->
-                        val pageWeek = remember(page) { weekFromPage(page) }
-                        val pageYear = remember(page) { pageWeek.get(Calendar.YEAR) }
-                        val pageMonth = remember(page) { pageWeek.get(Calendar.MONTH) }
-                        val pageKey = remember(page) { "$pageYear-$pageMonth" }
-                        val pageData by produceState<com.theblankstate.preamble.viewmodel.TaskViewModel.MonthData?>(initialValue = getCachedMonthData(pageKey), key1 = page, key2 = refreshTick) {
-                            value = loadMonthData(pageYear, pageMonth)
-                        }
-                        val isSettled by remember(page) { derivedStateOf { weekPager.settledPage == page } }
-                        ReimaginedWeekPage(
-                            weekStart = pageWeek,
-                            currentMonth = currentMonth,
-                            selectedDay = if (isSettled) selectedDay else -1,
-                            heatMap = pageData?.heatMap ?: emptyMap(),
-                            todayStr = todayStr,
-                            sdfDate = sdfDate,
-                            primary = primary,
-                            onPrimary = onPrimary,
-                            onSurface = onSurface,
-                            onSurfaceVar = onSurfaceVar,
-                            tasks = if (isSettled) filteredTasks else emptyList(),
-                            scaleFactor = scaleFactor,
-                            onDateClick = { handleDateClick(it) },
-                            onToggle = onToggleTask,
-                            onDelete = onDeleteTask,
-                            onDetail = onTaskDetail
-                        )
-                    }
-                }
-
-                // ── DAY ──
-                CalendarViewMode.Day -> {
-                    HorizontalPager(state = dayPager, beyondViewportPageCount = 1, modifier = Modifier.fillMaxSize()) { page ->
-                        val pageDayCal = remember(page) { dayFromPage(page) }
-                        val isSettled by remember(page) { derivedStateOf { dayPager.settledPage == page } }
-                        CollapsibleDayPage(
-                            dayCal = pageDayCal,
-                            tasks = if (isSettled) filteredTasks else emptyList(),
-                            onToggle = onToggleTask,
-                            onDelete = onDeleteTask,
-                            onDetail = onTaskDetail,
-                            onSurfaceVar = onSurfaceVar,
-                            todayStr = todayStr
-                        )
-                    }
-                }
-            }
-        }
-
-        // ═══ RE-IMAGINED FLOATING TOP HEADER BAR ═══
-        Surface(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(horizontal = 14.dp * scaleFactor, vertical = 6.dp * scaleFactor),
-            color = Color.Transparent
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
+                    .padding(horizontal = 14.dp * scaleFactor, vertical = 6.dp * scaleFactor),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -680,6 +403,284 @@ fun CalendarScreen(
                                 contentDescription = "Next",
                                 tint = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.size(20.dp * scaleFactor)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(4.dp * scaleFactor))
+
+            // ═══ RE-IMAGINED FLOATING PILL VIEW MODE SELECTOR CHIPS ═══
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp * scaleFactor)
+                    .height(42.dp * scaleFactor)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(4.dp * scaleFactor),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp * scaleFactor),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CalendarViewMode.entries.forEach { mode ->
+                        val active = viewMode == mode
+                        val bgAnim by animateColorAsState(
+                            targetValue = if (active) MaterialTheme.colorScheme.primary else Color.Transparent,
+                            animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMedium),
+                            label = "viewModeBg_${mode.name}"
+                        )
+                        val textTint by animateColorAsState(
+                            targetValue = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            animationSpec = tween(200),
+                            label = "viewModeText_${mode.name}"
+                        )
+                        val interaction = remember { MutableInteractionSource() }
+
+                        Surface(
+                            onClick = {
+                                viewMode = mode
+                                if (mode != CalendarViewMode.Month) {
+                                    selectedDay = todayCal.get(Calendar.DAY_OF_MONTH)
+                                    onDateSelected(todayStr)
+                                }
+                            },
+                            shape = CircleShape,
+                            color = bgAnim,
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .expressivePressScale(interaction)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = mode.icon,
+                                    contentDescription = mode.label,
+                                    tint = textTint,
+                                    modifier = Modifier.size(15.dp * scaleFactor)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp * scaleFactor))
+                                Text(
+                                    text = mode.label,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontSize = (12 * scaleFactor).sp,
+                                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium
+                                    ),
+                                    color = textTint
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ═══ RE-IMAGINED FILTERS BAR ═══
+            AnimatedVisibility(
+                visible = showFilters,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp * scaleFactor, vertical = 8.dp * scaleFactor),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp * scaleFactor),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FilterPillChip(
+                        label = "All",
+                        selected = activeFilters.isEmpty(),
+                        onClick = { activeFilters = emptySet() },
+                        scaleFactor = scaleFactor
+                    )
+
+                    listOf(
+                        "high" to "High" to PriorityHigh,
+                        "medium" to "Med" to PriorityMedium,
+                        "low" to "Low" to PriorityLow
+                    ).forEach { (pair, color) ->
+                        val (key, label) = pair
+                        FilterPillChip(
+                            label = label,
+                            selected = key in activeFilters,
+                            colorDot = color,
+                            onClick = { activeFilters = if (key in activeFilters) activeFilters - key else activeFilters + key },
+                            scaleFactor = scaleFactor
+                        )
+                    }
+
+                    FilterPillChip(
+                        label = "Timed",
+                        selected = "timed" in activeFilters,
+                        icon = Icons.Default.Schedule,
+                        onClick = { activeFilters = if ("timed" in activeFilters) activeFilters - "timed" else activeFilters + "timed" },
+                        scaleFactor = scaleFactor
+                    )
+
+                    FilterPillChip(
+                        label = "Google",
+                        selected = "google" in activeFilters,
+                        icon = Icons.Default.Event,
+                        iconTint = GoogleBlue,
+                        onClick = { activeFilters = if ("google" in activeFilters) activeFilters - "google" else activeFilters + "google" },
+                        scaleFactor = scaleFactor
+                    )
+
+                    activeTags.forEach { tag ->
+                        val tc = PredefinedTags.colorForTag(tag)
+                        FilterPillChip(
+                            label = tag,
+                            selected = tag in activeFilters,
+                            colorDot = tc,
+                            onClick = { activeFilters = if (tag in activeFilters) activeFilters - tag else activeFilters + tag },
+                            scaleFactor = scaleFactor
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(4.dp * scaleFactor))
+
+            // ═══ MAIN CALENDAR CONTENT AREA ═══
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+            ) {
+                when (viewMode) {
+                    // ── MONTH ──
+                    CalendarViewMode.Month -> {
+                        HorizontalPager(state = monthPager, beyondViewportPageCount = 1, modifier = Modifier.fillMaxSize()) { page ->
+                            val pageYear = remember(page) { monthFromPage(page).get(Calendar.YEAR) }
+                            val pageMonth = remember(page) { monthFromPage(page).get(Calendar.MONTH) }
+                            val pageKey = remember(page) { "$pageYear-$pageMonth" }
+                            val pageCal = remember(page) { monthFromPage(page) }
+                            val grid = remember(page) {
+                                val cal = pageCal.clone() as Calendar; cal.set(Calendar.DAY_OF_MONTH, 1)
+                                val firstDow = cal.get(Calendar.DAY_OF_WEEK) - 1; val maxDays = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                                val prevCal = (pageCal.clone() as Calendar).apply { add(Calendar.MONTH, -1) }; val prevMax = prevCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                                val prevDays = (0 until firstDow).map { GridDay(prevMax - firstDow + 1 + it, false) }
+                                val curDays = (1..maxDays).map { GridDay(it, true) }
+                                val total = prevDays.size + curDays.size; val needed = if (total <= 35) 35 - total else 42 - total
+                                (prevDays + curDays + (1..needed).map { GridDay(it, false) }).chunked(7)
+                            }
+                            val pageData by produceState<com.theblankstate.preamble.viewmodel.TaskViewModel.MonthData?>(initialValue = getCachedMonthData(pageKey), key1 = page, key2 = refreshTick) {
+                                value = loadMonthData(pageYear, pageMonth)
+                            }
+                            val isSettled by remember(page) { derivedStateOf { monthPager.settledPage == page } }
+                            ReimaginedMonthGrid(
+                                grid = grid,
+                                cal = pageCal,
+                                selectedDay = if (isSettled) selectedDay else -1,
+                                monthTasks = pageData?.tasksByDay ?: emptyMap(),
+                                todayStr = todayStr,
+                                sdfDate = sdfDate,
+                                primary = primary,
+                                onPrimary = onPrimary,
+                                onSurface = onSurface,
+                                onSurfaceVar = onSurfaceVar,
+                                scaleFactor = scaleFactor,
+                                onDayClick = { dateStr ->
+                                    handleDateClick(dateStr)
+                                    viewMode = CalendarViewMode.Day
+                                    scope.launch { dayPager.scrollToPage(PAGER_MID) }
+                                }
+                            )
+                        }
+                    }
+
+                    // ── SIMPLE ──
+                    CalendarViewMode.Simple -> {
+                        HorizontalPager(state = simplePager, beyondViewportPageCount = 1, modifier = Modifier.fillMaxSize()) { page ->
+                            val pageYear = remember(page) { monthFromPage(page).get(Calendar.YEAR) }
+                            val pageMonth = remember(page) { monthFromPage(page).get(Calendar.MONTH) }
+                            val pageKey = remember(page) { "$pageYear-$pageMonth" }
+                            val pageCal = remember(page) { monthFromPage(page) }
+                            val pageRows = remember(page) {
+                                val cal = pageCal.clone() as Calendar; cal.set(Calendar.DAY_OF_MONTH, 1)
+                                val firstDow = cal.get(Calendar.DAY_OF_WEEK) - 1; val maxDays = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
+                                (MutableList<Int?>(firstDow) { null } + (1..maxDays).toList()).chunked(7)
+                            }
+                            val pageData by produceState<com.theblankstate.preamble.viewmodel.TaskViewModel.MonthData?>(initialValue = getCachedMonthData(pageKey), key1 = page, key2 = refreshTick) {
+                                value = loadMonthData(pageYear, pageMonth)
+                            }
+                            val isSettled by remember(page) { derivedStateOf { simplePager.settledPage == page } }
+                            CollapsibleSimplePage(
+                                rows = pageRows,
+                                cal = pageCal,
+                                selectedDay = if (isSettled) selectedDay else -1,
+                                heatMap = pageData?.heatMap ?: emptyMap(),
+                                todayStr = todayStr,
+                                sdfDate = sdfDate,
+                                primary = primary,
+                                onPrimary = onPrimary,
+                                onSurface = onSurface,
+                                onSurfaceVar = onSurfaceVar,
+                                tasks = if (isSettled) filteredTasks else emptyList(),
+                                onDateClick = { handleDateClick(it) },
+                                onToggle = onToggleTask,
+                                onDelete = onDeleteTask,
+                                onDetail = onTaskDetail
+                            )
+                        }
+                    }
+
+                    // ── WEEK ──
+                    CalendarViewMode.Week -> {
+                        HorizontalPager(state = weekPager, beyondViewportPageCount = 1, modifier = Modifier.fillMaxSize()) { page ->
+                            val pageWeek = remember(page) { weekFromPage(page) }
+                            val pageYear = remember(page) { pageWeek.get(Calendar.YEAR) }
+                            val pageMonth = remember(page) { pageWeek.get(Calendar.MONTH) }
+                            val pageKey = remember(page) { "$pageYear-$pageMonth" }
+                            val pageData by produceState<com.theblankstate.preamble.viewmodel.TaskViewModel.MonthData?>(initialValue = getCachedMonthData(pageKey), key1 = page, key2 = refreshTick) {
+                                value = loadMonthData(pageYear, pageMonth)
+                            }
+                            val isSettled by remember(page) { derivedStateOf { weekPager.settledPage == page } }
+                            ReimaginedWeekPage(
+                                weekStart = pageWeek,
+                                currentMonth = currentMonth,
+                                selectedDay = if (isSettled) selectedDay else -1,
+                                heatMap = pageData?.heatMap ?: emptyMap(),
+                                todayStr = todayStr,
+                                sdfDate = sdfDate,
+                                primary = primary,
+                                onPrimary = onPrimary,
+                                onSurface = onSurface,
+                                onSurfaceVar = onSurfaceVar,
+                                tasks = if (isSettled) filteredTasks else emptyList(),
+                                scaleFactor = scaleFactor,
+                                onDateClick = { handleDateClick(it) },
+                                onToggle = onToggleTask,
+                                onDelete = onDeleteTask,
+                                onDetail = onTaskDetail
+                            )
+                        }
+                    }
+
+                    // ── DAY ──
+                    CalendarViewMode.Day -> {
+                        HorizontalPager(state = dayPager, beyondViewportPageCount = 1, modifier = Modifier.fillMaxSize()) { page ->
+                            val pageDayCal = remember(page) { dayFromPage(page) }
+                            val isSettled by remember(page) { derivedStateOf { dayPager.settledPage == page } }
+                            CollapsibleDayPage(
+                                dayCal = pageDayCal,
+                                tasks = if (isSettled) filteredTasks else emptyList(),
+                                onToggle = onToggleTask,
+                                onDelete = onDeleteTask,
+                                onDetail = onTaskDetail,
+                                onSurfaceVar = onSurfaceVar,
+                                todayStr = todayStr
                             )
                         }
                     }
