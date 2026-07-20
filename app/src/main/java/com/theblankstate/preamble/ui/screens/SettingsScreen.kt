@@ -42,14 +42,17 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -79,6 +82,8 @@ private enum class SettingsSubscreen {
     SupportAndAbout,
     OssLicenses,
     ReportProblem,
+    MyReports,
+    ReportDetail,
 }
 
 /**
@@ -140,9 +145,15 @@ fun SettingsScreen(
     var showPrivacySheet by remember { mutableStateOf(false) }
     var showTermsSheet by remember { mutableStateOf(false) }
     var settingsSubscreen by remember { mutableStateOf(SettingsSubscreen.Main) }
+    var selectedReport by remember { mutableStateOf<ProblemReport?>(null) }
 
     BackHandler(enabled = settingsSubscreen != SettingsSubscreen.Main) {
-        settingsSubscreen = SettingsSubscreen.Main
+        settingsSubscreen = when (settingsSubscreen) {
+            SettingsSubscreen.ReportDetail -> SettingsSubscreen.MyReports
+            SettingsSubscreen.MyReports -> SettingsSubscreen.SupportAndAbout
+            SettingsSubscreen.ReportProblem -> SettingsSubscreen.SupportAndAbout
+            else -> SettingsSubscreen.Main
+        }
     }
 
     val currentUser by AuthManager.currentUser.collectAsState()
@@ -402,6 +413,7 @@ fun SettingsScreen(
                     SettingsSubscreen.SupportAndAbout -> {
                         SupportAndAboutSubscreen(
                             onOpenReportProblem = { settingsSubscreen = SettingsSubscreen.ReportProblem },
+                            onOpenMyReports = { settingsSubscreen = SettingsSubscreen.MyReports },
                             onOpenLicenses = { settingsSubscreen = SettingsSubscreen.OssLicenses },
                             onOpenPrivacy = { showPrivacySheet = true },
                             onOpenTerms = { showTermsSheet = true },
@@ -411,6 +423,22 @@ fun SettingsScreen(
                     }
                     SettingsSubscreen.ReportProblem -> {
                         ProblemReportSettingsSubscreen(scaleFactor = scaleFactor)
+                    }
+                    SettingsSubscreen.MyReports -> {
+                        MyReportsSubscreen(
+                            onSelectReport = { report ->
+                                selectedReport = report
+                                settingsSubscreen = SettingsSubscreen.ReportDetail
+                            },
+                            scaleFactor = scaleFactor
+                        )
+                    }
+                    SettingsSubscreen.ReportDetail -> {
+                        selectedReport?.let { report ->
+                            ReportDetailSubscreen(report = report, scaleFactor = scaleFactor)
+                        } ?: run {
+                            settingsSubscreen = SettingsSubscreen.MyReports
+                        }
                     }
                     SettingsSubscreen.OssLicenses -> {
                         OssLicensesSubscreen(scaleFactor = scaleFactor)
@@ -549,7 +577,14 @@ fun SettingsScreen(
                     if (settingsSubscreen != SettingsSubscreen.Main) {
                         val backInteraction = remember { MutableInteractionSource() }
                         Surface(
-                            onClick = { settingsSubscreen = SettingsSubscreen.Main },
+                            onClick = {
+                                settingsSubscreen = when (settingsSubscreen) {
+                                    SettingsSubscreen.ReportDetail -> SettingsSubscreen.MyReports
+                                    SettingsSubscreen.MyReports -> SettingsSubscreen.SupportAndAbout
+                                    SettingsSubscreen.ReportProblem -> SettingsSubscreen.SupportAndAbout
+                                    else -> SettingsSubscreen.Main
+                                }
+                            },
                             shape = CircleShape,
                             color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
                             tonalElevation = 0.dp,
@@ -596,6 +631,8 @@ fun SettingsScreen(
                                     SettingsSubscreen.AlarmsAndGeneral -> "Alarms & Haptics"
                                     SettingsSubscreen.SupportAndAbout -> "Support & About"
                                     SettingsSubscreen.ReportProblem -> "Report a problem"
+                                    SettingsSubscreen.MyReports -> "My Problem Reports"
+                                    SettingsSubscreen.ReportDetail -> "Report Details"
                                     SettingsSubscreen.OssLicenses -> "Open-source licenses"
                                 },
                                 style = MaterialTheme.typography.titleMedium.copy(
@@ -611,54 +648,18 @@ fun SettingsScreen(
         }
 
         if (showReviewSheet) {
-            ModalBottomSheet(
-                onDismissRequest = { showReviewSheet = false },
-                sheetState = rememberModalBottomSheetState()
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth().padding(24.dp).padding(bottom = 32.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text("★★★★★", style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.primary)
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text("Enjoying Preamble?", style = MaterialTheme.typography.headlineSmall)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        "If you find Preamble helpful, please take a moment to leave a review. It helps us grow and improve!",
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        OutlinedButton(
-                            onClick = {
-                                showReviewSheet = false
-                                context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                    .edit().putBoolean("has_reviewed", true).apply()
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = CircleShape
-                        ) { Text("Later") }
-                        Button(
-                            onClick = {
-                                showReviewSheet = false
-                                context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                                    .edit().putBoolean("has_reviewed", true).apply()
-                                activity?.let { act ->
-                                    val reviewManager = com.theblankstate.preamble.util.InAppReviewManager(act)
-                                    reviewManager.launchReviewFlow(forceFake = false)
-                                }
-                            },
-                            modifier = Modifier.weight(1f),
-                            shape = CircleShape
-                        ) { Text("Rate Now") }
+            ReimaginedRatePreambleSheet(
+                onDismiss = { showReviewSheet = false },
+                onRateNow = { rating ->
+                    showReviewSheet = false
+                    context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                        .edit().putBoolean("has_reviewed", true).apply()
+                    activity?.let { act ->
+                        val reviewManager = com.theblankstate.preamble.util.InAppReviewManager(act)
+                        reviewManager.launchReviewFlow(forceFake = false)
                     }
                 }
-            }
+            )
         }
 
         if (showPrivacySheet) {
@@ -675,6 +676,149 @@ fun SettingsScreen(
                 sections = termsAndConditionsSections(),
                 onDismiss = { showTermsSheet = false },
             )
+        }
+    }
+}
+
+/**
+ * Re-imagined Rate Preamble Bottom Sheet
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReimaginedRatePreambleSheet(
+    onDismiss: () -> Unit,
+    onRateNow: (Int) -> Unit
+) {
+    var selectedStars by remember { mutableIntStateOf(5) }
+    val haptics = LocalHapticFeedback.current
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 36.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Visual Anchor Star Icon
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFEF7E0)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Star,
+                    contentDescription = null,
+                    tint = Color(0xFFF9AB00),
+                    modifier = Modifier.size(26.dp)
+                )
+            }
+
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    "Enjoying Preamble?",
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "Your feedback helps us continuously improve Preamble for everyone.",
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f)
+                )
+            }
+
+            // Interactive Tactile Star Bar
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                (1..5).forEach { starIndex ->
+                    val isSelected = starIndex <= selectedStars
+                    val starInteraction = remember { MutableInteractionSource() }
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .clickable(interactionSource = starInteraction, indication = null) {
+                                selectedStars = starIndex
+                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            }
+                            .expressivePressScale(starInteraction, pressedScale = 0.85f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isSelected) Icons.Default.Star else Icons.Outlined.StarOutline,
+                            contentDescription = "Star $starIndex",
+                            tint = if (isSelected) Color(0xFFF9AB00) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                val laterInteraction = remember { MutableInteractionSource() }
+                Surface(
+                    onClick = onDismiss,
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(46.dp)
+                        .expressivePressScale(laterInteraction)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            "Later",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                val rateInteraction = remember { MutableInteractionSource() }
+                Surface(
+                    onClick = { onRateNow(selectedStars) },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primary,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(46.dp)
+                        .expressivePressScale(rateInteraction)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            "Rate Now",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = MaterialTheme.colorScheme.onPrimary
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -1062,62 +1206,169 @@ private fun NotificationsSubscreen(
             val batteryUnrestricted = !isBatteryOptimized
             ModalBottomSheet(
                 onDismissRequest = { showAutoStartSheet = false },
-                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+                sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+                containerColor = MaterialTheme.colorScheme.surface
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 24.dp)
-                        .padding(bottom = 40.dp)
+                        .padding(bottom = 36.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Text(
-                        "Fix: Always-ready task bar not showing",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier.padding(bottom = 4.dp)
-                    )
-                    Text(
-                        "Quick steps to stop your phone from killing Preamble in background.",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 24.dp)
-                    )
-
-                    NotifFixStep(
-                        number = 1,
-                        title = "Set Battery to Unrestricted",
-                        body = if (batteryUnrestricted)
-                            "Already set to Unrestricted — nothing to do here."
-                        else
-                            "Prevents the phone from killing Preamble in background.",
-                        done = batteryUnrestricted
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        if (!batteryUnrestricted) {
-                            Button(
-                                onClick = onRequestIgnoreBattery,
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = CircleShape
-                            ) { Text("Set to Unrestricted") }
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFFCE8E6)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.Build,
+                                contentDescription = null,
+                                tint = Color(0xFFD93025),
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                "Fix Always-Ready Task Bar",
+                                style = MaterialTheme.typography.titleLarge.copy(fontSize = 18.sp, fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                "Prevent your phone from stopping Preamble in background",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
                         }
                     }
 
-                    Spacer(Modifier.height(16.dp))
-
-                    NotifFixStep(
-                        number = 2,
-                        title = "Pin Preamble in Recent Apps",
-                        body = "Open recent apps → long-press the Preamble card → tap the lock 🔒 icon to pin it.",
-                        done = false
-                    ) {}
-
-                    Spacer(Modifier.height(24.dp))
-                    TextButton(
-                        onClick = { showAutoStartSheet = false },
+                    Surface(
+                        shape = RoundedCornerShape(22.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("Done") }
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            ReimaginedNotifFixStep(
+                                number = 1,
+                                title = "Set Battery to Unrestricted",
+                                body = if (batteryUnrestricted) "Already set to Unrestricted — active." else "Prevents the OS from putting Preamble to sleep.",
+                                done = batteryUnrestricted,
+                                icon = Icons.Default.BatteryChargingFull,
+                                action = {
+                                    if (!batteryUnrestricted) {
+                                        val btnInteraction = remember { MutableInteractionSource() }
+                                        Surface(
+                                            onClick = onRequestIgnoreBattery,
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            tonalElevation = 0.dp,
+                                            shadowElevation = 0.dp,
+                                            modifier = Modifier.fillMaxWidth().height(42.dp).expressivePressScale(btnInteraction)
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Text("Set Unrestricted", style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onPrimary)
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+
+                            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+
+                            ReimaginedNotifFixStep(
+                                number = 2,
+                                title = "Pin Preamble in Recent Apps",
+                                body = "Open recent apps → long-press Preamble → tap the lock 🔒 icon to pin.",
+                                done = false,
+                                icon = Icons.Default.PushPin,
+                                action = {}
+                            )
+                        }
+                    }
+
+                    val doneInteraction = remember { MutableInteractionSource() }
+                    Surface(
+                        onClick = { showAutoStartSheet = false },
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.primary,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .expressivePressScale(doneInteraction)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text("Done", style = MaterialTheme.typography.titleMedium.copy(fontSize = 15.sp, fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onPrimary)
+                        }
+                    }
                 }
             }
         }
         Spacer(modifier = Modifier.height(12.dp * scaleFactor))
+    }
+}
+
+@Composable
+private fun ReimaginedNotifFixStep(
+    number: Int,
+    title: String,
+    body: String,
+    done: Boolean,
+    icon: ImageVector,
+    action: @Composable () -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .clip(CircleShape)
+                .background(if (done) Color(0xFFE6F4EA) else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (done) Icons.Default.Check else icon,
+                contentDescription = null,
+                tint = if (done) Color(0xFF1E8E3E) else MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(title, style = MaterialTheme.typography.titleMedium.copy(fontSize = 14.sp, fontWeight = FontWeight.SemiBold))
+                if (done) {
+                    Surface(shape = CircleShape, color = Color(0xFFE6F4EA)) {
+                        Text("Active", modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = Color(0xFF1E8E3E), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            Spacer(Modifier.height(2.dp))
+            Text(body, style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp), color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f))
+            if (!done) {
+                Spacer(Modifier.height(10.dp))
+                action()
+            }
+        }
     }
 }
 
@@ -1177,6 +1428,7 @@ private fun AlarmsAndGeneralSubscreen(
 @Composable
 private fun SupportAndAboutSubscreen(
     onOpenReportProblem: () -> Unit,
+    onOpenMyReports: () -> Unit,
     onOpenLicenses: () -> Unit,
     onOpenPrivacy: () -> Unit,
     onOpenTerms: () -> Unit,
@@ -1196,12 +1448,22 @@ private fun SupportAndAboutSubscreen(
         SettingsGroupSection(title = "Support & Feedback", scaleFactor = scaleFactor) {
             SettingsItemRow(
                 title = "Report a problem",
-                subtitle = "Send screenshots or videos and track progress",
+                subtitle = "Send screenshots or videos to our support team",
                 icon = Icons.Default.BugReport,
                 iconTint = Color(0xFF00ACC1),
                 iconBgColor = Color(0xFFE0F7FA),
                 scaleFactor = scaleFactor,
                 onClick = onOpenReportProblem,
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+            )
+            SettingsItemRow(
+                title = "My problem reports",
+                subtitle = "View submitted reports and admin responses",
+                icon = Icons.Default.Assignment,
+                iconTint = Color(0xFF00ACC1),
+                iconBgColor = Color(0xFFE0F7FA),
+                scaleFactor = scaleFactor,
+                onClick = onOpenMyReports,
                 trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
             )
             SettingsItemRow(
@@ -1274,6 +1536,284 @@ private fun SupportAndAboutSubscreen(
                 onClick = onOpenLicenses,
                 trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
             )
+        }
+        Spacer(modifier = Modifier.height(12.dp * scaleFactor))
+    }
+}
+
+/**
+ * Dedicated Subscreen to list My Problem Reports with Pagination
+ */
+@Composable
+private fun MyReportsSubscreen(
+    onSelectReport: (ProblemReport) -> Unit,
+    scaleFactor: Float = 1f
+) {
+    val currentUser by AuthManager.currentUser.collectAsState()
+    val scope = rememberCoroutineScope()
+    var reports by remember { mutableStateOf<List<ProblemReport>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(false) }
+    var errorText by remember { mutableStateOf<String?>(null) }
+    var currentPage by remember { mutableIntStateOf(0) }
+    val pageSize = 5
+
+    fun refreshReports() {
+        scope.launch {
+            isLoading = true
+            errorText = null
+            runCatching { ProblemReportRepository.loadMyReports() }
+                .onSuccess { reports = it }
+                .onFailure { errorText = it.message ?: "Could not load problem reports." }
+            isLoading = false
+        }
+    }
+
+    LaunchedEffect(currentUser?.uid) {
+        if (currentUser != null) refreshReports()
+    }
+
+    val totalPages = (reports.size + pageSize - 1).coerceAtLeast(1) / pageSize
+    val pagedReports = reports.drop(currentPage * pageSize).take(pageSize)
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp * scaleFactor)) {
+        SettingsGroupSection(title = "Submitted Problem Reports", scaleFactor = scaleFactor) {
+            Column(modifier = Modifier.padding(6.dp * scaleFactor)) {
+                if (currentUser == null) {
+                    Text(
+                        "Sign in to view your problem reports.",
+                        modifier = Modifier.padding(12.dp * scaleFactor),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else if (isLoading) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(16.dp * scaleFactor),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                        Text("Loading reports...", style = MaterialTheme.typography.bodyMedium)
+                    }
+                } else if (reports.isEmpty()) {
+                    Text(
+                        "No problem reports submitted yet.",
+                        modifier = Modifier.padding(16.dp * scaleFactor),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                } else {
+                    pagedReports.forEachIndexed { index, report ->
+                        SettingsItemRow(
+                            title = report.title,
+                            subtitle = listOfNotNull(
+                                formatReportDate(report.createdAt),
+                                if (!report.adminNote.isNullOrBlank()) "Response received" else null
+                            ).joinToString(" • "),
+                            icon = when (report.status) {
+                                ProblemReport.STATUS_RESOLVED -> Icons.Default.CheckCircle
+                                ProblemReport.STATUS_IN_PROGRESS -> Icons.Default.HourglassTop
+                                else -> Icons.Default.BugReport
+                            },
+                            iconTint = when (report.status) {
+                                ProblemReport.STATUS_RESOLVED -> Color(0xFF1E8E3E)
+                                ProblemReport.STATUS_IN_PROGRESS -> Color(0xFF1A73E8)
+                                else -> Color(0xFFF9AB00)
+                            },
+                            iconBgColor = when (report.status) {
+                                ProblemReport.STATUS_RESOLVED -> Color(0xFFE6F4EA)
+                                ProblemReport.STATUS_IN_PROGRESS -> Color(0xFFE8F0FE)
+                                else -> Color(0xFFFEF7E0)
+                            },
+                            scaleFactor = scaleFactor,
+                            onClick = { onSelectReport(report) },
+                            trailingContent = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    ProblemReportStatusChip(report.status)
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        )
+                        if (index != pagedReports.lastIndex) HorizontalDivider(modifier = Modifier.padding(horizontal = 8.dp))
+                    }
+                }
+            }
+        }
+
+        // Paging Navigation Controls
+        if (reports.size > pageSize) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val prevInteraction = remember { MutableInteractionSource() }
+                Surface(
+                    onClick = { if (currentPage > 0) currentPage-- },
+                    enabled = currentPage > 0,
+                    shape = CircleShape,
+                    color = if (currentPage > 0) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier.expressivePressScale(prevInteraction)
+                ) {
+                    Text(
+                        "← Previous",
+                        modifier = Modifier.padding(horizontal = 14.dp * scaleFactor, vertical = 8.dp * scaleFactor),
+                        style = MaterialTheme.typography.labelMedium.copy(fontSize = (12 * scaleFactor).sp),
+                        color = if (currentPage > 0) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    )
+                }
+
+                Text(
+                    "Page ${currentPage + 1} of $totalPages",
+                    style = MaterialTheme.typography.labelMedium.copy(fontSize = (12 * scaleFactor).sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                val nextInteraction = remember { MutableInteractionSource() }
+                Surface(
+                    onClick = { if (currentPage < totalPages - 1) currentPage++ },
+                    enabled = currentPage < totalPages - 1,
+                    shape = CircleShape,
+                    color = if (currentPage < totalPages - 1) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier.expressivePressScale(nextInteraction)
+                ) {
+                    Text(
+                        "Next →",
+                        modifier = Modifier.padding(horizontal = 14.dp * scaleFactor, vertical = 8.dp * scaleFactor),
+                        style = MaterialTheme.typography.labelMedium.copy(fontSize = (12 * scaleFactor).sp),
+                        color = if (currentPage < totalPages - 1) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp * scaleFactor))
+    }
+}
+
+/**
+ * Dedicated Subscreen for Report Details with Expandable/Compressible Response Text
+ */
+@Composable
+private fun ReportDetailSubscreen(
+    report: ProblemReport,
+    scaleFactor: Float = 1f
+) {
+    var isAdminNoteExpanded by remember { mutableStateOf(false) }
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp * scaleFactor)) {
+        SettingsGroupSection(title = "Report Information", scaleFactor = scaleFactor) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(14.dp * scaleFactor),
+                verticalArrangement = Arrangement.spacedBy(10.dp * scaleFactor)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        formatReportDate(report.createdAt),
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * scaleFactor).sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    ProblemReportStatusChip(report.status)
+                }
+
+                Text(
+                    report.title,
+                    style = MaterialTheme.typography.titleLarge.copy(fontSize = (17 * scaleFactor).sp, fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                Text(
+                    report.description,
+                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * scaleFactor).sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (report.attachments.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Attachments (${report.attachments.size})",
+                        style = MaterialTheme.typography.labelMedium.copy(fontSize = (13 * scaleFactor).sp, fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    report.attachments.forEach { att ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            tonalElevation = 0.dp
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(Icons.Default.AttachFile, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                                Text(
+                                    att.name,
+                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = (12 * scaleFactor).sp),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!report.adminNote.isNullOrBlank()) {
+            SettingsGroupSection(title = "Admin Response", scaleFactor = scaleFactor) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp * scaleFactor),
+                    verticalArrangement = Arrangement.spacedBy(8.dp * scaleFactor)
+                ) {
+                    val noteText = report.adminNote ?: ""
+                    Text(
+                        text = noteText,
+                        style = MaterialTheme.typography.bodyMedium.copy(fontSize = (14 * scaleFactor).sp),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = if (isAdminNoteExpanded) Int.MAX_VALUE else 3,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    if (noteText.length > 120) {
+                        val expandInteraction = remember { MutableInteractionSource() }
+                        Surface(
+                            onClick = { isAdminNoteExpanded = !isAdminNoteExpanded },
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp,
+                            modifier = Modifier.expressivePressScale(expandInteraction)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp * scaleFactor, vertical = 6.dp * scaleFactor),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    if (isAdminNoteExpanded) "Show less ▲" else "Show more ▼",
+                                    style = MaterialTheme.typography.labelMedium.copy(fontSize = (12 * scaleFactor).sp, fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
         Spacer(modifier = Modifier.height(12.dp * scaleFactor))
     }
@@ -1721,23 +2261,14 @@ private fun ProblemReportSettingsSubscreen(
     var description by remember { mutableStateOf("") }
     var selectedMedia by remember { mutableStateOf<List<ProblemReportRepository.DraftMedia>>(emptyList()) }
     var reports by remember { mutableStateOf<List<ProblemReport>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(false) }
     var isSubmitting by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
 
-    fun refreshReports() {
-        scope.launch {
-            isLoading = true
-            errorText = null
+    LaunchedEffect(currentUser?.uid) {
+        if (currentUser != null) {
             runCatching { ProblemReportRepository.loadMyReports() }
                 .onSuccess { reports = it }
-                .onFailure { errorText = it.message ?: "Could not load problem reports." }
-            isLoading = false
         }
-    }
-
-    LaunchedEffect(currentUser?.uid) {
-        if (currentUser != null) refreshReports()
     }
 
     val mediaPicker = rememberLauncherForActivityResult(
@@ -1765,40 +2296,6 @@ private fun ProblemReportSettingsSubscreen(
     Column(
         verticalArrangement = Arrangement.spacedBy(16.dp * scaleFactor),
     ) {
-        SettingsGroupSection(title = "Your Reports", scaleFactor = scaleFactor) {
-            Column(modifier = Modifier.padding(6.dp * scaleFactor)) {
-                if (currentUser == null) {
-                    Text(
-                        "Sign in to report a problem and track its status.",
-                        modifier = Modifier.padding(12.dp * scaleFactor),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else if (isLoading) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(12.dp * scaleFactor),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
-                        Text("Loading reports...", style = MaterialTheme.typography.bodyMedium)
-                    }
-                } else if (reports.isEmpty()) {
-                    Text(
-                        "No reports yet. Add a clear title, details, and optional screenshots or videos.",
-                        modifier = Modifier.padding(12.dp * scaleFactor),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    reports.forEachIndexed { index, report ->
-                        ProblemReportStatusRow(report = report)
-                        if (index != reports.lastIndex) HorizontalDivider()
-                    }
-                }
-            }
-        }
-
         SettingsGroupSection(title = "New Report", scaleFactor = scaleFactor) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(12.dp * scaleFactor),
@@ -1945,98 +2442,6 @@ private fun ProblemReportSettingsSubscreen(
 
         Spacer(modifier = Modifier.height(12.dp * scaleFactor))
     }
-}
-
-@Composable
-private fun ProblemReportStatusRow(report: ProblemReport) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top,
-        ) {
-            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
-                Text(report.title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-                Text(
-                    formatReportDate(report.createdAt),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            ProblemReportStatusChip(report.status)
-        }
-
-        Text(
-            report.description,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        if (report.attachments.isNotEmpty()) {
-            Text(
-                "${report.attachments.size} attachment${if (report.attachments.size == 1) "" else "s"}",
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-
-        if (!report.adminNote.isNullOrBlank()) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 0.dp,
-            ) {
-                Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-                    Text("Admin note", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    LinkifiedAdminNoteText(report.adminNote)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LinkifiedAdminNoteText(text: String) {
-    val uriHandler = LocalUriHandler.current
-    val linkColor = MaterialTheme.colorScheme.primary
-    val bodyColor = MaterialTheme.colorScheme.onSurface
-    val urlRegex = remember { Regex("""https?://[^\s]+""") }
-    val annotated = remember(text, linkColor, bodyColor) {
-        buildAnnotatedString {
-            var cursor = 0
-            urlRegex.findAll(text).forEach { match ->
-                if (match.range.first > cursor) {
-                    append(text.substring(cursor, match.range.first))
-                }
-                val rawUrl = match.value.trimEnd('.', ',', ')', ']')
-                val trailing = match.value.removePrefix(rawUrl)
-                pushStringAnnotation(tag = "URL", annotation = rawUrl)
-                withStyle(SpanStyle(color = linkColor, textDecoration = TextDecoration.Underline)) {
-                    append(rawUrl)
-                }
-                pop()
-                append(trailing)
-                cursor = match.range.last + 1
-            }
-            if (cursor < text.length) {
-                append(text.substring(cursor))
-            }
-        }
-    }
-
-    ClickableText(
-        text = annotated,
-        style = MaterialTheme.typography.bodySmall.copy(color = bodyColor),
-        onClick = { offset ->
-            annotated
-                .getStringAnnotations(tag = "URL", start = offset, end = offset)
-                .firstOrNull()
-                ?.let { annotation -> uriHandler.openUri(annotation.item) }
-        },
-    )
 }
 
 @Composable
@@ -2240,55 +2645,6 @@ private fun AiNotificationEditWarningSheet(
     }
 }
 
-@Composable
-private fun NotifFixStep(
-    number: Int,
-    title: String,
-    body: String,
-    done: Boolean,
-    action: @Composable () -> Unit
-) {
-    Row(verticalAlignment = Alignment.Top) {
-        Surface(
-            shape = CircleShape,
-            color = if (done) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.primaryContainer,
-            modifier = Modifier.size(28.dp)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                if (done) {
-                    Text("✓", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onPrimary)
-                } else {
-                    Text(
-                        "$number",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                }
-            }
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (done) MaterialTheme.colorScheme.onSurfaceVariant
-                        else MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(Modifier.height(2.dp))
-            Text(
-                body,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (!done) {
-                Spacer(Modifier.height(8.dp))
-                action()
-            }
-        }
-    }
-}
-
 private fun formatReportDate(timestamp: Long): String {
     if (timestamp <= 0L) return "Unknown date"
     return SimpleDateFormat("MMM d, yyyy h:mm a", Locale.getDefault()).format(Date(timestamp))
@@ -2418,15 +2774,15 @@ private fun ThemePickerCard(context: Context) {
     )
 
     Column(modifier = Modifier.fillMaxWidth().padding(12.dp)) {
-        Text("Theme", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
-        Spacer(Modifier.height(12.dp))
+        Text("Theme Mode", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(10.dp))
 
-        // Mode pills
+        // Full Rounded Corner Chips (RoundedCornerShape(50) / CircleShape)
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             modes.forEach { (mode, label) ->
                 val active = !materialYou && currentMode == mode
                 val pillBg by animateColorAsState(
-                    targetValue = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    targetValue = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioMediumBouncy,
                         stiffness = Spring.StiffnessMedium
@@ -2437,67 +2793,71 @@ private fun ThemePickerCard(context: Context) {
                     animationSpec = tween(200), label = "pillText_$label"
                 )
                 val pillScale by animateFloatAsState(
-                    targetValue = if (active) 1.06f else 1f,
+                    targetValue = if (active) 1.05f else 1f,
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioMediumBouncy,
                         stiffness = Spring.StiffnessMediumLow
                     ), label = "pillScale_$label"
                 )
+                val interactionSource = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .graphicsLayer { scaleX = pillScale; scaleY = pillScale }
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(50))
                         .background(pillBg)
-                        .clickable {
+                        .clickable(interactionSource = interactionSource, indication = null) {
                             ThemePreferences.setMaterialYou(context, false)
                             ThemePreferences.setThemeMode(context, mode)
                         }
+                        .expressivePressScale(interactionSource)
                         .padding(vertical = 10.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(label, style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
                         color = pillTextColor)
                 }
             }
             // Material You pill
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val youBg by animateColorAsState(
-                    targetValue = if (materialYou) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                    targetValue = if (materialYou) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioMediumBouncy,
                         stiffness = Spring.StiffnessMedium
                     ), label = "youBg"
                 )
                 val youScale by animateFloatAsState(
-                    targetValue = if (materialYou) 1.06f else 1f,
+                    targetValue = if (materialYou) 1.05f else 1f,
                     animationSpec = spring(
                         dampingRatio = Spring.DampingRatioMediumBouncy,
                         stiffness = Spring.StiffnessMediumLow
                     ), label = "youScale"
                 )
+                val interactionSource = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .graphicsLayer { scaleX = youScale; scaleY = youScale }
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(50))
                         .background(youBg)
-                        .clickable {
+                        .clickable(interactionSource = interactionSource, indication = null) {
                             ThemePreferences.setMaterialYou(context, true)
                             ThemePreferences.setColor(context, null)
                         }
+                        .expressivePressScale(interactionSource)
                         .padding(vertical = 10.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text("You", style = MaterialTheme.typography.labelMedium,
-                        fontWeight = if (materialYou) FontWeight.Bold else FontWeight.Normal,
+                        fontWeight = if (materialYou) FontWeight.Bold else FontWeight.Medium,
                         color = if (materialYou) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
 
-        // Expandable color panel with spring animation
+        // Color circles without text labels ("PALE", "COLORS" text removed!)
         AnimatedVisibility(
             visible = !materialYou,
             enter = expandVertically(
@@ -2509,91 +2869,89 @@ private fun ThemePickerCard(context: Context) {
             exit = shrinkVertically(tween(180)) + fadeOut(tween(150))
         ) {
             Column {
-                Spacer(Modifier.height(18.dp))
+                Spacer(Modifier.height(16.dp))
+                Text("Theme Color", style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(10.dp))
 
-                // PALE row
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("PALE", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                        letterSpacing = 1.4.sp, modifier = Modifier.width(52.dp))
-                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        items(palePresets.size) { i ->
-                            val c = palePresets[i]
-                            val isActive = !materialYou && currentColor == c
-                            val scale by animateFloatAsState(
-                                targetValue = if (isActive) 1.24f else 1f,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessMedium
-                                ), label = "ps$i"
-                            )
-                            val borderColor by animateColorAsState(
-                                targetValue = if (isActive) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f) else Color.Transparent,
-                                animationSpec = tween(200), label = "pc$i"
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .graphicsLayer { scaleX = scale; scaleY = scale }
-                                    .clip(CircleShape)
-                                    .background(c)
-                                    .border(if (isActive) 2.dp else 0.dp, borderColor, CircleShape)
-                                    .clickable { ThemePreferences.setColor(context, c) }
-                            )
-                        }
+                // Pale row without text label
+                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    items(palePresets.size) { i ->
+                        val c = palePresets[i]
+                        val isActive = !materialYou && currentColor == c
+                        val scale by animateFloatAsState(
+                            targetValue = if (isActive) 1.24f else 1f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            ), label = "ps$i"
+                        )
+                        val borderColor by animateColorAsState(
+                            targetValue = if (isActive) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.75f) else Color.Transparent,
+                            animationSpec = tween(200), label = "pc$i"
+                        )
+                        val circleInteraction = remember { MutableInteractionSource() }
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .graphicsLayer { scaleX = scale; scaleY = scale }
+                                .clip(CircleShape)
+                                .background(c)
+                                .border(if (isActive) 2.dp else 0.dp, borderColor, CircleShape)
+                                .clickable(interactionSource = circleInteraction, indication = null) { ThemePreferences.setColor(context, c) }
+                                .expressivePressScale(circleInteraction, pressedScale = 0.88f)
+                        )
                     }
                 }
 
                 Spacer(Modifier.height(12.dp))
 
-                // COLORS row
-                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text("COLORS", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-                        letterSpacing = 1.4.sp, modifier = Modifier.width(52.dp))
-                    androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        item {
-                            val isActive = currentColor == null
-                            val scale by animateFloatAsState(
-                                targetValue = if (isActive) 1.24f else 1f,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessMedium
-                                ), label = "ms"
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .graphicsLayer { scaleX = scale; scaleY = scale }
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFEEEEEE))
-                                    .border(if (isActive) 2.dp else 0.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), CircleShape)
-                                    .clickable { ThemePreferences.setColor(context, null) },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF333333)))
-                            }
+                // Vivid row without text label
+                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    item {
+                        val isActive = currentColor == null
+                        val scale by animateFloatAsState(
+                            targetValue = if (isActive) 1.24f else 1f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            ), label = "ms"
+                        )
+                        val circleInteraction = remember { MutableInteractionSource() }
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .graphicsLayer { scaleX = scale; scaleY = scale }
+                                .clip(CircleShape)
+                                .background(Color(0xFFEEEEEE))
+                                .border(if (isActive) 2.dp else 0.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), CircleShape)
+                                .clickable(interactionSource = circleInteraction, indication = null) { ThemePreferences.setColor(context, null) }
+                                .expressivePressScale(circleInteraction, pressedScale = 0.88f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(Modifier.size(10.dp).clip(CircleShape).background(Color(0xFF333333)))
                         }
-                        items(vividPresets.size) { i ->
-                            val c = vividPresets[i]
-                            val isActive = !materialYou && currentColor == c
-                            val scale by animateFloatAsState(
-                                targetValue = if (isActive) 1.24f else 1f,
-                                animationSpec = spring(
-                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                    stiffness = Spring.StiffnessMedium
-                                ), label = "vs$i"
-                            )
-                            Box(
-                                modifier = Modifier
-                                    .size(32.dp)
-                                    .graphicsLayer { scaleX = scale; scaleY = scale }
-                                    .clip(CircleShape)
-                                    .background(c)
-                                    .border(if (isActive) 2.dp else 0.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), CircleShape)
-                                    .clickable { ThemePreferences.setColor(context, c) }
-                            )
-                        }
+                    }
+                    items(vividPresets.size) { i ->
+                        val c = vividPresets[i]
+                        val isActive = !materialYou && currentColor == c
+                        val scale by animateFloatAsState(
+                            targetValue = if (isActive) 1.24f else 1f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                stiffness = Spring.StiffnessMedium
+                            ), label = "vs$i"
+                        )
+                        val circleInteraction = remember { MutableInteractionSource() }
+                        Box(
+                            modifier = Modifier
+                                .size(34.dp)
+                                .graphicsLayer { scaleX = scale; scaleY = scale }
+                                .clip(CircleShape)
+                                .background(c)
+                                .border(if (isActive) 2.dp else 0.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), CircleShape)
+                                .clickable(interactionSource = circleInteraction, indication = null) { ThemePreferences.setColor(context, c) }
+                                .expressivePressScale(circleInteraction, pressedScale = 0.88f)
+                        )
                     }
                 }
                 Spacer(Modifier.height(4.dp))
