@@ -11,11 +11,14 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
@@ -71,6 +74,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.ViewAgenda
 import androidx.compose.material.icons.filled.ViewHeadline
+import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.foundation.border
 import androidx.compose.material3.Button
@@ -96,6 +100,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -132,6 +137,7 @@ import com.theblankstate.preamble.ui.components.SwipeableTaskItem
 import com.theblankstate.preamble.ui.components.TaskItem
 import com.theblankstate.preamble.ui.components.FocusTimerSheet
 import com.theblankstate.preamble.focus.FocusTimerService
+import com.theblankstate.preamble.focus.FocusTimerState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -145,6 +151,7 @@ import android.app.AlarmManager
 import android.content.Context
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.material.icons.filled.Alarm
+import androidx.compose.ui.unit.sp
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Timer
@@ -273,6 +280,9 @@ fun HomeScreen(
             com.theblankstate.preamble.analytics.AnalyticsManager.trackUpsellShown("AI_AUTO_PLANNING") // Req 12.2
         }
     }
+
+    val screenWidthDp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
+    val scaleFactor = (screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
 
     val isCalendarSyncing by com.theblankstate.preamble.sync.GoogleCalendarManager.isSyncing.collectAsState()
     val isManualSyncing by com.theblankstate.preamble.sync.GoogleCalendarManager.isManualSyncing.collectAsState()
@@ -737,34 +747,16 @@ fun HomeScreen(
                     horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Focus timer FAB
-                    FloatingActionButton(
-                        onClick = {
+                    // Speed Dial FAB: Merges Focus Timer & Voice Input into one expanding tools FAB
+                    ToolsSpeedDialFab(
+                        focusState = focusState,
+                        isVoiceListening = isVoiceListening,
+                        onOpenFocus = {
                             focusTaskId = null
                             focusTaskTitle = null
                             showFocusSheet = true
                         },
-                        shape = CircleShape,
-                        containerColor = if (focusState.isRunning)
-                            MaterialTheme.colorScheme.tertiary
-                        else MaterialTheme.colorScheme.secondaryContainer
-                    ) {
-                        if (focusState.isRunning) {
-                            val mins = focusState.remainingSeconds / 60
-                            val secs = focusState.remainingSeconds % 60
-                            Text(
-                                String.format(Locale.US, "%02d:%02d", mins, secs),
-                                style = MaterialTheme.typography.labelSmall
-                            )
-                        } else {
-                            Icon(Icons.Default.Timer, contentDescription = "Focus timer")
-                        }
-                    }
-
-                    // Voice FAB with lock badge
-                    Box {
-                    FloatingActionButton(
-                        onClick = {
+                        onToggleVoice = {
                             if (isVoiceListening) {
                                 speechRecognizerRef?.stopListening()
                                 isVoiceListening = false
@@ -782,15 +774,8 @@ fun HomeScreen(
                                 recognizer.startListening(intent)
                             }
                         },
-                        shape = CircleShape,
-                        containerColor = if (isVoiceListening) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondaryContainer
-                    ) {
-                        Icon(
-                            imageVector = if (isVoiceListening) Icons.Filled.Stop else Icons.Filled.Mic,
-                            contentDescription = if (isVoiceListening) "Stop" else "Voice Input"
-                        )
-                    }
-                    }
+                        scaleFactor = scaleFactor
+                    )
 
                     // Plan my day — alive morphing FAB (Track A entry point, gated by Track B).
                     // Req 19.1, 19.2: a Material 3 Expressive morphing-shape FAB that feels alive.
@@ -2532,4 +2517,187 @@ private fun PlanMyDayFab(onClick: () -> Unit) {
             modifier = Modifier.size(26.dp),
         )
     }
+}
+
+/**
+ * Speed Dial FAB component that consolidates Focus Timer & Voice Input tools into a single
+ * expanding FAB button following Material 3 Expressive guidelines.
+ */
+@Composable
+private fun ToolsSpeedDialFab(
+    focusState: FocusTimerState,
+    isVoiceListening: Boolean,
+    onOpenFocus: () -> Unit,
+    onToggleVoice: () -> Unit,
+    scaleFactor: Float = 1f
+) {
+    var isExpanded by remember { mutableStateOf(false) }
+
+    Column(
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Expandable Sub-FABs column
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMedium)) +
+                    expandVertically() + slideInVertically { it / 2 },
+            exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessHigh)) +
+                   shrinkVertically() + slideOutVertically { it / 2 }
+        ) {
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // 1. Focus Timer Sub-FAB
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        Text(
+                            text = if (focusState.isRunning) "Focus Active" else "Focus Timer",
+                            fontSize = 12.sp * scaleFactor,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+
+                    val timerInteraction = remember { MutableInteractionSource() }
+                    FloatingActionButton(
+                        onClick = {
+                            isExpanded = false
+                            onOpenFocus()
+                        },
+                        shape = CircleShape,
+                        containerColor = if (focusState.isRunning)
+                            MaterialTheme.colorScheme.tertiary
+                        else MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = Modifier
+                            .size(44.dp * scaleFactor)
+                            .expressivePressScale(timerInteraction)
+                    ) {
+                        if (focusState.isRunning) {
+                            val mins = focusState.remainingSeconds / 60
+                            val secs = focusState.remainingSeconds % 60
+                            Text(
+                                String.format(Locale.US, "%02d:%02d", mins, secs),
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp)
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.Timer,
+                                contentDescription = "Focus timer",
+                                modifier = Modifier.size(20.dp * scaleFactor)
+                            )
+                        }
+                    }
+                }
+
+                // 2. Voice Input Sub-FAB
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.surfaceVariant,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
+                        modifier = Modifier.padding(end = 8.dp)
+                    ) {
+                        Text(
+                            text = if (isVoiceListening) "Listening..." else "Voice Input",
+                            fontSize = 12.sp * scaleFactor,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        )
+                    }
+
+                    val voiceInteraction = remember { MutableInteractionSource() }
+                    FloatingActionButton(
+                        onClick = {
+                            isExpanded = false
+                            onToggleVoice()
+                        },
+                        shape = CircleShape,
+                        containerColor = if (isVoiceListening)
+                            MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.secondaryContainer,
+                        modifier = Modifier
+                            .size(44.dp * scaleFactor)
+                            .expressivePressScale(voiceInteraction)
+                    ) {
+                        Icon(
+                            imageVector = if (isVoiceListening) Icons.Filled.Stop else Icons.Filled.Mic,
+                            contentDescription = if (isVoiceListening) "Stop" else "Voice Input",
+                            modifier = Modifier.size(20.dp * scaleFactor)
+                        )
+                    }
+                }
+            }
+        }
+
+        // Primary Speed Dial Master FAB (Toggles tools & morphs to Cross icon 'X')
+        val mainInteraction = remember { MutableInteractionSource() }
+        val rotationAngle by animateFloatAsState(
+            targetValue = if (isExpanded) 135f else 0f,
+            animationSpec = spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessLow
+            ),
+            label = "speed_dial_cross_rotation"
+        )
+
+        FloatingActionButton(
+            onClick = { isExpanded = !isExpanded },
+            shape = CircleShape,
+            containerColor = if (isExpanded)
+                MaterialTheme.colorScheme.errorContainer
+            else if (focusState.isRunning || isVoiceListening)
+                MaterialTheme.colorScheme.primaryContainer
+            else
+                MaterialTheme.colorScheme.secondaryContainer,
+            contentColor = if (isExpanded)
+                MaterialTheme.colorScheme.onErrorContainer
+            else
+                MaterialTheme.colorScheme.onSecondaryContainer,
+            modifier = Modifier
+                .size(48.dp * scaleFactor)
+                .expressivePressScale(mainInteraction)
+        ) {
+            Icon(
+                imageVector = if (isExpanded) Icons.Filled.Close else Icons.Default.Widgets,
+                contentDescription = if (isExpanded) "Close tools" else "Tools menu",
+                modifier = Modifier
+                    .size(22.dp * scaleFactor)
+                    .graphicsLayer(rotationZ = rotationAngle)
+            )
+        }
+    }
+}
+
+@Composable
+private fun Modifier.expressivePressScale(
+    interactionSource: MutableInteractionSource,
+    pressedScale: Float = 0.92f
+): Modifier {
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) pressedScale else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "expressivePressScale"
+    )
+    return this.scale(scale)
 }
