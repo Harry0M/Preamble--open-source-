@@ -161,7 +161,10 @@ Scrollable screen surfaces should extend edge-to-edge behind the Android status 
    }
    ```
 
-3. **Top Floating FAB Header Layering**: Position floating header controls in an overlay layer aligned at `Alignment.TopCenter`, allowing scroll gestures to pass freely underneath.
+3. **Top Floating FAB Header Layering & Tab Inset Rule**:
+   - In tab screens (`HomeScreen`, `CalendarScreen`, `FriendsScreen`) hosted inside MainActivity's main scaffold, the parent container already resolves status bar insets.
+   - Do NOT add `statusBarsPadding()` to top navigation bars or headers on tab screens, as doing so double-counts insets and pushes the top FAB navbar too far down the screen.
+   - Use a clean, compact top padding (`padding(horizontal = 14.dp * scaleFactor, vertical = 6.dp * scaleFactor)`) on the top header row so the navbar rests flush at the top of the screen, with sub-controls (view mode chips, search bars) stacked cleanly underneath.
 
 ---
 
