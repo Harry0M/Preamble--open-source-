@@ -8,27 +8,25 @@ import android.speech.SpeechRecognizer
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.material3.Surface
-import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -55,13 +53,14 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.Notes
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Label
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.Flag
@@ -82,6 +81,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SelectableDates
 import androidx.compose.material3.SuggestionChip
 import androidx.compose.material3.Text
@@ -123,6 +123,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.unit.sp
 import com.theblankstate.preamble.data.TaskInputValidator
 import com.theblankstate.preamble.collab.Recipient
@@ -251,14 +252,6 @@ fun AddTaskSheet(
     val density = LocalDensity.current
     val isKeyboardVisible = WindowInsets.ime.getBottom(density) > 0
     var isExpandingByEventClick by remember { mutableStateOf(false) }
-    var isActionsExpanded by remember { mutableStateOf(false) }
-
-    // Auto-expand actions row if any secondary action field becomes populated (manually or by AI)
-    LaunchedEffect(taskDescription, isEvent, selectedRecipients.size, syncToGoogle, syncToCalendar) {
-        if (taskDescription.isNotBlank() || isEvent || selectedRecipients.isNotEmpty() || syncToGoogle || syncToCalendar) {
-            isActionsExpanded = true
-        }
-    }
 
     LaunchedEffect(isKeyboardVisible) {
         if (!isKeyboardVisible && !isExpandingByEventClick) {
@@ -717,11 +710,11 @@ fun AddTaskSheet(
                 }
             }
 
-            // Wave animation while listening
+            // Wave animation while listening (smooth Preamble spring animation)
             AnimatedVisibility(
                 visible = isListening,
-                enter = fadeIn(),
-                exit = fadeOut()
+                enter = fadeIn() + expandVertically() + slideInVertically(),
+                exit = fadeOut() + shrinkVertically() + slideOutVertically()
             ) {
                 WaveAnimation(
                     modifier = Modifier
@@ -944,94 +937,119 @@ fun AddTaskSheet(
                 }
             }
 
-            // Expandable & Horizontally Scrollable Action Chips Row (Prevents Chip Shrinking/Compression)
+            // Track whether extended action items are expanded
+            var isActionListExpanded by remember { mutableStateOf(false) }
+
+            // Auto-expand if non-default fields are set or filled by AI
+            LaunchedEffect(aiParsedTitle, taskDescription, selectedRecipients, syncToCalendar) {
+                if (taskDescription.isNotBlank() || selectedRecipients.isNotEmpty() || syncToCalendar) {
+                    isActionListExpanded = true
+                }
+            }
+
+            // Expandable Action Chips Linear Row with Horizontal Overflow
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .horizontalScroll(rememberScrollState())
-                    .padding(vertical = 6.dp)
-                    .animateContentSize(),
+                    .animateContentSize(
+                        animationSpec = spring(
+                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                            stiffness = Spring.StiffnessLow
+                        )
+                    )
+                    .padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                // 1. Time / Schedule Chip (Default Visible)
-                val timeInteraction = remember { MutableInteractionSource() }
-                Surface(
-                    onClick = { showScheduleSheet = true },
-                    shape = CircleShape,
-                    color = if (selectedTime != null || selectedDate != null)
-                        MaterialTheme.colorScheme.primaryContainer
-                    else MaterialTheme.colorScheme.surfaceVariant,
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp,
+                // 1. Schedule (Clock) Chip - Date & Time (Primary, Always Visible)
+                val hasSchedule = selectedTime != null || selectedDate != null
+                val scheduleInteraction = remember { MutableInteractionSource() }
+                Row(
                     modifier = Modifier
                         .height(38.dp)
-                        .expressivePressScale(timeInteraction)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.AccessTime,
-                            contentDescription = "Schedule",
-                            tint = if (selectedTime != null || selectedDate != null)
-                                MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (hasSchedule) MaterialTheme.colorScheme.primaryContainer
+                            else Color.Transparent
                         )
-                        if (selectedTime != null || selectedDate != null) {
-                            Text(
-                                text = listOfNotNull(selectedDate, selectedTime).joinToString(" "),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
+                        .clickable(
+                            interactionSource = scheduleInteraction,
+                            indication = null
+                        ) { showScheduleSheet = true }
+                        .padding(horizontal = if (hasSchedule) 12.dp else 8.dp)
+                        .animateContentSize(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.AccessTime,
+                        contentDescription = "Schedule",
+                        tint = if (hasSchedule)
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    if (hasSchedule) {
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = listOfNotNull(selectedDate, selectedTime).joinToString(", "),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            maxLines = 1,
+                            softWrap = false
+                        )
                     }
                 }
 
-                // 2. Priority Chip (Default Visible)
+                // 2. Priority Chip - Flag (Primary, Always Visible)
                 val priorityColorsCache = remember {
-                    listOf(Color.Transparent, Color(0xFF4CAF50), Color(0xFFFF9800), Color(0xFFF44336))
+                    listOf(
+                        Color.Transparent,
+                        Color(0xFF4CAF50),
+                        Color(0xFFFF9800),
+                        Color(0xFFF44336)
+                    )
                 }
+                val hasPriority = selectedPriority != 0
                 val priorityInteraction = remember { MutableInteractionSource() }
-                Box(modifier = Modifier.wrapContentSize()) {
-                    Surface(
-                        onClick = { showPriorityDialog = true },
-                        shape = CircleShape,
-                        color = if (selectedPriority != 0)
-                            priorityColorsCache[selectedPriority].copy(alpha = 0.15f)
-                        else MaterialTheme.colorScheme.surfaceVariant,
-                        tonalElevation = 0.dp,
-                        shadowElevation = 0.dp,
+                Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
+                    Row(
                         modifier = Modifier
                             .height(38.dp)
-                            .expressivePressScale(priorityInteraction)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                if (selectedPriority != 0) Icons.Default.Flag else Icons.Outlined.Flag,
-                                contentDescription = "Priority",
-                                tint = if (selectedPriority != 0) priorityColorsCache[selectedPriority] else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (hasPriority) priorityColorsCache[selectedPriority].copy(alpha = 0.15f)
+                                else Color.Transparent
                             )
-                            if (selectedPriority != 0) {
-                                val priorityLabels = listOf("", "Low", "Medium", "High")
-                                Text(
-                                    text = priorityLabels.getOrElse(selectedPriority) { "" },
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = priorityColorsCache[selectedPriority],
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
+                            .clickable(
+                                interactionSource = priorityInteraction,
+                                indication = null
+                            ) { showPriorityDialog = true }
+                            .padding(horizontal = if (hasPriority) 12.dp else 8.dp)
+                            .animateContentSize(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            if (hasPriority) Icons.Default.Flag else Icons.Outlined.Flag,
+                            contentDescription = "Priority",
+                            tint = if (hasPriority) priorityColorsCache[selectedPriority] else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        if (hasPriority) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            val priorityLabel = when (selectedPriority) {
+                                1 -> "Low"
+                                2 -> "Medium"
+                                3 -> "High"
+                                else -> ""
                             }
+                            Text(
+                                text = priorityLabel,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = priorityColorsCache[selectedPriority],
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                     }
                     DropdownMenu(
@@ -1045,12 +1063,12 @@ fun AddTaskSheet(
                         priorities.forEach { (value, label) ->
                             val isSelected = selectedPriority == value
                             DropdownMenuItem(
-                                text = {
+                                text = { 
                                     Text(
-                                        text = label,
+                                        text = label, 
                                         style = MaterialTheme.typography.bodyMedium,
                                         color = if (isSelected) priorityColorsCache[value].takeIf { value != 0 } ?: MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface
-                                    )
+                                    ) 
                                 },
                                 leadingIcon = {
                                     Icon(
@@ -1062,8 +1080,8 @@ fun AddTaskSheet(
                                 trailingIcon = {
                                     if (isSelected) {
                                         Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = "Selected",
+                                            Icons.Default.Check, 
+                                            contentDescription = "Selected", 
                                             tint = if (value != 0) priorityColorsCache[value] else MaterialTheme.colorScheme.onSurfaceVariant
                                         )
                                     }
@@ -1077,43 +1095,43 @@ fun AddTaskSheet(
                     }
                 }
 
-                // 3. Tag Chip (Default Visible)
-                val tagInteraction = remember { MutableInteractionSource() }
-                Box(modifier = Modifier.wrapContentSize()) {
-                    Surface(
-                        onClick = { showTagsDialog = true },
-                        shape = CircleShape,
-                        color = if (selectedTags.isNotEmpty())
-                            MaterialTheme.colorScheme.primaryContainer
-                        else MaterialTheme.colorScheme.surfaceVariant,
-                        tonalElevation = 0.dp,
-                        shadowElevation = 0.dp,
+                // 3. Tags Chip (Primary, Always Visible)
+                val hasTags = selectedTags.isNotEmpty()
+                val tagsInteraction = remember { MutableInteractionSource() }
+                Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
+                    Row(
                         modifier = Modifier
                             .height(38.dp)
-                            .expressivePressScale(tagInteraction)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Label,
-                                contentDescription = "Tags",
-                                tint = if (selectedTags.isNotEmpty())
-                                    MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (hasTags) MaterialTheme.colorScheme.secondaryContainer
+                                else Color.Transparent
                             )
-                            if (selectedTags.isNotEmpty()) {
-                                Text(
-                                    text = if (selectedTags.size == 1) selectedTags.first() else "${selectedTags.size} Tags",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
+                            .clickable(
+                                interactionSource = tagsInteraction,
+                                indication = null
+                            ) { showTagsDialog = true }
+                            .padding(horizontal = if (hasTags) 12.dp else 8.dp)
+                            .animateContentSize(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Label,
+                            contentDescription = "Tags",
+                            tint = if (hasTags)
+                                MaterialTheme.colorScheme.onSecondaryContainer
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        if (hasTags) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (selectedTags.size == 1) selectedTags.first() else "${selectedTags.size} Tags",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                     }
                     DropdownMenu(
@@ -1148,122 +1166,167 @@ fun AddTaskSheet(
                     }
                 }
 
-                // 4. Habit Chip (Default Visible)
+                // 4. Habit Toggle Chip (Primary, Always Visible if non-Google)
                 if (!syncToGoogle && !syncToCalendar) {
                     val habitInteraction = remember { MutableInteractionSource() }
-                    Surface(
-                        onClick = {
-                            isHabit = !isHabit
-                            if (isHabit) {
-                                isEvent = false
-                                if (recurrenceType !in listOf("daily", "weekly", "monthly", "yearly")) {
-                                    recurrenceType = "daily"
-                                    showRepeatSheet = true
-                                }
-                            }
-                        },
-                        shape = CircleShape,
-                        color = if (isHabit) Color(0xFFFF6D00).copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
-                        tonalElevation = 0.dp,
-                        shadowElevation = 0.dp,
+                    Row(
                         modifier = Modifier
                             .height(38.dp)
-                            .expressivePressScale(habitInteraction)
+                            .clip(CircleShape)
+                            .background(
+                                if (isHabit) Color(0xFFFF6D00).copy(alpha = 0.15f)
+                                else Color.Transparent
+                            )
+                            .clickable(
+                                interactionSource = habitInteraction,
+                                indication = null
+                            ) {
+                                isHabit = !isHabit
+                                if (isHabit) {
+                                    isEvent = false
+                                    if (recurrenceType !in listOf("daily", "weekly", "monthly", "yearly")) {
+                                        recurrenceType = "daily"
+                                        showRepeatSheet = true
+                                    }
+                                }
+                            }
+                            .padding(horizontal = if (isHabit) 12.dp else 8.dp)
+                            .animateContentSize(),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Icon(
+                            imageVector = if (isHabit) Icons.Default.LocalFireDepartment
+                            else Icons.Outlined.LocalFireDepartment,
+                            contentDescription = "Track as habit",
+                            tint = if (isHabit) Color(0xFFFF6D00)
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        if (isHabit) {
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Habit",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = Color(0xFFFF6D00),
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                    }
+                }
+
+                // Greater-Than / Arrow Toggle Chip (Expands extended linear list)
+                val expandInteraction = remember { MutableInteractionSource() }
+                Surface(
+                    onClick = { isActionListExpanded = !isActionListExpanded },
+                    shape = CircleShape,
+                    color = if (isActionListExpanded)
+                        MaterialTheme.colorScheme.primaryContainer
+                    else MaterialTheme.colorScheme.surfaceVariant,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier
+                        .size(36.dp)
+                        .expressivePressScale(expandInteraction)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (isActionListExpanded)
+                                Icons.AutoMirrored.Filled.KeyboardArrowLeft
+                            else Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = if (isActionListExpanded) "Collapse options" else "More options",
+                            tint = if (isActionListExpanded)
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                // Extended Action Items (Revealed when isActionListExpanded is True)
+                AnimatedVisibility(
+                    visible = isActionListExpanded,
+                    enter = fadeIn() + slideInHorizontally { -it / 2 },
+                    exit = fadeOut() + slideOutHorizontally { -it / 2 }
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Details / Description Chip
+                        val hasDesc = taskDescription.isNotBlank()
+                        val descInteraction = remember { MutableInteractionSource() }
                         Row(
-                            modifier = Modifier.padding(horizontal = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            modifier = Modifier
+                                .height(38.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (hasDesc || showDescription) MaterialTheme.colorScheme.primaryContainer
+                                    else Color.Transparent
+                                )
+                                .clickable(
+                                    interactionSource = descInteraction,
+                                    indication = null
+                                ) { showDescription = !showDescription }
+                                .padding(horizontal = if (hasDesc || showDescription) 12.dp else 8.dp)
+                                .animateContentSize(),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
-                                imageVector = if (isHabit) Icons.Default.LocalFireDepartment else Icons.Outlined.LocalFireDepartment,
-                                contentDescription = "Track as habit",
-                                tint = if (isHabit) Color(0xFFFF6D00) else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.size(18.dp)
+                                Icons.AutoMirrored.Filled.Notes,
+                                contentDescription = "Details",
+                                tint = if (hasDesc || showDescription)
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
                             )
-                            if (isHabit) {
+                            if (hasDesc) {
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Habit",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = Color(0xFFFF6D00),
+                                    text = "Notes",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                                     maxLines = 1,
                                     softWrap = false
                                 )
                             }
                         }
-                    }
-                }
 
-                // EXPAND / COLLAPSE ARROW BUTTON (❯)
-                val expandInteraction = remember { MutableInteractionSource() }
-                val arrowRotation by animateFloatAsState(
-                    targetValue = if (isActionsExpanded) 180f else 0f,
-                    animationSpec = spring(stiffness = Spring.StiffnessLow),
-                    label = "expand_arrow_rotation"
-                )
-                Surface(
-                    onClick = { isActionsExpanded = !isActionsExpanded },
-                    shape = CircleShape,
-                    color = if (isActionsExpanded) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                    tonalElevation = 0.dp,
-                    shadowElevation = 0.dp,
-                    modifier = Modifier
-                        .height(38.dp)
-                        .expressivePressScale(expandInteraction)
-                ) {
-                    Box(
-                        modifier = Modifier.padding(horizontal = 10.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.ChevronRight,
-                            contentDescription = if (isActionsExpanded) "Collapse options" else "Expand options",
-                            tint = if (isActionsExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier
-                                .size(20.dp)
-                                .graphicsLayer(rotationZ = arrowRotation)
-                        )
-                    }
-                }
-
-                // EXPANDED ADDITIONAL ACTION CHIPS
-                AnimatedVisibility(
-                    visible = isActionsExpanded,
-                    enter = fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMedium)) + expandHorizontally(),
-                    exit = fadeOut(animationSpec = spring(stiffness = Spring.StiffnessHigh)) + shrinkHorizontally()
-                ) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // 5. Details / Notes Description Chip
-                        val notesInteraction = remember { MutableInteractionSource() }
-                        Surface(
-                            onClick = { showDescription = !showDescription },
-                            shape = CircleShape,
-                            color = if (taskDescription.isNotBlank()) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                            tonalElevation = 0.dp,
-                            shadowElevation = 0.dp,
-                            modifier = Modifier
-                                .height(38.dp)
-                                .expressivePressScale(notesInteraction)
-                        ) {
+                        // Recipient / Assignees Chip
+                        if (friends.isNotEmpty() || circles.isNotEmpty()) {
+                            val hasRecipients = selectedRecipients.isNotEmpty()
+                            val recipientInteraction = remember { MutableInteractionSource() }
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                modifier = Modifier
+                                    .height(38.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (hasRecipients) MaterialTheme.colorScheme.secondaryContainer
+                                        else Color.Transparent
+                                    )
+                                    .clickable(
+                                        enabled = !isRecipientSelectionLocked,
+                                        interactionSource = recipientInteraction,
+                                        indication = null
+                                    ) { showRecipientPicker = true }
+                                    .padding(horizontal = if (hasRecipients) 12.dp else 8.dp)
+                                    .animateContentSize(),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    Icons.AutoMirrored.Filled.Notes,
-                                    contentDescription = "Details",
-                                    tint = if (taskDescription.isNotBlank()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp)
+                                    Icons.Default.Group,
+                                    contentDescription = "Assignees",
+                                    tint = if (hasRecipients)
+                                        MaterialTheme.colorScheme.onSecondaryContainer
+                                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
                                 )
-                                if (taskDescription.isNotBlank()) {
+                                if (hasRecipients) {
+                                    Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = "Details",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.primary,
+                                        text = "${selectedRecipients.size} Assignees",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
                                         maxLines = 1,
                                         softWrap = false
                                     )
@@ -1271,114 +1334,71 @@ fun AddTaskSheet(
                             }
                         }
 
-                        // 6. Assign Friends / Circles Chip
-                        if (friends.isNotEmpty() || circles.isNotEmpty()) {
-                            val groupInteraction = remember { MutableInteractionSource() }
-                            Surface(
-                                onClick = { if (!isRecipientSelectionLocked) showRecipientPicker = true },
-                                shape = CircleShape,
-                                color = if (selectedRecipients.isNotEmpty()) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                                tonalElevation = 0.dp,
-                                shadowElevation = 0.dp,
-                                modifier = Modifier
-                                    .height(38.dp)
-                                    .expressivePressScale(groupInteraction)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Group,
-                                        contentDescription = "Send to friends or Circles",
-                                        tint = if (selectedRecipients.isNotEmpty()) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    if (selectedRecipients.isNotEmpty()) {
-                                        Text(
-                                            text = "${resolvedAssignment.size} Assignees",
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            maxLines = 1,
-                                            softWrap = false
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        // 7. Custom Event Chip
+                        // Event Toggle Chip
                         val eventColorParsed = try { Color(android.graphics.Color.parseColor(eventColor ?: "#2979FF")) }
                         catch (_: Exception) { MaterialTheme.colorScheme.primary }
                         val eventInteraction = remember { MutableInteractionSource() }
-                        Surface(
-                            onClick = {
-                                if (!isEvent) {
-                                    isEvent = true
-                                    isHabit = false
-                                    val colors = listOf(
-                                        "#D500F9", "#00E676", "#E91E63", "#FF3D00", "#FFEA00",
-                                        "#FF6D00", "#00E5FF", "#FF007F", "#2979FF", "#00C853", "#FF1744"
-                                    )
-                                    eventColor = colors.random()
-                                    eventIcon = "event"
-                                    scope.launch {
-                                        isExpandingByEventClick = true
-                                        sheetState.expand()
-                                        kotlinx.coroutines.delay(500)
-                                        isExpandingByEventClick = false
-                                    }
-                                } else {
-                                    isEvent = false
-                                }
-                            },
-                            shape = CircleShape,
-                            color = if (isEvent) eventColorParsed.copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant,
-                            tonalElevation = 0.dp,
-                            shadowElevation = 0.dp,
+
+                        Row(
                             modifier = Modifier
                                 .height(38.dp)
-                                .expressivePressScale(eventInteraction)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.EventNote,
-                                    contentDescription = "Mark as custom event",
-                                    tint = if (isEvent) eventColorParsed else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(18.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isEvent) eventColorParsed.copy(alpha = 0.15f)
+                                    else Color.Transparent
                                 )
-                                if (isEvent) {
-                                    Text(
-                                        text = "Event",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = eventColorParsed,
-                                        maxLines = 1,
-                                        softWrap = false
-                                    )
+                                .clickable(
+                                    interactionSource = eventInteraction,
+                                    indication = null
+                                ) {
+                                    if (!isEvent) {
+                                        isEvent = true
+                                        isHabit = false
+                                        val colors = listOf(
+                                            "#D500F9", "#00E676", "#E91E63", "#FF3D00", "#FFEA00",
+                                            "#FF6D00", "#00E5FF", "#FF007F", "#2979FF", "#00C853", "#FF1744"
+                                        )
+                                        eventColor = colors.random()
+                                        eventIcon = "event"
+                                    } else {
+                                        isEvent = false
+                                    }
                                 }
+                                .padding(horizontal = if (isEvent) 12.dp else 8.dp)
+                                .animateContentSize(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.EventNote,
+                                contentDescription = "Mark as custom event",
+                                tint = if (isEvent) eventColorParsed else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            if (isEvent) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Event",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = eventColorParsed,
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
                             }
                         }
+
+                        // Info button for options
+                        IconButton(
+                            onClick = { showTaskOptionsInfo = true },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Info,
+                                contentDescription = "Task options info",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
-                }
-
-                Spacer(modifier = Modifier.weight(1f))
-
-                // Info button for options
-                IconButton(
-                    onClick = { showTaskOptionsInfo = true },
-                    modifier = Modifier.size(32.dp)
-                ) {
-                    Icon(
-                        Icons.Default.Info,
-                        contentDescription = "Task options info",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                        modifier = Modifier.size(18.dp)
-                    )
                 }
             }
 
@@ -2062,7 +2082,7 @@ private fun Modifier.expressivePressScale(
     pressedScale: Float = 0.92f
 ): Modifier {
     val pressed by interactionSource.collectIsPressedAsState()
-    val scale by animateFloatAsState(
+    val scale by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (pressed) pressedScale else 1f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
