@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -45,6 +46,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PersonRemove
@@ -54,7 +56,6 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -71,7 +72,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -85,6 +85,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -97,7 +98,7 @@ import com.theblankstate.preamble.ui.components.AvatarStatusStyle
 import com.theblankstate.preamble.ui.components.MemberAvatar
 import com.theblankstate.preamble.ui.components.avatarStatusStyle
 
-// Preamble Cardfolio Soft Color Palette
+// Preamble Soft Pastel Color Palette
 private val PreambleCardColors = listOf(
     Color(0xFFA1C6FF), // Soft Blue
     Color(0xFFEAB3FF), // Soft Purple
@@ -108,11 +109,13 @@ private val PreambleCardColors = listOf(
 )
 
 /**
- * Dedicated Task Collaborators Screen:
- * - Reduced font sizes for a sleek, refined, minimalist look.
- * - Edge-to-edge layout with status bar color matched to app background.
- * - Circular FAB button opening a ModalBottomSheet for reactions.
- * - Per-member reaction badges and clean borderless minimalist list layout complying with `custom-ui-design-guidelines`.
+ * Re-imagined Task Collaborators Screen adhering to custom-ui-design-guidelines:
+ * - Centered Title Pill Top Header with soft circle Back and Search FAB buttons.
+ * - Hero Team Status Card with overlapping member avatar stack.
+ * - Minimalist filter pill chips with animated selection states.
+ * - Borderless list items with 44dp visual anchor avatar icons and floating reaction badges.
+ * - Tactile Hero Empty State for zero search/filter results.
+ * - Physics-based bouncy touch feedback (`expressivePressScale`).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -180,60 +183,6 @@ fun TaskCollaboratorsScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            CenterAlignedTopAppBar(
-                title = {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(
-                            text = "Collaborators",
-                            fontWeight = FontWeight.Black,
-                            fontSize = 18.sp * scaleFactor,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Text(
-                            text = task.title,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            fontSize = 11.sp * scaleFactor
-                        )
-                    }
-                },
-                navigationIcon = {
-                    val backInteraction = remember { MutableInteractionSource() }
-                    IconButton(
-                        onClick = onBack,
-                        modifier = Modifier.expressivePressScale(backInteraction)
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "Back",
-                            tint = MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier.size(20.dp * scaleFactor)
-                        )
-                    }
-                },
-                actions = {
-                    val searchInteraction = remember { MutableInteractionSource() }
-                    IconButton(
-                        onClick = { isSearchExpanded = !isSearchExpanded },
-                        modifier = Modifier.expressivePressScale(searchInteraction)
-                    ) {
-                        Icon(
-                            imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
-                            contentDescription = "Search",
-                            tint = MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier.size(20.dp * scaleFactor)
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
-                ),
-                modifier = Modifier.statusBarsPadding()
-            )
-        },
         floatingActionButton = {
             if (onReact != null && (isCurrentUserMember || isCurrentUserAdmin)) {
                 val fabInteraction = remember { MutableInteractionSource() }
@@ -254,94 +203,221 @@ fun TaskCollaboratorsScreen(
             }
         }
     ) { paddingValues ->
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .background(MaterialTheme.colorScheme.background)
         ) {
-            // Animated Search Field
-            AnimatedVisibility(
-                visible = isSearchExpanded,
-                enter = fadeIn() + slideInVertically(),
-                exit = fadeOut() + slideOutVertically()
+            Column(
+                modifier = Modifier.fillMaxSize()
             ) {
-                OutlinedTextField(
-                    value = searchQuery,
-                    onValueChange = { searchQuery = it },
-                    placeholder = { Text("Search collaborator...", fontSize = 12.sp * scaleFactor) },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp * scaleFactor)) },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp * scaleFactor))
-                            }
-                        }
-                    },
+                // ═══ RE-IMAGINED CENTERED TITLE TOP HEADER BAR ═══
+                Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp * scaleFactor, vertical = 4.dp * scaleFactor),
-                    shape = RoundedCornerShape(50),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f)
-                    )
-                )
-            }
-
-            // Ultra-Minimal Hero Header
-            PreambleMinimalHeroHeader(
-                adminName = adminName,
-                totalCount = totalCount,
-                acceptedCount = acceptedCount,
-                pendingCount = pendingCount,
-                completedCount = completedCount,
-                assignees = visibleAssignees,
-                scaleFactor = scaleFactor
-            )
-
-            // Ultra-Minimal Animated Filter Tabs
-            PreambleMinimalFilterTabs(
-                selectedFilter = selectedFilter,
-                onSelectFilter = { selectedFilter = it },
-                counts = mapOf(
-                    "All" to totalCount,
-                    "Accepted" to acceptedCount,
-                    "Pending" to pendingCount,
-                    "Completed" to completedCount
-                ),
-                scaleFactor = scaleFactor
-            )
-
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
-                thickness = 1.dp
-            )
-
-            // Animated List Transition
-            AnimatedContent(
-                targetState = selectedFilter to searchQuery,
-                transitionSpec = {
-                    (fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
-                        slideInVertically(animationSpec = spring(stiffness = Spring.StiffnessLow))) togetherWith
-                        (fadeOut(animationSpec = tween(150)) + slideOutVertically())
-                },
-                label = "collaboratorListAnimation",
-                modifier = Modifier.weight(1f)
-            ) { (_, _) ->
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(top = 2.dp * scaleFactor, bottom = 72.dp * scaleFactor)
+                        .padding(horizontal = 14.dp * scaleFactor, vertical = 6.dp * scaleFactor),
+                    color = Color.Transparent
                 ) {
-                    // Admin Row
-                    if (adminUid != null && (searchQuery.isBlank() || adminName.contains(searchQuery, ignoreCase = true))) {
-                        if (selectedFilter == "All" || selectedFilter == "Accepted") {
-                            item(key = "admin_row") {
-                                val adminReaction = reactions.firstOrNull { it.reactorUid == adminUid }?.emoji
-                                PreambleAdminMemberListRow(
-                                    name = adminName,
-                                    isCurrentUser = currentUserUid == adminUid,
-                                    reactionEmoji = adminReaction,
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Back Arrow FAB
+                        val backInteraction = remember { MutableInteractionSource() }
+                        Surface(
+                            onClick = onBack,
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp,
+                            modifier = Modifier.expressivePressScale(backInteraction)
+                        ) {
+                            Box(modifier = Modifier.size(42.dp * scaleFactor), contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(20.dp * scaleFactor)
+                                )
+                            }
+                        }
+
+                        // Centered Title Capsule Pill
+                        Surface(
+                            shape = RoundedCornerShape(50),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp,
+                            modifier = Modifier.height(42.dp * scaleFactor)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp * scaleFactor, vertical = 6.dp * scaleFactor),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp * scaleFactor),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Group,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp * scaleFactor)
+                                )
+                                Text(
+                                    text = "Collaborators",
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontSize = (15 * scaleFactor).sp,
+                                        fontWeight = FontWeight.Bold
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "• $totalCount",
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        fontSize = (13 * scaleFactor).sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
+
+                        // Search Toggle Action FAB
+                        val searchInteraction = remember { MutableInteractionSource() }
+                        Surface(
+                            onClick = { isSearchExpanded = !isSearchExpanded },
+                            shape = CircleShape,
+                            color = if (isSearchExpanded) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.95f),
+                            tonalElevation = 0.dp,
+                            shadowElevation = 0.dp,
+                            modifier = Modifier.expressivePressScale(searchInteraction)
+                        ) {
+                            Box(modifier = Modifier.size(42.dp * scaleFactor), contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = if (isSearchExpanded) Icons.Default.Close else Icons.Default.Search,
+                                    contentDescription = "Search",
+                                    tint = if (isSearchExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(18.dp * scaleFactor)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Animated Search Field
+                AnimatedVisibility(
+                    visible = isSearchExpanded,
+                    enter = fadeIn() + slideInVertically(),
+                    exit = fadeOut() + slideOutVertically()
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search collaborator by name or ID...", fontSize = 12.sp * scaleFactor) },
+                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp * scaleFactor)) },
+                        trailingIcon = {
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(18.dp * scaleFactor))
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp * scaleFactor, vertical = 4.dp * scaleFactor),
+                        shape = RoundedCornerShape(50),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f),
+                            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f)
+                        )
+                    )
+                }
+
+                // Hero Team Status Card
+                PreambleHeroTeamStatusCard(
+                    adminName = adminName,
+                    totalCount = totalCount,
+                    acceptedCount = acceptedCount,
+                    pendingCount = pendingCount,
+                    completedCount = completedCount,
+                    assignees = visibleAssignees,
+                    scaleFactor = scaleFactor
+                )
+
+                // Minimal Filter Pill Tabs
+                PreambleMinimalFilterTabs(
+                    selectedFilter = selectedFilter,
+                    onSelectFilter = { selectedFilter = it },
+                    counts = mapOf(
+                        "All" to totalCount,
+                        "Accepted" to acceptedCount,
+                        "Pending" to pendingCount,
+                        "Completed" to completedCount
+                    ),
+                    scaleFactor = scaleFactor
+                )
+
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
+                    thickness = 1.dp
+                )
+
+                // Animated Member List Transition
+                AnimatedContent(
+                    targetState = selectedFilter to searchQuery,
+                    transitionSpec = {
+                        (fadeIn(animationSpec = tween(220, easing = FastOutSlowInEasing)) +
+                            slideInVertically(animationSpec = spring(stiffness = Spring.StiffnessLow))) togetherWith
+                            (fadeOut(animationSpec = tween(150)) + slideOutVertically())
+                    },
+                    label = "collaboratorListAnimation",
+                    modifier = Modifier.weight(1f)
+                ) { (_, _) ->
+                    if (filteredAssignees.isEmpty() && (adminUid == null || (selectedFilter != "All" && selectedFilter != "Accepted"))) {
+                        PreambleCollaboratorEmptyState(
+                            searchQuery = searchQuery,
+                            onClearSearch = { searchQuery = "" },
+                            scaleFactor = scaleFactor
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(top = 2.dp * scaleFactor, bottom = 72.dp * scaleFactor)
+                        ) {
+                            // Admin Row
+                            if (adminUid != null && (searchQuery.isBlank() || adminName.contains(searchQuery, ignoreCase = true))) {
+                                if (selectedFilter == "All" || selectedFilter == "Accepted") {
+                                    item(key = "admin_row") {
+                                        val adminReaction = reactions.firstOrNull { it.reactorUid == adminUid }?.emoji
+                                        PreambleAdminMemberListRow(
+                                            name = adminName,
+                                            isCurrentUser = currentUserUid == adminUid,
+                                            reactionEmoji = adminReaction,
+                                            scaleFactor = scaleFactor
+                                        )
+                                        HorizontalDivider(
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
+                                            thickness = 1.dp,
+                                            modifier = Modifier.padding(start = 68.dp * scaleFactor)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // Assignee Rows
+                            items(filteredAssignees, key = { it.uid }) { assignee ->
+                                val memberReaction = reactions.firstOrNull { it.reactorUid == assignee.uid }?.emoji
+                                PreambleAssigneeMemberListRow(
+                                    assignee = assignee,
+                                    isCurrentUser = currentUserUid == assignee.uid,
+                                    showRoleControls = showRoleControls,
+                                    canManage = showRoleControls && isCurrentUserAdmin && assignee.uid != currentUserUid,
+                                    onRemoveMember = { memberPendingRemoval = assignee.uid to assignee.name },
+                                    onTransferOwnership = { memberPendingTransfer = assignee.uid to assignee.name },
+                                    onNudge = onNudge,
+                                    canNudge = canNudge,
+                                    nudgeCooldownRemaining = nudgeCooldownRemaining,
+                                    reactionEmoji = memberReaction,
                                     scaleFactor = scaleFactor
                                 )
                                 HorizontalDivider(
@@ -350,64 +426,41 @@ fun TaskCollaboratorsScreen(
                                     modifier = Modifier.padding(start = 68.dp * scaleFactor)
                                 )
                             }
-                        }
-                    }
 
-                    // Assignee Rows
-                    items(filteredAssignees, key = { it.uid }) { assignee ->
-                        val memberReaction = reactions.firstOrNull { it.reactorUid == assignee.uid }?.emoji
-                        PreambleAssigneeMemberListRow(
-                            assignee = assignee,
-                            isCurrentUser = currentUserUid == assignee.uid,
-                            showRoleControls = showRoleControls,
-                            canManage = showRoleControls && isCurrentUserAdmin && assignee.uid != currentUserUid,
-                            onRemoveMember = { memberPendingRemoval = assignee.uid to assignee.name },
-                            onTransferOwnership = { memberPendingTransfer = assignee.uid to assignee.name },
-                            onNudge = onNudge,
-                            canNudge = canNudge,
-                            nudgeCooldownRemaining = nudgeCooldownRemaining,
-                            reactionEmoji = memberReaction,
-                            scaleFactor = scaleFactor
-                        )
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.05f),
-                            thickness = 1.dp,
-                            modifier = Modifier.padding(start = 68.dp * scaleFactor)
-                        )
-                    }
-
-                    // Leave Task Button
-                    if (showRoleControls && isCurrentUserMember && !isCurrentUserAdmin && onLeaveTask != null) {
-                        item(key = "leave_task_row") {
-                            Spacer(modifier = Modifier.height(14.dp * scaleFactor))
-                            val leaveInteraction = remember { MutableInteractionSource() }
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 16.dp * scaleFactor),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                OutlinedButton(
-                                    onClick = { showLeaveTaskConfirm = true },
-                                    shape = RoundedCornerShape(12.dp * scaleFactor),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(40.dp * scaleFactor)
-                                        .expressivePressScale(leaveInteraction)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PersonRemove,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(15.dp * scaleFactor)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp * scaleFactor))
-                                    Text(
-                                        text = "Leave This Task",
-                                        fontSize = 13.sp * scaleFactor,
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.error
-                                    )
+                            // Leave Task Button
+                            if (showRoleControls && isCurrentUserMember && !isCurrentUserAdmin && onLeaveTask != null) {
+                                item(key = "leave_task_row") {
+                                    Spacer(modifier = Modifier.height(14.dp * scaleFactor))
+                                    val leaveInteraction = remember { MutableInteractionSource() }
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp * scaleFactor),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        OutlinedButton(
+                                            onClick = { showLeaveTaskConfirm = true },
+                                            shape = RoundedCornerShape(12.dp * scaleFactor),
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(40.dp * scaleFactor)
+                                                .expressivePressScale(leaveInteraction)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.PersonRemove,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(15.dp * scaleFactor)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp * scaleFactor))
+                                            Text(
+                                                text = "Leave This Task",
+                                                fontSize = 13.sp * scaleFactor,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.error
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -423,7 +476,8 @@ fun TaskCollaboratorsScreen(
         ModalBottomSheet(
             onDismissRequest = { showReactionSheet = false },
             sheetState = sheetState,
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(topStart = 28.dp * scaleFactor, topEnd = 28.dp * scaleFactor)
         ) {
             PreambleReactionBottomSheetContent(
                 reactions = reactions,
@@ -497,9 +551,9 @@ fun TaskCollaboratorsScreen(
     }
 }
 
-/** Ultra-Minimal Hero Header with Animated Counters & Overlapping Avatar Stack. */
+/** Hero Team Status Card with Animated Counters & Overlapping Avatar Stack. */
 @Composable
-private fun PreambleMinimalHeroHeader(
+private fun PreambleHeroTeamStatusCard(
     adminName: String,
     totalCount: Int,
     acceptedCount: Int,
@@ -541,7 +595,7 @@ private fun PreambleMinimalHeroHeader(
                 )
             }
 
-            // Overlapping Avatar Stack (Rule #4)
+            // Overlapping Avatar Stack
             PreambleOverlappingAvatarStack(
                 assignees = assignees,
                 adminName = adminName,
@@ -551,7 +605,7 @@ private fun PreambleMinimalHeroHeader(
     }
 }
 
-/** Overlapping Avatar Stack implementing Rule #4: Arrangement.spacedBy((-12).dp) & white border. */
+/** Overlapping Avatar Stack implementing Arrangement.spacedBy((-10).dp). */
 @Composable
 private fun PreambleOverlappingAvatarStack(
     assignees: List<CollabAssigneeStatus>,
@@ -604,7 +658,7 @@ private fun PreambleOverlappingAvatarStack(
     }
 }
 
-/** Ultra-Minimal Animated Filter Tabs with Smooth Pill Transitions. */
+/** Minimal Animated Filter Pill Tabs. */
 @Composable
 private fun PreambleMinimalFilterTabs(
     selectedFilter: String,
@@ -616,7 +670,7 @@ private fun PreambleMinimalFilterTabs(
         modifier = Modifier
             .fillMaxWidth()
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp * scaleFactor, vertical = 4.dp * scaleFactor),
+            .padding(horizontal = 16.dp * scaleFactor, vertical = 6.dp * scaleFactor),
         horizontalArrangement = Arrangement.spacedBy(6.dp * scaleFactor),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -659,7 +713,7 @@ private fun PreambleMinimalFilterTabs(
     }
 }
 
-/** Admin Row in Clean Minimalist Borderless List format with floating reaction badge (Rule #1). */
+/** Admin Row in Clean Minimalist Borderless List format with floating reaction badge. */
 @Composable
 private fun PreambleAdminMemberListRow(
     name: String,
@@ -675,7 +729,7 @@ private fun PreambleAdminMemberListRow(
             .padding(horizontal = 16.dp * scaleFactor, vertical = 8.dp * scaleFactor),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Visual Anchor on Left: 44.dp circular background filled with soft accent color (Rule #1)
+        // Visual Anchor on Left: 44.dp circular background filled with soft accent color
         Box(contentAlignment = Alignment.BottomEnd) {
             Box(
                 modifier = Modifier
@@ -708,7 +762,7 @@ private fun PreambleAdminMemberListRow(
 
         Spacer(modifier = Modifier.width(12.dp * scaleFactor))
 
-        // Metadata in Middle: Bold title (14.sp) + secondary label (Rule #1)
+        // Metadata in Middle
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = if (isCurrentUser) "$name (You)" else name,
@@ -740,7 +794,7 @@ private fun PreambleAdminMemberListRow(
     }
 }
 
-/** Assignee Member Row in Clean Minimalist Borderless List format with floating reaction badge (Rule #1). */
+/** Assignee Member Row in Clean Minimalist Borderless List format with floating reaction badge. */
 @Composable
 private fun PreambleAssigneeMemberListRow(
     assignee: CollabAssigneeStatus,
@@ -767,7 +821,7 @@ private fun PreambleAssigneeMemberListRow(
             .padding(horizontal = 16.dp * scaleFactor, vertical = 8.dp * scaleFactor),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Visual Anchor on Left: 44.dp circular background filled with soft accent color (Rule #1)
+        // Visual Anchor on Left: 44.dp circular background filled with soft accent color
         Box(contentAlignment = Alignment.BottomEnd) {
             Box(
                 modifier = Modifier
@@ -801,7 +855,7 @@ private fun PreambleAssigneeMemberListRow(
 
         Spacer(modifier = Modifier.width(12.dp * scaleFactor))
 
-        // Metadata in Middle: Bold title (14.sp) + secondary label (Rule #1)
+        // Metadata in Middle
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -901,6 +955,108 @@ private fun PreambleAssigneeMemberListRow(
                             },
                             leadingIcon = { Icon(Icons.Default.PersonRemove, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp)) }
                         )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Tactile Hero Empty State for Zero Search / Filter Results. */
+@Composable
+private fun PreambleCollaboratorEmptyState(
+    searchQuery: String,
+    onClearSearch: () -> Unit,
+    scaleFactor: Float
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp * scaleFactor),
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = RoundedCornerShape(24.dp * scaleFactor),
+            color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.45f),
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp * scaleFactor),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Surface(
+                    shape = CircleShape,
+                    color = Color(0xFFA1C6FF).copy(alpha = 0.7f),
+                    modifier = Modifier.size(54.dp * scaleFactor)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Group,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(26.dp * scaleFactor)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp * scaleFactor))
+
+                Text(
+                    text = if (searchQuery.isNotEmpty()) "No matching collaborators" else "No collaborators found",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = (15 * scaleFactor).sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(modifier = Modifier.height(4.dp * scaleFactor))
+
+                Text(
+                    text = if (searchQuery.isNotEmpty()) "Try adjusting your search query or switching filter tabs." else "Invite friends to this task to start collaborating together.",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        fontSize = (12 * scaleFactor).sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center
+                )
+
+                if (searchQuery.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(16.dp * scaleFactor))
+                    val clearBtnInteraction = remember { MutableInteractionSource() }
+                    Surface(
+                        onClick = onClearSearch,
+                        shape = RoundedCornerShape(50),
+                        color = MaterialTheme.colorScheme.primary,
+                        tonalElevation = 0.dp,
+                        shadowElevation = 0.dp,
+                        modifier = Modifier
+                            .height(38.dp * scaleFactor)
+                            .expressivePressScale(clearBtnInteraction)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp * scaleFactor),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(14.dp * scaleFactor)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp * scaleFactor))
+                            Text(
+                                text = "Clear Search",
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontSize = (12 * scaleFactor).sp,
+                                    fontWeight = FontWeight.Bold
+                                ),
+                                color = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
                     }
                 }
             }
