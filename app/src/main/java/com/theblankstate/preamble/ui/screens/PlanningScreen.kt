@@ -44,6 +44,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -302,6 +303,16 @@ fun PlanningScreen(
                             isSetupPhase = false
                             onRequestPlan(selectedDayEndMinute, preAnalysisPrompt.trim().ifEmpty { null }, allowRescheduleFixed)
                         },
+                        onDiscuss = {
+                            if (aiChatScreenViewModel != null) {
+                                aiChatScreenViewModel.newConversation()
+                                val text = preAnalysisPrompt.trim()
+                                if (text.isNotEmpty()) {
+                                    aiChatScreenViewModel.send(text)
+                                }
+                            }
+                            isChatMode = true
+                        },
                         scaleFactor = scaleFactor
                     )
                 }
@@ -461,7 +472,13 @@ fun PlanningScreen(
                         if (isSetup) {
                             val modeBadgeInteraction = remember { MutableInteractionSource() }
                             Surface(
-                                onClick = { isChatMode = !isChatMode },
+                                onClick = {
+                                    val targetChatMode = !isChatMode
+                                    if (targetChatMode && aiChatScreenViewModel != null) {
+                                        aiChatScreenViewModel.newConversation()
+                                    }
+                                    isChatMode = targetChatMode
+                                },
                                 shape = RoundedCornerShape(50),
                                 color = MaterialTheme.colorScheme.surfaceVariant,
                                 modifier = Modifier
@@ -539,6 +556,7 @@ private fun DayPlanSetupContent(
     onPreAnalysisPromptChange: (String) -> Unit,
     onSelectDayEndMinute: (Int) -> Unit,
     onStartAnalysis: () -> Unit,
+    onDiscuss: () -> Unit,
     scaleFactor: Float
 ) {
     // 20+ Motivational & Placeholder variations generated once per screen display
@@ -623,28 +641,58 @@ private fun DayPlanSetupContent(
             scaleFactor = scaleFactor
         )
 
-        Spacer(modifier = Modifier.height(24.dp * scaleFactor))
-
-        val analyzeInteraction = remember { MutableInteractionSource() }
-        Button(
-            onClick = onStartAnalysis,
-            shape = RoundedCornerShape(50),
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-            modifier = Modifier
-                .fillMaxWidth(0.85f)
-                .height(48.dp * scaleFactor)
-                .expressivePressScale(analyzeInteraction)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp * scaleFactor),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            HalfDottedCircleAiLogo(
-                color = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.size(18.dp * scaleFactor)
-            )
-            Spacer(modifier = Modifier.width(8.dp * scaleFactor))
-            Text(
-                text = "Analyze & Plan Day",
-                fontWeight = FontWeight.Bold,
-                fontSize = 14.sp * scaleFactor
-            )
+            val analyzeInteraction = remember { MutableInteractionSource() }
+            Button(
+                onClick = onStartAnalysis,
+                shape = RoundedCornerShape(50),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                modifier = Modifier
+                    .weight(0.65f)
+                    .height(48.dp * scaleFactor)
+                    .expressivePressScale(analyzeInteraction)
+            ) {
+                HalfDottedCircleAiLogo(
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(16.dp * scaleFactor)
+                )
+                Spacer(modifier = Modifier.width(6.dp * scaleFactor))
+                Text(
+                    text = "Analyze & Plan",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp * scaleFactor
+                )
+            }
+
+            val discussInteraction = remember { MutableInteractionSource() }
+            Button(
+                onClick = onDiscuss,
+                shape = RoundedCornerShape(50),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                ),
+                modifier = Modifier
+                    .weight(0.35f)
+                    .height(48.dp * scaleFactor)
+                    .expressivePressScale(discussInteraction)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Chat,
+                    contentDescription = "Discuss",
+                    modifier = Modifier.size(16.dp * scaleFactor)
+                )
+                Spacer(modifier = Modifier.width(4.dp * scaleFactor))
+                Text(
+                    text = "Discuss",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp * scaleFactor
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(40.dp * scaleFactor))

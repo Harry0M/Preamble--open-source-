@@ -220,15 +220,19 @@ fun AiChatScreen(
         }
     }
 
-    LaunchedEffect(currentConversationId) {
+    // Instant jump to bottom when opening or loading conversation (no animation lag)
+    LaunchedEffect(currentConversationId, isHistoryReady) {
         editingMessageId = null
         input = ""
         showOptions = false
+        if (visibleMessages.isNotEmpty()) {
+            listState.scrollToItem(visibleMessages.size - 1)
+        }
     }
 
-    // Auto-scroll to bottom on new message
+    // Smooth scroll to bottom only when actively sending a new message
     LaunchedEffect(visibleMessages.size, isSending) {
-        if (visibleMessages.isNotEmpty()) {
+        if (visibleMessages.isNotEmpty() && isSending) {
             listState.animateScrollToItem(visibleMessages.size - 1)
         }
     }

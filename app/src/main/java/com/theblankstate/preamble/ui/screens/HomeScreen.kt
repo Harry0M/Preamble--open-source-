@@ -1686,7 +1686,6 @@ fun HomeScreen(
             onAccept = { dayPlanViewModel.accept() },
             onDiscard = {
                 dayPlanViewModel.discard()
-                showPlanningScreen = false
             },
             onRetry = { dayPlanViewModel.retry() },
             onSubmitAdjustment = { text, allowRescheduleFixed -> dayPlanViewModel.submitAdjustment(text, allowRescheduleFixed) },
