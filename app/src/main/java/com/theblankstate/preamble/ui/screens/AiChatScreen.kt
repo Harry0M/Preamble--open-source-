@@ -13,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -240,7 +241,7 @@ fun AiChatScreen(
                     modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                     state = listState,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(top = 52.dp, bottom = 140.dp)
+                    contentPadding = PaddingValues(top = 52.dp, bottom = 170.dp)
                 ) {
                     items(visibleMessages, key = { it.id }) { msg ->
                         MessageRow(
@@ -521,7 +522,7 @@ fun AiChatScreen(
                 .navigationBarsPadding()
                 .imePadding()
                 .padding(horizontal = 14.dp)
-                .padding(bottom = 74.dp),
+                .padding(bottom = 104.dp),
         )
 
         if (showInternalHeader) {
@@ -1992,70 +1993,129 @@ private fun TypingIndicator() {
 private fun EmptyChatPlaceholder(modifier: Modifier = Modifier, onSuggestion: (String) -> Unit) {
     val context = LocalContext.current
     val name = remember { UserProfileStore.load(context).name?.takeIf { it.isNotBlank() } }
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val scaleFactor = (screenWidth.value / 360f).coerceIn(0.85f, 1.15f)
+
+    val motivationalList = remember {
+        listOf(
+            "Ready to conquer the day!" to "Ask me to plan your day, manage tasks, or answer anything.",
+            "Let's make progress!" to "Turn your ideas into clear scheduled tasks in seconds.",
+            "Focus & Flow Mode" to "What's on your mind? I can summarize, plan, or organize your workflow.",
+            "Your AI Companion" to "Ask questions, schedule reminders, or brainstorm your next big step."
+        )
+    }
+    val motivational = remember { motivationalList.random() }
+
     Column(
-        modifier = modifier.fillMaxSize().padding(24.dp),
+        modifier = modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp * scaleFactor)
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.Center
     ) {
-        com.theblankstate.preamble.ui.components.NotationIcon(
-            type = "half_dotted",
-            size = 52.dp,
-            color = MaterialTheme.colorScheme.primary,
-            spinning = true,
-        )
-        Spacer(Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(58.dp * scaleFactor))
+
+        // Hero Icon Badge with Preamble Friends Soft Accent
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.secondaryContainer,
+            tonalElevation = 6.dp,
+            shadowElevation = 6.dp,
+            modifier = Modifier.size(68.dp * scaleFactor)
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                com.theblankstate.preamble.ui.components.NotationIcon(
+                    type = "half_dotted",
+                    size = 34.dp * scaleFactor,
+                    color = MaterialTheme.colorScheme.primary,
+                    spinning = true,
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp * scaleFactor))
+
+        // Dynamic Energetic Title
         Text(
-            if (name != null) "Hi $name 👋" else "Hi there 👋",
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
+            text = if (name != null) "Hi $name 👋\n${motivational.first}" else "${motivational.first} 👋",
+            fontWeight = FontWeight.Black,
+            fontSize = 20.sp * scaleFactor,
+            color = MaterialTheme.colorScheme.onBackground,
+            textAlign = TextAlign.Center
         )
+
+        Spacer(modifier = Modifier.height(6.dp * scaleFactor))
+
+        // Dynamic Motivational Subtitle
         Text(
-            "Ask me to plan your day, add tasks, or just chat.",
-            style = MaterialTheme.typography.bodyMedium,
+            text = motivational.second,
+            fontSize = 12.sp * scaleFactor,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 6.dp),
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 12.dp * scaleFactor)
         )
-        Spacer(Modifier.height(32.dp))
-        data class Suggestion(val text: String, val notationType: String)
-        val suggestions = listOf(
-            Suggestion("What should I focus on right now?", "solid"),
-            Suggestion("Add a gym task for tomorrow 7am", "solid"),
-            Suggestion("Move my hospital task to Friday", "half_dotted"),
-            Suggestion("Summarize what I got done this week", "fully_dotted"),
-        )
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+
+        Spacer(modifier = Modifier.height(28.dp * scaleFactor))
+
+        data class SuggestionItem(val text: String, val notationType: String)
+        val suggestions = remember {
+            listOf(
+                SuggestionItem("What should I focus on right now?", "solid"),
+                SuggestionItem("Add a gym task for tomorrow 7am", "solid"),
+                SuggestionItem("Move my hospital task to Friday", "half_dotted"),
+                SuggestionItem("Summarize what I got done this week", "fully_dotted"),
+            )
+        }
+
+        Column(
+            verticalArrangement = Arrangement.spacedBy(10.dp * scaleFactor),
+            modifier = Modifier.fillMaxWidth()
+        ) {
             for (s in suggestions) {
+                val suggestionInteraction = remember { MutableInteractionSource() }
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.30f),
-                    modifier = Modifier.fillMaxWidth().clickable { onSuggestion(s.text) },
+                    onClick = { onSuggestion(s.text) },
+                    shape = RoundedCornerShape(50),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.60f),
+                    tonalElevation = 2.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .expressivePressScale(suggestionInteraction),
                 ) {
                     Row(
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        modifier = Modifier.padding(
+                            horizontal = 18.dp * scaleFactor,
+                            vertical = 12.dp * scaleFactor
+                        ),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp * scaleFactor),
                     ) {
                         com.theblankstate.preamble.ui.components.NotationIcon(
                             type = s.notationType,
-                            size = 16.dp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            size = 16.dp * scaleFactor,
+                            color = MaterialTheme.colorScheme.primary,
                         )
                         Text(
                             s.text,
                             modifier = Modifier.weight(1f),
                             style = MaterialTheme.typography.bodyMedium,
+                            fontSize = 12.5.sp * scaleFactor,
+                            fontWeight = FontWeight.Medium,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         Icon(
                             Icons.AutoMirrored.Filled.Send,
                             contentDescription = null,
-                            modifier = Modifier.size(14.dp),
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                            modifier = Modifier.size(13.dp * scaleFactor),
+                            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f),
                         )
                     }
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(160.dp * scaleFactor))
     }
 }
 
