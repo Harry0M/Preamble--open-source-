@@ -2092,12 +2092,13 @@ private fun ema(values: List<Int>, alpha: Float = 0.30f): Float {
  * low CV (stable output) → high score.
  */
 private fun consistencyScore(values: List<Int>): Int {
-    val nz = values.filter { it > 0 }
-    if (nz.size < 2) return if (nz.isEmpty()) 0 else 80
-    val mean = nz.average()
-    val variance = nz.sumOf { v -> (v - mean) * (v - mean) } / nz.size
-    val cv = Math.sqrt(variance) / mean
-    return ((1.0 - cv.coerceAtMost(2.0) / 2.0) * 100.0).toInt().coerceIn(0, 100)
+    if (values.isEmpty()) return 0
+    val mean = values.average()
+    if (mean <= 0.001) return 0
+    val variance = values.sumOf { v -> (v - mean) * (v - mean) } / values.size
+    val stdDev = Math.sqrt(variance)
+    val cv = stdDev / mean
+    return (100.0 - cv * 50.0).toInt().coerceIn(0, 100)
 }
 
 /**

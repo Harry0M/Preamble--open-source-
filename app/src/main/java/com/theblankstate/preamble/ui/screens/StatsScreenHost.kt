@@ -130,7 +130,7 @@ fun StatsScreenHost(
 
     LaunchedEffect(tweaks) { saveTweaks(ctx, tweaks) }
 
-    val surface = if (tweaks.theme == StatsTheme.DARK) Color(0xFF0E0E0E) else Color.White
+    val surface = if (tweaks.theme == StatsTheme.DARK) Color(0xFF121212) else Color.White
 
     // Recap day gating
     val isRecapDay = remember { com.theblankstate.preamble.notification.RecapDayManager.isRecapDayToday(ctx) }

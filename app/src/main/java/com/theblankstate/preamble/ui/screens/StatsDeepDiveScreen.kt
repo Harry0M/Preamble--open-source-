@@ -28,13 +28,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Task
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -94,6 +98,7 @@ private fun Modifier.expressivePressScale(
     return this.scale(scale)
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun StatsDeepDiveScreen(
     category: StatsCategory,
@@ -109,14 +114,15 @@ fun StatsDeepDiveScreen(
     val fg = if (dark) Color.White else Color.Black
     val fgMuted = if (dark) Color.White.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.52f)
     val hair = if (dark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.12f)
-    val tile = if (dark) Color(0xFF1A1A1A) else Color(0xFFF4F4F3)
-    val surface = if (dark) Color(0xFF0E0E0E) else Color.White
+    val tile = if (dark) Color(0xFF1E1E1E) else Color(0xFFF4F4F3)
+    val surface = if (dark) Color(0xFF121212) else Color.White
     val accent = tweaks.accent
     val header = deepDiveHeader(category, statsState)
     var deepRange by rememberSaveable { mutableStateOf(DeepRange.D30) }
 
     var showTaskBreakdownSubScreen by rememberSaveable { mutableStateOf(false) }
     var showRecentSessionsSubScreen by rememberSaveable { mutableStateOf(false) }
+    var showFormulaModal by rememberSaveable { mutableStateOf(false) }
 
     if (showTaskBreakdownSubScreen) {
         TaskFocusBreakdownScreen(
@@ -144,8 +150,8 @@ fun StatsDeepDiveScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize()
         ) {
-            // Top Clearance Spacer for Floating Top Header Bar
-            item { Spacer(modifier = Modifier.height(76.dp * scaleFactor)) }
+            // Top Clearance Spacer for Header Bar
+            item { Spacer(modifier = Modifier.height(72.dp * scaleFactor)) }
 
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp * scaleFactor, vertical = 4.dp * scaleFactor)) {
@@ -225,34 +231,6 @@ fun StatsDeepDiveScreen(
             item { Spacer(Modifier.height(18.dp * scaleFactor)) }
 
             item {
-                FormulaCard(
-                    category = category,
-                    fg = fg,
-                    fgMuted = fgMuted,
-                    tile = tile,
-                    hair = hair,
-                    scaleFactor = scaleFactor
-                )
-            }
-
-            item { Spacer(Modifier.height(12.dp * scaleFactor)) }
-
-            item {
-                ProvenProofCard(
-                    category = category,
-                    statsState = statsState,
-                    fg = fg,
-                    fgMuted = fgMuted,
-                    tile = tile,
-                    accent = accent,
-                    hair = hair,
-                    scaleFactor = scaleFactor
-                )
-            }
-
-            item { Spacer(Modifier.height(18.dp * scaleFactor)) }
-
-            item {
                 CategoryBody(
                     category = category,
                     statsState = statsState,
@@ -271,34 +249,89 @@ fun StatsDeepDiveScreen(
             item { Spacer(Modifier.height(60.dp * scaleFactor)) }
         }
 
-        // Floating Top Header Bar (Preamble Standard Signature)
+        // Top Header Bar with integrated non-FAB Back and Info buttons
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 14.dp * scaleFactor, vertical = 6.dp * scaleFactor),
-            horizontalArrangement = Arrangement.Start,
+                .padding(horizontal = 16.dp * scaleFactor, vertical = 8.dp * scaleFactor),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             val backInteraction = remember { MutableInteractionSource() }
-            Surface(
-                shape = CircleShape,
-                color = tile.copy(alpha = 0.95f),
+            Box(
                 modifier = Modifier
-                    .size(44.dp * scaleFactor)
+                    .size(40.dp * scaleFactor)
                     .clip(CircleShape)
+                    .background(tile)
                     .clickable(
                         interactionSource = backInteraction,
                         indication = null
                     ) { onBack() }
-                    .expressivePressScale(backInteraction)
+                    .expressivePressScale(backInteraction),
+                contentAlignment = Alignment.Center
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = fg,
-                        modifier = Modifier.size(20.dp * scaleFactor)
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "Back",
+                    tint = fg,
+                    modifier = Modifier.size(18.dp * scaleFactor)
+                )
+            }
+
+            val infoInteraction = remember { MutableInteractionSource() }
+            Box(
+                modifier = Modifier
+                    .size(40.dp * scaleFactor)
+                    .clip(CircleShape)
+                    .background(tile)
+                    .clickable(
+                        interactionSource = infoInteraction,
+                        indication = null
+                    ) { showFormulaModal = true }
+                    .expressivePressScale(infoInteraction),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Info,
+                    contentDescription = "Formula & Proof",
+                    tint = fg,
+                    modifier = Modifier.size(18.dp * scaleFactor)
+                )
+            }
+        }
+
+        // Formula & Live Mathematical Proof Bottom Sheet
+        if (showFormulaModal) {
+            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            ModalBottomSheet(
+                onDismissRequest = { showFormulaModal = false },
+                sheetState = sheetState,
+                containerColor = surface
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 32.dp * scaleFactor)
+                ) {
+                    FormulaCard(
+                        category = category,
+                        fg = fg,
+                        fgMuted = fgMuted,
+                        tile = tile,
+                        hair = hair,
+                        scaleFactor = scaleFactor
+                    )
+                    Spacer(Modifier.height(12.dp * scaleFactor))
+                    ProvenProofCard(
+                        category = category,
+                        statsState = statsState,
+                        fg = fg,
+                        fgMuted = fgMuted,
+                        tile = tile,
+                        accent = accent,
+                        hair = hair,
+                        scaleFactor = scaleFactor
                     )
                 }
             }
@@ -309,11 +342,11 @@ fun StatsDeepDiveScreen(
 private data class DeepHeader(val kicker: String, val title: String, val sub: String)
 
 private fun deepDiveHeader(c: StatsCategory, s: StatsState): DeepHeader = when (c) {
-    StatsCategory.SCORE -> DeepHeader("Productivity index", "${s.productivityScore}/100",
+    StatsCategory.SCORE -> DeepHeader("Productivity index", ProvenStatVerifier.verify(StatsCategory.SCORE, s).provenValue,
         "Performance grade ${s.performanceGrade} · ${s.karmaLevel}")
     StatsCategory.STREAK -> DeepHeader("Streak", "${s.streak} days",
         "Best ever ${maxOf(s.longestStreak, s.streak)} days")
-    StatsCategory.CONSISTENCY -> DeepHeader("Consistency", "${s.consistencyScore}/100",
+    StatsCategory.CONSISTENCY -> DeepHeader("Consistency", ProvenStatVerifier.verify(StatsCategory.CONSISTENCY, s).provenValue,
         "${s.weeklyConsistencyDays}/7 active days this week")
     StatsCategory.PEAK_HOURS -> DeepHeader("Peak hours", s.peakHourLabel.ifBlank { "—" },
         "When you get things done")
@@ -446,13 +479,23 @@ private data class Comparison(
 
 private fun compareForCategory(c: StatsCategory, s: StatsState): Comparison? = when (c) {
     StatsCategory.SCORE -> {
+        val proven = ProvenStatVerifier.verify(StatsCategory.SCORE, s)
         val history = s.productivityScoreHistory
         val prev = history.dropLast(1).lastOrNull()?.second ?: 0
-        val delta = s.productivityScore - prev
+        val currScore = proven.provenValue.split("/").firstOrNull()?.toIntOrNull() ?: s.productivityScore
+        val delta = currScore - prev
         Comparison(
-            "Now", "${s.productivityScore}", "of 100",
+            "Now", proven.provenValue, "weighted index",
             "Previous", "$prev", "last reading",
             if (prev > 0) "${if (delta >= 0) "▲" else "▼"} ${abs(delta)} pts vs previous" else ""
+        )
+    }
+    StatsCategory.CONSISTENCY -> {
+        val proven = ProvenStatVerifier.verify(StatsCategory.CONSISTENCY, s)
+        Comparison(
+            "Consistency", proven.provenValue, "output stability",
+            "Active Days", "${s.weeklyConsistencyDays}/7", "this week",
+            "Std-Dev ${"%.1f".format(s.stdDevDaily)} tasks/d"
         )
     }
     StatsCategory.STREAK -> {
@@ -517,11 +560,6 @@ private fun compareForCategory(c: StatsCategory, s: StatsState): Comparison? = w
         "Karma", "${s.karmaPoints}", s.karmaLevel,
         "Grade", s.performanceGrade, "current",
         ""
-    )
-    StatsCategory.CONSISTENCY -> Comparison(
-        "Consistency", "${s.consistencyScore}", "0–100",
-        "Active days", "${s.weeklyConsistencyDays}/7", "this week",
-        "Std-dev ${"%.1f".format(s.stdDevDaily)} tasks"
     )
     StatsCategory.PEAK_HOURS -> Comparison(
         "Peak", s.peakHourLabel.ifBlank { "—" }, "",
