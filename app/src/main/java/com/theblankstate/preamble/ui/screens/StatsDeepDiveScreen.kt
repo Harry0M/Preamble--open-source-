@@ -650,59 +650,256 @@ private fun TagsPanel(
 private fun FocusPanel(
     s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color, hair: Color
 ) {
-    SectionKicker("Top focused tasks", fgMuted)
+    // ═══════════════════════════════════════════════════════════════
+    // 1. OVERVIEW CARDS
+    // ═══════════════════════════════════════════════════════════════
+    SectionKicker("Focus Overview", fgMuted)
+    PanelColumn {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(tile)
+                    .padding(14.dp)
+            ) {
+                Text("TODAY", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Spacer(Modifier.height(4.dp))
+                Text(formatMinutes(s.todayFocusMinutes), color = fg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(tile)
+                    .padding(14.dp)
+            ) {
+                Text("THIS WEEK", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Spacer(Modifier.height(4.dp))
+                Text(formatMinutes(s.thisWeekFocusMinutes), color = fg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(tile)
+                    .padding(14.dp)
+            ) {
+                Text("SESSIONS", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Spacer(Modifier.height(4.dp))
+                Text("${s.totalCompletedSessions}", color = fg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+            }
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+
+    // ═══════════════════════════════════════════════════════════════
+    // 2. DAILY & WEEKLY SUMMARY BAR CHART
+    // ═══════════════════════════════════════════════════════════════
+    SectionKicker("Daily & Weekly Focus Summary", fgMuted)
     PanelColumn {
         Column(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-                .background(tile).padding(16.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(tile)
+                .padding(16.dp)
         ) {
-            if (s.topFocusedTasks.isEmpty()) {
-                Text("Start a focus session to build this list.", color = fgMuted, fontSize = 13.sp)
+            val data = s.weeklyFocusData
+            if (data.isEmpty()) {
+                Text("No focus data recorded yet.", color = fgMuted, fontSize = 13.sp)
             } else {
-                s.topFocusedTasks.take(6).forEachIndexed { i, t ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("0${i+1}".takeLast(2), color = fgMuted, fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace, modifier = Modifier.width(22.dp))
-                        Text(t.taskTitle ?: "Untitled", color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                        Text(formatMinutes(t.totalSeconds / 60), color = fg, fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                val maxV = (data.maxOfOrNull { it.second } ?: 1).coerceAtLeast(1)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(90.dp),
+                    verticalAlignment = Alignment.Bottom,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    data.takeLast(7).forEach { (dayLabel, sec) ->
+                        val frac = sec.toFloat() / maxV
+                        val mins = sec / 60
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                if (mins > 0) "${mins}m" else "",
+                                color = fgMuted,
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(maxOf(6f, 65f * frac).dp)
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(accent)
+                            )
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                dayLabel,
+                                color = fgMuted,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
-                    if (i < s.topFocusedTasks.take(6).lastIndex) {
+                }
+            }
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
+
+    // ═══════════════════════════════════════════════════════════════
+    // 3. PER-TASK BREAKDOWN
+    // ═══════════════════════════════════════════════════════════════
+    SectionKicker("Task Breakdown", fgMuted)
+    PanelColumn {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(tile)
+                .padding(16.dp)
+        ) {
+            if (s.perTaskStatsList.isEmpty() && s.topFocusedTasks.isEmpty()) {
+                Text("Start a focus session for a task to build statistics.", color = fgMuted, fontSize = 13.sp)
+            } else {
+                val taskStats = s.perTaskStatsList.ifEmpty {
+                    s.topFocusedTasks.map {
+                        com.theblankstate.preamble.data.PerTaskTimerStats(
+                            taskId = it.taskId,
+                            taskTitle = it.taskTitle,
+                            totalSeconds = it.totalSeconds,
+                            sessionCount = it.sessionCount,
+                            avgDurationSeconds = if (it.sessionCount > 0) it.totalSeconds / it.sessionCount else 0,
+                            lastSessionDate = null,
+                            longestSessionSeconds = it.totalSeconds
+                        )
+                    }
+                }
+                taskStats.forEachIndexed { i, stat ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stat.taskTitle ?: "Standalone Session",
+                                color = fg,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = formatMinutes(stat.totalSeconds / 60),
+                                color = fg,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Sessions: ${stat.sessionCount} · Avg: ${formatMinutes(stat.avgDurationSeconds / 60)}",
+                                color = fgMuted,
+                                fontSize = 11.sp
+                            )
+                            if (stat.lastSessionDate != null) {
+                                Text(
+                                    text = "Last: ${stat.lastSessionDate}",
+                                    color = fgMuted,
+                                    fontSize = 11.sp
+                                )
+                            }
+                        }
+                    }
+                    if (i < taskStats.lastIndex) {
                         Box(Modifier.fillMaxWidth().height(1.dp).background(hair))
                     }
                 }
             }
         }
     }
+
     Spacer(Modifier.height(12.dp))
-    SectionKicker("Weekly focus trend", fgMuted)
+
+    // ═══════════════════════════════════════════════════════════════
+    // 4. RECENT SESSIONS
+    // ═══════════════════════════════════════════════════════════════
+    SectionKicker("Recent Sessions", fgMuted)
     PanelColumn {
         Column(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-                .background(tile).padding(16.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(tile)
+                .padding(16.dp)
         ) {
-            val data = s.weeklyFocusData
-            if (data.isEmpty()) {
-                Text("No focus data yet.", color = fgMuted, fontSize = 13.sp)
+            if (s.recentSessionsList.isEmpty()) {
+                Text("No recent focus sessions.", color = fgMuted, fontSize = 13.sp)
             } else {
-                val maxV = (data.maxOfOrNull { it.second } ?: 1).coerceAtLeast(1)
-                Row(
-                    modifier = Modifier.fillMaxWidth().height(80.dp),
-                    verticalAlignment = Alignment.Bottom,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    data.takeLast(7).forEach { (_, v) ->
-                        val frac = v.toFloat() / maxV
+                s.recentSessionsList.take(10).forEachIndexed { i, sess ->
+                    val actualMins = maxOf(1, sess.actualDurationCompletedSeconds / 60)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = sess.taskTitle ?: "Standalone Session",
+                                color = fg,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "${sess.date} · Status: ${sess.completionStatus}",
+                                color = fgMuted,
+                                fontSize = 10.sp
+                            )
+                        }
                         Box(
                             modifier = Modifier
-                                .weight(1f)
-                                .height(maxOf(6f, 80f * frac).dp)
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(accent)
-                        )
+                                .clip(RoundedCornerShape(50))
+                                .background(
+                                    if (sess.completionStatus == "COMPLETED")
+                                        accent.copy(alpha = 0.2f)
+                                    else
+                                        fgMuted.copy(alpha = 0.15f)
+                                )
+                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = "${actualMins}m",
+                                color = fg,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                    if (i < s.recentSessionsList.take(10).lastIndex) {
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(hair))
                     }
                 }
             }

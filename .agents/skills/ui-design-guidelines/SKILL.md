@@ -5,7 +5,7 @@ description: Apply the Preamble project's premium minimalist UI design guideline
 
 # Preamble UI Design Guidelines
 
-This skill defines the visual identity, interaction design, and responsive layout rules developed for the Preamble project. Activate or reference this skill when building or styling screens in the Preamble mobile app.
+This skill defines the visual identity, interaction design, and responsive layout rules developed for the Preamble project. For Material 3 Expressive alive shape indicators and wavy progress components, also refer to [material3-expressive-guidelines](file:///c:/Users/palha/preamble/.agents/skills/material3-expressive-guidelines/SKILL.md).
 
 ---
 

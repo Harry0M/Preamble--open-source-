@@ -500,6 +500,8 @@ fun PreambleApp(
     }
 
     var initialInviteId by remember { mutableStateOf<String?>(null) }
+    var showTimerScreen by remember { mutableStateOf(false) }
+    var timerTargetTask by remember { mutableStateOf<Pair<String?, String?>?>(null) }
 
     // Handle deep link navigation
     androidx.compose.runtime.LaunchedEffect(deepLinkTarget) {
@@ -531,6 +533,9 @@ fun PreambleApp(
                     socialHubInitialRoute = SocialHubRoute.Tasks
                     selectedTab = 3
                 }
+                deepLinkTarget.startsWith("timer") -> {
+                    showTimerScreen = true
+                }
                 deepLinkTarget.startsWith("settings") -> selectedTab = 4
             }
             onDeepLinkConsumed()
@@ -553,6 +558,12 @@ fun PreambleApp(
         factory = AiChatViewModel.Factory(
             androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application,
             viewModel
+        )
+    )
+
+    val timerViewModel: com.theblankstate.preamble.ui.viewmodels.TaskTimerViewModel = viewModel(
+        factory = com.theblankstate.preamble.ui.viewmodels.TaskTimerViewModel.Factory(
+            androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application
         )
     )
 
@@ -740,6 +751,23 @@ fun PreambleApp(
             4 -> SettingsScreen(
                 yearlyHeatmap = stats.yearlyHeatmap,
                 modifier = Modifier.padding(innerPadding)
+            )
+        }
+    }
+
+    if (showTimerScreen) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showTimerScreen = false },
+            properties = androidx.compose.ui.window.DialogProperties(
+                usePlatformDefaultWidth = false,
+                decorFitsSystemWindows = false
+            )
+        ) {
+            com.theblankstate.preamble.ui.screens.TaskTimerScreen(
+                timerViewModel = timerViewModel,
+                initialTaskId = timerTargetTask?.first,
+                initialTaskTitle = timerTargetTask?.second,
+                onBack = { showTimerScreen = false }
             )
         }
     }

@@ -1813,5 +1813,15 @@ class TaskRepository(
     fun getAllHabitTasksFlow(): Flow<List<Task>> {
         return dao.getAllHabitTasksFlow()
     }
+
+    // ── Task Timer & Focus Session delegates ──
+
+    suspend fun getPerTaskTimerStats(taskId: String): com.theblankstate.preamble.data.PerTaskTimerStats? {
+        return focusDao?.getPerTaskStats(taskId)
+    }
+
+    suspend fun getAllPerTaskTimerStats(): List<com.theblankstate.preamble.data.PerTaskTimerStats> {
+        return focusDao?.getAllPerTaskStats() ?: emptyList()
+    }
 }
 

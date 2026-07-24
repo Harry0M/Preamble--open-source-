@@ -21,5 +21,9 @@ data class FocusSession(
     val startTimestamp: Long,
     val endTimestamp: Long,
     val durationSeconds: Int,
+    val durationSelectedSeconds: Int = durationSeconds,
+    val actualDurationCompletedSeconds: Int = durationSeconds,
+    val completionStatus: String = "COMPLETED", // "COMPLETED" or "STOPPED"
+    val createdTimestamp: Long = startTimestamp,
     val date: String // yyyy-MM-dd
 )

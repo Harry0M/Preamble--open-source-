@@ -6,9 +6,11 @@ data class FocusTimerState(
     val currentPhase: FocusPhase = FocusPhase.WORK,
     val remainingSeconds: Int = FocusTimerDefaults.WORK_MINUTES * 60,
     val totalSeconds: Int = FocusTimerDefaults.WORK_MINUTES * 60,
+    val durationSelectedSeconds: Int = FocusTimerDefaults.WORK_MINUTES * 60,
     val sessionsCompleted: Int = 0,
     val taskId: String? = null,
-    val taskTitle: String? = null
+    val taskTitle: String? = null,
+    val completionStatus: String = "IN_PROGRESS"
 )
 
 enum class FocusPhase {

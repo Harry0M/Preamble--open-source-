@@ -38,6 +38,7 @@ class PreambleApplication : Application() {
         if (isMainProcess(this)) FirebaseTaskSyncManager(this, database.taskDao()) else null
     }
     val repository by lazy { TaskRepository(database.taskDao(), syncManager, database.focusSessionDao()) }
+    val timerSessionRepository by lazy { com.theblankstate.preamble.repository.TimerSessionRepository(this, database.focusSessionDao()) }
 
     override fun onCreate() {
         super.onCreate()

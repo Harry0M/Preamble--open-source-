@@ -5,9 +5,14 @@ import com.theblankstate.preamble.analytics.AnalyticsManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.theblankstate.preamble.PreambleApplication
 import com.theblankstate.preamble.data.AdminTask
-import com.theblankstate.preamble.data.TaskInputValidator
+import com.theblankstate.preamble.data.BestFocusDay
+import com.theblankstate.preamble.data.FocusSession
+import com.theblankstate.preamble.data.PerTaskTimerStats
 import com.theblankstate.preamble.data.Task
+import com.theblankstate.preamble.data.TaskFocusSummary
+import com.theblankstate.preamble.data.TaskInputValidator
 import com.theblankstate.preamble.notification.TaskNotificationManager
 import com.theblankstate.preamble.repository.AdminTaskRepository
 import com.theblankstate.preamble.repository.TaskRepository
@@ -58,6 +63,11 @@ data class StatsState(
     val bestFocusDayMinutes: Int = 0,
     val topFocusedTasks: List<com.theblankstate.preamble.data.TaskFocusSummary> = emptyList(),
     val weeklyFocusData: List<Pair<String, Int>> = emptyList(),
+    val thisWeekFocusMinutes: Int = 0,
+    val thisMonthFocusMinutes: Int = 0,
+    val totalCompletedSessions: Int = 0,
+    val perTaskStatsList: List<com.theblankstate.preamble.data.PerTaskTimerStats> = emptyList(),
+    val recentSessionsList: List<com.theblankstate.preamble.data.FocusSession> = emptyList(),
     // Task Type Breakdown
     val taskTypeBreakdown: List<com.theblankstate.preamble.data.TaskTypeBreakdown> = emptyList(),
     // Rollover Health
@@ -646,6 +656,9 @@ class TaskViewModel(
             val bestDayDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getBestFocusDayData() }
             val topTasksDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTopFocusedTasks() }
             val weeklyFocusDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getWeeklyFocusData() }
+            val allPerTaskDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getAllPerTaskTimerStats() }
+            val recentSessionsDef = async(kotlinx.coroutines.Dispatchers.IO) { (appContext as? PreambleApplication)?.timerSessionRepository?.getRecentSessions(20) ?: emptyList<FocusSession>() }
+            val totalSessionsCountDef = async(kotlinx.coroutines.Dispatchers.IO) { (appContext as? PreambleApplication)?.timerSessionRepository?.getTotalSessionCountAllTime() ?: 0 }
             // NEW: Deep analytics queries
             val hourlyDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getHourlyCompletionDistribution() }
             val priorityDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getPriorityDistribution() }
@@ -675,6 +688,9 @@ class TaskViewModel(
             val bestDay = bestDayDef.await()
             val topTasks = topTasksDef.await()
             val weeklyFocus = weeklyFocusDef.await()
+            val allPerTask = allPerTaskDef.await()
+            val recentSessions = recentSessionsDef.await()
+            val totalSessionsCount = totalSessionsCountDef.await()
             // NEW: deep analytics results
             val hourlyDist = hourlyDef.await()
             val priorityDist = priorityDef.await()
@@ -824,6 +840,11 @@ class TaskViewModel(
                     bestFocusDayMinutes = (bestDay?.totalSeconds ?: 0) / 60,
                     topFocusedTasks = topTasks,
                     weeklyFocusData = weeklyFocus,
+                    thisWeekFocusMinutes = weeklyFocus.sumOf { it.second } / 60,
+                    thisMonthFocusMinutes = (totalFocus * 60).toInt(),
+                    totalCompletedSessions = totalSessionsCount,
+                    perTaskStatsList = allPerTask,
+                    recentSessionsList = recentSessions,
                     taskTypeBreakdown = breakdown,
                     activeRolloverCount = rollover.activeCount,
                     averageRolloverDaysPending = rollover.averageDaysPending,

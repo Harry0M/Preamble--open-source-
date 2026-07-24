@@ -12,6 +12,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.theblankstate.preamble.MainActivity
+import com.theblankstate.preamble.PreambleApplication
 import com.theblankstate.preamble.R
 import com.theblankstate.preamble.analytics.AnalyticsManager
 import com.theblankstate.preamble.data.FocusSession
@@ -34,12 +35,16 @@ class FocusTimerService : Service() {
     private var focusSessionDao: FocusSessionDao? = null
     private var workPhaseStartTimestamp: Long = 0L
 
+    private var timerRepository: com.theblankstate.preamble.repository.TimerSessionRepository? = null
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         focusSessionDao = PreambleDatabase.getInstance(applicationContext).focusSessionDao()
+        timerRepository = (applicationContext as? PreambleApplication)?.timerSessionRepository
+            ?: com.theblankstate.preamble.repository.TimerSessionRepository(applicationContext, focusSessionDao!!)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -47,30 +52,53 @@ class FocusTimerService : Service() {
             ACTION_START -> {
                 val taskId = intent.getStringExtra(EXTRA_TASK_ID)
                 val taskTitle = intent.getStringExtra(EXTRA_TASK_TITLE)
-                startTimer(FocusTimerDefaults.WORK_MINUTES * 60, taskId, taskTitle)
+                val durationSeconds = intent.getIntExtra(EXTRA_DURATION_SECONDS, FocusTimerDefaults.WORK_MINUTES * 60)
+                startTimer(durationSeconds, taskId, taskTitle)
             }
             ACTION_PAUSE -> pauseTimer()
             ACTION_RESUME -> resumeTimer()
             ACTION_STOP -> stopTimer()
+            ACTION_FINISH -> finishTimer()
             ACTION_SKIP -> skipToNext()
+            ACTION_ADD_TIME -> {
+                val extraSeconds = intent.getIntExtra(EXTRA_ADD_SECONDS, 300)
+                addTime(extraSeconds)
+            }
         }
         return START_STICKY
+    }
+
+    private fun addTime(secondsToAdd: Int) {
+        val current = _state.value
+        if (current.isRunning) {
+            val newRemaining = current.remainingSeconds + secondsToAdd
+            val newTotal = current.totalSeconds + secondsToAdd
+            val newSelected = current.durationSelectedSeconds + secondsToAdd
+            _state.value = current.copy(
+                remainingSeconds = newRemaining,
+                totalSeconds = newTotal,
+                durationSelectedSeconds = newSelected
+            )
+            updateNotification()
+        }
     }
 
     private fun startTimer(durationSeconds: Int, taskId: String?, taskTitle: String?) {
         workPhaseStartTimestamp = System.currentTimeMillis()
         _state.value = FocusTimerState(
             isRunning = true,
+            isPaused = false,
             remainingSeconds = durationSeconds,
             totalSeconds = durationSeconds,
+            durationSelectedSeconds = durationSeconds,
             taskId = taskId,
             taskTitle = taskTitle,
-            currentPhase = FocusPhase.WORK
+            currentPhase = FocusPhase.WORK,
+            completionStatus = "IN_PROGRESS"
         )
         promoteToForeground()
         startCountdown()
 
-        // PostHog: Focus mode shuru hua — track karo
         AnalyticsManager.trackFocusMode(
             action = "started",
             taskId = taskId
@@ -99,7 +127,6 @@ class FocusTimerService : Service() {
         val current = _state.value
         when (current.currentPhase) {
             FocusPhase.WORK -> {
-                // Persist completed work session to DB
                 val now = System.currentTimeMillis()
                 val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
                 val session = FocusSession(
@@ -107,42 +134,38 @@ class FocusTimerService : Service() {
                     taskTitle = current.taskTitle,
                     startTimestamp = workPhaseStartTimestamp,
                     endTimestamp = now,
-                    durationSeconds = FocusTimerDefaults.WORK_MINUTES * 60,
+                    durationSeconds = current.durationSelectedSeconds,
+                    durationSelectedSeconds = current.durationSelectedSeconds,
+                    actualDurationCompletedSeconds = current.durationSelectedSeconds,
+                    completionStatus = "COMPLETED",
+                    createdTimestamp = workPhaseStartTimestamp,
                     date = sdf.format(java.util.Date(now))
                 )
                 serviceScope.launch(Dispatchers.IO) {
-                    try { focusSessionDao?.insertSession(session) } catch (_: Exception) {}
+                    try { timerRepository?.saveSession(session) } catch (_: Exception) {}
                 }
 
-                // PostHog: Work phase poori hui — duration track karo
                 AnalyticsManager.trackFocusMode(
                     action = "finished",
-                    durationSeconds = FocusTimerDefaults.WORK_MINUTES * 60,
+                    durationSeconds = current.durationSelectedSeconds,
                     taskId = current.taskId
                 )
 
                 val newSessions = current.sessionsCompleted + 1
-                val nextPhase = if (newSessions % FocusTimerDefaults.SESSIONS_BEFORE_LONG_BREAK == 0) {
-                    FocusPhase.LONG_BREAK
-                } else {
-                    FocusPhase.SHORT_BREAK
-                }
-                val breakDuration = if (nextPhase == FocusPhase.LONG_BREAK) {
-                    FocusTimerDefaults.LONG_BREAK_MINUTES * 60
-                } else {
-                    FocusTimerDefaults.SHORT_BREAK_MINUTES * 60
-                }
                 _state.value = current.copy(
-                    currentPhase = nextPhase,
-                    remainingSeconds = breakDuration,
-                    totalSeconds = breakDuration,
-                    sessionsCompleted = newSessions
+                    isRunning = false,
+                    isPaused = false,
+                    remainingSeconds = 0,
+                    sessionsCompleted = newSessions,
+                    completionStatus = "COMPLETED"
                 )
-                startCountdown()
+                timerJob?.cancel()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
             }
             FocusPhase.SHORT_BREAK, FocusPhase.LONG_BREAK -> {
                 workPhaseStartTimestamp = System.currentTimeMillis()
-                val workDuration = FocusTimerDefaults.WORK_MINUTES * 60
+                val workDuration = current.durationSelectedSeconds
                 _state.value = current.copy(
                     currentPhase = FocusPhase.WORK,
                     remainingSeconds = workDuration,
@@ -154,11 +177,44 @@ class FocusTimerService : Service() {
         updateNotification()
     }
 
+    private fun finishTimer() {
+        val current = _state.value
+        val elapsed = current.totalSeconds - current.remainingSeconds
+        val actualDuration = if (elapsed > 0) elapsed else current.durationSelectedSeconds
+        val now = System.currentTimeMillis()
+        val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+        val session = FocusSession(
+            taskId = current.taskId,
+            taskTitle = current.taskTitle,
+            startTimestamp = workPhaseStartTimestamp,
+            endTimestamp = now,
+            durationSeconds = current.durationSelectedSeconds,
+            durationSelectedSeconds = current.durationSelectedSeconds,
+            actualDurationCompletedSeconds = actualDuration,
+            completionStatus = "COMPLETED",
+            createdTimestamp = workPhaseStartTimestamp,
+            date = sdf.format(java.util.Date(now))
+        )
+        serviceScope.launch(Dispatchers.IO) {
+            try { timerRepository?.saveSession(session) } catch (_: Exception) {}
+        }
+
+        AnalyticsManager.trackFocusMode(
+            action = "finished_early",
+            durationSeconds = actualDuration,
+            taskId = current.taskId
+        )
+
+        timerJob?.cancel()
+        _state.value = FocusTimerState(completionStatus = "COMPLETED")
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     private fun pauseTimer() {
         _state.value = _state.value.copy(isPaused = true)
         updateNotification()
 
-        // PostHog: Focus pause hua
         AnalyticsManager.trackFocusMode(
             action = "paused",
             taskId = _state.value.taskId
@@ -169,7 +225,6 @@ class FocusTimerService : Service() {
         _state.value = _state.value.copy(isPaused = false)
         updateNotification()
 
-        // PostHog: Focus resume hua
         AnalyticsManager.trackFocusMode(
             action = "resumed",
             taskId = _state.value.taskId
@@ -180,9 +235,8 @@ class FocusTimerService : Service() {
         val current = _state.value
         val elapsed = current.totalSeconds - current.remainingSeconds
 
-        // Save partial work session only if elapsed time meets minimum trackable threshold
-        val minTrackableSeconds = FocusTimerDefaults.MIN_TRACKABLE_MINUTES * 60
-        if (current.currentPhase == FocusPhase.WORK && elapsed >= minTrackableSeconds) {
+        // Save session if elapsed time is at least 10 seconds
+        if (current.currentPhase == FocusPhase.WORK && elapsed >= 10) {
             val now = System.currentTimeMillis()
             val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
             val session = FocusSession(
@@ -190,11 +244,15 @@ class FocusTimerService : Service() {
                 taskTitle = current.taskTitle,
                 startTimestamp = workPhaseStartTimestamp,
                 endTimestamp = now,
-                durationSeconds = elapsed,
+                durationSeconds = current.durationSelectedSeconds,
+                durationSelectedSeconds = current.durationSelectedSeconds,
+                actualDurationCompletedSeconds = elapsed,
+                completionStatus = "STOPPED",
+                createdTimestamp = workPhaseStartTimestamp,
                 date = sdf.format(java.util.Date(now))
             )
             serviceScope.launch(Dispatchers.IO) {
-                try { focusSessionDao?.insertSession(session) } catch (_: Exception) {}
+                try { timerRepository?.saveSession(session) } catch (_: Exception) {}
             }
         }
 
@@ -205,7 +263,7 @@ class FocusTimerService : Service() {
         )
 
         timerJob?.cancel()
-        _state.value = FocusTimerState()
+        _state.value = FocusTimerState(completionStatus = "STOPPED")
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
     }
@@ -239,14 +297,8 @@ class FocusTimerService : Service() {
         val seconds = state.remainingSeconds % 60
         val timeText = String.format(java.util.Locale.US, "%02d:%02d", minutes, seconds)
 
-        val phaseText = when (state.currentPhase) {
-            FocusPhase.WORK -> "Work"
-            FocusPhase.SHORT_BREAK -> "Short Break"
-            FocusPhase.LONG_BREAK -> "Long Break"
-        }
-
-        val title = if (state.taskTitle != null) "Focus: ${state.taskTitle}" else "Focus Timer"
-        val contentText = "$phaseText — $timeText" + if (state.isPaused) " (Paused)" else ""
+        val title = if (state.taskTitle != null) "Focus: ${state.taskTitle}" else "Task Timer"
+        val contentText = "$timeText" + if (state.isPaused) " (Paused)" else ""
 
         val openIntent = PendingIntent.getActivity(
             this, 0,
@@ -263,7 +315,6 @@ class FocusTimerService : Service() {
             .setSilent(true)
             .setOnlyAlertOnce(true)
 
-        // Pause/Resume action
         if (state.isPaused) {
             val resumeIntent = PendingIntent.getBroadcast(
                 this, 1,
@@ -280,7 +331,6 @@ class FocusTimerService : Service() {
             builder.addAction(R.drawable.ic_notif_pause, "Pause", pauseIntent)
         }
 
-        // Stop action
         val stopIntent = PendingIntent.getBroadcast(
             this, 3,
             Intent(this, FocusTimerReceiver::class.java).apply { action = ACTION_STOP },
@@ -295,10 +345,10 @@ class FocusTimerService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Focus Timer",
+                "Task Timer",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Focus timer notifications"
+                description = "Task timer notifications"
                 setShowBadge(false)
             }
             val nm = getSystemService(NotificationManager::class.java)
@@ -318,18 +368,23 @@ class FocusTimerService : Service() {
         const val ACTION_PAUSE = "com.theblankstate.preamble.FOCUS_PAUSE"
         const val ACTION_RESUME = "com.theblankstate.preamble.FOCUS_RESUME"
         const val ACTION_STOP = "com.theblankstate.preamble.FOCUS_STOP"
+        const val ACTION_FINISH = "com.theblankstate.preamble.FOCUS_FINISH"
         const val ACTION_SKIP = "com.theblankstate.preamble.FOCUS_SKIP"
+        const val ACTION_ADD_TIME = "com.theblankstate.preamble.FOCUS_ADD_TIME"
         const val EXTRA_TASK_ID = "task_id"
         const val EXTRA_TASK_TITLE = "task_title"
+        const val EXTRA_DURATION_SECONDS = "duration_seconds"
+        const val EXTRA_ADD_SECONDS = "add_seconds"
 
         private val _state = MutableStateFlow(FocusTimerState())
         val state: StateFlow<FocusTimerState> = _state.asStateFlow()
 
-        fun start(context: Context, taskId: String? = null, taskTitle: String? = null) {
+        fun start(context: Context, taskId: String? = null, taskTitle: String? = null, durationSeconds: Int = 1500) {
             val intent = Intent(context, FocusTimerService::class.java).apply {
                 action = ACTION_START
                 putExtra(EXTRA_TASK_ID, taskId)
                 putExtra(EXTRA_TASK_TITLE, taskTitle)
+                putExtra(EXTRA_DURATION_SECONDS, durationSeconds)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -350,8 +405,20 @@ class FocusTimerService : Service() {
             context.startService(Intent(context, FocusTimerService::class.java).apply { action = ACTION_STOP })
         }
 
+        fun finish(context: Context) {
+            context.startService(Intent(context, FocusTimerService::class.java).apply { action = ACTION_FINISH })
+        }
+
         fun skip(context: Context) {
             context.startService(Intent(context, FocusTimerService::class.java).apply { action = ACTION_SKIP })
+        }
+
+        fun addTime(context: Context, extraSeconds: Int) {
+            val intent = Intent(context, FocusTimerService::class.java).apply {
+                action = ACTION_ADD_TIME
+                putExtra(EXTRA_ADD_SECONDS, extraSeconds)
+            }
+            context.startService(intent)
         }
     }
 }

@@ -176,11 +176,24 @@ fun TaskDetailBottomSheet(
     onReact: ((String) -> Unit)? = null,
     onNudge: ((String) -> Unit)? = null,
     canNudge: ((String) -> Boolean)? = null,
-    nudgeCooldownRemaining: ((String) -> Long)? = null
+    nudgeCooldownRemaining: ((String) -> Long)? = null,
+    onViewStats: (() -> Unit)? = null,
+    taskTimerStats: com.theblankstate.preamble.data.PerTaskTimerStats? = null
 ) {
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showFullCollaboratorsScreen by remember { mutableStateOf(false) }
+
+    var liveTaskTimerStats by remember(task.id, taskTimerStats) { mutableStateOf(taskTimerStats) }
+
+    androidx.compose.runtime.LaunchedEffect(task.id) {
+        val repo = (context.applicationContext as? com.theblankstate.preamble.PreambleApplication)?.timerSessionRepository
+            ?: com.theblankstate.preamble.repository.TimerSessionRepository(context)
+        val stats = repo.getPerTaskStats(task.id)
+        if (stats != null) {
+            liveTaskTimerStats = stats
+        }
+    }
 
     androidx.compose.runtime.DisposableEffect(Unit) {
         val start = System.currentTimeMillis()
@@ -358,6 +371,8 @@ fun TaskDetailBottomSheet(
 
             }
 
+
+
             // ═══════════════════════════════════════════════════════════════
             // DESCRIPTION
             // ═══════════════════════════════════════════════════════════════
@@ -384,6 +399,128 @@ fun TaskDetailBottomSheet(
                 onDeleteSubtask = { subtaskId -> onDeleteSubtask?.invoke(subtaskId) },
                 onCompleteAllSubtasks = { onCompleteAllSubtasks?.invoke() }
             )
+
+            // ═══════════════════════════════════════════════════════════════
+            // TASK TIMER & FOCUS METRICS (Below Subtasks)
+            // ═══════════════════════════════════════════════════════════════
+            if (!task.isInfoOnly) {
+                Spacer(modifier = Modifier.height(16.dp))
+                DetailSection(title = "Task Timer & Focus") {
+                    val totalSec = liveTaskTimerStats?.totalSeconds ?: 0
+                    val sessions = liveTaskTimerStats?.sessionCount ?: 0
+                    val hours = totalSec / 3600
+                    val mins = (totalSec % 3600) / 60
+                    val formattedTimeStr = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+                    val lastDateStr = liveTaskTimerStats?.lastSessionDate ?: "None"
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = "Tracked Time",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = formattedTimeStr,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = "Sessions",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = "$sessions",
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = "Last Session",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = lastDateStr,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (onStartFocus != null) {
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable { onStartFocus() }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.Timer,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Start Timer",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimary
+                                    )
+                                }
+                            }
+                        }
+
+                        if (onViewStats != null) {
+                            Surface(
+                                shape = RoundedCornerShape(50),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(50))
+                                    .clickable { onViewStats() }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(vertical = 10.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "View Statistics",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 
             // ═══════════════════════════════════════════════════════════════
             // COLLABORATORS (read-only, shown only for collaborative tasks)
