@@ -41,14 +41,6 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-data class HabitStatSummary(
-    val habitId: String,
-    val title: String,
-    val currentStreak: Int,
-    val completionRate30Day: Float,
-    val totalCompletions30Day: Int
-)
-
 data class StatsState(
     // Existing
     val totalCompleted: Int = 0,
@@ -56,14 +48,6 @@ data class StatsState(
     val todayCompleted: Int = 0,
     val todayTotal: Int = 0,
     val streak: Int = 0,
-    val todayHabitsDone: Int = 0,
-    val todayHabitsTotal: Int = 0,
-    val habitsCompletionRate30Day: Float = 0f,
-    val habitSummaries: List<HabitStatSummary> = emptyList(),
-    val subtasksCompleted30Day: Int = 0,
-    val collaborativeTasksCompleted: Int = 0,
-    val circleContributionPct: Float = 0f,
-    val momentumRings: com.theblankstate.preamble.ui.components.MomentumRingsState = com.theblankstate.preamble.ui.components.MomentumRingsState(),
     val weeklyStats: List<Pair<String, Float>> = emptyList(),
     val dailyCompleted: List<Pair<String, Int>> = emptyList(),
     val monthlyCompleted: List<Pair<String, Int>> = emptyList(),
@@ -657,7 +641,6 @@ class TaskViewModel(
             val rolloverDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getRolloverHealth() }
             val tagDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getTagAnalytics() }
             val consistencyDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getWeeklyConsistency() }
-            val weekCompareDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getWeeklyComparison() }
             val heatmapDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getMonthlyHeatmap() }
             val yearlyHeatmapDef = async(kotlinx.coroutines.Dispatchers.IO) { repository.getYearlyHeatmap() }
             // Historical comparison & trend intelligence
@@ -684,7 +667,7 @@ class TaskViewModel(
 
             val (yesterdayDone, yesterdayTot) = yesterdayDef.await()
             val (thisMonthDone, lastMonthDone) = monthlyCompDef.await()
-            val dailyWithDates = dailyWithDatesDef.await()
+            val dailyWithDatesDb = dailyWithDatesDef.await()
             val streak = streakDef.await()
             val longestStreak = longestStreakDef.await()
             val weekly = weeklyDef.await()
@@ -694,7 +677,6 @@ class TaskViewModel(
             val rollover = rolloverDef.await()
             val tags = tagDef.await()
             val consistency = consistencyDef.await()
-            val (thisWeek, lastWeek) = weekCompareDef.await()
             val heatmap = heatmapDef.await()
             val yearlyHeatmap = yearlyHeatmapDef.await()
             val todayFocus = todayFocusDef.await()
@@ -714,8 +696,18 @@ class TaskViewModel(
             val procrastIdx = procrastDef.await()
             val (weekdayAvg, weekendAvg) = wdweDef.await()
 
-            // Compute productivity score
             val currentState = _statsState.value
+            val dailyWithDates = dailyWithDatesDb.toMutableList()
+            if (dailyWithDates.isNotEmpty()) {
+                val lastIdx = dailyWithDates.lastIndex
+                dailyWithDates[lastIdx] = Triple(dailyWithDates[lastIdx].first, currentState.todayCompleted, currentState.todayTotal)
+            }
+
+            // Accurate weekly stats
+            val thisWeek = dailyWithDates.takeLast(7).sumOf { it.second }
+            val lastWeek = dailyWithDates.dropLast(7).takeLast(7).sumOf { it.second }
+
+            // Compute productivity score
             val completionRate = if (currentState.totalTasks > 0)
                 currentState.totalCompleted.toFloat() / currentState.totalTasks else 0f
             val streakBonus = (streak.toFloat() / 30f).coerceAtMost(1f)
@@ -812,23 +804,12 @@ class TaskViewModel(
             val peakBucket = hourlyDist.maxByOrNull { it.second }
             val peakHourStr = peakBucket?.first ?: ""
 
-            // Productivity score history (dynamic formula based on day's completion volume)
+            // Productivity score history (approximate from daily data)
             val scoreHist = dailyWithDates.takeLast(30).mapIndexed { idx, (date, done, total) ->
                 val r = if (total > 0) done.toFloat() / total else 0f
-                val activeBonus = if (done > 0) 20f else 0f
-                val volumeBonus = (done * 10f).coerceAtMost(30f)
-                val dayScore = ((r * 50f) + activeBonus + volumeBonus).toInt().coerceIn(0, 100)
+                val dayScore = (r * 40 + 60).toInt().coerceIn(0, 100)
                 date to dayScore
             }
-
-            val ringsState = com.theblankstate.preamble.ui.components.MomentumRingsState(
-                tasksCompleted = currentState.todayCompleted,
-                tasksTarget = currentState.todayTotal.coerceAtLeast(1),
-                habitsCompleted = currentState.todayHabitsDone,
-                habitsTarget = currentState.todayHabitsTotal.coerceAtLeast(1),
-                focusMinutesCompleted = todayFocus,
-                focusMinutesTarget = 60
-            )
 
             // Smart insights generation
             val insights = generateSmartInsights(
@@ -854,7 +835,6 @@ class TaskViewModel(
                 it.copy(
                     streak = streak,
                     longestStreak = longestStreak,
-                    momentumRings = ringsState,
                     weeklyStats = weekly,
                     dailyCompleted = daily,
                     monthlyCompleted = monthly,

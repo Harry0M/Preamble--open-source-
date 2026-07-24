@@ -1166,8 +1166,18 @@ class TaskRepository(
     }
 
     suspend fun getAverageDailyFocusMinutes(): Int {
-        val seconds = focusDao?.getAverageDailyFocusSeconds() ?: 0
-        return seconds / 60
+        val totalSeconds = focusDao?.getTotalFocusSecondsAllTime() ?: 0
+        val firstDateStr = focusDao?.getFirstSessionDate()
+        if (firstDateStr == null || totalSeconds == 0) return 0
+        
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        val firstDateMs = try {
+            sdf.parse(firstDateStr)?.time ?: System.currentTimeMillis()
+        } catch (e: Exception) {
+            System.currentTimeMillis()
+        }
+        val days = ((System.currentTimeMillis() - firstDateMs) / (1000 * 60 * 60 * 24)).toInt() + 1
+        return (totalSeconds / 60) / days.coerceAtLeast(1)
     }
 
     suspend fun getBestFocusDayData(): BestFocusDay? {

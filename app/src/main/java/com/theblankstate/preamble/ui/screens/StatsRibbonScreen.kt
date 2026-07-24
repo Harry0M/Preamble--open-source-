@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -54,7 +55,7 @@ fun StatsRibbonScreen(
     statsState: StatsState,
     tweaks: StatsTweaks,
     onOpenTweaks: () -> Unit,
-    onOpenHowItWorks: () -> Unit = {},
+    onOpenInfo: () -> Unit = {},
     onOpenRecap: (() -> Unit)? = null,
     recapDayLabel: String = "Sun",
     isRecapDay: Boolean = false,
@@ -123,22 +124,17 @@ fun StatsRibbonScreen(
                             )
                         }
                         Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(8.dp))
                     }
                     Box(
                         modifier = Modifier
                             .size(34.dp)
                             .clip(RoundedCornerShape(999.dp))
                             .border(1.dp, hair, RoundedCornerShape(999.dp))
-                            .clickable { onOpenHowItWorks() },
+                            .clickable { onOpenInfo() },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            "i",
-                            color = fg,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
+                        Icon(Icons.Filled.Info, null, tint = fg, modifier = Modifier.size(16.dp))
                     }
                     Spacer(Modifier.width(8.dp))
                     Box(
@@ -272,7 +268,7 @@ fun StatsRibbonScreen(
                     num = 7,
                     title = "Personal bests",
                     fg = fg, fgMuted = fgMuted, surface = surface,
-                    onClick = openCat?.let { { it(StatsCategory.BESTS) } }
+                    onClick = null
                 ) {
                     ChapterBests(stats = statsState, fg = fg, fgMuted = fgMuted, hair = hair)
                 }
@@ -280,7 +276,7 @@ fun StatsRibbonScreen(
                     num = 8,
                     title = "The week in one line",
                     fg = fg, fgMuted = fgMuted, surface = surface,
-                    onClick = openCat?.let { { it(StatsCategory.WEEKLY) } }
+                    onClick = null
                 ) {
                     Box(
                         modifier = Modifier
@@ -792,7 +788,7 @@ private fun ChapterFocus(
                 .padding(14.dp)
         ) {
             Text(
-                "POMODOROS",
+                "FOCUS SESSIONS",
                 color = fgMuted,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold,

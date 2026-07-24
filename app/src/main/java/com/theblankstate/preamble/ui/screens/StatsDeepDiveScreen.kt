@@ -181,21 +181,6 @@ fun StatsDeepDiveScreen(
             item { Spacer(Modifier.height(16.dp * scaleFactor)) }
 
             item {
-                Column(modifier = Modifier.padding(horizontal = 20.dp * scaleFactor)) {
-                    com.theblankstate.preamble.ui.components.DailyMomentumRingsCard(
-                        state = statsState.momentumRings,
-                        fg = fg,
-                        fgMuted = fgMuted,
-                        tile = tile,
-                        hair = hair,
-                        scaleFactor = scaleFactor
-                    )
-                }
-            }
-
-            item { Spacer(Modifier.height(16.dp * scaleFactor)) }
-
-            item {
                 CompareCurrVsPrev(
                     category = category,
                     statsState = statsState,
@@ -237,9 +222,9 @@ fun StatsDeepDiveScreen(
                 )
             }
 
-
-
             item { Spacer(Modifier.height(18.dp * scaleFactor)) }
+
+
 
             item {
                 CategoryBody(
@@ -540,14 +525,14 @@ private fun CategoryBody(
     onOpenRecentSessions: () -> Unit = {}
 ) {
     when (category) {
-        StatsCategory.SCORE -> ScoreHistoryPanel(statsState.productivityScoreHistory, fg, fgMuted, tile, accent, surface)
-        StatsCategory.CONSISTENCY -> ConsistencyPanel(statsState, fg, fgMuted, tile, accent, surface, dark)
-        StatsCategory.PEAK_HOURS -> PeakHoursPanel(statsState, fg, fgMuted, tile, accent)
-        StatsCategory.TAGS -> TagsPanel(statsState, fg, fgMuted, tile, hair, accent)
+        StatsCategory.SCORE -> ScoreHistoryPanel(statsState.productivityScoreHistory, fg, fgMuted, tile, accent, surface, scaleFactor)
+        StatsCategory.CONSISTENCY -> ConsistencyPanel(statsState, fg, fgMuted, tile, accent, surface, dark, scaleFactor)
+        StatsCategory.PEAK_HOURS -> PeakHoursPanel(statsState, fg, fgMuted, tile, accent, scaleFactor)
+        StatsCategory.TAGS -> TagsPanel(statsState, fg, fgMuted, tile, hair, accent, scaleFactor)
         StatsCategory.FOCUS -> FocusPanel(statsState, fg, fgMuted, tile, accent, hair, scaleFactor, onOpenTaskBreakdown, onOpenRecentSessions)
         StatsCategory.BESTS -> BestsPanel(statsState, fg, fgMuted, tile, hair)
         StatsCategory.WEEKLY -> WeeklyPanel(statsState, fg, fgMuted, tile, accent, dark)
-        StatsCategory.STREAK -> StreakPanel(statsState, fg, fgMuted, tile, hair, accent)
+        StatsCategory.STREAK -> StreakPanel(statsState, fg, fgMuted, tile, hair, accent, scaleFactor)
         StatsCategory.MOMENTUM -> MomentumPanel(statsState, fg, fgMuted, tile, accent, hair)
         StatsCategory.ROLLOVER -> RolloverPanel(statsState, fg, fgMuted, tile, accent)
         StatsCategory.FORECAST -> ForecastPanel(statsState, fg, fgMuted, tile, accent, surface)
@@ -584,18 +569,20 @@ private fun PanelColumn(scaleFactor: Float = 1f, content: @Composable () -> Unit
 
 @Composable
 private fun ScoreHistoryPanel(
-    history: List<Pair<String, Int>>, fg: Color, fgMuted: Color, tile: Color, accent: Color, surface: Color
+    history: List<Pair<String, Int>>, fg: Color, fgMuted: Color, tile: Color, accent: Color, surface: Color, scaleFactor: Float
 ) {
-    SectionKicker("Trend · last 12 readings", fgMuted)
-    PanelColumn {
+    SectionKicker("Trend · last 12 readings", fgMuted, scaleFactor)
+    PanelColumn(scaleFactor) {
+        val interactionSource = remember { MutableInteractionSource() }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(20.dp * scaleFactor))
                 .background(tile)
-                .padding(16.dp)
+                .expressivePressScale(interactionSource)
+                .padding(16.dp * scaleFactor)
         ) {
-            Canvas(modifier = Modifier.fillMaxWidth().height(120.dp)) {
+            Canvas(modifier = Modifier.fillMaxWidth().height(120.dp * scaleFactor)) {
                 val vals = if (history.isEmpty())
                     floatArrayOf(52f, 58f, 51f, 63f, 68f, 72f, 69f, 75f, 81f, 78f, 84f, 87f)
                 else history.takeLast(12).map { it.second.toFloat() }.toFloatArray()
@@ -632,73 +619,80 @@ private fun ScoreHistoryPanel(
 
 @Composable
 private fun ConsistencyPanel(
-    s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color, surface: Color, dark: Boolean
+    s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color, surface: Color, dark: Boolean, scaleFactor: Float
 ) {
-    SectionKicker("Consistency · 52 weeks", fgMuted)
-    PanelColumn {
+    SectionKicker("Consistency · 52 weeks", fgMuted, scaleFactor)
+    PanelColumn(scaleFactor) {
+        val interactionSource = remember { MutableInteractionSource() }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(20.dp * scaleFactor))
                 .background(tile)
-                .padding(16.dp)
+                .expressivePressScale(interactionSource)
+                .padding(16.dp * scaleFactor)
         ) {
             val weeks = 52
             val levels = buildHeatLevels(s.yearlyHeatmap, weeks)
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp * scaleFactor)) {
                 repeat(7) { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp * scaleFactor)) {
                         repeat(weeks) { col ->
                             val lvl = levels[col * 7 + row]
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(8.dp)
-                                    .clip(RoundedCornerShape(1.5.dp))
+                                    .height(8.dp * scaleFactor)
+                                    .clip(RoundedCornerShape(1.5.dp * scaleFactor))
                                     .background(heatColor(lvl, dark, accent, surface))
                             )
                         }
                     }
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(12.dp * scaleFactor))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("52W AGO", color = fgMuted, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                Text("TODAY", color = fgMuted, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                Text("52W AGO", color = fgMuted, fontSize = 10.sp * scaleFactor, fontFamily = FontFamily.Monospace)
+                Text("TODAY", color = fgMuted, fontSize = 10.sp * scaleFactor, fontFamily = FontFamily.Monospace)
             }
         }
     }
 }
 
 @Composable
-private fun PeakHoursPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {
-    SectionKicker("Hour-by-hour", fgMuted)
-    PanelColumn {
+private fun PeakHoursPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color, scaleFactor: Float) {
+    SectionKicker("Hour-by-hour", fgMuted, scaleFactor)
+    PanelColumn(scaleFactor) {
+        val interactionSource = remember { MutableInteractionSource() }
         Column(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-                .background(tile).padding(16.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp * scaleFactor))
+                .background(tile)
+                .expressivePressScale(interactionSource)
+                .padding(16.dp * scaleFactor)
         ) {
             val bars = hourlyBars(s)
             Row(
-                modifier = Modifier.fillMaxWidth().height(120.dp),
+                modifier = Modifier.fillMaxWidth().height(120.dp * scaleFactor),
                 verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                horizontalArrangement = Arrangement.spacedBy(4.dp * scaleFactor)
             ) {
                 bars.forEach { v ->
                     val peak = v > 0.8f
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .height(maxOf(6f, 120f * v.coerceIn(0.05f, 1f)).dp)
+                            .height(maxOf(6f, 120f * v.coerceIn(0.05f, 1f)).dp * scaleFactor)
                             .clip(RoundedCornerShape(999.dp))
                             .background(if (peak) accent else fg.copy(alpha = 0.15f))
                     )
                 }
             }
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(6.dp * scaleFactor))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 listOf("6A", "10A", "2P", "6P", "10P", "2A").forEach {
-                    Text(it, color = fgMuted, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Text(it, color = fgMuted, fontSize = 10.sp * scaleFactor, fontFamily = FontFamily.Monospace)
                 }
             }
         }
@@ -707,38 +701,43 @@ private fun PeakHoursPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color
 
 @Composable
 private fun TagsPanel(
-    s: StatsState, fg: Color, fgMuted: Color, tile: Color, hair: Color, accent: Color
+    s: StatsState, fg: Color, fgMuted: Color, tile: Color, hair: Color, accent: Color, scaleFactor: Float
 ) {
-    SectionKicker("All tags · ranked", fgMuted)
+    SectionKicker("All tags · ranked", fgMuted, scaleFactor)
     val total = s.tagStats.sumOf { it.completedCount }.coerceAtLeast(1)
-    PanelColumn {
+    PanelColumn(scaleFactor) {
+        val interactionSource = remember { MutableInteractionSource() }
         Column(
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-                .background(tile).padding(16.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp * scaleFactor))
+                .background(tile)
+                .expressivePressScale(interactionSource)
+                .padding(16.dp * scaleFactor)
         ) {
             s.tagStats.sortedByDescending { it.completedCount }.forEachIndexed { i, t ->
                 val pct = (t.completedCount.toFloat() / total * 100).roundToInt()
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp * scaleFactor),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         "0${i + 1}".takeLast(2),
-                        color = fgMuted, fontSize = 11.sp,
+                        color = fgMuted, fontSize = 11.sp * scaleFactor,
                         fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.width(24.dp)
+                        modifier = Modifier.width(24.dp * scaleFactor)
                     )
-                    Text(t.tag, color = fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
-                    Text("${t.completedCount}", color = fg, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                    Spacer(Modifier.width(8.dp))
-                    Text("${pct}%", color = fgMuted, fontSize = 11.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.width(36.dp))
+                    Text(t.tag, color = fg, fontSize = 14.sp * scaleFactor, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    Text("${t.completedCount}", color = fg, fontSize = 13.sp * scaleFactor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    Spacer(Modifier.width(8.dp * scaleFactor))
+                    Text("${pct}%", color = fgMuted, fontSize = 11.sp * scaleFactor, fontFamily = FontFamily.Monospace, modifier = Modifier.width(36.dp * scaleFactor))
                 }
                 if (i < s.tagStats.lastIndex) {
                     Box(Modifier.fillMaxWidth().height(1.dp).background(hair))
                 }
             }
             if (s.tagStats.isEmpty()) {
-                Text("Tag some tasks to see distribution.", color = fgMuted, fontSize = 13.sp)
+                Text("Tag some tasks to see distribution.", color = fgMuted, fontSize = 13.sp * scaleFactor)
             }
         }
     }
@@ -1293,19 +1292,9 @@ private fun RangeCompareStrip(
     selected: DeepRange,
     fg: Color, fgMuted: Color, tile: Color, accent: Color, scaleFactor: Float
 ) {
-    val factor = selected.days / 30f
-
-    val (l1, v1, l2, v2, l3, v3) = when (category) {
-        StatsCategory.SCORE -> Tuple6("SCORE", "${statsState.productivityScore}", "GRADE", statsState.performanceGrade, "TREND", if (statsState.productivityScoreTrend >= 0) "▲ Up" else "▼ Down")
-        StatsCategory.STREAK -> Tuple6("CURRENT", "${statsState.streak}d", "LONGEST", "${statsState.longestStreak}d", "RECORD", if (statsState.streak >= statsState.longestStreak && statsState.streak > 0) "Active" else "${maxOf(0, statsState.longestStreak - statsState.streak)}d left")
-        StatsCategory.CONSISTENCY -> Tuple6("STABILITY", "${statsState.consistencyScore}/100", "WEEKLY", "${statsState.weeklyConsistencyDays}/7d", "VARIANCE", "%.1f".format(statsState.stdDevDaily))
-        StatsCategory.PEAK_HOURS -> Tuple6("PEAK HOUR", statsState.peakHourLabel.ifBlank { "—" }, "PEAK DAY", statsState.peakDayOfWeek.ifBlank { "—" }, "WEEKDAY AVG", "%.1f".format(statsState.weekdayAvg))
-        StatsCategory.TAGS -> Tuple6("TOP TAG", statsState.mostActiveTag ?: "—", "TAG COUNT", "${statsState.tagStats.size}", "MAX TASKS", "${statsState.tagStats.maxOfOrNull { it.completedCount } ?: 0}")
-        StatsCategory.FOCUS -> Tuple6("FOCUS TIME", "${(statsState.totalFocusHours * factor).roundToInt()}h", "DAILY AVG", "${"%.1f".format(statsState.averageDailyFocusMinutes / 60f)}h/d", "SESSIONS", "${focusSessionCount(statsState)}")
-        StatsCategory.MOMENTUM -> Tuple6("MOMENTUM", "${statsState.momentumScore}", "VELOCITY", "%.1f/d".format(statsState.completionVelocity), "BURNOUT", "${(statsState.burnoutRiskScore * 100).roundToInt()}%")
-        StatsCategory.ROLLOVER -> Tuple6("PENDING", "${statsState.activeRolloverCount}", "AVG AGE", "%.1fd".format(statsState.averageRolloverDaysPending), "CLEAR RATE", "${(statsState.rolloverCompletionRate * 100).roundToInt()}%")
-        else -> Tuple6("THIS WEEK", "${statsState.thisWeekCompleted}", "LAST WEEK", "${statsState.lastWeekCompleted}", "GROWTH", "%+.0f%%".format(statsState.weekOverWeekGrowth * 100))
-    }
+    val hrs = (statsState.totalFocusHours * (selected.days / 30f)).roundToInt()
+    val tasks = (statsState.thisWeekCompleted * (selected.days / 7f)).roundToInt()
+    val avg = "%.1f".format(statsState.averageDailyFocusMinutes / 60f)
 
     Row(
         modifier = Modifier
@@ -1313,236 +1302,57 @@ private fun RangeCompareStrip(
             .padding(horizontal = 20.dp * scaleFactor),
         horizontalArrangement = Arrangement.spacedBy(10.dp * scaleFactor)
     ) {
-        CompareMiniCard(l1, v1, tile, fg, fgMuted, scaleFactor, Modifier.weight(1f))
-        CompareMiniCard(l2, v2, tile, fg, fgMuted, scaleFactor, Modifier.weight(1f))
-        CompareMiniCard(l3, v3, tile, fg, fgMuted, scaleFactor, Modifier.weight(1f))
-    }
-}
-
-private data class Tuple6<A, B, C, D, E, F>(val a: A, val b: B, val c: C, val d: D, val e: E, val f: F)
-
-@Composable
-private fun CompareMiniCard(
-    label: String, value: String, bg: Color, fg: Color, fgMuted: Color, scaleFactor: Float, modifier: Modifier = Modifier
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp * scaleFactor))
-            .background(bg)
-            .padding(14.dp * scaleFactor)
-            .expressivePressScale(interactionSource)
-    ) {
-        Column {
-            Text(label, color = fgMuted, fontSize = 10.sp * scaleFactor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-            Spacer(Modifier.height(4.dp * scaleFactor))
-            Text(value, color = fg, fontSize = 18.sp * scaleFactor, fontWeight = FontWeight.ExtraBold)
-        }
-    }
-}
-
-
-
-@Composable
-private fun StreakPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, hair: Color, accent: Color) {
-    SectionKicker("Streak Milestone Analytics", fgMuted)
-    PanelColumn {
-        Column(
+        val c1Interaction = remember { MutableInteractionSource() }
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
+                .weight(1f)
+                .clip(RoundedCornerShape(16.dp * scaleFactor))
                 .background(tile)
-                .padding(16.dp)
+                .padding(14.dp * scaleFactor)
+                .expressivePressScale(c1Interaction)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text("CURRENT STREAK", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                    Spacer(Modifier.height(4.dp))
-                    Text("${s.streak} Days", color = fg, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("LONGEST STREAK", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                    Spacer(Modifier.height(4.dp))
-                    Text("${s.longestStreak} Days", color = accent, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
-                }
+            Column {
+                Text("FOCUS TIME", color = fgMuted, fontSize = 10.sp * scaleFactor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Spacer(Modifier.height(4.dp * scaleFactor))
+                Text("${hrs}h", color = fg, fontSize = 22.sp * scaleFactor, fontWeight = FontWeight.ExtraBold)
             }
-            Spacer(Modifier.height(12.dp))
-            Box(Modifier.fillMaxWidth().height(1.dp).background(hair))
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = if (s.streak >= s.longestStreak && s.streak > 0) "🔥 New all-time record active!" else "Keep pushing to beat your record of ${s.longestStreak} days.",
-                color = fg,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium
-            )
         }
-    }
-}
-
-@Composable
-private fun RolloverPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {
-    SectionKicker("Rollover Health & Friction", fgMuted)
-    PanelColumn {
-        Column(
+        val c2Interaction = remember { MutableInteractionSource() }
+        Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
+                .weight(1f)
+                .clip(RoundedCornerShape(16.dp * scaleFactor))
                 .background(tile)
-                .padding(16.dp)
+                .padding(14.dp * scaleFactor)
+                .expressivePressScale(c2Interaction)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text("PENDING ROLLOVERS", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                    Spacer(Modifier.height(4.dp))
-                    Text("${s.activeRolloverCount} tasks", color = fg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("AVG PENDING AGE", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                    Spacer(Modifier.height(4.dp))
-                    Text(String.format(Locale.US, "%.1fd", s.averageRolloverDaysPending), color = accent, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-                }
+            Column {
+                Text("DAILY AVG", color = fgMuted, fontSize = 10.sp * scaleFactor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Spacer(Modifier.height(4.dp * scaleFactor))
+                Text("${avg}h/d", color = fg, fontSize = 22.sp * scaleFactor, fontWeight = FontWeight.ExtraBold)
             }
-            if (s.oldestRolloverTaskTitle != null) {
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    text = "Oldest Rollover: ${s.oldestRolloverTaskTitle} (${s.oldestRolloverDays} days)",
-                    color = fgMuted,
-                    fontSize = 12.sp
-                )
+        }
+        val c3Interaction = remember { MutableInteractionSource() }
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .clip(RoundedCornerShape(16.dp * scaleFactor))
+                .background(tile)
+                .padding(14.dp * scaleFactor)
+                .expressivePressScale(c3Interaction)
+        ) {
+            Column {
+                Text("EST. TASKS", color = fgMuted, fontSize = 10.sp * scaleFactor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Spacer(Modifier.height(4.dp * scaleFactor))
+                Text("$tasks", color = fg, fontSize = 22.sp * scaleFactor, fontWeight = FontWeight.ExtraBold)
             }
         }
     }
 }
 
-@Composable
-private fun PriorityPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, hair: Color, accent: Color) {
-    SectionKicker("Priority Mix Breakdown", fgMuted)
-    PanelColumn {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-                .background(tile)
-                .padding(16.dp)
-        ) {
-            if (s.priorityDistribution.isEmpty()) {
-                Text("No priority distribution data available yet.", color = fgMuted, fontSize = 13.sp)
-            } else {
-                s.priorityDistribution.forEachIndexed { i, pair ->
-                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text(pair.first, color = fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            Text(String.format(Locale.US, "%.1f%%", pair.second), color = accent, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(5.dp)
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(fgMuted.copy(alpha = 0.15f))
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth((pair.second / 100f).coerceIn(0.02f, 1f))
-                                    .height(5.dp)
-                                    .clip(RoundedCornerShape(999.dp))
-                                    .background(accent)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
 
-@Composable
-private fun InsightsPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {
-    SectionKicker("Smart AI Insights", fgMuted)
-    PanelColumn {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-                .background(tile)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            if (s.smartInsights.isEmpty()) {
-                Text("Complete more tasks to generate smart insights.", color = fgMuted, fontSize = 13.sp)
-            } else {
-                s.smartInsights.forEach { insight ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("•", color = accent, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.width(10.dp))
-                        Text(insight, color = fg, fontSize = 13.sp, lineHeight = 18.sp)
-                    }
-                }
-            }
-        }
-    }
-}
 
-@Composable
-private fun WeekdayWeekendPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {
-    SectionKicker("Weekday vs Weekend Output", fgMuted)
-    PanelColumn {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-                .background(tile)
-                .padding(16.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Column {
-                    Text("WEEKDAY AVG", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                    Spacer(Modifier.height(4.dp))
-                    Text(String.format(Locale.US, "%.1f", s.weekdayAvg), color = fg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("WEEKEND AVG", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                    Spacer(Modifier.height(4.dp))
-                    Text(String.format(Locale.US, "%.1f", s.weekendAvg), color = accent, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-                }
-            }
-        }
-    }
-}
 
-@Composable
-private fun KarmaPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {
-    SectionKicker("Karma Points & Level", fgMuted)
-    PanelColumn {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-                .background(tile)
-                .padding(16.dp)
-        ) {
-            Text("KARMA POINTS", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-            Spacer(Modifier.height(4.dp))
-            Text("${s.karmaPoints} pts", color = fg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-            Spacer(Modifier.height(4.dp))
-            Text("Level: ${s.karmaLevel}", color = accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-        }
-    }
-}
 
 @Composable
 private fun BestsPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, hair: Color) {}
@@ -1551,10 +1361,58 @@ private fun BestsPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, ha
 private fun WeeklyPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color, dark: Boolean) {}
 
 @Composable
+private fun StreakPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, hair: Color, accent: Color, scaleFactor: Float) {
+    SectionKicker("Consistency streak", fgMuted, scaleFactor)
+    PanelColumn(scaleFactor) {
+        val interactionSource = remember { MutableInteractionSource() }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp * scaleFactor))
+                .background(tile)
+                .expressivePressScale(interactionSource)
+                .padding(24.dp * scaleFactor),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                s.streak.toString(),
+                color = fg,
+                fontSize = 48.sp * scaleFactor,
+                fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-2).sp * scaleFactor,
+            )
+            Spacer(Modifier.height(4.dp * scaleFactor))
+            Text(
+                "DAYS",
+                color = accent,
+                fontSize = 12.sp * scaleFactor,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 2.sp * scaleFactor,
+            )
+        }
+    }
+}
+
+@Composable
 private fun MomentumPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color, hair: Color) {}
+
+@Composable
+private fun RolloverPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {}
 
 @Composable
 private fun ForecastPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color, surface: Color) {}
 
 @Composable
+private fun KarmaPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {}
+
+@Composable
+private fun InsightsPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {}
+
+@Composable
+private fun PriorityPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, hair: Color, accent: Color) {}
+
+@Composable
 private fun TaskTypePanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, hair: Color, accent: Color) {}
+
+@Composable
+private fun WeekdayWeekendPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {}

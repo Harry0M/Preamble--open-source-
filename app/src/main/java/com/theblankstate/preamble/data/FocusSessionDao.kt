@@ -58,6 +58,9 @@ interface FocusSessionDao {
     @Query("SELECT COUNT(*) FROM focus_sessions")
     suspend fun getTotalSessionCount(): Int
 
+    @Query("SELECT MIN(date) FROM focus_sessions")
+    suspend fun getFirstSessionDate(): String?
+
     // Best focus day
     @Query("SELECT date, COALESCE(SUM(actualDurationCompletedSeconds), SUM(durationSeconds)) as totalSeconds FROM focus_sessions GROUP BY date ORDER BY totalSeconds DESC LIMIT 1")
     suspend fun getBestFocusDay(): BestFocusDay?
