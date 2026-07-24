@@ -42,6 +42,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
@@ -98,6 +99,7 @@ fun TaskTimerScreen(
     initialTaskId: String? = null,
     initialTaskTitle: String? = null,
     onBack: () -> Unit,
+    onOpenStats: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     // Hardware / Gesture Back Press Handler
@@ -616,8 +618,29 @@ fun TaskTimerScreen(
                     )
                 }
 
-                // Right spacer to keep floating title pill centered
-                Spacer(modifier = Modifier.size(44.dp * scaleFactor))
+                // Focus Stats Shortcut FAB
+                val statsInteraction = remember { MutableInteractionSource() }
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.9f),
+                    modifier = Modifier
+                        .size(44.dp * scaleFactor)
+                        .clip(CircleShape)
+                        .clickable(
+                            interactionSource = statsInteraction,
+                            indication = null
+                        ) { onOpenStats() }
+                        .expressivePressScale(statsInteraction)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.Insights,
+                            contentDescription = "Focus Stats",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp * scaleFactor)
+                        )
+                    }
+                }
             }
         }
     }

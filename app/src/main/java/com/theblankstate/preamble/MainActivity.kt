@@ -767,7 +767,12 @@ fun PreambleApp(
                 timerViewModel = timerViewModel,
                 initialTaskId = timerTargetTask?.first,
                 initialTaskTitle = timerTargetTask?.second,
-                onBack = { showTimerScreen = false }
+                onBack = { showTimerScreen = false },
+                onOpenStats = {
+                    showTimerScreen = false
+                    selectedTab = 1
+                    viewModel.refreshStats()
+                }
             )
         }
     }
