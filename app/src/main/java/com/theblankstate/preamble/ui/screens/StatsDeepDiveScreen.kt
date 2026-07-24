@@ -224,7 +224,18 @@ fun StatsDeepDiveScreen(
 
             item { Spacer(Modifier.height(18.dp * scaleFactor)) }
 
+            item {
+                FormulaCard(
+                    category = category,
+                    fg = fg,
+                    fgMuted = fgMuted,
+                    tile = tile,
+                    hair = hair,
+                    scaleFactor = scaleFactor
+                )
+            }
 
+            item { Spacer(Modifier.height(18.dp * scaleFactor)) }
 
             item {
                 CategoryBody(
@@ -1353,6 +1364,80 @@ private fun RangeCompareStrip(
 
 
 
+
+@Composable
+private fun FormulaCard(
+    category: StatsCategory,
+    fg: Color, fgMuted: Color, tile: Color, hair: Color, scaleFactor: Float
+) {
+    val f = formulaForCategory(category) ?: return
+    val interactionSource = remember { MutableInteractionSource() }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 20.dp * scaleFactor)
+            .clip(RoundedCornerShape(20.dp * scaleFactor))
+            .border(1.dp, hair, RoundedCornerShape(20.dp * scaleFactor))
+            .background(tile)
+            .expressivePressScale(interactionSource)
+            .padding(16.dp * scaleFactor)
+    ) {
+        Text("HOW IT IS MEASURED & PROVEN FORMULA", color = fgMuted, fontSize = 10.sp * scaleFactor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, letterSpacing = 1.4.sp * scaleFactor)
+        Spacer(Modifier.height(6.dp * scaleFactor))
+        Text(f.name, color = fg, fontSize = 14.sp * scaleFactor, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(4.dp * scaleFactor))
+        Text(f.body, color = fgMuted, fontSize = 12.sp * scaleFactor, lineHeight = 17.sp * scaleFactor)
+    }
+}
+
+private data class Formula(val name: String, val body: String)
+private fun formulaForCategory(c: StatsCategory): Formula? = when (c) {
+    StatsCategory.SCORE -> Formula(
+        "Productivity Score Formula (0–100)",
+        "Weighted composite index:\nScore = (Completion Rate × 40) + (Streak Bonus × 20) + (Focus Ratio × 20) + (Consistency Rate × 20)\n• Completion Rate: Total Completed / Total Tasks\n• Streak Bonus: min(Streak / 30, 1.0)\n• Focus Ratio: min(Today Focus Mins / 120, 1.0)\n• Consistency Rate: Active Days / 7"
+    )
+    StatsCategory.STREAK -> Formula(
+        "Consistency Streak Calculation",
+        "Streak = Consecutive days with at least 1 completed task up to today or yesterday.\n• Increments daily when a task or habit is completed.\n• Resets to 0 at midnight if 0 tasks were completed yesterday."
+    )
+    StatsCategory.CONSISTENCY -> Formula(
+        "Output Stability Formula (0–100)",
+        "Measured via Coefficient of Variation (CV = σ / μ) on 30-day daily completions:\nConsistency Score = max(0, 100 - (σ / (μ + 0.001) × 50))\n• μ: 30-day mean daily completion count\n• σ: Standard deviation of daily completion counts\n• High score = steady daily task output without spiky highs/zero-task lows."
+    )
+    StatsCategory.PEAK_HOURS -> Formula(
+        "Peak Hour Detection Histogram",
+        "Histogram of completed task & focus session timestamps aggregated into 24 hourly buckets (00:00 to 23:59).\n• Peak slot: The 4-hour window with maximum total task completions."
+    )
+    StatsCategory.TAGS -> Formula(
+        "Tag Focus & Completion Share",
+        "Tag Share % = (Tag Completed Tasks / Total Completed Tasks) × 100\n• Measures output allocation across custom user tags."
+    )
+    StatsCategory.FOCUS -> Formula(
+        "Focus Time Tracking Formula",
+        "Total Focus Time = Sum of actual completed seconds across all timer sessions.\n• Daily Average = Total Focus Seconds / Calendar Days since your first recorded session (including 0-session days for accuracy)."
+    )
+    StatsCategory.MOMENTUM -> Formula(
+        "Exponential Moving Average (EMA) Momentum",
+        "EMA_t = α × Today's Completions + (1 - α) × EMA_{t-1} with smoothing factor α = 0.3.\n• Burnout Risk: Ratio of recent 3-day completion drop relative to 30-day baseline average."
+    )
+    StatsCategory.ROLLOVER -> Formula(
+        "Rollover Health Index Formula",
+        "Rollover Clear Rate = (Completed Rollover Tasks / Total Rollover Tasks) × 100\n• Rollover Health Index penalizes tasks pending over 3+ days to encourage tackling aged debt."
+    )
+    StatsCategory.FORECAST -> Formula(
+        "Double Exponential Smoothing (Holt's Trend)",
+        "Forecast_t+h = Level_t + h × Trend_t\n• Predicts next 7 days' task completions using 30-day level and trend velocity."
+    )
+    StatsCategory.KARMA -> Formula(
+        "Karma Progression Formula",
+        "Karma Points = (Total Completed Tasks × 10) + (Longest Streak × 5) + (Total Focus Hours × 30)\n• Levels: Beginner → Productive (1000) → Expert (2000) → Master (4000) → Enlightened (7000)."
+    )
+    StatsCategory.WEEKDAY_WEEKEND -> Formula(
+        "Weekday vs. Weekend Average Ratio",
+        "Weekday Avg = Mon–Fri Completions / Weekday Count\nWeekend Avg = Sat–Sun Completions / Weekend Count"
+    )
+    else -> null
+}
 
 @Composable
 private fun BestsPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, hair: Color) {}

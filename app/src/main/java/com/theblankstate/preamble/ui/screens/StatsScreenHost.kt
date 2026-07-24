@@ -123,7 +123,6 @@ fun StatsScreenHost(
     }
     var range by rememberSaveable { mutableStateOf(StatsRange.MONTH) }
     var showTweaks by rememberSaveable { mutableStateOf(false) }
-    var showInfo by rememberSaveable { mutableStateOf(false) }
     var deepDive by rememberSaveable(stateSaver = DeepDiveSaver) { mutableStateOf<StatsCategory?>(null) }
 
     val gatedRangeChange: (StatsRange) -> Unit = { r -> range = r }
@@ -192,9 +191,6 @@ fun StatsScreenHost(
                         showTweaks = true
                         onRefreshStats?.invoke()
                     },
-                    onOpenInfo = {
-                        showInfo = true
-                    },
                     onOpenRecap = gatedRecap,
                     recapDayLabel = recapDayLabel,
                     isRecapDay = isRecapDay,
@@ -235,9 +231,8 @@ fun StatsScreenHost(
             }
         }
 
-        BackHandler(enabled = deepDive != null || showTweaks || showInfo) {
+        BackHandler(enabled = deepDive != null || showTweaks) {
             when {
-                showInfo -> showInfo = false
                 showTweaks -> showTweaks = false
                 deepDive != null -> deepDive = null
             }
@@ -270,16 +265,6 @@ fun StatsScreenHost(
                     tweaks = tweaks,
                     onChange = { tweaks = it }
                 )
-            }
-        }
-        if (showInfo) {
-            val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-            ModalBottomSheet(
-                onDismissRequest = { showInfo = false },
-                sheetState = sheet,
-                containerColor = if (tweaks.theme == StatsTheme.DARK) Color(0xFF161616) else Color.White,
-            ) {
-                InfoPanel(tweaks = tweaks)
             }
         }
     }

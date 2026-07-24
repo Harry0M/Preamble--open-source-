@@ -55,7 +55,6 @@ fun StatsRibbonScreen(
     statsState: StatsState,
     tweaks: StatsTweaks,
     onOpenTweaks: () -> Unit,
-    onOpenInfo: () -> Unit = {},
     onOpenRecap: (() -> Unit)? = null,
     recapDayLabel: String = "Sun",
     isRecapDay: Boolean = false,
@@ -124,19 +123,7 @@ fun StatsRibbonScreen(
                             )
                         }
                         Spacer(Modifier.width(8.dp))
-                        Spacer(Modifier.width(8.dp))
                     }
-                    Box(
-                        modifier = Modifier
-                            .size(34.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .border(1.dp, hair, RoundedCornerShape(999.dp))
-                            .clickable { onOpenInfo() },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Filled.Info, null, tint = fg, modifier = Modifier.size(16.dp))
-                    }
-                    Spacer(Modifier.width(8.dp))
                     Box(
                         modifier = Modifier
                             .size(34.dp)
