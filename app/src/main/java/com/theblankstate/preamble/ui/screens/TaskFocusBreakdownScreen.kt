@@ -1,10 +1,15 @@
 package com.theblankstate.preamble.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,9 +20,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -39,7 +46,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -53,6 +62,23 @@ import java.util.Date
 import java.util.Locale
 
 @Composable
+private fun Modifier.expressivePressScale(
+    interactionSource: MutableInteractionSource,
+    pressedScale: Float = 0.92f,
+): Modifier {
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) pressedScale else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow,
+        ),
+        label = "expressivePressScale",
+    )
+    return this.scale(scale)
+}
+
+@Composable
 fun TaskFocusBreakdownScreen(
     statsState: StatsState,
     onBack: () -> Unit,
@@ -60,6 +86,9 @@ fun TaskFocusBreakdownScreen(
     modifier: Modifier = Modifier,
     dark: Boolean = true
 ) {
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val scaleFactor: Float = (screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
+
     val fg = if (dark) Color.White else Color.Black
     val fgMuted = if (dark) Color.White.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.52f)
     val hair = if (dark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.12f)
@@ -102,170 +131,189 @@ fun TaskFocusBreakdownScreen(
         }
     }
 
-    // Sessions map grouped by taskId or title
     val sessionsByTask = remember(statsState.recentSessionsList) {
         statsState.recentSessionsList.groupBy { it.taskId ?: it.taskTitle ?: "standalone" }
     }
 
-    Column(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(surface)
     ) {
-        // Floating Top Header
+        Column(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            // Top Clearance Spacer for Floating Header Bar
+            Spacer(modifier = Modifier.height(76.dp * scaleFactor))
+
+            // Search Bar & Metric Summary Pill
+            Column(modifier = Modifier.padding(horizontal = 20.dp * scaleFactor, vertical = 6.dp * scaleFactor)) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp * scaleFactor),
+                    color = tile,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp * scaleFactor, vertical = 10.dp * scaleFactor),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = "Search",
+                            tint = fgMuted,
+                            modifier = Modifier.size(18.dp * scaleFactor)
+                        )
+                        Spacer(Modifier.width(10.dp * scaleFactor))
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            textStyle = MaterialTheme.typography.bodyMedium.copy(
+                                color = fg,
+                                fontSize = 14.sp * scaleFactor
+                            ),
+                            decorationBox = { innerTextField ->
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "Search task focus history...",
+                                        color = fgMuted,
+                                        fontSize = 14.sp * scaleFactor
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(10.dp * scaleFactor))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${filteredTaskStats.size} TASKS TRACKED",
+                        color = fgMuted,
+                        fontSize = 11.sp * scaleFactor,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 1.2.sp * scaleFactor
+                    )
+                    Text(
+                        text = "TOTAL: ${formatMinutesLong(grandTotalSeconds / 60)}",
+                        color = accent,
+                        fontSize = 11.sp * scaleFactor,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp * scaleFactor))
+
+            if (filteredTaskStats.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(32.dp * scaleFactor),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (searchQuery.isNotBlank()) "No tasks matching '$searchQuery'" else "No task focus statistics recorded yet.",
+                        color = fgMuted,
+                        fontSize = 14.sp * scaleFactor
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 20.dp * scaleFactor),
+                    verticalArrangement = Arrangement.spacedBy(10.dp * scaleFactor)
+                ) {
+                    itemsIndexed(
+                        items = filteredTaskStats,
+                        key = { index, item -> item.taskId ?: item.taskTitle ?: "key_$index" }
+                    ) { _, stat ->
+                        val isExpanded = expandedTaskId == stat.taskId
+                        val percentage = (stat.totalSeconds.toFloat() / grandTotalSeconds.toFloat() * 100f).coerceIn(0f, 100f)
+
+                        TaskFocusItemCard(
+                            stat = stat,
+                            percentage = percentage,
+                            isExpanded = isExpanded,
+                            sessions = sessionsByTask[stat.taskId] ?: sessionsByTask[stat.taskTitle] ?: emptyList(),
+                            fg = fg,
+                            fgMuted = fgMuted,
+                            tile = tile,
+                            hair = hair,
+                            accent = accent,
+                            scaleFactor = scaleFactor,
+                            onToggleExpand = {
+                                expandedTaskId = if (isExpanded) null else stat.taskId
+                            },
+                            onTaskClick = {
+                                onTaskClick?.invoke(stat.taskId, stat.taskTitle)
+                            }
+                        )
+                    }
+                    item { Spacer(Modifier.height(40.dp * scaleFactor)) }
+                }
+            }
+        }
+
+        // Floating Header Bar (FAB Style Signature)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 12.dp, end = 16.dp, top = 14.dp, bottom = 10.dp),
+                .statusBarsPadding()
+                .padding(horizontal = 14.dp * scaleFactor, vertical = 6.dp * scaleFactor),
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
+            val backInteraction = remember { MutableInteractionSource() }
+            Surface(
+                shape = CircleShape,
+                color = tile.copy(alpha = 0.95f),
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .clickable { onBack() },
-                contentAlignment = Alignment.Center
+                    .size(44.dp * scaleFactor)
+                    .clip(CircleShape)
+                    .clickable(
+                        interactionSource = backInteraction,
+                        indication = null
+                    ) { onBack() }
+                    .expressivePressScale(backInteraction)
             ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = fg
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = fg,
+                        modifier = Modifier.size(20.dp * scaleFactor)
+                    )
+                }
             }
-            Spacer(Modifier.width(6.dp))
-            Column {
-                Text(
-                    text = "FOCUS STATS",
-                    color = fgMuted,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = 1.4.sp
-                )
+
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = tile.copy(alpha = 0.95f),
+                modifier = Modifier.padding(horizontal = 4.dp * scaleFactor)
+            ) {
                 Text(
                     text = "Task Breakdown",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp * scaleFactor
+                    ),
                     color = fg,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.ExtraBold
+                    modifier = Modifier.padding(horizontal = 16.dp * scaleFactor, vertical = 8.dp * scaleFactor)
                 )
             }
-        }
 
-        // Search Bar & Metric Summary Pill
-        Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp)) {
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = tile,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = "Search",
-                        tint = fgMuted,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true,
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                            color = fg,
-                            fontSize = 14.sp
-                        ),
-                        decorationBox = { innerTextField ->
-                            if (searchQuery.isEmpty()) {
-                                Text(
-                                    text = "Search task focus history...",
-                                    color = fgMuted,
-                                    fontSize = 14.sp
-                                )
-                            }
-                            innerTextField()
-                        }
-                    )
-                }
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "${filteredTaskStats.size} TASKS TRACKED",
-                    color = fgMuted,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = 1.2.sp
-                )
-                Text(
-                    text = "TOTAL: ${formatMinutesLong(grandTotalSeconds / 60)}",
-                    color = accent,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-        }
-
-        Spacer(Modifier.height(8.dp))
-
-        if (filteredTaskStats.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = if (searchQuery.isNotBlank()) "No tasks matching '$searchQuery'" else "No task focus statistics recorded yet.",
-                    color = fgMuted,
-                    fontSize = 14.sp
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                itemsIndexed(
-                    items = filteredTaskStats,
-                    key = { index, item -> item.taskId ?: item.taskTitle ?: "key_$index" }
-                ) { _, stat ->
-                    val isExpanded = expandedTaskId == stat.taskId
-                    val percentage = (stat.totalSeconds.toFloat() / grandTotalSeconds.toFloat() * 100f).coerceIn(0f, 100f)
-
-                    TaskFocusItemCard(
-                        stat = stat,
-                        percentage = percentage,
-                        isExpanded = isExpanded,
-                        sessions = sessionsByTask[stat.taskId] ?: sessionsByTask[stat.taskTitle] ?: emptyList(),
-                        fg = fg,
-                        fgMuted = fgMuted,
-                        tile = tile,
-                        hair = hair,
-                        accent = accent,
-                        onToggleExpand = {
-                            expandedTaskId = if (isExpanded) null else stat.taskId
-                        },
-                        onTaskClick = {
-                            onTaskClick?.invoke(stat.taskId, stat.taskTitle)
-                        }
-                    )
-                }
-                item { Spacer(Modifier.height(40.dp)) }
-            }
+            Spacer(modifier = Modifier.size(44.dp * scaleFactor))
         }
     }
 }
@@ -281,83 +329,97 @@ private fun TaskFocusItemCard(
     tile: Color,
     hair: Color,
     accent: Color,
+    scaleFactor: Float,
     onToggleExpand: () -> Unit,
     onTaskClick: () -> Unit
 ) {
+    val cardInteraction = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(20.dp * scaleFactor))
             .background(tile)
-            .padding(16.dp)
+            .padding(16.dp * scaleFactor)
+            .expressivePressScale(cardInteraction)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable { onToggleExpand() },
+                .clickable(
+                    interactionSource = cardInteraction,
+                    indication = null
+                ) { onToggleExpand() },
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Icon(
-                imageVector = Icons.Default.Timer,
-                contentDescription = null,
-                tint = accent,
-                modifier = Modifier.size(20.dp)
-            )
-            Spacer(Modifier.width(12.dp))
+            Box(
+                modifier = Modifier
+                    .size(40.dp * scaleFactor)
+                    .clip(CircleShape)
+                    .background(accent.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Timer,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(20.dp * scaleFactor)
+                )
+            }
+            Spacer(Modifier.width(12.dp * scaleFactor))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = stat.taskTitle ?: "Standalone Session",
                     color = fg,
-                    fontSize = 15.sp,
+                    fontSize = 15.sp * scaleFactor,
                     fontWeight = FontWeight.Bold
                 )
-                Spacer(Modifier.height(2.dp))
+                Spacer(Modifier.height(2.dp * scaleFactor))
                 Text(
                     text = "Sessions: ${stat.sessionCount} · Avg: ${stat.avgDurationSeconds / 60}m",
                     color = fgMuted,
-                    fontSize = 11.sp
+                    fontSize = 11.sp * scaleFactor
                 )
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(8.dp * scaleFactor))
             Column(horizontalAlignment = Alignment.End) {
                 Text(
                     text = formatMinutesLong(stat.totalSeconds / 60),
                     color = fg,
-                    fontSize = 14.sp,
+                    fontSize = 14.sp * scaleFactor,
                     fontWeight = FontWeight.ExtraBold,
                     fontFamily = FontFamily.Monospace
                 )
                 Text(
                     text = String.format(Locale.US, "%.1f%%", percentage),
                     color = accent,
-                    fontSize = 11.sp,
+                    fontSize = 11.sp * scaleFactor,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace
                 )
             }
-            Spacer(Modifier.width(6.dp))
+            Spacer(Modifier.width(6.dp * scaleFactor))
             Icon(
                 imageVector = if (isExpanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
                 contentDescription = if (isExpanded) "Collapse" else "Expand",
                 tint = fgMuted,
-                modifier = Modifier.size(20.dp)
+                modifier = Modifier.size(20.dp * scaleFactor)
             )
         }
 
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(10.dp * scaleFactor))
 
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(6.dp)
+                .height(6.dp * scaleFactor)
                 .clip(RoundedCornerShape(999.dp))
                 .background(fgMuted.copy(alpha = 0.15f))
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth(percentage / 100f)
-                    .height(6.dp)
+                    .height(6.dp * scaleFactor)
                     .clip(RoundedCornerShape(999.dp))
                     .background(accent)
             )
@@ -371,7 +433,7 @@ private fun TaskFocusItemCard(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 14.dp)
+                    .padding(top = 14.dp * scaleFactor)
             ) {
                 Box(
                     Modifier
@@ -379,25 +441,25 @@ private fun TaskFocusItemCard(
                         .height(1.dp)
                         .background(hair)
                 )
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(12.dp * scaleFactor))
 
                 Text(
                     text = "DAILY FOCUS TIMELINE",
                     color = fgMuted,
-                    fontSize = 10.sp,
+                    fontSize = 10.sp * scaleFactor,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
-                    letterSpacing = 1.2.sp
+                    letterSpacing = 1.2.sp * scaleFactor
                 )
 
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(8.dp * scaleFactor))
 
                 if (sessions.isEmpty()) {
                     Text(
                         text = "No detailed session timeline available.",
                         color = fgMuted,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(vertical = 4.dp)
+                        fontSize = 12.sp * scaleFactor,
+                        modifier = Modifier.padding(vertical = 4.dp * scaleFactor)
                     )
                 } else {
                     val dailyGroups = remember(sessions) {
@@ -414,15 +476,15 @@ private fun TaskFocusItemCard(
                         dailyGroups.maxOfOrNull { it.totalSeconds }?.coerceAtLeast(1) ?: 1
                     }
 
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp * scaleFactor)) {
                         dailyGroups.take(10).forEach { daily ->
                             val dailyPct = (daily.totalSeconds.toFloat() / maxDailySec.toFloat()).coerceIn(0.05f, 1f)
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .clip(RoundedCornerShape(12.dp * scaleFactor))
                                     .background(fgMuted.copy(alpha = 0.08f))
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    .padding(horizontal = 12.dp * scaleFactor, vertical = 8.dp * scaleFactor),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
@@ -430,38 +492,38 @@ private fun TaskFocusItemCard(
                                     Text(
                                         text = formatTimelineDate(daily.date),
                                         color = fg,
-                                        fontSize = 12.sp,
+                                        fontSize = 12.sp * scaleFactor,
                                         fontWeight = FontWeight.SemiBold
                                     )
-                                    Spacer(Modifier.height(2.dp))
+                                    Spacer(Modifier.height(2.dp * scaleFactor))
                                     Text(
                                         text = "${daily.sessionCount} session${if (daily.sessionCount > 1) "s" else ""}",
                                         color = fgMuted,
-                                        fontSize = 10.sp
+                                        fontSize = 10.sp * scaleFactor
                                     )
                                 }
 
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Box(
                                         modifier = Modifier
-                                            .width(60.dp)
-                                            .height(4.dp)
+                                            .width(60.dp * scaleFactor)
+                                            .height(4.dp * scaleFactor)
                                             .clip(RoundedCornerShape(999.dp))
                                             .background(fgMuted.copy(alpha = 0.2f))
                                     ) {
                                         Box(
                                             modifier = Modifier
                                                 .fillMaxWidth(dailyPct)
-                                                .height(4.dp)
+                                                .height(4.dp * scaleFactor)
                                                 .clip(RoundedCornerShape(999.dp))
                                                 .background(accent)
                                         )
                                     }
-                                    Spacer(Modifier.width(10.dp))
+                                    Spacer(Modifier.width(10.dp * scaleFactor))
                                     Text(
                                         text = formatMinutesLong(daily.totalSeconds / 60),
                                         color = fg,
-                                        fontSize = 12.sp,
+                                        fontSize = 12.sp * scaleFactor,
                                         fontWeight = FontWeight.Bold,
                                         fontFamily = FontFamily.Monospace
                                     )

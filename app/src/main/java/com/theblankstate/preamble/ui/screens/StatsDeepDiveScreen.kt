@@ -1,9 +1,14 @@
 package com.theblankstate.preamble.ui.screens
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,16 +19,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Task
+import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -38,12 +45,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -69,6 +78,23 @@ enum class DeepRange(val days: Int, val label: String) {
 }
 
 @Composable
+private fun Modifier.expressivePressScale(
+    interactionSource: MutableInteractionSource,
+    pressedScale: Float = 0.92f,
+): Modifier {
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) pressedScale else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow,
+        ),
+        label = "expressivePressScale",
+    )
+    return this.scale(scale)
+}
+
+@Composable
 fun StatsDeepDiveScreen(
     category: StatsCategory,
     statsState: StatsState,
@@ -76,6 +102,9 @@ fun StatsDeepDiveScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val scaleFactor: Float = (screenWidthDp / 360f).coerceIn(0.85f, 1.15f)
+
     val dark = tweaks.theme == StatsTheme.DARK
     val fg = if (dark) Color.White else Color.Black
     val fgMuted = if (dark) Color.White.copy(alpha = 0.55f) else Color.Black.copy(alpha = 0.52f)
@@ -107,137 +136,178 @@ fun StatsDeepDiveScreen(
         return
     }
 
-    LazyColumn(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(surface)
     ) {
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 12.dp, end = 16.dp, top = 14.dp, bottom = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(40.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .clickable { onBack() },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = fg)
+        LazyColumn(
+            modifier = Modifier.fillMaxSize()
+        ) {
+            // Top Clearance Spacer for Floating Top Header Bar
+            item { Spacer(modifier = Modifier.height(76.dp * scaleFactor)) }
+
+            item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp * scaleFactor, vertical = 4.dp * scaleFactor)) {
+                    Text(
+                        header.kicker.uppercase(),
+                        color = fgMuted,
+                        fontSize = 11.sp * scaleFactor,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.6.sp * scaleFactor,
+                        fontFamily = FontFamily.Monospace,
+                    )
+                    Spacer(Modifier.height(6.dp * scaleFactor))
+                    Text(
+                        header.title,
+                        color = fg,
+                        fontSize = 32.sp * scaleFactor,
+                        lineHeight = 36.sp * scaleFactor,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = (-1.2).sp * scaleFactor,
+                    )
+                    if (header.sub.isNotBlank()) {
+                        Spacer(Modifier.height(4.dp * scaleFactor))
+                        Text(
+                            header.sub,
+                            color = fgMuted,
+                            fontSize = 14.sp * scaleFactor,
+                            lineHeight = 20.sp * scaleFactor,
+                        )
+                    }
                 }
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    "Stats",
-                    color = fg,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
+            }
+
+            item { Spacer(Modifier.height(16.dp * scaleFactor)) }
+
+            item {
+                CompareCurrVsPrev(
+                    category = category,
+                    statsState = statsState,
+                    fg = fg,
+                    fgMuted = fgMuted,
+                    tile = tile,
+                    accent = accent,
+                    hair = hair,
+                    scaleFactor = scaleFactor
                 )
             }
+
+            item { Spacer(Modifier.height(18.dp * scaleFactor)) }
+
+            item {
+                RangePicker(
+                    selected = deepRange,
+                    onSelect = { deepRange = it },
+                    fg = fg,
+                    fgMuted = fgMuted,
+                    tile = tile,
+                    dark = dark,
+                    scaleFactor = scaleFactor
+                )
+            }
+
+            item { Spacer(Modifier.height(10.dp * scaleFactor)) }
+
+            item {
+                RangeCompareStrip(
+                    category = category,
+                    statsState = statsState,
+                    selected = deepRange,
+                    fg = fg,
+                    fgMuted = fgMuted,
+                    tile = tile,
+                    accent = accent,
+                    scaleFactor = scaleFactor
+                )
+            }
+
+            item { Spacer(Modifier.height(18.dp * scaleFactor)) }
+
+            item {
+                FormulaCard(
+                    category = category,
+                    fg = fg,
+                    fgMuted = fgMuted,
+                    tile = tile,
+                    hair = hair,
+                    scaleFactor = scaleFactor
+                )
+            }
+
+            item { Spacer(Modifier.height(18.dp * scaleFactor)) }
+
+            item {
+                CategoryBody(
+                    category = category,
+                    statsState = statsState,
+                    fg = fg,
+                    fgMuted = fgMuted,
+                    tile = tile,
+                    accent = accent,
+                    hair = hair,
+                    surface = surface,
+                    dark = dark,
+                    scaleFactor = scaleFactor,
+                    onOpenTaskBreakdown = { showTaskBreakdownSubScreen = true },
+                    onOpenRecentSessions = { showRecentSessionsSubScreen = true }
+                )
+            }
+            item { Spacer(Modifier.height(60.dp * scaleFactor)) }
         }
-        item {
-            Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)) {
-                Text(
-                    header.kicker.uppercase(),
-                    color = fgMuted,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.6.sp,
-                    fontFamily = FontFamily.Monospace,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    header.title,
-                    color = fg,
-                    fontSize = 34.sp,
-                    lineHeight = 38.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = (-1.2).sp,
-                )
-                if (header.sub.isNotBlank()) {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        header.sub,
-                        color = fgMuted,
-                        fontSize = 14.sp,
-                        lineHeight = 20.sp,
+
+        // Floating Top Header Bar (Preamble Standard Signature)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 14.dp * scaleFactor, vertical = 6.dp * scaleFactor),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Back FAB
+            val backInteraction = remember { MutableInteractionSource() }
+            Surface(
+                shape = CircleShape,
+                color = tile.copy(alpha = 0.95f),
+                modifier = Modifier
+                    .size(44.dp * scaleFactor)
+                    .clip(CircleShape)
+                    .clickable(
+                        interactionSource = backInteraction,
+                        indication = null
+                    ) { onBack() }
+                    .expressivePressScale(backInteraction)
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = fg,
+                        modifier = Modifier.size(20.dp * scaleFactor)
                     )
                 }
             }
+
+            // Title Pill Capsule
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = tile.copy(alpha = 0.95f),
+                modifier = Modifier.padding(horizontal = 4.dp * scaleFactor)
+            ) {
+                Text(
+                    text = "Focus Stats",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp * scaleFactor
+                    ),
+                    color = fg,
+                    modifier = Modifier.padding(horizontal = 16.dp * scaleFactor, vertical = 8.dp * scaleFactor)
+                )
+            }
+
+            Spacer(modifier = Modifier.size(44.dp * scaleFactor))
         }
-        item { Spacer(Modifier.height(18.dp)) }
-
-        item {
-            CompareCurrVsPrev(
-                category = category,
-                statsState = statsState,
-                fg = fg,
-                fgMuted = fgMuted,
-                tile = tile,
-                accent = accent,
-                hair = hair,
-            )
-        }
-
-        item { Spacer(Modifier.height(20.dp)) }
-
-        item {
-            RangePicker(
-                selected = deepRange,
-                onSelect = { deepRange = it },
-                fg = fg,
-                fgMuted = fgMuted,
-                tile = tile,
-                dark = dark,
-            )
-        }
-
-        item { Spacer(Modifier.height(12.dp)) }
-
-        item {
-            RangeCompareStrip(
-                category = category,
-                statsState = statsState,
-                selected = deepRange,
-                fg = fg,
-                fgMuted = fgMuted,
-                tile = tile,
-                accent = accent,
-            )
-        }
-
-        item { Spacer(Modifier.height(20.dp)) }
-
-        item {
-            FormulaCard(
-                category = category,
-                fg = fg,
-                fgMuted = fgMuted,
-                tile = tile,
-                hair = hair,
-            )
-        }
-
-        item { Spacer(Modifier.height(20.dp)) }
-
-        item {
-            CategoryBody(
-                category = category,
-                statsState = statsState,
-                fg = fg,
-                fgMuted = fgMuted,
-                tile = tile,
-                accent = accent,
-                hair = hair,
-                surface = surface,
-                dark = dark,
-                onOpenTaskBreakdown = { showTaskBreakdownSubScreen = true },
-                onOpenRecentSessions = { showRecentSessionsSubScreen = true }
-            )
-        }
-        item { Spacer(Modifier.height(60.dp)) }
     }
 }
 
@@ -280,14 +350,14 @@ private fun deepDiveHeader(c: StatsCategory, s: StatsState): DeepHeader = when (
 private fun CompareCurrVsPrev(
     category: StatsCategory,
     statsState: StatsState,
-    fg: Color, fgMuted: Color, tile: Color, accent: Color, hair: Color,
+    fg: Color, fgMuted: Color, tile: Color, accent: Color, hair: Color, scaleFactor: Float
 ) {
     val cmp = compareForCategory(category, statsState) ?: return
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(horizontal = 20.dp * scaleFactor),
+        horizontalArrangement = Arrangement.spacedBy(10.dp * scaleFactor)
     ) {
         CompareCard(
             label = cmp.currentLabel,
@@ -295,6 +365,7 @@ private fun CompareCurrVsPrev(
             bg = accent,
             fg = Color.Black,
             sub = cmp.currentSub,
+            scaleFactor = scaleFactor,
             modifier = Modifier.weight(1f)
         )
         CompareCard(
@@ -303,24 +374,25 @@ private fun CompareCurrVsPrev(
             bg = tile,
             fg = fg,
             sub = cmp.previousSub,
+            scaleFactor = scaleFactor,
             modifier = Modifier.weight(1f)
         )
     }
     if (cmp.deltaText.isNotBlank()) {
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(10.dp * scaleFactor))
         Row(modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)) {
+            .padding(horizontal = 20.dp * scaleFactor)) {
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(999.dp))
                     .border(1.dp, hair, RoundedCornerShape(999.dp))
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                    .padding(horizontal = 12.dp * scaleFactor, vertical = 6.dp * scaleFactor)
             ) {
                 Text(
                     cmp.deltaText,
                     color = fg,
-                    fontSize = 12.sp,
+                    fontSize = 12.sp * scaleFactor,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = FontFamily.Monospace,
                 )
@@ -336,34 +408,37 @@ private fun CompareCard(
     bg: Color,
     fg: Color,
     sub: String,
+    scaleFactor: Float,
     modifier: Modifier = Modifier,
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(20.dp * scaleFactor))
             .background(bg)
-            .padding(16.dp)
+            .padding(16.dp * scaleFactor)
+            .expressivePressScale(interactionSource)
     ) {
         Text(
             label.uppercase(),
             color = fg.copy(alpha = 0.6f),
-            fontSize = 10.sp,
+            fontSize = 10.sp * scaleFactor,
             fontWeight = FontWeight.Bold,
-            letterSpacing = 1.4.sp,
+            letterSpacing = 1.4.sp * scaleFactor,
             fontFamily = FontFamily.Monospace,
         )
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(10.dp * scaleFactor))
         Text(
             value,
             color = fg,
-            fontSize = 34.sp,
-            lineHeight = 36.sp,
+            fontSize = 32.sp * scaleFactor,
+            lineHeight = 36.sp * scaleFactor,
             fontWeight = FontWeight.ExtraBold,
-            letterSpacing = (-1.4).sp,
+            letterSpacing = (-1.4).sp * scaleFactor,
         )
         if (sub.isNotBlank()) {
-            Spacer(Modifier.height(4.dp))
-            Text(sub, color = fg.copy(alpha = 0.65f), fontSize = 11.sp)
+            Spacer(Modifier.height(4.dp * scaleFactor))
+            Text(sub, color = fg.copy(alpha = 0.65f), fontSize = 11.sp * scaleFactor)
         }
     }
 }
@@ -476,6 +551,7 @@ private fun CategoryBody(
     statsState: StatsState,
     fg: Color, fgMuted: Color, tile: Color, accent: Color, hair: Color, surface: Color,
     dark: Boolean,
+    scaleFactor: Float,
     onOpenTaskBreakdown: () -> Unit = {},
     onOpenRecentSessions: () -> Unit = {}
 ) {
@@ -484,7 +560,7 @@ private fun CategoryBody(
         StatsCategory.CONSISTENCY -> ConsistencyPanel(statsState, fg, fgMuted, tile, accent, surface, dark)
         StatsCategory.PEAK_HOURS -> PeakHoursPanel(statsState, fg, fgMuted, tile, accent)
         StatsCategory.TAGS -> TagsPanel(statsState, fg, fgMuted, tile, hair, accent)
-        StatsCategory.FOCUS -> FocusPanel(statsState, fg, fgMuted, tile, accent, hair, onOpenTaskBreakdown, onOpenRecentSessions)
+        StatsCategory.FOCUS -> FocusPanel(statsState, fg, fgMuted, tile, accent, hair, scaleFactor, onOpenTaskBreakdown, onOpenRecentSessions)
         StatsCategory.BESTS -> BestsPanel(statsState, fg, fgMuted, tile, hair)
         StatsCategory.WEEKLY -> WeeklyPanel(statsState, fg, fgMuted, tile, accent, dark)
         StatsCategory.STREAK -> StreakPanel(statsState, fg, fgMuted, tile, hair, accent)
@@ -500,25 +576,25 @@ private fun CategoryBody(
 }
 
 @Composable
-private fun SectionKicker(text: String, fgMuted: Color) {
+private fun SectionKicker(text: String, fgMuted: Color, scaleFactor: Float = 1f) {
     Text(
         text.uppercase(),
         color = fgMuted,
-        fontSize = 11.sp,
+        fontSize = 11.sp * scaleFactor,
         fontWeight = FontWeight.Bold,
-        letterSpacing = 1.6.sp,
+        letterSpacing = 1.6.sp * scaleFactor,
         fontFamily = FontFamily.Monospace,
-        modifier = Modifier.padding(start = 20.dp, bottom = 10.dp)
+        modifier = Modifier.padding(start = 20.dp * scaleFactor, bottom = 10.dp * scaleFactor)
     )
 }
 
 @Composable
-private fun PanelColumn(content: @Composable () -> Unit) {
+private fun PanelColumn(scaleFactor: Float = 1f, content: @Composable () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(horizontal = 20.dp * scaleFactor),
+        verticalArrangement = Arrangement.spacedBy(10.dp * scaleFactor)
     ) { content() }
 }
 
@@ -692,6 +768,7 @@ private fun FocusPanel(
     tile: Color,
     accent: Color,
     hair: Color,
+    scaleFactor: Float,
     onOpenTaskBreakdown: () -> Unit,
     onOpenRecentSessions: () -> Unit
 ) {
@@ -700,62 +777,87 @@ private fun FocusPanel(
     // ═══════════════════════════════════════════════════════════════
     // 1. HERO CARD: TODAY'S FOCUS
     // ═══════════════════════════════════════════════════════════════
-    SectionKicker("Today's Focus", fgMuted)
-    PanelColumn {
+    SectionKicker("Today's Focus", fgMuted, scaleFactor)
+    PanelColumn(scaleFactor) {
+        val heroInteraction = remember { MutableInteractionSource() }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(24.dp))
+                .clip(RoundedCornerShape(24.dp * scaleFactor))
                 .background(accent)
-                .padding(20.dp)
+                .padding(20.dp * scaleFactor)
+                .expressivePressScale(heroInteraction)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = "TODAY'S TOTAL",
-                    color = Color.Black.copy(alpha = 0.6f),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    letterSpacing = 1.4.sp
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp * scaleFactor)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Timer,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(20.dp * scaleFactor)
+                        )
+                    }
+                    Spacer(Modifier.width(10.dp * scaleFactor))
+                    Text(
+                        text = "TODAY'S TOTAL",
+                        color = Color.Black.copy(alpha = 0.65f),
+                        fontSize = 11.sp * scaleFactor,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        letterSpacing = 1.4.sp * scaleFactor
+                    )
+                }
+
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
                         .background(Color.Black.copy(alpha = 0.15f))
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                        .padding(horizontal = 10.dp * scaleFactor, vertical = 4.dp * scaleFactor)
                 ) {
                     Text(
                         text = "${s.todayFocusSessions} sessions",
                         color = Color.Black,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+                        fontSize = 11.sp * scaleFactor,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
                     )
                 }
             }
-            Spacer(Modifier.height(10.dp))
+
+            Spacer(Modifier.height(12.dp * scaleFactor))
+
             Text(
                 text = formatMinutesLong(s.todayFocusMinutes),
                 color = Color.Black,
-                fontSize = 38.sp,
-                lineHeight = 42.sp,
+                fontSize = 36.sp * scaleFactor,
+                lineHeight = 40.sp * scaleFactor,
                 fontWeight = FontWeight.ExtraBold,
-                letterSpacing = (-1.5).sp
+                letterSpacing = (-1.5).sp * scaleFactor
             )
-            Spacer(Modifier.height(6.dp))
+
+            Spacer(Modifier.height(6.dp * scaleFactor))
+
             Text(
                 text = "Streak: ${s.streak} days · Week total: ${formatMinutesLong(s.thisWeekFocusMinutes)}",
                 color = Color.Black.copy(alpha = 0.7f),
-                fontSize = 12.sp,
+                fontSize = 12.sp * scaleFactor,
                 fontWeight = FontWeight.Medium
             )
         }
     }
 
-    Spacer(Modifier.height(16.dp))
+    Spacer(Modifier.height(16.dp * scaleFactor))
 
     // ═══════════════════════════════════════════════════════════════
     // 2. DAILY & WEEKLY SUMMARY BAR CHART WITH CUSTOM WEEK NAVIGATION
@@ -764,76 +866,85 @@ private fun FocusPanel(
         calculateWeekDataForOffset(selectedWeekOffset, s.weeklyFocusData, s.recentSessionsList)
     }
 
-    SectionKicker("Daily & Weekly Focus Summary", fgMuted)
-    PanelColumn {
+    SectionKicker("Daily & Weekly Focus Summary", fgMuted, scaleFactor)
+    PanelColumn(scaleFactor) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(20.dp * scaleFactor))
                 .background(tile)
-                .padding(16.dp)
+                .padding(16.dp * scaleFactor)
         ) {
-            // Week Navigation Header Bar
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val prevInteraction = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(50))
+                        .size(36.dp * scaleFactor)
+                        .clip(CircleShape)
                         .background(fgMuted.copy(alpha = 0.12f))
-                        .clickable { selectedWeekOffset-- },
+                        .clickable(
+                            interactionSource = prevInteraction,
+                            indication = null
+                        ) { selectedWeekOffset-- }
+                        .expressivePressScale(prevInteraction),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.ChevronLeft,
                         contentDescription = "Previous Week",
                         tint = fg,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(18.dp * scaleFactor)
                     )
                 }
 
                 Text(
                     text = "$weekStartStr - $weekEndStr",
                     color = fg,
-                    fontSize = 13.sp,
+                    fontSize = 13.sp * scaleFactor,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace
                 )
 
+                val nextInteraction = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(50))
+                        .size(36.dp * scaleFactor)
+                        .clip(CircleShape)
                         .background(
                             if (selectedWeekOffset < 0) fgMuted.copy(alpha = 0.12f) else Color.Transparent
                         )
-                        .clickable(enabled = selectedWeekOffset < 0) {
+                        .clickable(
+                            enabled = selectedWeekOffset < 0,
+                            interactionSource = nextInteraction,
+                            indication = null
+                        ) {
                             if (selectedWeekOffset < 0) selectedWeekOffset++
-                        },
+                        }
+                        .expressivePressScale(nextInteraction),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.ChevronRight,
                         contentDescription = "Next Week",
                         tint = if (selectedWeekOffset < 0) fg else fgMuted.copy(alpha = 0.3f),
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(18.dp * scaleFactor)
                     )
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(16.dp * scaleFactor))
 
-            // Chart Bars
             val maxSec = (weekData.maxOfOrNull { it.second } ?: 1).coerceAtLeast(1)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(100.dp),
+                    .height(100.dp * scaleFactor),
                 verticalAlignment = Alignment.Bottom,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp * scaleFactor)
             ) {
                 weekData.forEach { (dayLabel, sec) ->
                     val frac = (sec.toFloat() / maxSec.toFloat()).coerceIn(0f, 1f)
@@ -845,22 +956,22 @@ private fun FocusPanel(
                         Text(
                             text = if (mins > 0) "${mins}m" else "",
                             color = fgMuted,
-                            fontSize = 9.sp,
+                            fontSize = 9.sp * scaleFactor,
                             fontFamily = FontFamily.Monospace
                         )
-                        Spacer(Modifier.height(3.dp))
+                        Spacer(Modifier.height(3.dp * scaleFactor))
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(maxOf(6f, 75f * frac).dp)
+                                .height(maxOf(6f, 75f * frac).dp * scaleFactor)
                                 .clip(RoundedCornerShape(999.dp))
                                 .background(if (sec > 0) accent else fgMuted.copy(alpha = 0.15f))
                         )
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(6.dp * scaleFactor))
                         Text(
                             text = dayLabel,
                             color = fgMuted,
-                            fontSize = 10.sp,
+                            fontSize = 10.sp * scaleFactor,
                             fontWeight = FontWeight.SemiBold
                         )
                     }
@@ -869,7 +980,7 @@ private fun FocusPanel(
         }
     }
 
-    Spacer(Modifier.height(16.dp))
+    Spacer(Modifier.height(16.dp * scaleFactor))
 
     // ═══════════════════════════════════════════════════════════════
     // 3. TASK BREAKDOWN CARD + VIEW ALL ACTION
@@ -890,17 +1001,17 @@ private fun FocusPanel(
         }
     }
 
-    SectionKicker("Task Breakdown", fgMuted)
-    PanelColumn {
+    SectionKicker("Task Breakdown", fgMuted, scaleFactor)
+    PanelColumn(scaleFactor) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(20.dp * scaleFactor))
                 .background(tile)
-                .padding(16.dp)
+                .padding(16.dp * scaleFactor)
         ) {
             if (taskStats.isEmpty()) {
-                Text("Start a focus session for a task to build statistics.", color = fgMuted, fontSize = 13.sp)
+                Text("Start a focus session for a task to build statistics.", color = fgMuted, fontSize = 13.sp * scaleFactor)
             } else {
                 val grandTotal = taskStats.sumOf { it.totalSeconds }.coerceAtLeast(1)
                 taskStats.take(4).forEachIndexed { i, stat ->
@@ -908,7 +1019,7 @@ private fun FocusPanel(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 8.dp)
+                            .padding(vertical = 8.dp * scaleFactor)
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -918,19 +1029,19 @@ private fun FocusPanel(
                             Text(
                                 text = stat.taskTitle ?: "Standalone Session",
                                 color = fg,
-                                fontSize = 14.sp,
+                                fontSize = 14.sp * scaleFactor,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.weight(1f)
                             )
                             Text(
                                 text = formatMinutes(stat.totalSeconds / 60),
                                 color = fg,
-                                fontSize = 13.sp,
+                                fontSize = 13.sp * scaleFactor,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             )
                         }
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(4.dp * scaleFactor))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -938,12 +1049,12 @@ private fun FocusPanel(
                             Text(
                                 text = "Sessions: ${stat.sessionCount} · Avg: ${formatMinutes(stat.avgDurationSeconds / 60)}",
                                 color = fgMuted,
-                                fontSize = 11.sp
+                                fontSize = 11.sp * scaleFactor
                             )
                             Text(
                                 text = String.format(Locale.US, "%.1f%%", pct),
                                 color = accent,
-                                fontSize = 11.sp,
+                                fontSize = 11.sp * scaleFactor,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             )
@@ -954,22 +1065,26 @@ private fun FocusPanel(
                     }
                 }
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(10.dp * scaleFactor))
                 Box(
-                    modifier = Modifier
+                    Modifier
                         .fillMaxWidth()
                         .height(1.dp)
                         .background(hair)
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(10.dp * scaleFactor))
 
-                // Prominent View All Tasks Action Button
+                val viewAllTasksInteraction = remember { MutableInteractionSource() }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { onOpenTaskBreakdown() }
-                        .padding(vertical = 6.dp),
+                        .clip(RoundedCornerShape(12.dp * scaleFactor))
+                        .clickable(
+                            interactionSource = viewAllTasksInteraction,
+                            indication = null
+                        ) { onOpenTaskBreakdown() }
+                        .expressivePressScale(viewAllTasksInteraction)
+                        .padding(vertical = 6.dp * scaleFactor),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -977,38 +1092,38 @@ private fun FocusPanel(
                         imageVector = Icons.Default.List,
                         contentDescription = "View All Tasks",
                         tint = accent,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(16.dp * scaleFactor)
                     )
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(6.dp * scaleFactor))
                     Text(
                         text = "VIEW ALL TASKS (${taskStats.size})",
                         color = accent,
-                        fontSize = 12.sp,
+                        fontSize = 12.sp * scaleFactor,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
-                        letterSpacing = 1.2.sp
+                        letterSpacing = 1.2.sp * scaleFactor
                     )
                 }
             }
         }
     }
 
-    Spacer(Modifier.height(16.dp))
+    Spacer(Modifier.height(16.dp * scaleFactor))
 
     // ═══════════════════════════════════════════════════════════════
     // 4. RECENT SESSIONS CARD + VIEW ALL ACTION
     // ═══════════════════════════════════════════════════════════════
-    SectionKicker("Recent Sessions", fgMuted)
-    PanelColumn {
+    SectionKicker("Recent Sessions", fgMuted, scaleFactor)
+    PanelColumn(scaleFactor) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
+                .clip(RoundedCornerShape(20.dp * scaleFactor))
                 .background(tile)
-                .padding(16.dp)
+                .padding(16.dp * scaleFactor)
         ) {
             if (s.recentSessionsList.isEmpty()) {
-                Text("No recent focus sessions.", color = fgMuted, fontSize = 13.sp)
+                Text("No recent focus sessions.", color = fgMuted, fontSize = 13.sp * scaleFactor)
             } else {
                 val recentPreview = s.recentSessionsList.take(4)
                 recentPreview.forEachIndexed { i, sess ->
@@ -1016,7 +1131,7 @@ private fun FocusPanel(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 8.dp),
+                            .padding(vertical = 8.dp * scaleFactor),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
@@ -1024,13 +1139,13 @@ private fun FocusPanel(
                             Text(
                                 text = sess.taskTitle ?: "Standalone Session",
                                 color = fg,
-                                fontSize = 13.sp,
+                                fontSize = 13.sp * scaleFactor,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
                                 text = "${sess.date} · ${sess.completionStatus}",
                                 color = fgMuted,
-                                fontSize = 10.sp
+                                fontSize = 10.sp * scaleFactor
                             )
                         }
                         Box(
@@ -1042,12 +1157,12 @@ private fun FocusPanel(
                                     else
                                         fgMuted.copy(alpha = 0.15f)
                                 )
-                                .padding(horizontal = 10.dp, vertical = 4.dp)
+                                .padding(horizontal = 10.dp * scaleFactor, vertical = 4.dp * scaleFactor)
                         ) {
                             Text(
                                 text = "${actualMins}m",
                                 color = fg,
-                                fontSize = 11.sp,
+                                fontSize = 11.sp * scaleFactor,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace
                             )
@@ -1058,22 +1173,26 @@ private fun FocusPanel(
                     }
                 }
 
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(10.dp * scaleFactor))
                 Box(
-                    modifier = Modifier
+                    Modifier
                         .fillMaxWidth()
                         .height(1.dp)
                         .background(hair)
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(10.dp * scaleFactor))
 
-                // Prominent View All Sessions Action Button
+                val viewAllSessionsInteraction = remember { MutableInteractionSource() }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { onOpenRecentSessions() }
-                        .padding(vertical = 6.dp),
+                        .clip(RoundedCornerShape(12.dp * scaleFactor))
+                        .clickable(
+                            interactionSource = viewAllSessionsInteraction,
+                            indication = null
+                        ) { onOpenRecentSessions() }
+                        .expressivePressScale(viewAllSessionsInteraction)
+                        .padding(vertical = 6.dp * scaleFactor),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -1081,16 +1200,16 @@ private fun FocusPanel(
                         imageVector = Icons.Default.Task,
                         contentDescription = "View All Sessions",
                         tint = accent,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(16.dp * scaleFactor)
                     )
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(6.dp * scaleFactor))
                     Text(
                         text = "VIEW ALL SESSIONS (${s.recentSessionsList.size})",
                         color = accent,
-                        fontSize = 12.sp,
+                        fontSize = 12.sp * scaleFactor,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
-                        letterSpacing = 1.2.sp
+                        letterSpacing = 1.2.sp * scaleFactor
                     )
                 }
             }
@@ -1110,7 +1229,6 @@ private fun calculateWeekDataForOffset(
     val cal = Calendar.getInstance()
     cal.add(Calendar.WEEK_OF_YEAR, weekOffset)
 
-    // Set to Sunday of target week
     cal.set(Calendar.DAY_OF_WEEK, Calendar.SUNDAY)
     val startDate = cal.time
 
@@ -1130,7 +1248,6 @@ private fun calculateWeekDataForOffset(
     val startDateLabel = sdfDisplay.format(startDate)
     val endDateLabel = sdfDisplay.format(endDate)
 
-    // Calculate daily totals from recentSessions or fallback
     val sessionsMap = recentSessions.groupBy { it.date }
     val result = dates.mapIndexed { index, dateStr ->
         val seconds = sessionsMap[dateStr]?.sumOf { it.actualDurationCompletedSeconds }
@@ -1146,32 +1263,37 @@ private fun calculateWeekDataForOffset(
 private fun RangePicker(
     selected: DeepRange,
     onSelect: (DeepRange) -> Unit,
-    fg: Color, fgMuted: Color, tile: Color, dark: Boolean,
+    fg: Color, fgMuted: Color, tile: Color, dark: Boolean, scaleFactor: Float
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
+            .padding(horizontal = 20.dp * scaleFactor)
             .clip(RoundedCornerShape(999.dp))
             .background(tile)
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+            .padding(4.dp * scaleFactor),
+        horizontalArrangement = Arrangement.spacedBy(4.dp * scaleFactor)
     ) {
         DeepRange.entries.forEach { r ->
             val sel = r == selected
+            val chipInteraction = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(999.dp))
                     .background(if (sel) (if (dark) Color.White else Color.Black) else Color.Transparent)
-                    .clickable { onSelect(r) }
-                    .padding(vertical = 8.dp),
+                    .clickable(
+                        interactionSource = chipInteraction,
+                        indication = null
+                    ) { onSelect(r) }
+                    .expressivePressScale(chipInteraction)
+                    .padding(vertical = 8.dp * scaleFactor),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     r.label,
                     color = if (sel) (if (dark) Color.Black else Color.White) else fgMuted,
-                    fontSize = 12.sp,
+                    fontSize = 12.sp * scaleFactor,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
                 )
@@ -1185,7 +1307,7 @@ private fun RangeCompareStrip(
     category: StatsCategory,
     statsState: StatsState,
     selected: DeepRange,
-    fg: Color, fgMuted: Color, tile: Color, accent: Color,
+    fg: Color, fgMuted: Color, tile: Color, accent: Color, scaleFactor: Float
 ) {
     val hrs = (statsState.totalFocusHours * (selected.days / 30f)).roundToInt()
     val tasks = (statsState.thisWeekCompleted * (selected.days / 7f)).roundToInt()
@@ -1194,46 +1316,52 @@ private fun RangeCompareStrip(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(horizontal = 20.dp * scaleFactor),
+        horizontalArrangement = Arrangement.spacedBy(10.dp * scaleFactor)
     ) {
+        val c1Interaction = remember { MutableInteractionSource() }
         Box(
             modifier = Modifier
                 .weight(1f)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(16.dp * scaleFactor))
                 .background(tile)
-                .padding(14.dp)
+                .padding(14.dp * scaleFactor)
+                .expressivePressScale(c1Interaction)
         ) {
             Column {
-                Text("FOCUS TIME", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                Spacer(Modifier.height(4.dp))
-                Text("${hrs}h", color = fg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                Text("FOCUS TIME", color = fgMuted, fontSize = 10.sp * scaleFactor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Spacer(Modifier.height(4.dp * scaleFactor))
+                Text("${hrs}h", color = fg, fontSize = 22.sp * scaleFactor, fontWeight = FontWeight.ExtraBold)
             }
         }
+        val c2Interaction = remember { MutableInteractionSource() }
         Box(
             modifier = Modifier
                 .weight(1f)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(16.dp * scaleFactor))
                 .background(tile)
-                .padding(14.dp)
+                .padding(14.dp * scaleFactor)
+                .expressivePressScale(c2Interaction)
         ) {
             Column {
-                Text("DAILY AVG", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                Spacer(Modifier.height(4.dp))
-                Text("${avg}h/d", color = fg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                Text("DAILY AVG", color = fgMuted, fontSize = 10.sp * scaleFactor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Spacer(Modifier.height(4.dp * scaleFactor))
+                Text("${avg}h/d", color = fg, fontSize = 22.sp * scaleFactor, fontWeight = FontWeight.ExtraBold)
             }
         }
+        val c3Interaction = remember { MutableInteractionSource() }
         Box(
             modifier = Modifier
                 .weight(1f)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(16.dp * scaleFactor))
                 .background(tile)
-                .padding(14.dp)
+                .padding(14.dp * scaleFactor)
+                .expressivePressScale(c3Interaction)
         ) {
             Column {
-                Text("EST. TASKS", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                Spacer(Modifier.height(4.dp))
-                Text("$tasks", color = fg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                Text("EST. TASKS", color = fgMuted, fontSize = 10.sp * scaleFactor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Spacer(Modifier.height(4.dp * scaleFactor))
+                Text("$tasks", color = fg, fontSize = 22.sp * scaleFactor, fontWeight = FontWeight.ExtraBold)
             }
         }
     }
@@ -1242,23 +1370,23 @@ private fun RangeCompareStrip(
 @Composable
 private fun FormulaCard(
     category: StatsCategory,
-    fg: Color, fgMuted: Color, tile: Color, hair: Color,
+    fg: Color, fgMuted: Color, tile: Color, hair: Color, scaleFactor: Float
 ) {
     val f = formulaForCategory(category) ?: return
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .border(1.dp, hair, RoundedCornerShape(20.dp))
+            .padding(horizontal = 20.dp * scaleFactor)
+            .clip(RoundedCornerShape(20.dp * scaleFactor))
+            .border(1.dp, hair, RoundedCornerShape(20.dp * scaleFactor))
             .background(tile)
-            .padding(16.dp)
+            .padding(16.dp * scaleFactor)
     ) {
-        Text("HOW IT WORKS", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, letterSpacing = 1.4.sp)
-        Spacer(Modifier.height(6.dp))
-        Text(f.name, color = fg, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(4.dp))
-        Text(f.body, color = fgMuted, fontSize = 12.sp, lineHeight = 17.sp)
+        Text("HOW IT WORKS", color = fgMuted, fontSize = 10.sp * scaleFactor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, letterSpacing = 1.4.sp * scaleFactor)
+        Spacer(Modifier.height(6.dp * scaleFactor))
+        Text(f.name, color = fg, fontSize = 14.sp * scaleFactor, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(4.dp * scaleFactor))
+        Text(f.body, color = fgMuted, fontSize = 12.sp * scaleFactor, lineHeight = 17.sp * scaleFactor)
     }
 }
 
