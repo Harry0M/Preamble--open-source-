@@ -1687,13 +1687,13 @@ private fun ProvenProofCard(
                 modifier = Modifier
                     .clip(RoundedCornerShape(50))
                     .background(
-                        if (verification.hasMismatch) Color(0xFFFF6B6B).copy(alpha = 0.2f)
-                        else accent.copy(alpha = 0.2f)
+                        if (verification.hasMismatch) Color(0xFFFF6B6B).copy(alpha = 0.18f)
+                        else accent.copy(alpha = 0.18f)
                     )
-                    .padding(horizontal = 8.dp * scaleFactor, vertical = 3.dp * scaleFactor)
+                    .padding(horizontal = 8.dp * scaleFactor, vertical = 2.dp * scaleFactor)
             ) {
                 Text(
-                    text = if (verification.hasMismatch) "⚠ PROVEN ENFORCED" else "✓ VERIFIED UNBIASED",
+                    text = if (verification.hasMismatch) "ENFORCED" else "VERIFIED",
                     color = if (verification.hasMismatch) Color(0xFFFF6B6B) else accent,
                     fontSize = 9.sp * scaleFactor,
                     fontWeight = FontWeight.Bold,

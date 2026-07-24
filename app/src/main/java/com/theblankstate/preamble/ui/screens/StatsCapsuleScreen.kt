@@ -111,14 +111,17 @@ fun StatsCapsuleScreen(
                         letterSpacing = (-0.8).sp,
                     )
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
                     if (onOpenRecap != null) {
                         Box(
                             modifier = Modifier
                                 .clip(RoundedCornerShape(999.dp))
                                 .background(tile)
                                 .clickable { onOpenRecap() }
-                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
                         ) {
                             Text(
                                 "Recap · $recapDayLabel",
@@ -128,7 +131,6 @@ fun StatsCapsuleScreen(
                                 letterSpacing = 1.2.sp,
                             )
                         }
-                        Spacer(Modifier.width(8.dp))
                     }
                     MiniRangePill(
                         range = range,
@@ -136,10 +138,18 @@ fun StatsCapsuleScreen(
                         tile = tile,
                         fg = fg,
                         fgMuted = fgMuted,
-                        surface = surface,
-                        onOpenTweaks = onOpenTweaks,
-                        hair = hair,
+                        surface = surface
                     )
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .border(1.dp, hair, RoundedCornerShape(999.dp))
+                            .clickable { onOpenTweaks() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Filled.Settings, "Settings", tint = fg, modifier = Modifier.size(16.dp))
+                    }
                 }
             }
         }
@@ -269,46 +279,31 @@ private fun MiniRangePill(
     fg: Color,
     fgMuted: Color,
     surface: Color,
-    onOpenTweaks: () -> Unit,
-    hair: Color,
 ) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(tile)
-                .padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(0.dp)
-        ) {
-            listOf("W" to StatsRange.WEEK, "M" to StatsRange.MONTH, "Y" to StatsRange.YEAR).forEach { (label, r) ->
-                val active = r == range
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(if (active) fg else Color.Transparent)
-                        .clickable { onChange(r) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        label,
-                        color = if (active) surface else fgMuted,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(tile)
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(0.dp)
+    ) {
+        listOf("W" to StatsRange.WEEK, "M" to StatsRange.MONTH, "Y" to StatsRange.YEAR).forEach { (label, r) ->
+            val active = r == range
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(if (active) fg else Color.Transparent)
+                    .clickable { onChange(r) },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    label,
+                    color = if (active) surface else fgMuted,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                )
             }
-        }
-        Spacer(Modifier.width(8.dp))
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .border(1.dp, hair, RoundedCornerShape(999.dp))
-                .clickable { onOpenTweaks() },
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(Icons.Filled.Settings, null, tint = fg, modifier = Modifier.size(16.dp))
         }
     }
 }

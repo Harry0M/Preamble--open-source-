@@ -15,11 +15,6 @@
           <targets>
             <Target type="DEFAULT_BOOT">
               <handle>
-                <DeviceId pluginId="PhysicalDevice" identifier="serial=1feda544" />
-              </handle>
-            </Target>
-            <Target type="DEFAULT_BOOT">
-              <handle>
                 <DeviceId pluginId="LocalEmulator" identifier="path=C:\Users\palha\.android\avd\Pixel_6a.avd" />
               </handle>
             </Target>
