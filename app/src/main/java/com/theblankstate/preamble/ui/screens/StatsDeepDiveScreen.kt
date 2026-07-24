@@ -150,8 +150,59 @@ fun StatsDeepDiveScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize()
         ) {
-            // Top Clearance Spacer for Header Bar
-            item { Spacer(modifier = Modifier.height(72.dp * scaleFactor)) }
+            // Header Bar inside LazyColumn (scrolls naturally with page content)
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .padding(horizontal = 16.dp * scaleFactor, vertical = 12.dp * scaleFactor),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val backInteraction = remember { MutableInteractionSource() }
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp * scaleFactor)
+                            .clip(CircleShape)
+                            .background(tile)
+                            .clickable(
+                                interactionSource = backInteraction,
+                                indication = null
+                            ) { onBack() }
+                            .expressivePressScale(backInteraction),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "Back",
+                            tint = fg,
+                            modifier = Modifier.size(18.dp * scaleFactor)
+                        )
+                    }
+
+                    val infoInteraction = remember { MutableInteractionSource() }
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp * scaleFactor)
+                            .clip(CircleShape)
+                            .background(tile)
+                            .clickable(
+                                interactionSource = infoInteraction,
+                                indication = null
+                            ) { showFormulaModal = true }
+                            .expressivePressScale(infoInteraction),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Info,
+                            contentDescription = "Formula & Proof",
+                            tint = fg,
+                            modifier = Modifier.size(18.dp * scaleFactor)
+                        )
+                    }
+                }
+            }
 
             item {
                 Column(modifier = Modifier.padding(horizontal = 20.dp * scaleFactor, vertical = 4.dp * scaleFactor)) {
@@ -247,58 +298,6 @@ fun StatsDeepDiveScreen(
                 )
             }
             item { Spacer(Modifier.height(60.dp * scaleFactor)) }
-        }
-
-        // Top Header Bar with integrated non-FAB Back and Info buttons
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(horizontal = 16.dp * scaleFactor, vertical = 8.dp * scaleFactor),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            val backInteraction = remember { MutableInteractionSource() }
-            Box(
-                modifier = Modifier
-                    .size(40.dp * scaleFactor)
-                    .clip(CircleShape)
-                    .background(tile)
-                    .clickable(
-                        interactionSource = backInteraction,
-                        indication = null
-                    ) { onBack() }
-                    .expressivePressScale(backInteraction),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
-                    tint = fg,
-                    modifier = Modifier.size(18.dp * scaleFactor)
-                )
-            }
-
-            val infoInteraction = remember { MutableInteractionSource() }
-            Box(
-                modifier = Modifier
-                    .size(40.dp * scaleFactor)
-                    .clip(CircleShape)
-                    .background(tile)
-                    .clickable(
-                        interactionSource = infoInteraction,
-                        indication = null
-                    ) { showFormulaModal = true }
-                    .expressivePressScale(infoInteraction),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Info,
-                    contentDescription = "Formula & Proof",
-                    tint = fg,
-                    modifier = Modifier.size(18.dp * scaleFactor)
-                )
-            }
         }
 
         // Formula & Live Mathematical Proof Bottom Sheet
