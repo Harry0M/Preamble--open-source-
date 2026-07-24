@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -120,10 +122,15 @@ fun StatsScreenHost(
     }
     var range by rememberSaveable { mutableStateOf(StatsRange.MONTH) }
     var showTweaks by rememberSaveable { mutableStateOf(false) }
+    var showHowItWorks by rememberSaveable { mutableStateOf(false) }
     var deepDive by rememberSaveable(stateSaver = DeepDiveSaver) { mutableStateOf<StatsCategory?>(null) }
 
     val gatedRangeChange: (StatsRange) -> Unit = { r -> range = r }
-    val gatedDeepDive: (StatsCategory) -> Unit = { c -> deepDive = c }
+    val gatedDeepDive: (StatsCategory) -> Unit = { c ->
+        if (c != StatsCategory.BESTS && c != StatsCategory.WEEKLY) {
+            deepDive = c
+        }
+    }
 
     LaunchedEffect(tweaks) { saveTweaks(ctx, tweaks) }
 
@@ -188,6 +195,7 @@ fun StatsScreenHost(
                         showTweaks = true
                         onRefreshStats?.invoke()
                     },
+                    onOpenHowItWorks = { showHowItWorks = true },
                     onOpenRecap = gatedRecap,
                     recapDayLabel = recapDayLabel,
                     isRecapDay = isRecapDay,
@@ -262,6 +270,75 @@ fun StatsScreenHost(
                     tweaks = tweaks,
                     onChange = { tweaks = it }
                 )
+            }
+        }
+
+        if (showHowItWorks) {
+            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            ModalBottomSheet(
+                onDismissRequest = { showHowItWorks = false },
+                sheetState = sheetState,
+                containerColor = if (tweaks.theme == StatsTheme.DARK) Color(0xFF161616) else Color.White,
+            ) {
+                HowItWorksPanel(
+                    dark = tweaks.theme == StatsTheme.DARK,
+                    accent = tweaks.accent
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HowItWorksPanel(dark: Boolean, accent: Color) {
+    val fg = if (dark) Color.White else Color.Black
+    val fgMuted = if (dark) Color.White.copy(alpha = 0.6f) else Color.Black.copy(alpha = 0.55f)
+    val hair = if (dark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.12f)
+    val scrollState = rememberScrollState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp, vertical = 16.dp)
+            .verticalScroll(scrollState)
+    ) {
+        Text(
+            text = "HOW STATS WORK",
+            color = fgMuted,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+            letterSpacing = 1.4.sp
+        )
+        Spacer(Modifier.height(14.dp))
+
+        val formulas = remember {
+            listOf(
+                "Productivity Score (0–100)" to "Blend of task completions (40%), streak momentum (20%), focus timer ratio (20%), and consistency stability (20%).",
+                "Streak Calculation" to "Consecutive active days with at least 1 completed task. Streak updates after midnight.",
+                "Consistency Score" to "Output stability calculated over the last 30 days based on daily task completion variance.",
+                "Peak Hours Detection" to "Histogram of task completion timestamps aggregated by hour of day (local time).",
+                "Focus Time Tracking" to "Sum of timer session durations across tasks, habits, and standalone focus periods.",
+                "Momentum EMA" to "30-day exponential moving average of daily completions with smoothing factor alpha = 0.3.",
+                "Rollover Health Index" to "Ratio of cleared vs pending rolled-over tasks, weighted by pending age in days."
+            )
+        }
+
+        Column(
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            modifier = Modifier.padding(bottom = 24.dp)
+        ) {
+            formulas.forEachIndexed { idx, pair ->
+                val (title, desc) = pair
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(title, color = accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(desc, color = fgMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                }
+                if (idx < formulas.lastIndex) {
+                    Spacer(Modifier.height(12.dp))
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(hair))
+                }
             }
         }
     }

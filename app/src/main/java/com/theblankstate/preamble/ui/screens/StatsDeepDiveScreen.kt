@@ -237,18 +237,7 @@ fun StatsDeepDiveScreen(
                 )
             }
 
-            item { Spacer(Modifier.height(18.dp * scaleFactor)) }
 
-            item {
-                FormulaCard(
-                    category = category,
-                    fg = fg,
-                    fgMuted = fgMuted,
-                    tile = tile,
-                    hair = hair,
-                    scaleFactor = scaleFactor
-                )
-            }
 
             item { Spacer(Modifier.height(18.dp * scaleFactor)) }
 
@@ -1304,9 +1293,19 @@ private fun RangeCompareStrip(
     selected: DeepRange,
     fg: Color, fgMuted: Color, tile: Color, accent: Color, scaleFactor: Float
 ) {
-    val hrs = (statsState.totalFocusHours * (selected.days / 30f)).roundToInt()
-    val tasks = (statsState.thisWeekCompleted * (selected.days / 7f)).roundToInt()
-    val avg = "%.1f".format(statsState.averageDailyFocusMinutes / 60f)
+    val factor = selected.days / 30f
+
+    val (l1, v1, l2, v2, l3, v3) = when (category) {
+        StatsCategory.SCORE -> Tuple6("SCORE", "${statsState.productivityScore}", "GRADE", statsState.performanceGrade, "TREND", if (statsState.productivityScoreTrend >= 0) "▲ Up" else "▼ Down")
+        StatsCategory.STREAK -> Tuple6("CURRENT", "${statsState.streak}d", "LONGEST", "${statsState.longestStreak}d", "RECORD", if (statsState.streak >= statsState.longestStreak && statsState.streak > 0) "Active" else "${maxOf(0, statsState.longestStreak - statsState.streak)}d left")
+        StatsCategory.CONSISTENCY -> Tuple6("STABILITY", "${statsState.consistencyScore}/100", "WEEKLY", "${statsState.weeklyConsistencyDays}/7d", "VARIANCE", "%.1f".format(statsState.stdDevDaily))
+        StatsCategory.PEAK_HOURS -> Tuple6("PEAK HOUR", statsState.peakHourLabel.ifBlank { "—" }, "PEAK DAY", statsState.peakDayOfWeek.ifBlank { "—" }, "WEEKDAY AVG", "%.1f".format(statsState.weekdayAvg))
+        StatsCategory.TAGS -> Tuple6("TOP TAG", statsState.mostActiveTag ?: "—", "TAG COUNT", "${statsState.tagStats.size}", "MAX TASKS", "${statsState.tagStats.maxOfOrNull { it.completedCount } ?: 0}")
+        StatsCategory.FOCUS -> Tuple6("FOCUS TIME", "${(statsState.totalFocusHours * factor).roundToInt()}h", "DAILY AVG", "${"%.1f".format(statsState.averageDailyFocusMinutes / 60f)}h/d", "SESSIONS", "${focusSessionCount(statsState)}")
+        StatsCategory.MOMENTUM -> Tuple6("MOMENTUM", "${statsState.momentumScore}", "VELOCITY", "%.1f/d".format(statsState.completionVelocity), "BURNOUT", "${(statsState.burnoutRiskScore * 100).roundToInt()}%")
+        StatsCategory.ROLLOVER -> Tuple6("PENDING", "${statsState.activeRolloverCount}", "AVG AGE", "%.1fd".format(statsState.averageRolloverDaysPending), "CLEAR RATE", "${(statsState.rolloverCompletionRate * 100).roundToInt()}%")
+        else -> Tuple6("THIS WEEK", "${statsState.thisWeekCompleted}", "LAST WEEK", "${statsState.lastWeekCompleted}", "GROWTH", "%+.0f%%".format(statsState.weekOverWeekGrowth * 100))
+    }
 
     Row(
         modifier = Modifier
@@ -1314,87 +1313,32 @@ private fun RangeCompareStrip(
             .padding(horizontal = 20.dp * scaleFactor),
         horizontalArrangement = Arrangement.spacedBy(10.dp * scaleFactor)
     ) {
-        val c1Interaction = remember { MutableInteractionSource() }
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(16.dp * scaleFactor))
-                .background(tile)
-                .padding(14.dp * scaleFactor)
-                .expressivePressScale(c1Interaction)
-        ) {
-            Column {
-                Text("FOCUS TIME", color = fgMuted, fontSize = 10.sp * scaleFactor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                Spacer(Modifier.height(4.dp * scaleFactor))
-                Text("${hrs}h", color = fg, fontSize = 22.sp * scaleFactor, fontWeight = FontWeight.ExtraBold)
-            }
-        }
-        val c2Interaction = remember { MutableInteractionSource() }
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(16.dp * scaleFactor))
-                .background(tile)
-                .padding(14.dp * scaleFactor)
-                .expressivePressScale(c2Interaction)
-        ) {
-            Column {
-                Text("DAILY AVG", color = fgMuted, fontSize = 10.sp * scaleFactor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                Spacer(Modifier.height(4.dp * scaleFactor))
-                Text("${avg}h/d", color = fg, fontSize = 22.sp * scaleFactor, fontWeight = FontWeight.ExtraBold)
-            }
-        }
-        val c3Interaction = remember { MutableInteractionSource() }
-        Box(
-            modifier = Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(16.dp * scaleFactor))
-                .background(tile)
-                .padding(14.dp * scaleFactor)
-                .expressivePressScale(c3Interaction)
-        ) {
-            Column {
-                Text("EST. TASKS", color = fgMuted, fontSize = 10.sp * scaleFactor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                Spacer(Modifier.height(4.dp * scaleFactor))
-                Text("$tasks", color = fg, fontSize = 22.sp * scaleFactor, fontWeight = FontWeight.ExtraBold)
-            }
-        }
+        CompareMiniCard(l1, v1, tile, fg, fgMuted, scaleFactor, Modifier.weight(1f))
+        CompareMiniCard(l2, v2, tile, fg, fgMuted, scaleFactor, Modifier.weight(1f))
+        CompareMiniCard(l3, v3, tile, fg, fgMuted, scaleFactor, Modifier.weight(1f))
     }
 }
+
+private data class Tuple6<A, B, C, D, E, F>(val a: A, val b: B, val c: C, val d: D, val e: E, val f: F)
 
 @Composable
-private fun FormulaCard(
-    category: StatsCategory,
-    fg: Color, fgMuted: Color, tile: Color, hair: Color, scaleFactor: Float
+private fun CompareMiniCard(
+    label: String, value: String, bg: Color, fg: Color, fgMuted: Color, scaleFactor: Float, modifier: Modifier = Modifier
 ) {
-    val f = formulaForCategory(category) ?: return
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp * scaleFactor)
-            .clip(RoundedCornerShape(20.dp * scaleFactor))
-            .border(1.dp, hair, RoundedCornerShape(20.dp * scaleFactor))
-            .background(tile)
-            .padding(16.dp * scaleFactor)
+    val interactionSource = remember { MutableInteractionSource() }
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp * scaleFactor))
+            .background(bg)
+            .padding(14.dp * scaleFactor)
+            .expressivePressScale(interactionSource)
     ) {
-        Text("HOW IT WORKS", color = fgMuted, fontSize = 10.sp * scaleFactor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, letterSpacing = 1.4.sp * scaleFactor)
-        Spacer(Modifier.height(6.dp * scaleFactor))
-        Text(f.name, color = fg, fontSize = 14.sp * scaleFactor, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(4.dp * scaleFactor))
-        Text(f.body, color = fgMuted, fontSize = 12.sp * scaleFactor, lineHeight = 17.sp * scaleFactor)
+        Column {
+            Text(label, color = fgMuted, fontSize = 10.sp * scaleFactor, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+            Spacer(Modifier.height(4.dp * scaleFactor))
+            Text(value, color = fg, fontSize = 18.sp * scaleFactor, fontWeight = FontWeight.ExtraBold)
+        }
     }
-}
-
-private data class Formula(val name: String, val body: String)
-private fun formulaForCategory(c: StatsCategory): Formula? = when (c) {
-    StatsCategory.SCORE -> Formula("Productivity score (0–100)", "Blend of completions (40%), consistency (30%), streak momentum (20%), and rollover health (10%).")
-    StatsCategory.STREAK -> Formula("Streak calculation", "Consecutive days with at least 1 completed task. Reset at midnight unless a rollover grace period applies.")
-    StatsCategory.CONSISTENCY -> Formula("Output stability (0–100)", "Inverse coefficient of variation on daily task counts over the last 30 days.")
-    StatsCategory.PEAK_HOURS -> Formula("Peak hour detection", "Histogram of task completion timestamps aggregated by hour of day (local time).")
-    StatsCategory.FOCUS -> Formula("Focus time tracking", "Sum of timer session durations across tasks, habits, and standalone focus periods.")
-    StatsCategory.MOMENTUM -> Formula("Momentum EMA", "30-day exponential moving average of daily completions with alpha = 0.3.")
-    StatsCategory.ROLLOVER -> Formula("Rollover health index", "Ratio of cleared vs pending rolled-over tasks, weighted by pending age in days.")
-    else -> null
 }
 
 

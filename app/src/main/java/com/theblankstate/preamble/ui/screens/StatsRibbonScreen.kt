@@ -54,6 +54,7 @@ fun StatsRibbonScreen(
     statsState: StatsState,
     tweaks: StatsTweaks,
     onOpenTweaks: () -> Unit,
+    onOpenHowItWorks: () -> Unit = {},
     onOpenRecap: (() -> Unit)? = null,
     recapDayLabel: String = "Sun",
     isRecapDay: Boolean = false,
@@ -123,6 +124,23 @@ fun StatsRibbonScreen(
                         }
                         Spacer(Modifier.width(8.dp))
                     }
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .border(1.dp, hair, RoundedCornerShape(999.dp))
+                            .clickable { onOpenHowItWorks() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "i",
+                            color = fg,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
                     Box(
                         modifier = Modifier
                             .size(34.dp)
@@ -830,7 +848,6 @@ private fun ChapterBests(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .then(if (i == 0) Modifier.border(1.dp, hair, RoundedCornerShape(0.dp)) else Modifier)
                     .padding(vertical = 12.dp),
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.SpaceBetween
