@@ -41,6 +41,14 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+data class HabitStatSummary(
+    val habitId: String,
+    val title: String,
+    val currentStreak: Int,
+    val completionRate30Day: Float,
+    val totalCompletions30Day: Int
+)
+
 data class StatsState(
     // Existing
     val totalCompleted: Int = 0,
@@ -48,6 +56,14 @@ data class StatsState(
     val todayCompleted: Int = 0,
     val todayTotal: Int = 0,
     val streak: Int = 0,
+    val todayHabitsDone: Int = 0,
+    val todayHabitsTotal: Int = 0,
+    val habitsCompletionRate30Day: Float = 0f,
+    val habitSummaries: List<HabitStatSummary> = emptyList(),
+    val subtasksCompleted30Day: Int = 0,
+    val collaborativeTasksCompleted: Int = 0,
+    val circleContributionPct: Float = 0f,
+    val momentumRings: com.theblankstate.preamble.ui.components.MomentumRingsState = com.theblankstate.preamble.ui.components.MomentumRingsState(),
     val weeklyStats: List<Pair<String, Float>> = emptyList(),
     val dailyCompleted: List<Pair<String, Int>> = emptyList(),
     val monthlyCompleted: List<Pair<String, Int>> = emptyList(),
@@ -796,12 +812,23 @@ class TaskViewModel(
             val peakBucket = hourlyDist.maxByOrNull { it.second }
             val peakHourStr = peakBucket?.first ?: ""
 
-            // Productivity score history (approximate from daily data)
+            // Productivity score history (dynamic formula based on day's completion volume)
             val scoreHist = dailyWithDates.takeLast(30).mapIndexed { idx, (date, done, total) ->
                 val r = if (total > 0) done.toFloat() / total else 0f
-                val dayScore = (r * 40 + streakBonus * 20 + focusRatio * 20 + consistencyRate * 20).toInt().coerceIn(0, 100)
+                val activeBonus = if (done > 0) 20f else 0f
+                val volumeBonus = (done * 10f).coerceAtMost(30f)
+                val dayScore = ((r * 50f) + activeBonus + volumeBonus).toInt().coerceIn(0, 100)
                 date to dayScore
             }
+
+            val ringsState = com.theblankstate.preamble.ui.components.MomentumRingsState(
+                tasksCompleted = currentState.todayCompleted,
+                tasksTarget = currentState.todayTotal.coerceAtLeast(1),
+                habitsCompleted = currentState.todayHabitsDone,
+                habitsTarget = currentState.todayHabitsTotal.coerceAtLeast(1),
+                focusMinutesCompleted = todayFocus,
+                focusMinutesTarget = 60
+            )
 
             // Smart insights generation
             val insights = generateSmartInsights(
@@ -827,6 +854,7 @@ class TaskViewModel(
                 it.copy(
                     streak = streak,
                     longestStreak = longestStreak,
+                    momentumRings = ringsState,
                     weeklyStats = weekly,
                     dailyCompleted = daily,
                     monthlyCompleted = monthly,

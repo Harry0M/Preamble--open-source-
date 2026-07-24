@@ -181,6 +181,21 @@ fun StatsDeepDiveScreen(
             item { Spacer(Modifier.height(16.dp * scaleFactor)) }
 
             item {
+                Column(modifier = Modifier.padding(horizontal = 20.dp * scaleFactor)) {
+                    com.theblankstate.preamble.ui.components.DailyMomentumRingsCard(
+                        state = statsState.momentumRings,
+                        fg = fg,
+                        fgMuted = fgMuted,
+                        tile = tile,
+                        hair = hair,
+                        scaleFactor = scaleFactor
+                    )
+                }
+            }
+
+            item { Spacer(Modifier.height(16.dp * scaleFactor)) }
+
+            item {
                 CompareCurrVsPrev(
                     category = category,
                     statsState = statsState,
@@ -262,10 +277,9 @@ fun StatsDeepDiveScreen(
                 .fillMaxWidth()
                 .statusBarsPadding()
                 .padding(horizontal = 14.dp * scaleFactor, vertical = 6.dp * scaleFactor),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Back FAB
             val backInteraction = remember { MutableInteractionSource() }
             Surface(
                 shape = CircleShape,
@@ -288,25 +302,6 @@ fun StatsDeepDiveScreen(
                     )
                 }
             }
-
-            // Title Pill Capsule
-            Surface(
-                shape = RoundedCornerShape(50),
-                color = tile.copy(alpha = 0.95f),
-                modifier = Modifier.padding(horizontal = 4.dp * scaleFactor)
-            ) {
-                Text(
-                    text = "Focus Stats",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp * scaleFactor
-                    ),
-                    color = fg,
-                    modifier = Modifier.padding(horizontal = 16.dp * scaleFactor, vertical = 8.dp * scaleFactor)
-                )
-            }
-
-            Spacer(modifier = Modifier.size(44.dp * scaleFactor))
         }
     }
 }
@@ -1405,34 +1400,217 @@ private fun formulaForCategory(c: StatsCategory): Formula? = when (c) {
 
 
 @Composable
+private fun StreakPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, hair: Color, accent: Color) {
+    SectionKicker("Streak Milestone Analytics", fgMuted)
+    PanelColumn {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(tile)
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text("CURRENT STREAK", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    Spacer(Modifier.height(4.dp))
+                    Text("${s.streak} Days", color = fg, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("LONGEST STREAK", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    Spacer(Modifier.height(4.dp))
+                    Text("${s.longestStreak} Days", color = accent, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Box(Modifier.fillMaxWidth().height(1.dp).background(hair))
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = if (s.streak >= s.longestStreak && s.streak > 0) "🔥 New all-time record active!" else "Keep pushing to beat your record of ${s.longestStreak} days.",
+                color = fg,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+private fun RolloverPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {
+    SectionKicker("Rollover Health & Friction", fgMuted)
+    PanelColumn {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(tile)
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text("PENDING ROLLOVERS", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    Spacer(Modifier.height(4.dp))
+                    Text("${s.activeRolloverCount} tasks", color = fg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("AVG PENDING AGE", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    Spacer(Modifier.height(4.dp))
+                    Text(String.format(Locale.US, "%.1fd", s.averageRolloverDaysPending), color = accent, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                }
+            }
+            if (s.oldestRolloverTaskTitle != null) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "Oldest Rollover: ${s.oldestRolloverTaskTitle} (${s.oldestRolloverDays} days)",
+                    color = fgMuted,
+                    fontSize = 12.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PriorityPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, hair: Color, accent: Color) {
+    SectionKicker("Priority Mix Breakdown", fgMuted)
+    PanelColumn {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(tile)
+                .padding(16.dp)
+        ) {
+            if (s.priorityDistribution.isEmpty()) {
+                Text("No priority distribution data available yet.", color = fgMuted, fontSize = 13.sp)
+            } else {
+                s.priorityDistribution.forEachIndexed { i, pair ->
+                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(pair.first, color = fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                            Text(String.format(Locale.US, "%.1f%%", pair.second), color = accent, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        }
+                        Spacer(Modifier.height(4.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(5.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(fgMuted.copy(alpha = 0.15f))
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth((pair.second / 100f).coerceIn(0.02f, 1f))
+                                    .height(5.dp)
+                                    .clip(RoundedCornerShape(999.dp))
+                                    .background(accent)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InsightsPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {
+    SectionKicker("Smart AI Insights", fgMuted)
+    PanelColumn {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(tile)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            if (s.smartInsights.isEmpty()) {
+                Text("Complete more tasks to generate smart insights.", color = fgMuted, fontSize = 13.sp)
+            } else {
+                s.smartInsights.forEach { insight ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("•", color = accent, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Spacer(Modifier.width(10.dp))
+                        Text(insight, color = fg, fontSize = 13.sp, lineHeight = 18.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeekdayWeekendPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {
+    SectionKicker("Weekday vs Weekend Output", fgMuted)
+    PanelColumn {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(tile)
+                .padding(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column {
+                    Text("WEEKDAY AVG", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    Spacer(Modifier.height(4.dp))
+                    Text(String.format(Locale.US, "%.1f", s.weekdayAvg), color = fg, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("WEEKEND AVG", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    Spacer(Modifier.height(4.dp))
+                    Text(String.format(Locale.US, "%.1f", s.weekendAvg), color = accent, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun KarmaPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {
+    SectionKicker("Karma Points & Level", fgMuted)
+    PanelColumn {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(tile)
+                .padding(16.dp)
+        ) {
+            Text("KARMA POINTS", color = fgMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+            Spacer(Modifier.height(4.dp))
+            Text("${s.karmaPoints} pts", color = fg, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(4.dp))
+            Text("Level: ${s.karmaLevel}", color = accent, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
 private fun BestsPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, hair: Color) {}
 
 @Composable
 private fun WeeklyPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color, dark: Boolean) {}
 
 @Composable
-private fun StreakPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, hair: Color, accent: Color) {}
-
-@Composable
 private fun MomentumPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color, hair: Color) {}
-
-@Composable
-private fun RolloverPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {}
 
 @Composable
 private fun ForecastPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color, surface: Color) {}
 
 @Composable
-private fun KarmaPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {}
-
-@Composable
-private fun InsightsPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {}
-
-@Composable
-private fun PriorityPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, hair: Color, accent: Color) {}
-
-@Composable
 private fun TaskTypePanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, hair: Color, accent: Color) {}
-
-@Composable
-private fun WeekdayWeekendPanel(s: StatsState, fg: Color, fgMuted: Color, tile: Color, accent: Color) {}

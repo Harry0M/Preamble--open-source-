@@ -41,6 +41,12 @@ interface TaskDao {
     @Query("SELECT COUNT(*) FROM tasks")
     fun getTotalTasksCount(): Flow<Int>
 
+    @Query("SELECT COUNT(*) FROM tasks WHERE isHabit = 1 AND isCompleted = 1")
+    suspend fun getCompletedHabitsCount(): Int
+
+    @Query("SELECT COUNT(*) FROM tasks WHERE parentTaskId IS NOT NULL AND isCompleted = 1")
+    suspend fun getCompletedSubtasksCount(): Int
+
     @Query("SELECT COUNT(*) FROM tasks WHERE ( (IFNULL(recurrenceType, '') != 'rollover' AND createdDate = :date) OR (recurrenceType = 'rollover' AND isCompleted = 0 AND createdDate <= :date) OR (recurrenceType = 'rollover' AND isCompleted = 1 AND completedDate = :date) )")
     suspend fun getTaskCountForDate(date: String): Int
 

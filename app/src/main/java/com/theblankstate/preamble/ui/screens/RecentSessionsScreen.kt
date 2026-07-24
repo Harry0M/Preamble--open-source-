@@ -218,13 +218,12 @@ fun RecentSessionsScreen(
             }
         }
 
-        // Floating Header Bar (FAB Style Signature)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
                 .padding(horizontal = 14.dp * scaleFactor, vertical = 6.dp * scaleFactor),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
             val backInteraction = remember { MutableInteractionSource() }
@@ -249,24 +248,6 @@ fun RecentSessionsScreen(
                     )
                 }
             }
-
-            Surface(
-                shape = RoundedCornerShape(50),
-                color = tile.copy(alpha = 0.95f),
-                modifier = Modifier.padding(horizontal = 4.dp * scaleFactor)
-            ) {
-                Text(
-                    text = "Recent Sessions",
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp * scaleFactor
-                    ),
-                    color = fg,
-                    modifier = Modifier.padding(horizontal = 16.dp * scaleFactor, vertical = 8.dp * scaleFactor)
-                )
-            }
-
-            Spacer(modifier = Modifier.size(44.dp * scaleFactor))
         }
     }
 }
