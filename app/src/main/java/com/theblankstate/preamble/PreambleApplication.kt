@@ -125,6 +125,7 @@ class PreambleApplication : Application() {
         identifyCurrentUser()
 
         syncManager?.start()
+        timerSessionRepository.startSync()
         TaskNotificationManager.createChannel(this)
         com.theblankstate.preamble.notification.PreambleFcmService.createChannels(this)
         persistFcmToken()

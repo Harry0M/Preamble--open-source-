@@ -184,15 +184,17 @@ fun TaskDetailBottomSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showFullCollaboratorsScreen by remember { mutableStateOf(false) }
 
-    var liveTaskTimerStats by remember(task.id, taskTimerStats) { mutableStateOf(taskTimerStats) }
+    var liveTaskTimerStats by remember(task.id, task.title, taskTimerStats) { mutableStateOf(taskTimerStats) }
+    var dailyFocusHistory by remember(task.id, task.title) { mutableStateOf<List<com.theblankstate.preamble.data.DailyFocusStats>>(emptyList()) }
 
-    androidx.compose.runtime.LaunchedEffect(task.id) {
+    androidx.compose.runtime.LaunchedEffect(task.id, task.title) {
         val repo = (context.applicationContext as? com.theblankstate.preamble.PreambleApplication)?.timerSessionRepository
             ?: com.theblankstate.preamble.repository.TimerSessionRepository(context)
-        val stats = repo.getPerTaskStats(task.id)
+        val stats = repo.getPerTaskStats(task.id, task.title)
         if (stats != null) {
             liveTaskTimerStats = stats
         }
+        dailyFocusHistory = repo.getDailyFocusHistoryForTask(task.id, task.title)
     }
 
     androidx.compose.runtime.DisposableEffect(Unit) {
@@ -515,6 +517,85 @@ fun TaskDetailBottomSheet(
                                         fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                }
+                            }
+                        }
+                    }
+
+                    // Daily Focus Breakdown Timeline (Time Spent by Day for Rollover Tasks/Habits)
+                    if (dailyFocusHistory.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Time Spent by Day (${dailyFocusHistory.size} active day${if (dailyFocusHistory.size > 1) "s" else ""})",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        val maxDaySec = dailyFocusHistory.maxOfOrNull { it.totalSeconds }?.coerceAtLeast(1) ?: 1
+
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            dailyFocusHistory.take(7).forEach { day ->
+                                val dayHours = day.totalSeconds / 3600
+                                val dayMins = (day.totalSeconds % 3600) / 60
+                                val dayTimeStr = if (dayHours > 0) "${dayHours}h ${dayMins}m" else "${dayMins}m"
+                                val fraction = (day.totalSeconds.toFloat() / maxDaySec.toFloat()).coerceIn(0.05f, 1f)
+
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Text(
+                                                text = formatHistoryDate(day.date),
+                                                style = MaterialTheme.typography.labelMedium,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Text(
+                                                    text = dayTimeStr,
+                                                    style = MaterialTheme.typography.labelMedium,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "(${day.sessionCount} session${if (day.sessionCount > 1) "s" else ""})",
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        // Visual progress bar for relative daily focus
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(4.dp)
+                                                .clip(RoundedCornerShape(2.dp))
+                                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth(fraction)
+                                                    .height(4.dp)
+                                                    .clip(RoundedCornerShape(2.dp))
+                                                    .background(MaterialTheme.colorScheme.primary)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -2567,5 +2648,22 @@ private fun formatRecurrencePattern(
         "yearly" -> if (n == 1) "Every year" else "Every $n years"
         "custom" -> if (n == 1) "Custom repeat" else "Every $n days (custom)"
         else -> "Repeating"
+    }
+}
+
+private fun formatHistoryDate(dateStr: String): String {
+    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+    val todayStr = sdf.format(java.util.Date())
+    val cal = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_YEAR, -1) }
+    val yesterdayStr = sdf.format(cal.time)
+
+    return when (dateStr) {
+        todayStr -> "Today"
+        yesterdayStr -> "Yesterday"
+        else -> try {
+            val parsed = sdf.parse(dateStr)
+            val outSdf = java.text.SimpleDateFormat("MMM dd, yyyy", java.util.Locale.US)
+            outSdf.format(parsed ?: java.util.Date())
+        } catch (_: Exception) { dateStr }
     }
 }

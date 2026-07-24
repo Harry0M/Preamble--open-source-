@@ -96,6 +96,33 @@ interface FocusSessionDao {
             MAX(date) AS lastSessionDate,
             COALESCE(MAX(COALESCE(actualDurationCompletedSeconds, durationSeconds)), 0) AS longestSessionSeconds
         FROM focus_sessions
+        WHERE taskId = :taskId OR (:taskTitle IS NOT NULL AND taskTitle IS NOT NULL AND LOWER(TRIM(taskTitle)) = LOWER(TRIM(:taskTitle)))
+        ORDER BY totalSeconds DESC LIMIT 1
+    """)
+    suspend fun getPerTaskStatsByTitleOrId(taskId: String, taskTitle: String?): PerTaskTimerStats?
+
+    @Query("""
+        SELECT 
+            date,
+            COUNT(*) AS sessionCount,
+            COALESCE(SUM(COALESCE(actualDurationCompletedSeconds, durationSeconds)), 0) AS totalSeconds
+        FROM focus_sessions
+        WHERE taskId = :taskId OR (:taskTitle IS NOT NULL AND taskTitle IS NOT NULL AND LOWER(TRIM(taskTitle)) = LOWER(TRIM(:taskTitle)))
+        GROUP BY date
+        ORDER BY date DESC
+    """)
+    suspend fun getDailyFocusHistoryForTask(taskId: String, taskTitle: String?): List<DailyFocusStats>
+
+    @Query("""
+        SELECT 
+            taskId,
+            taskTitle,
+            COALESCE(SUM(COALESCE(actualDurationCompletedSeconds, durationSeconds)), 0) AS totalSeconds,
+            COUNT(*) AS sessionCount,
+            COALESCE(CAST(AVG(COALESCE(actualDurationCompletedSeconds, durationSeconds)) AS INTEGER), 0) AS avgDurationSeconds,
+            MAX(date) AS lastSessionDate,
+            COALESCE(MAX(COALESCE(actualDurationCompletedSeconds, durationSeconds)), 0) AS longestSessionSeconds
+        FROM focus_sessions
         WHERE taskId IS NOT NULL
         GROUP BY taskId
         ORDER BY totalSeconds DESC
@@ -111,5 +138,7 @@ interface FocusSessionDao {
 
     @Query("SELECT * FROM focus_sessions WHERE taskId = :taskId ORDER BY startTimestamp DESC")
     suspend fun getSessionsForTask(taskId: String): List<FocusSession>
-}
 
+    @Query("SELECT * FROM focus_sessions WHERE taskId = :taskId OR (:taskTitle IS NOT NULL AND taskTitle IS NOT NULL AND LOWER(TRIM(taskTitle)) = LOWER(TRIM(:taskTitle))) ORDER BY startTimestamp DESC")
+    suspend fun getSessionsForTaskByTitleOrId(taskId: String, taskTitle: String?): List<FocusSession>
+}
