@@ -34,7 +34,7 @@ class TimerSessionRepository(
     private val dao: FocusSessionDao = PreambleDatabase.getInstance(context).focusSessionDao()
 ) {
     private val auth get() = FirebaseAuth.getInstance()
-    
+
     // Explicitly target Preamble's named Firestore database instance ("preamble")
     private val firestore: FirebaseFirestore
         get() = try {
@@ -47,6 +47,7 @@ class TimerSessionRepository(
     private var snapshotListener: ListenerRegistration? = null
     private var authStateListener: FirebaseAuth.AuthStateListener? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var activeUid: String? = null
     private val connectivityManager = context.getSystemService(ConnectivityManager::class.java)
 
     private val prefs: SharedPreferences =
@@ -67,10 +68,7 @@ class TimerSessionRepository(
      * Start real-time Firestore sync & auth state listener
      */
     fun startSync() {
-        if (authStateListener != null) {
-            Log.d(TAG, "startSync() called but AuthStateListener already active")
-            return
-        }
+        if (authStateListener != null) return
 
         Log.i(TAG, "Initializing TimerCloudSync for database='preamble'")
         registerNetworkCallback()
@@ -78,32 +76,29 @@ class TimerSessionRepository(
         authStateListener = FirebaseAuth.AuthStateListener { firebaseAuth ->
             val userId = firebaseAuth.currentUser?.uid
             Log.d(TAG, "AuthStateListener triggered: uid=$userId signedIn=${AuthManager.isSignedIn()}")
-            if (userId != null && AuthManager.isSignedIn()) {
-                attachSnapshotListener(userId)
-                scope.launch {
-                    syncAllLocalToCloud()
-                    fetchSessionsFromCloud()
-                    syncUnsyncedSessions()
-                }
-            } else {
-                detachSnapshotListener()
-            }
+            handleAuthChanged(userId)
         }
 
         try {
             auth.addAuthStateListener(authStateListener!!)
-            // Immediate check for current logged in user
-            val currentUid = auth.currentUser?.uid
-            if (currentUid != null && AuthManager.isSignedIn()) {
-                attachSnapshotListener(currentUid)
-                scope.launch {
-                    syncAllLocalToCloud()
-                    fetchSessionsFromCloud()
-                    syncUnsyncedSessions()
-                }
-            }
+            handleAuthChanged(auth.currentUser?.uid)
         } catch (e: Exception) {
             Log.w(TAG, "Failed to add AuthStateListener", e)
+        }
+    }
+
+    private fun handleAuthChanged(userId: String?) {
+        if (userId == activeUid && snapshotListener != null) return
+        detachSnapshotListener()
+        activeUid = userId
+
+        if (userId != null && AuthManager.isSignedIn()) {
+            attachSnapshotListener(userId)
+            scope.launch {
+                syncAllLocalToCloud()
+                fetchSessionsFromCloud()
+                syncUnsyncedSessions()
+            }
         }
     }
 
@@ -151,10 +146,9 @@ class TimerSessionRepository(
     }
 
     private fun detachSnapshotListener() {
-        val listener = snapshotListener ?: return
-        Log.d(TAG, "Detaching Firestore snapshot listener")
-        listener.remove()
+        snapshotListener?.remove()
         snapshotListener = null
+        activeUid = null
     }
 
     /**
@@ -185,7 +179,7 @@ class TimerSessionRepository(
             }
             Log.i(TAG, "CLOUD FETCH SUCCESS: Retrieved & saved $count timer sessions from Firestore for uid=$userId")
         } catch (e: Exception) {
-            Log.w(TAG, "Cloud sessions fetch failed or offline for uid=$userId", e)
+            Log.w(TAG, "Cloud sessions fetch failed for uid=$userId: ${e.message}")
         }
     }
 
@@ -294,7 +288,7 @@ class TimerSessionRepository(
             markSessionSynced(session.id)
             Log.i(TAG, "FIRESTORE SYNC SUCCESS: Saved session ${session.id} to cloud for uid=$userId")
         } catch (e: Exception) {
-            Log.w(TAG, "FIRESTORE SYNC FAILED: Network error for session ${session.id}, queued offline", e)
+            Log.w(TAG, "FIRESTORE SYNC FAILED: Network/Permission error for session ${session.id}, queued offline", e)
             markSessionUnsynced(session.id)
         }
     }
@@ -364,7 +358,6 @@ class TimerSessionRepository(
         val set = getUnsyncedSessionIds().toMutableSet()
         set.add(id)
 
-        // Bounded queue safety: keep only newest 200 items to prevent system jams
         if (set.size > MAX_OFFLINE_QUEUE_SIZE) {
             val trimmed = set.toList().takeLast(MAX_OFFLINE_QUEUE_SIZE).toSet()
             prefs.edit().putStringSet(KEY_UNSYNCED_IDS, trimmed).apply()
