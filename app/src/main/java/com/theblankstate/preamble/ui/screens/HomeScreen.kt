@@ -1665,6 +1665,7 @@ fun HomeScreen(
                 planTaskViewModel
             )
         )
+        val v2ChatVm: com.theblankstate.preamble.ai.v2.V2ChatViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
 
         com.theblankstate.preamble.ui.screens.PlanningScreen(
             state = dayPlanState,
@@ -1677,6 +1678,8 @@ fun HomeScreen(
             onSubmitAdjustment = { text, allowRescheduleFixed -> dayPlanViewModel.submitAdjustment(text, allowRescheduleFixed) },
             onClose = closePlanning,
             aiChatScreenViewModel = aiChatScreenVm,
+            v2ChatViewModel = v2ChatVm,
+            onAuthError = closePlanning,
             modifier = Modifier.fillMaxSize(),
         )
     }

@@ -9,7 +9,9 @@ import {
   FileText, 
   MessageSquare, 
   LogOut,
-  LineChart
+  LineChart,
+  Bot,
+  Coins
 } from 'lucide-react';
 
 export default function Sidebar({ user, onLogout }) {
@@ -24,6 +26,11 @@ export default function Sidebar({ user, onLogout }) {
     { name: 'Reports', path: '/reports', icon: FileText },
     { name: 'PM Messages', path: '/pm-messages', icon: MessageSquare },
     { name: 'Telemetry', path: '/posthog-analytics', icon: LineChart },
+  ];
+
+  const aiV2Items = [
+    { name: 'AI V2 Models', path: '/ai-v2/models', icon: Bot },
+    { name: 'AI V2 Tiers', path: '/ai-v2/tiers', icon: Coins },
   ];
 
   return (
@@ -55,6 +62,32 @@ export default function Sidebar({ user, onLogout }) {
             </NavLink>
           );
         })}
+
+        {/* AI V2 Section */}
+        <div className="pt-4 mt-4 border-t border-dark-800">
+          <span className="px-4 text-[10px] font-bold text-dark-500 uppercase tracking-widest">AI V2</span>
+          <div className="mt-2 space-y-1">
+            {aiV2Items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <NavLink
+                  key={item.name}
+                  to={item.path}
+                  className={({ isActive }) =>
+                    `flex items-center px-4 py-3 text-sm font-medium rounded-lg transition-all duration-200 group ${
+                      isActive
+                        ? 'bg-white text-dark-950 font-bold shadow-md shadow-white/5'
+                        : 'text-dark-400 hover:text-white hover:bg-dark-800'
+                    }`
+                  }
+                >
+                  <Icon className="w-5 h-5 mr-3 flex-shrink-0 group-hover:scale-105 transition-transform" />
+                  {item.name}
+                </NavLink>
+              );
+            })}
+          </div>
+        </div>
       </nav>
 
       {/* Admin Profile & Sign Out Footer */}
