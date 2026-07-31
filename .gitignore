@@ -1,44 +1,28 @@
-# Dependencies
-node_modules/
-
-# Build & Dist Outputs
-dist/
-dist-ssr/
-
-# Android / Gradle
 *.iml
-.gradle/
-local.properties
-/build/
-app/build/
-/captures/
-.externalNativeBuild/
-.cxx/
-
-# Kotlin
-.kotlin/
-
-# IDE & Editors
-.idea/
-.vscode/
-
-# Logs & Crash Dumps
-*.log
-hs_err_pid*.log
-replay_pid*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# Environment & Secrets
-.env
-.env.*
-serviceAccountKey.json
-
-# OS files
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
 .DS_Store
-Thumbs.db
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
 
 # Graphify
 graphify-out/

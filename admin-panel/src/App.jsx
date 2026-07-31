@@ -14,8 +14,6 @@ import Notifications from './pages/Notifications';
 import Reports from './pages/Reports';
 import PmMessages from './pages/PmMessages';
 import PosthogAnalytics from './pages/PosthogAnalytics';
-import AiV2Models from './pages/AiV2Models';
-import AiV2Tiers from './pages/AiV2Tiers';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -81,8 +79,6 @@ export default function App() {
                 <Route path="/reports" element={<Reports />} />
                 <Route path="/pm-messages" element={<PmMessages />} />
                 <Route path="/posthog-analytics" element={<PosthogAnalytics />} />
-                <Route path="/ai-v2/models" element={<AiV2Models />} />
-                <Route path="/ai-v2/tiers" element={<AiV2Tiers />} />
                 <Route path="*" element={<Navigate to="/dashboard" replace />} />
               </Routes>
             </main>

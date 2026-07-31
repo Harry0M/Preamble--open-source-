@@ -221,8 +221,6 @@ fun PlanningScreen(
     onSubmitAdjustment: (String, Boolean) -> Unit,
     onClose: () -> Unit,
     aiChatScreenViewModel: com.theblankstate.preamble.ai.AiChatScreenViewModel? = null,
-    v2ChatViewModel: com.theblankstate.preamble.ai.v2.V2ChatViewModel? = null,
-    onAuthError: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
@@ -283,26 +281,16 @@ fun PlanningScreen(
         ) {
             // Main Content Area
             if (showSetup) {
-                if (isChatMode && (aiChatScreenViewModel != null || v2ChatViewModel != null)) {
-                    if (com.theblankstate.preamble.ai.v2.V2FeatureGate.isV2Enabled && v2ChatViewModel != null) {
-                        com.theblankstate.preamble.ai.v2.ui.V2ChatScreen(
-                            viewModel = v2ChatViewModel,
-                            onAuthError = onAuthError,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(top = 56.dp * scaleFactor)
-                        )
-                    } else if (aiChatScreenViewModel != null) {
-                        AiChatScreen(
-                            viewModel = aiChatScreenViewModel,
-                            showInternalHeader = false,
-                            externalShowChatSheet = showExternalChatSheet,
-                            onDismissChatSheet = { showExternalChatSheet = false },
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(top = 56.dp * scaleFactor)
-                        )
-                    }
+                if (isChatMode && aiChatScreenViewModel != null) {
+                    AiChatScreen(
+                        viewModel = aiChatScreenViewModel,
+                        showInternalHeader = false,
+                        externalShowChatSheet = showExternalChatSheet,
+                        onDismissChatSheet = { showExternalChatSheet = false },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(top = 56.dp * scaleFactor)
+                    )
                 } else {
                     DayPlanSetupContent(
                         selectedDayEndMinute = selectedDayEndMinute,
@@ -316,13 +304,7 @@ fun PlanningScreen(
                             onRequestPlan(selectedDayEndMinute, preAnalysisPrompt.trim().ifEmpty { null }, allowRescheduleFixed)
                         },
                         onDiscuss = {
-                            if (com.theblankstate.preamble.ai.v2.V2FeatureGate.isV2Enabled && v2ChatViewModel != null) {
-                                // V2: just open chat mode. V2ChatViewModel handles initialization on screen open.
-                                val text = preAnalysisPrompt.trim()
-                                if (text.isNotEmpty()) {
-                                    v2ChatViewModel.send(message = text)
-                                }
-                            } else if (aiChatScreenViewModel != null) {
+                            if (aiChatScreenViewModel != null) {
                                 aiChatScreenViewModel.newConversation()
                                 val text = preAnalysisPrompt.trim()
                                 if (text.isNotEmpty()) {
@@ -492,12 +474,8 @@ fun PlanningScreen(
                             Surface(
                                 onClick = {
                                     val targetChatMode = !isChatMode
-                                    if (targetChatMode) {
-                                        if (com.theblankstate.preamble.ai.v2.V2FeatureGate.isV2Enabled && v2ChatViewModel != null) {
-                                            // V2 handles init via onScreenOpen() in LaunchedEffect
-                                        } else if (aiChatScreenViewModel != null) {
-                                            aiChatScreenViewModel.newConversation()
-                                        }
+                                    if (targetChatMode && aiChatScreenViewModel != null) {
+                                        aiChatScreenViewModel.newConversation()
                                     }
                                     isChatMode = targetChatMode
                                 },
