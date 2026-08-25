@@ -1666,17 +1666,10 @@ fun HomeScreen(
             )
         )
 
-        com.theblankstate.preamble.ui.screens.PlanningScreen(
-            state = dayPlanState,
-            onRequestPlan = { customDayEndMinute, userContextPrompt, allowRescheduleFixed -> dayPlanViewModel.requestPlan(customDayEndMinute, userContextPrompt, allowRescheduleFixed) },
-            onAccept = { dayPlanViewModel.accept() },
-            onDiscard = {
-                dayPlanViewModel.discard()
-            },
-            onRetry = { dayPlanViewModel.retry() },
-            onSubmitAdjustment = { text, allowRescheduleFixed -> dayPlanViewModel.submitAdjustment(text, allowRescheduleFixed) },
+        com.theblankstate.preamble.ui.screens.AiChatScreen(
+            viewModel = aiChatScreenVm,
+            showInternalHeader = true,
             onClose = closePlanning,
-            aiChatScreenViewModel = aiChatScreenVm,
             modifier = Modifier.fillMaxSize(),
         )
     }

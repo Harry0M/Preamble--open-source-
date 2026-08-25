@@ -65,6 +65,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
@@ -138,6 +139,7 @@ fun AiChatScreen(
     showInternalHeader: Boolean = false,
     externalShowChatSheet: Boolean = false,
     onDismissChatSheet: () -> Unit = {},
+    onClose: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val messages by viewModel.messages.collectAsState()
@@ -372,6 +374,7 @@ fun AiChatScreen(
         if (showInternalHeader) {
             AiChatHeader(
                 onOpenChats = { showChatSheet = true },
+                onClose = onClose,
                 modifier = Modifier.align(Alignment.TopCenter),
             )
         }
@@ -658,6 +661,7 @@ private fun readableThemeColor(background: Color, preferred: Color): Color {
 @Composable
 private fun AiChatHeader(
     onOpenChats: () -> Unit,
+    onClose: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -667,28 +671,55 @@ private fun AiChatHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Surface(
-            shape = RoundedCornerShape(999.dp),
-            color = MaterialTheme.colorScheme.primaryContainer,
-            tonalElevation = 0.dp,
-            shadowElevation = 0.dp,
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            if (onClose != null) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier
+                        .size(38.dp)
+                        .clip(CircleShape)
+                        .clickable { onClose() },
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "Close",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+            }
+
+            Surface(
+                shape = RoundedCornerShape(999.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                tonalElevation = 0.dp,
+                shadowElevation = 0.dp,
             ) {
-                com.theblankstate.preamble.ui.components.NotationIcon(
-                    type = "half_dotted",
-                    size = 14.dp,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    "Preamble",
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
-                )
+                Row(
+                    modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    com.theblankstate.preamble.ui.components.NotationIcon(
+                        type = "half_dotted",
+                        size = 14.dp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        "Preamble AI",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
             }
         }
 
