@@ -26,7 +26,7 @@
 // Flash models (free tier — no credits, no token billing)
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_MODEL = "gemini-2.5-flash"; // Auto = Flash (thinking enabled)
+export const DEFAULT_MODEL = "ministral-8b-latest";
 export const DEFAULT_MODE  = "concise";
 
 /** Daily message caps for free (Gemini) models — anti-abuse only. -1 = unlimited. */
@@ -58,18 +58,21 @@ export function isMistralPremium(model: string): boolean {
 
 /** Daily FREE token baseline per Mistral model (resets midnight UTC). */
 export const MISTRAL_DAILY_FREE_TOKENS: Record<string, number> = {
-  "mistral-small-latest":  3_000,
+  "ministral-8b-latest": 10_000,
+  "mistral-small-latest":  6_000,
   "mistral-medium-latest":   500,
 };
 
 /** Tokens added to the daily budget per ad watch. */
 export const MISTRAL_TOKENS_PER_AD: Record<string, number> = {
+  "ministral-8b-latest": 10_000,
   "mistral-small-latest":  8_000,
   "mistral-medium-latest": 1_000,
 };
 
 /** Weighted cost multiplier vs mistral-small baseline. Used so medium calls cost more budget. */
 export const MISTRAL_COST_WEIGHT: Record<string, number> = {
+  "ministral-8b-latest": 1,
   "mistral-small-latest":  1,
   "mistral-medium-latest": 6, // ~6× more expensive per token
 };
@@ -82,14 +85,14 @@ export function mistralWeightedTokens(model: string, totalTokens: number): numbe
 /** Firestore field: tokens used today (weighted). */
 export function mistralUsedField(model: string): string {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const tier  = model.includes("medium") ? "mm" : "ms";
+  const tier  = model.includes("mini") ? "mn" : model.includes("medium") ? "mm" : "ms";
   return `ai_mt_used_${tier}_${date}`;
 }
 
 /** Firestore field: bonus tokens granted by ads today. */
 export function mistralBonusField(model: string): string {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-  const tier  = model.includes("medium") ? "mm" : "ms";
+  const tier  = model.includes("mini") ? "mn" : model.includes("medium") ? "mm" : "ms";
   return `ai_mt_bonus_${tier}_${date}`;
 }
 

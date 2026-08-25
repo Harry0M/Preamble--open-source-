@@ -32,7 +32,6 @@ import {
   mistralWeightedTokens,
 } from "./config";
 import { extractMemoryFacts, hasExplicitMemoryIntent, shouldAttemptMemoryExtraction } from "./memory-extractor";
-import { getAiConfig } from "./ai-config";
 import {
   buildChatSystemPrompt,
   buildMemoryContext,
@@ -46,6 +45,13 @@ import { buildRenderBlocks } from "./render-blocks";
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const MISTRAL_KEY = process.env.MISTRAL_API_KEY || "";
 const HISTORY_WINDOW = 12;
+
+/**
+ * ─── AI MODEL CONFIGURATION (Hardcoded for 0 Firestore reads) ─────────────────
+ * Chat Model: "ministral-8b-latest" (Mistral compact, fast conversational model)
+ */
+const CHAT_MODEL = "ministral-8b-latest";
+const MEMORY_MODEL = "gemini-2.5-flash-lite";
 
 function isMistralModel(model: string): boolean {
   return model.includes("mistral") || model.includes("mixtral");
@@ -145,16 +151,7 @@ export const aiChat = onRequest(
     const startedAt = Date.now();
     const db = getFirestore("preamble");
 
-    // --- Resolve model: request > server config > default ---
-    const config = await getAiConfig(db);
-
-    if (config.killSwitch) {
-      res.status(503).json({ error: "AI is temporarily disabled by admin." });
-      return;
-    }
-
-    const requestedModel: string | undefined = req.body.model;
-    const model: string = requestedModel || config.chatModel || DEFAULT_MODEL;
+    const model: string = CHAT_MODEL;
     const mode: string = req.body.mode || DEFAULT_MODE;
     const smartMode: boolean = req.body.smartMode !== false;
     const conversationId: string = req.body.conversationId || "default";
@@ -213,7 +210,7 @@ export const aiChat = onRequest(
 
     try {
       const taskToolsEnabled = message ? shouldUseTaskTools(message) : false;
-      const baseWindow = Math.min(config.maxHistoryWindow || HISTORY_WINDOW, HISTORY_WINDOW);
+      const baseWindow = HISTORY_WINDOW;
       const isSimpleQuery = message != null &&
         message.trim().split(/\s+/).length < 25 &&
         !/\b(earlier|before|said|mentioned|we (talked|discussed)|last time|previous|above|that|it)\b/i.test(message);
@@ -518,9 +515,9 @@ export const aiChat = onRequest(
       // --- Async memory extraction ---
       if (smartMode && message && GEMINI_KEY && shouldAttemptMemoryExtraction(message)) {
         if (hasExplicitMemoryIntent(message)) {
-          await extractMemoryFacts(uid, message, GEMINI_KEY, db, config.memoryModel, memoryFacts);
+          await extractMemoryFacts(uid, message, GEMINI_KEY, db, MEMORY_MODEL, memoryFacts);
         } else {
-          extractMemoryFacts(uid, message, GEMINI_KEY, db, config.memoryModel, memoryFacts).catch(() => {});
+          extractMemoryFacts(uid, message, GEMINI_KEY, db, MEMORY_MODEL, memoryFacts).catch(() => {});
         }
       }
 
@@ -573,10 +570,8 @@ export const aiChatContinue = onRequest(
 
     const startedAt = Date.now();
     const db = getFirestore("preamble");
-    const config = await getAiConfig(db);
 
-    const requestedModel: string | undefined = req.body.model;
-    const model: string = requestedModel || config.chatModel || DEFAULT_MODEL;
+    const model: string = CHAT_MODEL;
     const mode: string = req.body.mode || DEFAULT_MODE;
     const conversationId: string = req.body.conversationId || "default";
     const appVersionCode: number = req.body.appVersionCode || 0;
