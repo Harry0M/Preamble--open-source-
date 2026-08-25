@@ -145,8 +145,6 @@ fun AiChatScreen(
     val isHistoryReady by viewModel.isHistoryReady.collectAsState()
     val isSending by viewModel.isSending.collectAsState()
     val error by viewModel.error.collectAsState()
-    val chatModelOverride by viewModel.chatModelOverride.collectAsState()
-    val conciseMode by viewModel.conciseMode.collectAsState()
     val dismissedSuggestions by viewModel.dismissedSuggestions.collectAsState()
     val conversations by viewModel.conversations.collectAsState()
     val currentConversationId by viewModel.currentConversationId.collectAsState()
@@ -161,7 +159,8 @@ fun AiChatScreen(
             onDismissChatSheet()
         }
     }
-    var showOptions by remember { mutableStateOf(false) }
+    val tokensRemaining by viewModel.tokensRemaining.collectAsState()
+    val isDailyLimitReached = error == "DAILY_LIMIT_REACHED" || tokensRemaining == 0
     val listState = rememberLazyListState()
     val keyboard = LocalSoftwareKeyboardController.current
     val context = LocalContext.current
@@ -206,25 +205,10 @@ fun AiChatScreen(
         }
     }
 
-    // Credits UI state
-    val creditBalance by AiCreditsManager.balance.collectAsState()
-    val isAdLoading by AiCreditsManager.isAdLoading.collectAsState()
-    val isLoggedIn = FirebaseAuth.getInstance().currentUser != null
-    var adMessage by remember { mutableStateOf<String?>(null) }
-
-    // Preload ad and refresh balance when screen opens
-    LaunchedEffect(Unit) {
-        if (isLoggedIn) {
-            AiCreditsManager.preloadAd(context)
-            AiCreditsManager.refreshBalance(scope)
-        }
-    }
-
     // Instant jump to bottom when opening or loading conversation (no animation lag)
     LaunchedEffect(currentConversationId, isHistoryReady) {
         editingMessageId = null
         input = ""
-        showOptions = false
         if (visibleMessages.isNotEmpty()) {
             listState.scrollToItem(visibleMessages.size - 1)
         }
@@ -269,7 +253,6 @@ fun AiChatScreen(
                             onEditUserMessage = { message ->
                                 editingMessageId = message.id
                                 input = message.content
-                                showOptions = false
                                 viewModel.clearError()
                             },
                             onApproveSuggestion = { idx, args -> viewModel.approveTaskSuggestion(msg.id, idx, args) },
@@ -281,179 +264,11 @@ fun AiChatScreen(
                     }
                 }
             }
-
-            if (showOptions) {
-                val modelSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-                ModalBottomSheet(
-                    onDismissRequest = { showOptions = false },
-                    sheetState = modelSheetState,
-                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
-                    containerColor = MaterialTheme.colorScheme.surface
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(14.dp)
-                    ) {
-                        Text(
-                            "🤖 AI Model & Response Options",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        // Credit balance + Watch Ad row
-                        if (isLoggedIn) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text("⚡", fontSize = 14.sp)
-                                    Text(
-                                        " $creditBalance credits",
-                                        style = MaterialTheme.typography.labelMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = if (creditBalance > 0) MaterialTheme.colorScheme.primary
-                                                else MaterialTheme.colorScheme.error,
-                                    )
-                                }
-                                Surface(
-                                    shape = RoundedCornerShape(20.dp),
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.clickable {
-                                        val activity = context as? Activity
-                                        if (activity != null) {
-                                            AiCreditsManager.showAdForCredits(
-                                                activity,
-                                                onReward = { newBal -> adMessage = "✅ +10 credits! Balance: $newBal" },
-                                                onError = { err -> adMessage = err },
-                                            )
-                                        }
-                                    },
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    ) {
-                                        if (isAdLoading) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(12.dp),
-                                                strokeWidth = 1.5.dp,
-                                                color = MaterialTheme.colorScheme.onPrimary,
-                                            )
-                                        } else {
-                                            Icon(
-                                                Icons.Filled.PlayCircle,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(14.dp),
-                                                tint = MaterialTheme.colorScheme.onPrimary,
-                                            )
-                                        }
-                                        Text(
-                                            "Watch Ad +10",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.onPrimary,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Text(
-                            "Model",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Row(
-                            modifier = Modifier.horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        ) {
-                            val models = listOf(
-                                "" to "Auto",
-                                "gemini-2.5-flash-lite" to "Flash Lite",
-                                "mistral-small-latest" to "Mistral",
-                                "mistral-medium-latest" to "Mistral+",
-                            )
-                            for ((id, label) in models) {
-                                val selected = chatModelOverride == id
-                                val isPremium = id.contains("mistral")
-                                val badge = when {
-                                    id.isBlank() || id.contains("flash") -> "FREE"
-                                    else -> "DAILY"
-                                }
-
-                                Surface(
-                                    shape = RoundedCornerShape(20.dp),
-                                    color = if (selected) MaterialTheme.colorScheme.primaryContainer
-                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.clickable { viewModel.setChatModel(id) },
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    ) {
-                                        Text(
-                                            label,
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                                                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                        )
-                                        Text(
-                                            badge,
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontSize = 9.sp,
-                                            color = if (!isPremium) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                                                    else MaterialTheme.colorScheme.tertiary.copy(alpha = 0.8f),
-                                            fontWeight = FontWeight.Bold,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-
-                        Text(
-                            "Response Style",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            for ((enabled, label) in listOf(true to "Concise", false to "Normal")) {
-                                val selected = conciseMode == enabled
-                                Surface(
-                                    shape = RoundedCornerShape(20.dp),
-                                    color = if (selected) MaterialTheme.colorScheme.primaryContainer
-                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.clickable { viewModel.setConciseMode(enabled) },
-                                ) {
-                                    Text(
-                                        label,
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
-                                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                    )
-                                }
-                            }
-                        }
-                        Spacer(modifier = Modifier.height(20.dp))
-                    }
-                }
-            }
         }
 
-        error?.let { currentError ->
+        if (error != null && error != "DAILY_LIMIT_REACHED") {
             AiChatErrorBanner(
-                error = currentError,
+                error = error!!,
                 onDismiss = { viewModel.clearError() },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -461,7 +276,6 @@ fun AiChatScreen(
                     .padding(horizontal = 12.dp)
                     .padding(
                         bottom = when {
-                            showOptions -> 250.dp
                             editingMessageId != null -> 112.dp
                             else -> 70.dp
                         }
@@ -476,8 +290,8 @@ fun AiChatScreen(
                 .padding(end = 18.dp)
                 .padding(
                     bottom = when {
-                        showOptions -> 252.dp
-                        error != null -> 128.dp
+                        isDailyLimitReached -> 88.dp
+                        error != null && error != "DAILY_LIMIT_REACHED" -> 128.dp
                         editingMessageId != null -> 118.dp
                         else -> 78.dp
                     }
@@ -510,40 +324,50 @@ fun AiChatScreen(
         }
 
         val isImeVisible = WindowInsets.isImeVisible
-        AiChatComposer(
-            input = input,
-            onInputChange = { input = it },
-            showOptions = showOptions,
-            onToggleOptions = { showOptions = !showOptions },
-            isEditing = editingMessageId != null,
-            onCancelEdit = {
-                editingMessageId = null
-                input = ""
-            },
-            isSending = isSending,
-            onFocus = applyChatSoftInputMode,
-            onSend = {
-                if (input.isNotBlank() && !isSending) {
-                    val text = input.trim()
-                    val editingId = editingMessageId
-                    if (editingId != null) {
-                        viewModel.editAndResend(editingId, text)
-                    } else {
-                        viewModel.send(text)
-                    }
+        if (isDailyLimitReached) {
+            AiChatDailyLimitCard(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .imePadding()
+                    .padding(horizontal = 14.dp)
+                    .padding(bottom = if (isImeVisible) 8.dp else 104.dp),
+            )
+        } else {
+            AiChatComposer(
+                input = input,
+                onInputChange = { input = it },
+                isEditing = editingMessageId != null,
+                onCancelEdit = {
                     editingMessageId = null
                     input = ""
-                    keyboard?.hide()
-                }
-            },
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .imePadding()
-                .padding(horizontal = 14.dp)
-                .padding(bottom = if (isImeVisible) 8.dp else 104.dp),
-        )
+                },
+                isSending = isSending,
+                onFocus = applyChatSoftInputMode,
+                onSend = {
+                    if (input.isNotBlank() && !isSending) {
+                        val text = input.trim()
+                        val editingId = editingMessageId
+                        if (editingId != null) {
+                            viewModel.editAndResend(editingId, text)
+                        } else {
+                            viewModel.send(text)
+                        }
+                        editingMessageId = null
+                        input = ""
+                        keyboard?.hide()
+                    }
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .imePadding()
+                    .padding(horizontal = 14.dp)
+                    .padding(bottom = if (isImeVisible) 8.dp else 104.dp),
+            )
+        }
 
         if (showInternalHeader) {
             AiChatHeader(
@@ -631,11 +455,64 @@ private fun Modifier.expressivePressScale(
 }
 
 @Composable
+private fun AiChatDailyLimitCard(
+    modifier: Modifier = Modifier,
+) {
+    val screenWidth = LocalConfiguration.current.screenWidthDp.dp
+    val scaleFactor = (screenWidth.value / 360f).coerceIn(0.85f, 1.15f)
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp * scaleFactor),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
+        tonalElevation = 1.dp,
+        shadowElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 16.dp * scaleFactor, vertical = 12.dp * scaleFactor),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp * scaleFactor),
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(36.dp * scaleFactor)
+            ) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Filled.AutoAwesome,
+                        contentDescription = "Daily limit reached",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp * scaleFactor)
+                    )
+                }
+            }
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Daily limit reached",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp * scaleFactor,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Daily message limit over, continue tomorrow.",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 11.5.sp * scaleFactor,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun AiChatComposer(
     input: String,
     onInputChange: (String) -> Unit,
-    showOptions: Boolean,
-    onToggleOptions: () -> Unit,
     isEditing: Boolean,
     onCancelEdit: () -> Unit,
     isSending: Boolean,
@@ -647,19 +524,7 @@ private fun AiChatComposer(
     val scaleFactor = (screenWidth.value / 360f).coerceIn(0.85f, 1.15f)
 
     val canSend = input.isNotBlank() && !isSending
-    val optionsInteraction = remember { MutableInteractionSource() }
     val sendInteraction = remember { MutableInteractionSource() }
-
-    val scheme = MaterialTheme.colorScheme
-    val surface = scheme.surface.copy(alpha = 1f)
-    val adjustBackground = solidThemeColor(
-        color = if (showOptions) scheme.primary else scheme.primaryContainer,
-        surface = surface,
-    )
-    val adjustForeground = readableThemeColor(
-        background = adjustBackground,
-        preferred = if (showOptions) scheme.onPrimary else scheme.onPrimaryContainer,
-    )
 
     Column(
         modifier = modifier,
@@ -697,141 +562,85 @@ private fun AiChatComposer(
             }
         }
 
-        Row(
+        // Text Input Bar with Pill Surface & Expressive Send Button
+        Surface(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp * scaleFactor),
+            shape = RoundedCornerShape(50),
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            tonalElevation = 0.dp,
+            shadowElevation = 0.dp,
         ) {
-            // Options Button with tactile expressivePressScale animation
-            Surface(
-                onClick = onToggleOptions,
-                shape = CircleShape,
-                color = adjustBackground,
+            Row(
                 modifier = Modifier
-                    .size(46.dp * scaleFactor)
-                    .expressivePressScale(optionsInteraction)
+                    .heightIn(min = 46.dp * scaleFactor)
+                    .padding(start = 16.dp * scaleFactor, end = 6.dp * scaleFactor, top = 4.dp * scaleFactor, bottom = 4.dp * scaleFactor),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    AdjustmentGlyph(
-                        color = adjustForeground,
-                        modifier = Modifier.size(20.dp * scaleFactor),
-                    )
-                }
-            }
-
-            // Text Input Bar with Pill Surface & Expressive Send Button
-            Surface(
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(50),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp,
-            ) {
-                Row(
+                BasicTextField(
+                    value = input,
+                    onValueChange = onInputChange,
                     modifier = Modifier
-                        .heightIn(min = 46.dp * scaleFactor)
-                        .padding(start = 16.dp * scaleFactor, end = 6.dp * scaleFactor, top = 4.dp * scaleFactor, bottom = 4.dp * scaleFactor),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    BasicTextField(
-                        value = input,
-                        onValueChange = onInputChange,
-                        modifier = Modifier
-                            .weight(1f)
-                            .onFocusChanged { focusState ->
-                                if (focusState.isFocused) onFocus()
-                            },
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(
-                            color = MaterialTheme.colorScheme.onSurface,
-                            fontSize = 13.5.sp * scaleFactor
-                        ),
-                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                        keyboardOptions = KeyboardOptions(
-                            capitalization = KeyboardCapitalization.Sentences,
-                            imeAction = ImeAction.Send,
-                        ),
-                        keyboardActions = KeyboardActions(
-                            onSend = {
-                                if (canSend) onSend()
-                            },
-                        ),
-                        maxLines = 4,
-                        decorationBox = { innerTextField ->
-                            Box(
-                                modifier = Modifier.fillMaxWidth(),
-                                contentAlignment = Alignment.CenterStart,
-                            ) {
-                                if (input.isBlank()) {
-                                    Text(
-                                        "Ask anything...",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        fontSize = 13.5.sp * scaleFactor,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.58f),
-                                    )
-                                }
-                                innerTextField()
-                            }
+                        .weight(1f)
+                        .onFocusChanged { focusState ->
+                            if (focusState.isFocused) onFocus()
                         },
-                    )
-
-                    Surface(
-                        onClick = { if (canSend) onSend() },
-                        enabled = canSend,
-                        shape = CircleShape,
-                        color = if (canSend) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
-                        tonalElevation = 0.dp,
-                        shadowElevation = 0.dp,
-                        modifier = Modifier
-                            .padding(start = 6.dp * scaleFactor)
-                            .size(36.dp * scaleFactor)
-                            .expressivePressScale(sendInteraction)
-                    ) {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Send",
-                                modifier = Modifier.size(16.dp * scaleFactor),
-                                tint = if (canSend) MaterialTheme.colorScheme.onPrimary
-                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f),
-                            )
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 13.5.sp * scaleFactor
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Send,
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onSend = {
+                            if (canSend) onSend()
+                        },
+                    ),
+                    maxLines = 4,
+                    decorationBox = { innerTextField ->
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.CenterStart,
+                        ) {
+                            if (input.isBlank()) {
+                                Text(
+                                    "Ask anything...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontSize = 13.5.sp * scaleFactor,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.58f),
+                                )
+                            }
+                            innerTextField()
                         }
+                    },
+                )
+
+                Surface(
+                    onClick = { if (canSend) onSend() },
+                    enabled = canSend,
+                    shape = CircleShape,
+                    color = if (canSend) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    modifier = Modifier
+                        .padding(start = 6.dp * scaleFactor)
+                        .size(36.dp * scaleFactor)
+                        .expressivePressScale(sendInteraction)
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Send,
+                            contentDescription = "Send",
+                            modifier = Modifier.size(16.dp * scaleFactor),
+                            tint = if (canSend) MaterialTheme.colorScheme.onPrimary
+                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.42f),
+                        )
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun AdjustmentGlyph(
-    color: Color,
-    modifier: Modifier = Modifier,
-) {
-    Canvas(modifier = modifier) {
-        val strokeWidth = 1.7.dp.toPx()
-        val knobRadius = 2.15.dp.toPx()
-        val lineColor = color.copy(alpha = 0.86f)
-        val rows = listOf(
-            0.27f to 0.64f,
-            0.50f to 0.36f,
-            0.73f to 0.58f,
-        )
-
-        rows.forEach { (yFraction, knobFraction) ->
-            val y = size.height * yFraction
-            drawLine(
-                color = lineColor,
-                start = Offset(size.width * 0.16f, y),
-                end = Offset(size.width * 0.84f, y),
-                strokeWidth = strokeWidth,
-                cap = StrokeCap.Round,
-            )
-            drawCircle(
-                color = color,
-                radius = knobRadius,
-                center = Offset(size.width * knobFraction, y),
-            )
         }
     }
 }

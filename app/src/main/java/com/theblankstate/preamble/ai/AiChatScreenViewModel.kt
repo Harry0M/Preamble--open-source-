@@ -104,12 +104,11 @@ class AiChatScreenViewModel(
         if (text.isBlank() || _isSending.value) return
         com.theblankstate.preamble.analytics.AnalyticsManager.trackAiChatMessageSent()
         _error.value = null
-        val modelOverride = _chatModelOverride.value.takeIf { it.isNotBlank() }
         val concise = _conciseMode.value
         viewModelScope.launch {
             _isSending.value = true
             try {
-                engine.send(_currentConversationId.value, text, modelOverride, concise).collect { ev ->
+                engine.send(_currentConversationId.value, text, null, concise).collect { ev ->
                     when (ev) {
                         is ChatEvent.Error -> _error.value = ev.reason
                         is ChatEvent.Credits -> _tokensRemaining.value = ev.tokensRemaining
@@ -127,7 +126,6 @@ class AiChatScreenViewModel(
         com.theblankstate.preamble.analytics.AnalyticsManager.trackAiChatMessageSent()
         _error.value = null
         val cid = _currentConversationId.value
-        val modelOverride = _chatModelOverride.value.takeIf { it.isNotBlank() }
         val concise = _conciseMode.value
         viewModelScope.launch {
             _isSending.value = true
@@ -137,7 +135,7 @@ class AiChatScreenViewModel(
                     _error.value = "Could not edit that message. Please try again."
                     return@launch
                 }
-                engine.send(cid, text, modelOverride, concise).collect { ev ->
+                engine.send(cid, text, null, concise).collect { ev ->
                     when (ev) {
                         is ChatEvent.Error -> _error.value = ev.reason
                         is ChatEvent.Credits -> _tokensRemaining.value = ev.tokensRemaining

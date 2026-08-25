@@ -10,22 +10,13 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { GoogleGenAI } from "@google/genai";
 import { getAuth } from "firebase-admin/auth";
+import { getFirestore } from "firebase-admin/firestore";
+import { getAiConfig } from "./ai-config";
 import { buildSystemPrompt, TaskSnapshot } from "./prompt-builder";
 import { TASK_TOOLS_V2, TASK_TOOLS, toGeminiFunctionDeclarations } from "./tools-schema";
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const MISTRAL_KEY = process.env.MISTRAL_API_KEY || "";
-
-/**
- * ─── AI MODEL CONFIGURATION ──────────────────────────────────────────────────
- * To change the model: edit this value and run `firebase deploy --only functions`
- * No Firestore read needed — zero cost overhead per request.
- *
- * Gemini options:  "gemini-2.5-flash-lite" | "gemini-2.5-flash" | "gemini-2.5-pro"
- * Mistral options: "mistral-small-latest"  | "mistral-medium-latest" | "mistral-large-latest"
- */
-const PARSE_MODEL = "gemini-2.5-flash-lite";
-// ─────────────────────────────────────────────────────────────────────────────
 
 async function verifyAuth(authHeader: string | undefined): Promise<string | null> {
   if (!authHeader?.startsWith("Bearer ")) return null;
@@ -92,7 +83,9 @@ export const aiParseTask = onRequest(
         preferredLanguages: langs.length > 0 ? langs : undefined,
       });
 
-      const parseModel = PARSE_MODEL;
+      const db = getFirestore("preamble");
+      const config = await getAiConfig(db);
+      const parseModel = config.parseModel || "gemini-2.5-flash-lite";
       const isMistral = parseModel.includes("mistral") || parseModel.includes("mixtral");
 
       let toolCalls: Array<{ name: string; args: Record<string, string> }> = [];
