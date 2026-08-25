@@ -23,10 +23,13 @@
  */
 
 // ---------------------------------------------------------------------------
-// Flash models (free tier — no credits, no token billing)
+// Central AI Model Configuration (Hardcoded for 0 Firestore reads)
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_MODEL = "ministral-8b-latest";
+export const PARSE_MODEL  = "mistral-small-latest";   // High accuracy task parser & function calling
+export const CHAT_MODEL   = "ministral-8b-latest";    // Fast, lightweight conversational model for AI chat
+export const MEMORY_MODEL = "gemini-2.5-flash-lite";  // Background memory extractor
+export const DEFAULT_MODEL = CHAT_MODEL;
 export const DEFAULT_MODE  = "concise";
 
 /** Daily message caps for free (Gemini) models — anti-abuse only. -1 = unlimited. */

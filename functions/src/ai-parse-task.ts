@@ -12,16 +12,10 @@ import { GoogleGenAI } from "@google/genai";
 import { getAuth } from "firebase-admin/auth";
 import { buildSystemPrompt, TaskSnapshot } from "./prompt-builder";
 import { TASK_TOOLS_V2, TASK_TOOLS, toGeminiFunctionDeclarations } from "./tools-schema";
+import { PARSE_MODEL } from "./config";
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const MISTRAL_KEY = process.env.MISTRAL_API_KEY || "";
-
-/**
- * ─── AI MODEL CONFIGURATION (Hardcoded for 0 Firestore reads) ─────────────────
- * Task Parsing: "mistral-small-latest" (Mistral Small - exceptional tool calling & JSON accuracy)
- */
-const PARSE_MODEL = "mistral-small-latest";
-// ─────────────────────────────────────────────────────────────────────────────
 
 async function verifyAuth(authHeader: string | undefined): Promise<string | null> {
   if (!authHeader?.startsWith("Bearer ")) return null;

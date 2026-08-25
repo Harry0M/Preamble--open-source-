@@ -18,6 +18,8 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import { TASK_TOOLS, TASK_TOOLS_V2, toGeminiFunctionDeclarations, shouldUseTaskTools } from "./tools-schema";
 import {
+  CHAT_MODEL,
+  MEMORY_MODEL,
   DEFAULT_MODEL,
   DEFAULT_MODE,
   isMistralPremium,
@@ -45,13 +47,6 @@ import { buildRenderBlocks } from "./render-blocks";
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const MISTRAL_KEY = process.env.MISTRAL_API_KEY || "";
 const HISTORY_WINDOW = 12;
-
-/**
- * ─── AI MODEL CONFIGURATION (Hardcoded for 0 Firestore reads) ─────────────────
- * Chat Model: "ministral-8b-latest" (Mistral compact, fast conversational model)
- */
-const CHAT_MODEL = "ministral-8b-latest";
-const MEMORY_MODEL = "gemini-2.5-flash-lite";
 
 function isMistralModel(model: string): boolean {
   return model.includes("mistral") || model.includes("mixtral");
