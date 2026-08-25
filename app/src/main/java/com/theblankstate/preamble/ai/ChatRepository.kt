@@ -33,6 +33,12 @@ class ChatRepository private constructor(
 
     private val firestore by lazy { FirebaseFirestore.getInstance("preamble") }
 
+    private val prefs by lazy {
+        appContext.getSharedPreferences("preamble_chat_sync", Context.MODE_PRIVATE)
+    }
+    private fun chatSyncKey(cid: String) = "chat_last_sync_$cid"
+    private val CHAT_TTL_MS = 6 * 60 * 60 * 1000L  // 6 hours
+
     private fun uid(): String? = FirebaseAuth.getInstance().currentUser?.uid
 
     fun defaultConversationId(): String = "default"
@@ -192,12 +198,35 @@ class ChatRepository private constructor(
     /**
      * Pull remote conversation snapshot into local Room. Call on app start / sign-in.
      */
+
+
+    /**
+     * Pull remote conversation snapshot into local Room. Call on app start / sign-in.
+     */
     suspend fun pullRemote(cid: String): Int = withContext(Dispatchers.IO) {
         val u = uid() ?: return@withContext 0
+        val now = System.currentTimeMillis()
+        val lastSync = prefs.getLong(chatSyncKey(cid), 0L)
+
+        // TTL guard
+        if (lastSync > 0L && (now - lastSync) < CHAT_TTL_MS) {
+            val ageMins = (now - lastSync) / 60_000
+            Log.i("COST_OPT", "[CACHE_HIT] ai_chat[$cid]: skipping Firestore read (cache is ${ageMins}min old, TTL=${CHAT_TTL_MS / 60_000}min) — 0 docs read")
+            return@withContext 0
+        }
+
         runCatching {
-            val docs = firestore.collection("users").document(u)
+            val col = firestore.collection("users").document(u)
                 .collection("ai_chat").document(cid)
-                .collection("messages").get().await()
+                .collection("messages")
+            val query = if (lastSync > 0L) {
+                Log.i("COST_OPT", "[DELTA_QUERY] ai_chat[$cid]: fetching only messages since last sync (${(now - lastSync) / 60_000}min ago)")
+                col.whereGreaterThan("timestamp", lastSync)
+            } else {
+                Log.i("COST_OPT", "[FULL_QUERY] ai_chat[$cid]: first sync, reading full conversation")
+                col
+            }
+            val docs = query.get().await()
             val remoteRows = docs.documents.mapNotNull { doc ->
                 val role = doc.getString("role") ?: return@mapNotNull null
                 val content = doc.getString("content") ?: return@mapNotNull null
@@ -217,18 +246,26 @@ class ChatRepository private constructor(
                 )
             }.sortedBy { it.timestamp }
             val rows = filterLegacyCloudDuplicates(cid, remoteRows)
+            Log.i("COST_OPT", "[DELTA_RESULT] ai_chat[$cid]: read ${docs.documents.size} docs, upserted ${rows.size} after dedup")
             if (rows.isNotEmpty()) dao.upsertAll(rows)
             pruneLocalLegacyCloudDuplicates(cid)
+            prefs.edit().putLong(chatSyncKey(cid), now).apply()
             rows.size
         }.onFailure { Log.w(TAG, "pullRemote failed", it) }.getOrDefault(0)
     }
-
+    /**
+     * Retry Firestore sync for any messages that were saved locally but not yet uploaded
+     * (syncPending = 1). Safe to call on app start / sign-in.
+     */
     suspend fun flushPending() = withContext(Dispatchers.IO) {
-        val pending = dao.pendingSync()
-        pending.forEach { syncOne(it) }
+        val pending = runCatching { dao.pendingSync() }.getOrNull() ?: return@withContext
+        for (msg in pending) {
+            syncOne(msg)
+        }
     }
 
     // ── Internal ──────────────────────────────────────────────────────────────
+
 
     private suspend fun syncOne(msg: ChatMessageEntity) {
         val u = uid() ?: return

@@ -1258,6 +1258,46 @@ app.get('/api/stats/posthog/trends', requireAuth, async (req, res) => {
   }
 });
 
+// ─── AI CONFIGURATION MANAGEMENT ROUTES ───
+
+// Read AI config (parseModel, chatModel, killSwitch)
+app.get('/api/ai/config', requireAuth, async (req, res) => {
+  try {
+    const doc = await firestoreDb.collection('config').doc('ai').get();
+    const config = doc.exists ? doc.data() : {
+      parseModel: 'gemini-2.5-flash-lite',
+      chatModel: 'gemini-2.5-flash',
+      killSwitch: false,
+    };
+    res.json({ config });
+  } catch (err) {
+    console.error('Error reading AI config:', err);
+    res.status(500).json({ error: 'Failed to read AI config' });
+  }
+});
+
+// Update AI config (service account bypasses Firestore rules)
+app.put('/api/ai/config', requireAuth, async (req, res) => {
+  try {
+    const { parseModel, chatModel, killSwitch } = req.body;
+    const update = {
+      updatedAt: Date.now(),
+      updatedBy: req.session.user.email,
+    };
+    if (parseModel !== undefined) update.parseModel = parseModel;
+    if (chatModel !== undefined) update.chatModel = chatModel;
+    if (killSwitch !== undefined) update.killSwitch = !!killSwitch;
+
+    await firestoreDb.collection('config').doc('ai').set(update, { merge: true });
+
+    console.log(`[AI Config] Updated by ${req.session.user.email}: parseModel=${parseModel}, chatModel=${chatModel}, killSwitch=${killSwitch}`);
+    res.json({ success: true, config: update });
+  } catch (err) {
+    console.error('Error updating AI config:', err);
+    res.status(500).json({ error: 'Failed to update AI config' });
+  }
+});
+
 // ─── AI ASSISTANT / GENERATION ROUTES ───
 
 app.post('/api/ai/chat', requireAuth, async (req, res) => {

@@ -31,6 +31,8 @@ class AdminTaskRepository(private val appContext: Context) {
         private const val PREFS_NAME = "admin_task_prefs"
         private const val KEY_DISMISSED = "dismissed_ids"
         private const val KEY_INTERACTED = "interacted_ids"
+        private const val KEY_LAST_BROADCAST_SYNC = "last_broadcast_sync_at"
+        private const val BROADCAST_TTL_MS = 60 * 60 * 1000L // 1 hour
     }
 
     private val firestore = FirebaseFirestore.getInstance(FIRESTORE_DB_ID)
@@ -85,12 +87,22 @@ class AdminTaskRepository(private val appContext: Context) {
 
     suspend fun refresh() {
         if (_isLoading.value) return
+        // TTL guard: skip Firestore fetch if broadcasts were refreshed recently
+        val lastSync = prefs.getLong(KEY_LAST_BROADCAST_SYNC, 0L)
+        val now = System.currentTimeMillis()
+        val skipRemoteFetch = lastSync > 0L && (now - lastSync) < BROADCAST_TTL_MS
+        if (skipRemoteFetch) {
+            Log.i("COST_OPT", "[CACHE_HIT] admin_broadcasts TTL: skipping Firestore read (${(now - lastSync) / 60_000}min old, TTL=${BROADCAST_TTL_MS / 60_000}min) — 0 docs read")
+        } else if (lastSync == 0L) {
+            Log.i("COST_OPT", "[FULL_QUERY] admin_broadcasts: first fetch (server-side active=true filter applied)")
+        } else {
+            Log.i("COST_OPT", "[CACHE_EXPIRED] admin_broadcasts: TTL expired, fetching from Firestore")
+        }
         _isLoading.value = true
         try {
-            val remoteTasks = fetchRemoteBroadcasts()
+            val remoteTasks = if (skipRemoteFetch) emptyList() else fetchRemoteBroadcasts()
             val featureTasks = generateFeatureDiscoveryTasks()
             val dismissed = getDismissedIds()
-            val now = System.currentTimeMillis()
             val uid = FirebaseAuth.getInstance().currentUser?.uid
 
             val combined = (remoteTasks + featureTasks)
@@ -99,7 +111,7 @@ class AdminTaskRepository(private val appContext: Context) {
                 .filter { it.expiresAt == null || it.expiresAt > now }
                 .filter { msg ->
                     // Client-side targeted broadcast filtering
-                    msg.targetType == "all" || 
+                    msg.targetType == "all" ||
                     (msg.targetType == "single" && uid != null && msg.targetUids?.contains(uid) == true) ||
                     (msg.targetType == "group" && uid != null && msg.targetUids?.contains(uid) == true)
                 }
@@ -107,6 +119,10 @@ class AdminTaskRepository(private val appContext: Context) {
                 .sortedByDescending { it.priority }
 
             _adminTasks.value = combined
+            if (!skipRemoteFetch) {
+                prefs.edit().putLong(KEY_LAST_BROADCAST_SYNC, now).apply()
+                Log.i("COST_OPT", "[FETCH_DONE] admin_broadcasts: fetched ${remoteTasks.size} remote docs (active=true filter saved reading inactive docs)")
+            }
             Log.d(TAG, "Loaded ${combined.size} admin tasks (${remoteTasks.size} remote + ${featureTasks.size} feature)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to refresh admin tasks", e)
@@ -118,6 +134,7 @@ class AdminTaskRepository(private val appContext: Context) {
     private suspend fun fetchRemoteBroadcasts(): List<AdminTask> = withContext(Dispatchers.IO) {
         try {
             val snapshot = firestore.collection(COLLECTION)
+                .whereEqualTo("active", true)
                 .get()
                 .await()
 

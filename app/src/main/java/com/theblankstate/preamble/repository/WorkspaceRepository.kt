@@ -312,6 +312,12 @@ class WorkspaceRepository(
             .documents.mapNotNull { it.toObject(Friend::class.java) }
     }
 
+    /**
+     * One-shot friends fetch for FCM-triggered refreshes.
+     * Returns the fresh list; callers should update their StateFlow from this.
+     */
+    suspend fun refreshFriendsOnce(): List<Friend> = getFriendsOnce()
+
     fun getPendingInvitesFlow(): Flow<List<WorkspaceInvite>> = callbackFlow {
         val uid = currentUid
         if (uid == null) {
@@ -394,6 +400,28 @@ class WorkspaceRepository(
             }
 
         awaitClose(listener::remove)
+    }
+
+    /**
+     * Fetch collaborative tasks once (from server). Results flow from this call.
+     * Call this on screen open and when FCM sync message arrives.
+     * Much cheaper than always-on listener — only billed when explicitly called.
+     */
+    suspend fun fetchCollaborativeTasks(): List<Task> {
+        val uid = currentUid ?: return emptyList()
+        return try {
+            db.collection(COLLABORATIVE_TASKS)
+                .whereEqualTo(FieldPath.of(MEMBER_UID_MAP, uid), true)
+                .get().await()
+                .documents.mapNotNull { document ->
+                    documentToTask(document, uid)
+                }.filter { task ->
+                    task.assignmentStatus !in TERMINAL_MEMBER_STATUSES
+                }.sortedByDescending(Task::updatedTimestamp)
+        } catch (e: Exception) {
+            Log.e(TAG, "fetchCollaborativeTasks failed", e)
+            emptyList()
+        }
     }
 
     /**

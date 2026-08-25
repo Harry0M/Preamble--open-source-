@@ -784,6 +784,15 @@ class TaskRepository(
     // ── Virtual Expansion (Google-style calendar display) ──
 
     /**
+     * Get all tasks whose createdDate is within [startDate, endDate] (inclusive).
+     * Used by the AI get_tasks_range tool for productivity analysis — no Firestore reads.
+     * Returns physical rows only (no virtual recurring expansion needed for historical analysis).
+     */
+    suspend fun getTasksBetweenDates(startDate: String, endDate: String): List<Task> {
+        return dao.getTasksBetweenDates(startDate, endDate)
+    }
+
+    /**
      * Get tasks for a specific date including virtual recurring instances.
      * Used by CalendarScreen for accurate display of recurring tasks.
      * Physical rows are returned as-is; recurring templates generate virtual instances

@@ -98,6 +98,31 @@ export const TASK_TOOLS: ToolDef[] = [
       required: ["title", "time"],
     },
   },
+  {
+    name: "duplicate_task",
+    description: "Call this INSTEAD of add_task when the user's input clearly refers to a task that already exists in today's task list (same semantic meaning, even if phrased differently). Only call when HIGHLY confident it is a duplicate. When in doubt, use add_task.",
+    parameters: {
+      type: "object",
+      properties: {
+        existing_title: { type: "string", description: "The exact title of the matching task that already exists in today's list." },
+        user_input:     { type: "string", description: "What the user said or typed." },
+      },
+      required: ["existing_title", "user_input"],
+    },
+  },
+  {
+    name: "get_tasks_range",
+    description: "Fetch the user's tasks for a date range from the local database. Use when the user asks about past productivity (e.g. 'last week', 'last month', 'pichle hafte', 'how productive was I', 'review my month', 'analyse last 7 days', or a custom date range). The app will return data from its local Room database — no network call needed. If no data exists for the range, the app will say so.",
+    parameters: {
+      type: "object",
+      properties: {
+        start_date:        { type: "string", description: "Start date in YYYY-MM-DD format (inclusive)." },
+        end_date:          { type: "string", description: "End date in YYYY-MM-DD format (inclusive)." },
+        include_completed: { type: "string", description: "true to include completed tasks in results (default true). Set false to see only incomplete." },
+      },
+      required: ["start_date", "end_date"],
+    },
+  },
 ];
 
 export const TASK_TOOLS_V2: ToolDef[] = TASK_TOOLS.map(t => {
@@ -177,6 +202,13 @@ export function shouldUseTaskTools(text: string): boolean {
     "task banana", "task banao", "kaam add", "yaad dilana",
     "hata do", "delete karo", "complete kar", "done mark",
     "shift karo", "badal do", "kal shift", "aaj ke tasks",
+    // Analysis / productivity review patterns
+    "last week", "last month", "last year", "pichle hafte", "pichle mahine",
+    "how productive", "kitna productive", "analyse my", "analyze my",
+    "review my", "my progress", "mera progress", "productivity report",
+    "how many tasks", "kitne tasks", "completed tasks", "custom range",
+    "last 7 days", "last 30 days", "last 14 days", "pichle",
+    "is week", "is mahine", "is month", "this week", "this month",
   ];
   if (directSignals.some(s => lower.includes(s))) return true;
 

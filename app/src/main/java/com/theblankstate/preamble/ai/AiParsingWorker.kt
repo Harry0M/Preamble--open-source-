@@ -17,6 +17,7 @@ import com.theblankstate.preamble.repository.WorkspaceRepository
 import com.theblankstate.preamble.data.Subtask
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.text.SimpleDateFormat
@@ -55,15 +56,21 @@ class AiParsingWorker(
 
         val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         val subtaskIntensity = applicationContext.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
-            .getInt("ai_subtask_intensity", 0)
+            .getInt("ai_subtask_intensity", 1)
+
+        // Fetch tasks from local Room DB to send as context — zero Firestore reads on server
+        val contextTasks: List<com.theblankstate.preamble.data.Task> =
+            try { app.repository.tasksFlow.firstOrNull() ?: emptyList() } catch (e: Exception) { emptyList() }
 
         // Try cloud first if logged in
         if (FirebaseAuth.getInstance().currentUser != null) {
             try {
                 val result = CloudAiService.parseTask(
+                    context = applicationContext,
                     rawText = rawText,
                     subtaskIntensity = subtaskIntensity,
                     isNotificationEdit = false,
+                    tasks = contextTasks,
                 )
 
                 if (result != null && result.toolCalls.isNotEmpty()) {
@@ -147,10 +154,35 @@ class AiParsingWorker(
         today: String,
         userOverrides: Set<String> = emptySet(),
     ) {
+        var isFirstAddTask = true
         for (call in toolCalls) {
             when (call.name) {
                 "add_task", "set_reminder" -> {
-                    applyParsedTask(app, task, taskId, call.args, today, userOverrides)
+                    if (isFirstAddTask) {
+                        applyParsedTask(app, task, taskId, call.args, today, userOverrides)
+                        isFirstAddTask = false
+                    } else {
+                        val newTaskId = java.util.UUID.randomUUID().toString()
+                        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+                        val newTask = com.theblankstate.preamble.data.Task(
+                            id = newTaskId,
+                            title = call.args["title"] ?: "Untitled",
+                            createdDate = today,
+                            isSyncing = true,
+                        )
+                        app.repository.insertTask(newTask)
+                        applyParsedTask(app, newTask, newTaskId, call.args, today, emptySet())
+                        Log.i("Preamble_TaskParser", "[MULTI-TASK] Created additional task: id=$newTaskId title=${call.args["title"]}")
+                    }
+                }
+                "duplicate_task" -> {
+                    val existingTitle = call.args["existing_title"] ?: task.title
+                    Log.i(TAG, "[DUPLICATE] Task already exists: \"$existingTitle\" — removing placeholder $taskId")
+                    // Delete the optimistic placeholder that was pre-inserted
+                    val placeholder = app.repository.getTaskById(taskId)
+                    if (placeholder != null) app.repository.deleteTask(placeholder)
+                    // Notify user via local notification (no FCM needed)
+                    showDuplicateNotification(applicationContext, existingTitle)
                 }
                 else -> {
                     app.repository.updateTask(task.copy(isSyncing = false))
@@ -170,16 +202,59 @@ class AiParsingWorker(
         today: String,
         userOverrides: Set<String> = emptySet(),
     ) {
+        var isFirstAddTask = true
         for (call in toolCalls) {
             when (call.name) {
                 "add_task", "set_reminder" -> {
-                    applyParsedTask(app, task, taskId, call.arguments, today, userOverrides)
+                    if (isFirstAddTask) {
+                        applyParsedTask(app, task, taskId, call.arguments, today, userOverrides)
+                        isFirstAddTask = false
+                    } else {
+                        val newTaskId = java.util.UUID.randomUUID().toString()
+                        val uid = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser?.uid ?: ""
+                        val newTask = com.theblankstate.preamble.data.Task(
+                            id = newTaskId,
+                            title = call.arguments["title"] ?: "Untitled",
+                            createdDate = today,
+                            isSyncing = true,
+                        )
+                        app.repository.insertTask(newTask)
+                        applyParsedTask(app, newTask, newTaskId, call.arguments, today, emptySet())
+                        Log.i("Preamble_TaskParser", "[MULTI-TASK] Created additional task: id=$newTaskId title=${call.arguments["title"]}")
+                    }
+                }
+                "duplicate_task" -> {
+                    val existingTitle = call.arguments["existing_title"] ?: task.title
+                    Log.i(TAG, "[DUPLICATE] Task already exists (local): \"$existingTitle\" — removing placeholder $taskId")
+                    val placeholder = app.repository.getTaskById(taskId)
+                    if (placeholder != null) app.repository.deleteTask(placeholder)
+                    showDuplicateNotification(applicationContext, existingTitle)
                 }
                 else -> {
                     app.repository.updateTask(task.copy(isSyncing = false))
                 }
             }
         }
+    }
+
+    private fun showDuplicateNotification(context: android.content.Context, existingTitle: String) {
+        val nm = context.getSystemService(android.app.NotificationManager::class.java)
+        val channelId = "preamble_ai_feedback"
+        val channel = android.app.NotificationChannel(
+            channelId, "Preamble AI Feedback",
+            android.app.NotificationManager.IMPORTANCE_DEFAULT
+        ).apply { description = "AI task parsing feedback" }
+        nm.createNotificationChannel(channel)
+        val notification = androidx.core.app.NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(com.theblankstate.preamble.R.drawable.ic_notification)
+            .setContentTitle("Task already exists")
+            .setContentText("\"$existingTitle\" is already in today's list")
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .build()
+        // Use a time-derived ID so multiple duplicates don't overwrite each other
+        nm.notify((System.currentTimeMillis() and 0xFFFFL).toInt() + 2000, notification)
+        Log.i(TAG, "[DUPLICATE_NOTIF] Shown for: \"$existingTitle\"")
     }
 
     /**
@@ -194,6 +269,7 @@ class AiParsingWorker(
         userOverrides: Set<String> = emptySet(),
     ) {
         Log.d(TAG, "applyParsedTask: taskId=$taskId, args=$args, userOverrides=$userOverrides")
+        Log.i("Preamble_TaskParser", "[APPLY] taskId=$taskId title=${args["title"]} tags=${args["tags"]} priority=${args["priority"]} isHabit=${args["is_habit"]} isEvent=${args["is_event"]}")
         val rawText = task.title
         // Title is always refined by AI (that's the whole point)
         val refinedTitle = args["title"] ?: rawText

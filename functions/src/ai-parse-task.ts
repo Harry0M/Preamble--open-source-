@@ -1,25 +1,31 @@
 /**
  * Task parsing endpoint — used by voice input, notification edit, and task sheet.
- * Same prompt system as chat, but returns structured task JSON instead of conversational response.
+ * Returns structured task JSON instead of conversational response.
  *
- * Always FREE — no credits needed. Uses the configured parse model (default: gemini-2.5-flash-lite).
- *
- * Flow:
- *   1. Client sends raw text (e.g. "kal subah 7 baje gym karna hai")
- *   2. Function builds system prompt (same AiPromptFactory rules)
- *   3. Calls AI with task tools enabled
- *   4. Returns parsed tool call results as structured JSON
+ * Zero Firestore reads per call:
+ *  - Model is hardcoded here (change & redeploy to update)
+ *  - Task context sent by client from local Room DB
+ *  - Preferred languages sent by client from SharedPreferences
  */
 import { onRequest } from "firebase-functions/v2/https";
 import { GoogleGenAI } from "@google/genai";
-import { getFirestore } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
-import { buildSystemPrompt, TaskSnapshot, MemoryFact } from "./prompt-builder";
-import { TASK_TOOLS, TASK_TOOLS_V2, toGeminiFunctionDeclarations } from "./tools-schema";
-import { getAiConfig } from "./ai-config";
+import { buildSystemPrompt, TaskSnapshot } from "./prompt-builder";
+import { TASK_TOOLS_V2, TASK_TOOLS, toGeminiFunctionDeclarations } from "./tools-schema";
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const MISTRAL_KEY = process.env.MISTRAL_API_KEY || "";
+
+/**
+ * ─── AI MODEL CONFIGURATION ──────────────────────────────────────────────────
+ * To change the model: edit this value and run `firebase deploy --only functions`
+ * No Firestore read needed — zero cost overhead per request.
+ *
+ * Gemini options:  "gemini-2.5-flash-lite" | "gemini-2.5-flash" | "gemini-2.5-pro"
+ * Mistral options: "mistral-small-latest"  | "mistral-medium-latest" | "mistral-large-latest"
+ */
+const PARSE_MODEL = "gemini-2.5-flash-lite";
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function verifyAuth(authHeader: string | undefined): Promise<string | null> {
   if (!authHeader?.startsWith("Bearer ")) return null;
@@ -45,51 +51,48 @@ export const aiParseTask = onRequest(
       return;
     }
 
-    const { text, subtaskIntensity = 0, isNotificationEdit = false, appVersionCode = 0 } = req.body;
+    const {
+      text,
+      subtaskIntensity = 1,
+      isNotificationEdit = false,
+      appVersionCode = 11,
+      preferredLanguages,
+      // Client sends task context from local Room DB — no Firestore read needed
+      tasks: clientTasks,
+    } = req.body;
+
     if (!text || typeof text !== "string") {
       res.status(400).json({ error: "text required" });
       return;
     }
 
-    const db = getFirestore("preamble");
-
     try {
-      // Get server-side AI config (model selection)
-      const config = await getAiConfig(db);
+      // Use task context sent by client (from Room DB on device — free)
+      // Falls back to empty array if client doesn't send tasks (older app versions)
+      const tasks: TaskSnapshot[] = Array.isArray(clientTasks)
+        ? clientTasks.map((t: any) => ({
+            title: String(t.title || ""),
+            createdDate: String(t.createdDate || ""),
+            deadlineTime: t.deadlineTime || undefined,
+            priority: Number(t.priority) || 0,
+            isCompleted: Boolean(t.isCompleted),
+            isSyncing: Boolean(t.isSyncing),
+          }))
+        : [];
 
-      // Pull user's existing tasks for modify/delete context
-      const tasksSnap = await db.collection("tasks")
-        .where("uid", "==", uid).limit(isNotificationEdit ? 40 : 20).get();
-      const tasks: TaskSnapshot[] = tasksSnap.docs.map(d => ({
-        title: d.data().title,
-        createdDate: d.data().createdDate || "",
-        deadlineTime: d.data().deadlineTime || undefined,
-        priority: d.data().priority || 0,
-        isCompleted: d.data().isCompleted || false,
-        isSyncing: d.data().isSyncing || false,
-      }));
+      // Preferred languages sent by client from SharedPreferences (free)
+      const langs: string[] = Array.isArray(preferredLanguages) ? preferredLanguages : [];
 
-      // Pull memory for context-aware parsing
-      const memorySnap = await db.collection(`users/${uid}/ai_memory`)
-        .orderBy("lastUsedAt", "desc").limit(20).get();
-      const memoryFacts: MemoryFact[] = memorySnap.docs.map(d => ({
-        key: d.data().key, value: d.data().value,
-        category: d.data().category || "context",
-      }));
-
-      // Build system prompt — SAME as offline AiPromptFactory
+      // Build system prompt
       const systemPrompt = buildSystemPrompt({
         tasks,
-        memoryFacts,
-        conciseMode: true,
         subtaskIntensity,
         isNotificationEdit,
-        forceToolCall: true, // parse path: must produce a tool call
         appVersionCode,
+        preferredLanguages: langs.length > 0 ? langs : undefined,
       });
 
-      // Call AI with tools
-      const parseModel = config.parseModel || "gemini-2.5-flash-lite";
+      const parseModel = PARSE_MODEL;
       const isMistral = parseModel.includes("mistral") || parseModel.includes("mixtral");
 
       let toolCalls: Array<{ name: string; args: Record<string, string> }> = [];
@@ -167,7 +170,6 @@ export const aiParseTask = onRequest(
         }
       }
 
-      // Return structured result
       res.json({
         success: true,
         toolCalls,

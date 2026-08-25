@@ -12,6 +12,7 @@ import com.theblankstate.preamble.BuildConfig
 import com.theblankstate.preamble.viewmodel.TaskViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -23,7 +24,11 @@ class AiChatViewModel(
 ) : ViewModel() {
 
     private val _isLoading = MutableStateFlow(false)
-    val isLoading: StateFlow<Boolean> = _isLoading
+    val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    /** Non-null when AI detects a duplicate task in today's list. Shown in the task sheet. */
+    private val _taskDuplicateWarning = MutableStateFlow<String?>(null)
+    val taskDuplicateWarning: StateFlow<String?> = _taskDuplicateWarning.asStateFlow()
 
     private val memoryRepo = AiMemoryRepository.get(application)
     private val logger = AiProcessLogger.get(application)
@@ -31,7 +36,7 @@ class AiChatViewModel(
 
     private fun prefs() = application.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private fun smartModeEnabled(): Boolean = prefs().getBoolean(PREF_SMART_MODE, true)
-    private fun subtaskIntensity(): Int = prefs().getInt("ai_subtask_intensity", 0)
+    private fun subtaskIntensity(): Int = prefs().getInt("ai_subtask_intensity", 1)
 
     /** True when user is logged in → use Cloud Functions */
     private fun useCloud(): Boolean = FirebaseAuth.getInstance().currentUser != null
@@ -83,9 +88,12 @@ class AiChatViewModel(
 
     private suspend fun processViaCloud(text: String, onResult: (String) -> Unit) {
         val t0 = System.currentTimeMillis()
+        val todayCtx = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
         val result = CloudAiService.parseTask(
+            context = application,
             rawText = text,
             subtaskIntensity = subtaskIntensity(),
+            tasks = todayCtx,
         )
         val dt = System.currentTimeMillis() - t0
 
@@ -190,12 +198,14 @@ class AiChatViewModel(
             try {
                 if (useCloud()) {
                     // CLOUD PATH
+                    val todayCtx = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
                     val result = CloudAiService.parseTask(
+                        context = application,
                         rawText = text,
                         subtaskIntensity = subtaskIntensity(),
+                        tasks = todayCtx,
                     )
                     if (result != null && result.toolCalls.isNotEmpty()) {
-                        val todayCtx = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
                         for (call in result.toolCalls) {
                             val toolCall = ToolCall(id = call.name, name = call.name, arguments = call.args)
                             TaskTools.execute(toolCall, taskViewModel, todayCtx)
@@ -259,11 +269,19 @@ class AiChatViewModel(
     suspend fun parseTaskPreview(text: String): Map<String, String>? {
         if (!isConfigured()) return null
         com.theblankstate.preamble.analytics.AnalyticsManager.trackAiParserUsed("text_task_sheet")
+        _taskDuplicateWarning.value = null  // reset on new request
         return try {
             _isLoading.value = true
             if (useCloud()) {
                 // CLOUD PATH
-                val result = CloudAiService.parseTask(rawText = text, subtaskIntensity = subtaskIntensity())
+                val taskCtx = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
+                val result = CloudAiService.parseTask(context = application, rawText = text, subtaskIntensity = subtaskIntensity(), tasks = taskCtx)
+                // Check for duplicate detection before returning add_task args
+                val dupCall = result?.toolCalls?.firstOrNull { it.name == "duplicate_task" }
+                if (dupCall != null) {
+                    _taskDuplicateWarning.value = dupCall.args["existing_title"] ?: text
+                    return null
+                }
                 result?.toolCalls?.firstOrNull { it.name == "add_task" }?.args
             } else {
                 // LOCAL PATH
@@ -275,6 +293,25 @@ class AiChatViewModel(
                 val t0 = System.currentTimeMillis()
                 val response = provider.chat(listOf(systemMsg, userMsg), TaskTools.tools)
                 val dt = System.currentTimeMillis() - t0
+
+                // Check for duplicate detection
+                val dupCall = response.toolCalls?.firstOrNull { it.name == "duplicate_task" }
+                if (dupCall != null) {
+                    _taskDuplicateWarning.value = dupCall.arguments["existing_title"] ?: text
+                    logger.log(
+                        op = AiProcessLogger.OP_PREVIEW,
+                        provider = provider.name,
+                        model = null,
+                        input = text,
+                        output = response.text,
+                        toolCalls = serializeToolCalls(response.toolCalls),
+                        durationMs = dt,
+                        success = false,
+                        thought = "Duplicate detected: ${_taskDuplicateWarning.value}",
+                    )
+                    return null
+                }
+
                 val args = response.toolCalls?.firstOrNull { it.name == "add_task" }?.arguments
 
                 logger.log(

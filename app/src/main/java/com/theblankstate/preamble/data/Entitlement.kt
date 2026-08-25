@@ -107,6 +107,13 @@ object EntitlementStore {
 
     /** Fetch entitlement from Firestore users/{uid}. Call after sign-in + on app start. */
     suspend fun syncFromFirestore(ctx: Context): Entitlement? {
+        // TTL guard: skip if synced within last 24 hours
+        val cached = load(ctx)
+        val hoursSinceSync = (System.currentTimeMillis() - cached.lastSyncedAtMs) / 3_600_000L
+        if (cached.lastSyncedAtMs > 0L && hoursSinceSync < 24L) {
+            Log.i("COST_OPT", "[CACHE_HIT] entitlement TTL: skipping Firestore read (${hoursSinceSync}h old, TTL=24h) — cached tier=${cached.tier} — 0 docs read")
+            return cached
+        }
         val uid = FirebaseAuth.getInstance().currentUser?.uid ?: return null
         return try {
             val snap = FirebaseFirestore.getInstance()

@@ -158,6 +158,14 @@ object TaskTools {
                 ToolParam("subtasks", "string", "Comma-separated subtask items if applicable.", required = false),
                 ToolParam("description", "string", "Brief description providing context.", required = false)
             )
+        ),
+        AiTool(
+            name = "duplicate_task",
+            description = "Call this INSTEAD of add_task when the user's input clearly refers to a task that already exists in today's task list (same semantic meaning, even if phrased differently). Only call when HIGHLY confident it is a duplicate. When in doubt, use add_task.",
+            parameters = listOf(
+                ToolParam("existing_title", "string", "The exact title of the matching task that already exists in today's list.", required = true),
+                ToolParam("user_input", "string", "What the user typed or said.", required = true)
+            )
         )
     )
 
@@ -333,6 +341,53 @@ object TaskTools {
                 if (date != null && !isValidDate(date)) return "Error: invalid date format '$date', expected YYYY-MM-DD"
                 viewModel.addTask(title, date, time, description = description, subtasks = subtasksList)
                 "Reminder set: \"$title\" at $time" + (if (date != null) " on $date" else " today")
+            }
+
+            "get_tasks_range" -> {
+                val startDate = call.arguments["start_date"]
+                val endDate   = call.arguments["end_date"]
+                val includeCompleted = call.arguments["include_completed"]?.lowercase() != "false"
+
+                if (startDate == null || !isValidDate(startDate)) return "Error: invalid start_date '$startDate', expected YYYY-MM-DD"
+                if (endDate == null   || !isValidDate(endDate))   return "Error: invalid end_date '$endDate', expected YYYY-MM-DD"
+
+                // Fetch all tasks for the range from Room DB (no Firestore call)
+                val allTasks = viewModel.allTasksForRange(startDate, endDate)
+                val filtered = if (includeCompleted) allTasks else allTasks.filter { !it.isCompleted }
+
+                if (filtered.isEmpty()) {
+                    return "No tasks found in local database for $startDate to $endDate."
+                }
+
+                // Group by date for readable output
+                val byDate = filtered.groupBy { it.createdDate }.toSortedMap()
+                val totalCompleted = filtered.count { it.isCompleted }
+                val totalPending   = filtered.count { !it.isCompleted }
+
+                val sb = StringBuilder()
+                sb.appendLine("Task data for $startDate → $endDate:")
+                sb.appendLine("Total: ${filtered.size} tasks | Completed: $totalCompleted | Pending: $totalPending")
+                sb.appendLine()
+
+                for ((date, tasks) in byDate) {
+                    sb.appendLine("📅 $date (${tasks.count { it.isCompleted }}/${tasks.size} done):")
+                    for (t in tasks) {
+                        val status = if (t.isCompleted) "✓" else "○"
+                        val time   = if (t.deadlineTime != null) " @${t.deadlineTime}" else ""
+                        val recur  = when (t.recurrenceType) {
+                            null, "" -> ""
+                            "rollover" -> " [rollover]"
+                            else -> " [${t.recurrenceType}${if ((t.recurrenceInterval ?: 1) > 1) " ×${t.recurrenceInterval}" else ""}]"
+                        }
+                        val habit  = if (t.isHabit) " [habit]" else ""
+                        val event  = if (t.isEvent) " [event${if (t.eventIcon != null) " ${t.eventIcon}" else ""}]" else ""
+                        val tag    = if (!t.tags.isNullOrBlank()) " #${t.tags!!.split("|").first()}" else ""
+                        val pri    = if (t.priority > 0) " P${t.priority}" else ""
+                        sb.appendLine("  $status ${t.title}$time$pri$recur$habit$event$tag")
+                    }
+                    sb.appendLine()
+                }
+                sb.toString().trimEnd()
             }
 
             else -> "Unknown tool: ${call.name}"

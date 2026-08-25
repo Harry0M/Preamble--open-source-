@@ -28,58 +28,70 @@ object AuthManager {
 
     suspend fun signInWithGoogle(context: Context): Result<SignInResult> {
         return try {
-            val credentialManager = CredentialManager.create(context)
-
-            val googleIdOption = GetGoogleIdOption.Builder()
-                .setFilterByAuthorizedAccounts(false)
-                .setServerClientId(WEB_CLIENT_ID)
-                .build()
-
-            val request = GetCredentialRequest.Builder()
-                .addCredentialOption(googleIdOption)
-                .build()
-
-            val result = credentialManager.getCredential(context, request)
-            val credential = result.credential
-
-            val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
-            val idToken = googleIdTokenCredential.idToken
-
-            val firebaseCredential = GoogleAuthProvider.getCredential(idToken, null)
-            val authResult = auth.signInWithCredential(firebaseCredential).await()
-
-            _currentUser.value = authResult.user
-
-            val isNew = authResult.additionalUserInfo?.isNewUser ?: true
-
-            // Sign-in ke baad PostHog mein user identify karo — Firebase UID link hoga
-            authResult.user?.let { user ->
-                AnalyticsManager.identifyUser(
-                    firebaseUid = user.uid,
-                    email = user.email,
-                    displayName = user.displayName
-                )
-            }
-
-            // Sync UserProfile from Firestore to get Preamble ID, then persist the
-            // Google account photo URL captured at sign-in (Req 26) so it isn't
-            // clobbered by the fetched profile, and publish it to the public directory.
-            val googlePhotoUrl = authResult.user?.photoUrl?.toString()
-            com.theblankstate.preamble.data.UserProfileStore.fetchFromFirestore(context) {
-                com.theblankstate.preamble.data.UserProfileStore.updatePhotoUrl(context, googlePhotoUrl)
-            }
-
-            // Migrate locally-saved AI memories to the real uid + sync to Firestore
-            runCatching {
-                com.theblankstate.preamble.ai.AiMemoryRepository.get(context).migrateOnLogin()
-            }
-
-            Result.success(SignInResult(authResult.user!!, isNew))
+            trySignIn(context, filterByAuthorizedAccounts = false)
         } catch (e: GetCredentialException) {
-            Result.failure(e)
+            // Primary attempt failed (common on low-storage devices or fresh installs where
+            // the full credential picker can't be shown). Retry with filterByAuthorizedAccounts=true,
+            // which uses already-authorized Google accounts cached by Play Services — much lighter.
+            android.util.Log.w("Preamble_Auth", "Primary CredentialManager attempt failed, retrying with authorized accounts", e)
+            try {
+                trySignIn(context, filterByAuthorizedAccounts = true)
+            } catch (e2: GetCredentialException) {
+                android.util.Log.w("Preamble_Auth", "Fallback CredentialManager attempt also failed", e2)
+                Result.failure(e2)
+            } catch (e2: Exception) {
+                android.util.Log.w("Preamble_Auth", "Fallback sign-in failed", e2)
+                Result.failure(e2)
+            }
         } catch (e: Exception) {
+            android.util.Log.w("Preamble_Auth", "Sign-in failed", e)
             Result.failure(e)
         }
+    }
+
+    private suspend fun trySignIn(context: Context, filterByAuthorizedAccounts: Boolean): Result<SignInResult> {
+        val credentialManager = CredentialManager.create(context)
+
+        val googleIdOption = GetGoogleIdOption.Builder()
+            .setFilterByAuthorizedAccounts(filterByAuthorizedAccounts)
+            .setServerClientId(WEB_CLIENT_ID)
+            .build()
+
+        val request = GetCredentialRequest.Builder()
+            .addCredentialOption(googleIdOption)
+            .build()
+
+        val result = credentialManager.getCredential(context, request)
+        val credential = result.credential
+
+        val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+        val idToken = googleIdTokenCredential.idToken
+
+        val firebaseCredential = GoogleAuthProvider.getCredential(idToken, null)
+        val authResult = auth.signInWithCredential(firebaseCredential).await()
+
+        _currentUser.value = authResult.user
+
+        val isNew = authResult.additionalUserInfo?.isNewUser ?: true
+
+        authResult.user?.let { user ->
+            AnalyticsManager.identifyUser(
+                firebaseUid = user.uid,
+                email = user.email,
+                displayName = user.displayName
+            )
+        }
+
+        val googlePhotoUrl = authResult.user?.photoUrl?.toString()
+        com.theblankstate.preamble.data.UserProfileStore.fetchFromFirestore(context) {
+            com.theblankstate.preamble.data.UserProfileStore.updatePhotoUrl(context, googlePhotoUrl)
+        }
+
+        runCatching {
+            com.theblankstate.preamble.ai.AiMemoryRepository.get(context).migrateOnLogin()
+        }
+
+        return Result.success(SignInResult(authResult.user!!, isNew))
     }
 
     fun signOut() {

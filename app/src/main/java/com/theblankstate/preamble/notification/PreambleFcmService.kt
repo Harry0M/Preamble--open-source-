@@ -102,8 +102,18 @@ class PreambleFcmService : FirebaseMessagingService() {
         super.onMessageReceived(message)
         Log.d(TAG, "FCM message received: ${message.data}")
 
-        // Prefer data payload (admin panel sends data-only messages)
         val data = message.data
+        
+        // Handle data-only sync messages (no notification shown)
+        val syncType = data["syncType"]
+        if (syncType != null) {
+            Log.i("COST_OPT", "[FCM_TRIGGER] data-only FCM received: syncType=$syncType — will trigger delta sync instead of always-on listener")
+            handleSyncMessage(syncType)
+            // If there's also a visible notification payload, fall through to show it
+            if (!data.containsKey("body") && message.notification?.body == null) return
+        }
+        
+        // Prefer data payload (admin panel sends data-only messages)
         val title = data["title"] ?: message.notification?.title ?: "Preamble"
         val body = data["body"] ?: message.notification?.body ?: return
         val deepLink = data["deepLink"]
@@ -189,6 +199,24 @@ class PreambleFcmService : FirebaseMessagingService() {
 
         val nm = getSystemService(NotificationManager::class.java)
         nm.notify(System.currentTimeMillis().toInt(), notification)
+    }
+
+    private fun handleSyncMessage(syncType: String) {
+        Log.i("COST_OPT", "[FCM_SYNC] handleSyncMessage: syncType=$syncType — broadcasting local SYNC_TRIGGER intent")
+        // Broadcast a local intent so any live Activity/ViewModel can react
+        val intent = android.content.Intent("com.theblankstate.preamble.SYNC_TRIGGER")
+        intent.putExtra("syncType", syncType)
+        intent.setPackage(packageName)
+        sendBroadcast(intent)
+
+        // Also trigger the Firebase task sync manager delta sync for task-related syncs
+        if (syncType == "tasks" || syncType == "collab") {
+            Log.i("COST_OPT", "[FCM_SYNC] triggering FirebaseTaskSyncManager.triggerSyncIfNeeded() for syncType=$syncType")
+            val app = applicationContext as? com.theblankstate.preamble.PreambleApplication
+            app?.syncManager?.triggerSyncIfNeeded()
+        } else {
+            Log.d("COST_OPT", "[FCM_SYNC] syncType=$syncType handled via local broadcast only (no task delta needed)")
+        }
     }
 
     /**

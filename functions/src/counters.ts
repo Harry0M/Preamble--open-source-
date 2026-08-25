@@ -47,5 +47,13 @@ export const onTaskDeleted = onDocumentDeleted(
     await userRef.update({
       taskCount: FieldValue.increment(-1)
     }).catch(() => {});
+
+    const preambleDb = getFirestore("preamble");
+    const taskId = data.id || event.params.taskId.replace(/%2F/g, "/");
+    await preambleDb.collection("deletedTasks").doc(event.params.taskId).set({
+      uid: data.uid,
+      taskId: taskId,
+      deletedAt: Date.now()
+    }).catch(() => {});
   }
 );

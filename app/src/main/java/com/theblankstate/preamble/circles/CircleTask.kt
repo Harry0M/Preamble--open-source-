@@ -25,6 +25,7 @@ package com.theblankstate.preamble.circles
  * ```
  * {
  *   "circleId":     String,
+ *   "adminUid":     String,                 // denormalized from parent /circles/{circleId}.adminUid
  *   "authorUid":    String,
  *   "title":        String,                 // trimmed, non-empty, <= MAX_TITLE_LEN
  *   "isCompleted":  Boolean,                // shared completion flag (Decision D4)
@@ -67,12 +68,14 @@ object CircleTask {
     fun build(
         taskId: String,
         circleId: String,
+        adminUid: String,
         authorUid: String,
         title: String,
         memberUidMap: Map<String, Boolean>,
         now: Long
     ): BuildResult {
         require(circleId.isNotBlank()) { "circleId is required" }
+        require(adminUid.isNotBlank()) { "adminUid is required" }
         require(authorUid.isNotBlank()) { "authorUid is required" }
 
         val trimmedTitle = title.trim()
@@ -81,6 +84,9 @@ object CircleTask {
         val document = mapOf(
             "taskId" to taskId,
             "circleId" to circleId,
+            // Denormalized from parent /circles/{circleId}.adminUid — eliminates get() in
+            // security rules, so isCircleAdminOf() can check resource.data.adminUid directly.
+            "adminUid" to adminUid,
             "authorUid" to authorUid,
             "title" to trimmedTitle,
             "isCompleted" to false,

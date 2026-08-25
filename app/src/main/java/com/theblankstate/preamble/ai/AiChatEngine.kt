@@ -82,6 +82,8 @@ class AiChatEngine(
                 return saved.id
             }
 
+            val todayCtx = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
+
             CloudAiService.chat(
                 message = userText,
                 conversationId = conversationId,
@@ -90,6 +92,7 @@ class AiChatEngine(
                 model = requestedModel,
                 mode = mode,
                 smartMode = smartMode,
+                tasks = todayCtx,
                 onDelta = { delta ->
                     fullText.append(delta)
                     val id = ensureAssistantMessage()
@@ -105,7 +108,6 @@ class AiChatEngine(
             // Tool execution + follow-up
             val executedTools = mutableListOf<Pair<CloudToolCall, String>>()
             if (pendingToolCalls != null && pendingToolCalls!!.isNotEmpty()) {
-                val todayCtx = taskViewModel.todayTasks.value + taskViewModel.pastTasks.value.values.flatten()
                 val toolResults = mutableListOf<ToolResult>()
 
                 for (call in pendingToolCalls!!) {
@@ -420,15 +422,21 @@ class AiChatEngine(
     /**
      * Extracts [SUGGEST:{...}] blocks from AI response text.
      * Returns (cleanText, suggestionsJsonArray?) where clean text has markers stripped.
+     * Handles multi-line JSON objects and filters empty field values.
      */
     private fun parseSuggestionsFromText(text: String): Pair<String, String?> {
-        val regex = Regex("""\[SUGGEST:\s*(\{[^}]*\})\]""")
+        // Match [SUGGEST:{...}] including multi-line JSON — greedy match up to closing "}]"
+        val regex = Regex("""\[SUGGEST:\s*(\{[\s\S]*?\})\]""")
         val entries = regex.findAll(text).mapNotNull { match ->
             try {
                 @Suppress("UNCHECKED_CAST")
                 val raw = gson.fromJson(match.groupValues[1], Map::class.java) as Map<String, Any?>
-                val args = raw.mapValues { (_, v) -> v?.toString() ?: "" }
-                mapOf("name" to "suggest_task", "args" to args)
+                // Filter empty strings so downstream doesn't create tasks with blank fields
+                val args = raw
+                    .mapValues { (_, v) -> v?.toString() ?: "" }
+                    .filter { (_, v) -> v.isNotBlank() }
+                if (args["title"].isNullOrBlank()) null
+                else mapOf("name" to "suggest_task", "args" to args)
             } catch (_: Exception) { null }
         }.toList()
         val clean = regex.replace(text, "").trimEnd()

@@ -318,6 +318,9 @@ class CircleRepository(
         val circleSnapshot = db.collection(CIRCLES).document(circleId).get().await()
         if (!circleSnapshot.exists()) error("Circle no longer exists")
         val memberUidMap = circleSnapshot.memberUidMapValue()
+        // Read adminUid from the parent circle snapshot (already fetched above) so it can be
+        // denormalized onto the task document, eliminating the get() call in isCircleAdminOf().
+        val circleAdminUid = (circleSnapshot.data?.get("adminUid") as? String).orEmpty()
 
         val taskReference = db.collection(CIRCLE_TASKS).document()
         val now = System.currentTimeMillis()
@@ -325,6 +328,7 @@ class CircleRepository(
             val result = CircleTask.build(
                 taskId = taskReference.id,
                 circleId = circleId,
+                adminUid = circleAdminUid,
                 authorUid = uid,
                 title = title,
                 memberUidMap = memberUidMap,

@@ -10,7 +10,6 @@ import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
 import com.theblankstate.preamble.auth.AuthManager
 import com.theblankstate.preamble.data.DailyFocusStats
 import com.theblankstate.preamble.data.FocusSession
@@ -44,7 +43,6 @@ class TimerSessionRepository(
         }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var snapshotListener: ListenerRegistration? = null
     private var authStateListener: FirebaseAuth.AuthStateListener? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var activeUid: String? = null
@@ -56,6 +54,7 @@ class TimerSessionRepository(
     companion object {
         const val TAG = "TimerCloudSync"
         private const val KEY_UNSYNCED_IDS = "unsynced_session_ids"
+        private const val PREFS_LAST_TIMER_SYNC = "last_timer_sync_at"
         private const val MAX_OFFLINE_QUEUE_SIZE = 200
         private const val MAX_BATCH_SYNC_SIZE = 50
     }
@@ -88,12 +87,10 @@ class TimerSessionRepository(
     }
 
     private fun handleAuthChanged(userId: String?) {
-        if (userId == activeUid && snapshotListener != null) return
-        detachSnapshotListener()
+        if (userId == activeUid) return
         activeUid = userId
 
         if (userId != null && AuthManager.isSignedIn()) {
-            attachSnapshotListener(userId)
             scope.launch {
                 syncAllLocalToCloud()
                 fetchSessionsFromCloud()
@@ -103,56 +100,8 @@ class TimerSessionRepository(
     }
 
     /**
-     * Real-time snapshot listener for Firestore timer_sessions collection.
-     * Ensures multi-device real-time sync when logged into the same account.
-     */
-    private fun attachSnapshotListener(userId: String) {
-        detachSnapshotListener()
-        try {
-            val query = firestore.collection("users")
-                .document(userId)
-                .collection("timer_sessions")
-                .orderBy("startedAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
-                .limit(500)
-
-            Log.d(TAG, "Attaching real-time Firestore listener at users/$userId/timer_sessions")
-            snapshotListener = query.addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    Log.e(TAG, "Firestore snapshot listener error for uid=$userId: ${error.message}", error)
-                    return@addSnapshotListener
-                }
-
-                if (snapshot != null && !snapshot.isEmpty) {
-                    val count = snapshot.documents.size
-                    Log.i(TAG, "REALTIME SNAPSHOT RECEIVED: $count timer session documents from cloud for uid=$userId")
-                    scope.launch {
-                        var insertedCount = 0
-                        for (doc in snapshot.documents) {
-                            val session = parseDocumentToSession(doc)
-                            if (session != null) {
-                                dao.insertSession(session)
-                                insertedCount++
-                            }
-                        }
-                        Log.d(TAG, "Inserted/updated $insertedCount sessions into local Room DB from cloud snapshot")
-                    }
-                } else {
-                    Log.d(TAG, "Snapshot received: 0 documents in cloud for uid=$userId")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error attaching snapshot listener for uid=$userId", e)
-        }
-    }
-
-    private fun detachSnapshotListener() {
-        snapshotListener?.remove()
-        snapshotListener = null
-        activeUid = null
-    }
-
-    /**
-     * Fetch existing cloud sessions on sign-in or app launch
+     * Fetch timer sessions changed since last sync (delta). Falls back to full fetch on first sync.
+     * Called on app foreground and after saving a new session.
      */
     suspend fun fetchSessionsFromCloud() = withContext(Dispatchers.IO) {
         val userId = auth.currentUser?.uid ?: run {
@@ -160,15 +109,23 @@ class TimerSessionRepository(
             return@withContext
         }
         try {
-            Log.d(TAG, "Fetching cloud sessions for uid=$userId...")
-            val snapshot = firestore.collection("users")
+            val lastSync = prefs.getLong(PREFS_LAST_TIMER_SYNC, 0L)
+            val now = System.currentTimeMillis()
+
+            val baseQuery = firestore.collection("users")
                 .document(userId)
                 .collection("timer_sessions")
                 .orderBy("startedAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
-                .limit(500)
-                .get()
-                .await()
 
+            val query = if (lastSync > 0L) {
+                Log.i("COST_OPT", "[DELTA_QUERY] timer_sessions: fetching only sessions since ${lastSync}ms ago (limit 100) — SAVES reading all historical sessions")
+                baseQuery.whereGreaterThan("startedAt", lastSync).limit(100)
+            } else {
+                Log.i("COST_OPT", "[FULL_QUERY] timer_sessions: first sync, fetching recent 200 sessions (one-time cost)")
+                baseQuery.limit(200)
+            }
+
+            val snapshot = query.get().await()
             var count = 0
             for (doc in snapshot.documents) {
                 val session = parseDocumentToSession(doc)
@@ -177,7 +134,8 @@ class TimerSessionRepository(
                     count++
                 }
             }
-            Log.i(TAG, "CLOUD FETCH SUCCESS: Retrieved & saved $count timer sessions from Firestore for uid=$userId")
+            prefs.edit().putLong(PREFS_LAST_TIMER_SYNC, now).apply()
+            Log.i("COST_OPT", "[DELTA_RESULT] timer_sessions: read ${snapshot.documents.size} docs, stored $count sessions for uid=$userId")
         } catch (e: Exception) {
             Log.w(TAG, "Cloud sessions fetch failed for uid=$userId: ${e.message}")
         }

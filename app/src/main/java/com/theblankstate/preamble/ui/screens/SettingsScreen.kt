@@ -1951,6 +1951,14 @@ private fun AiSettingsSubscreen(
     var showMemorySheet by remember { mutableStateOf(false) }
     var showProcessLogSheet by remember { mutableStateOf(false) }
     var showExperimentalSheet by remember { mutableStateOf(false) }
+    var showLanguageSheet by remember { mutableStateOf(false) }
+    val preferredLanguages = remember {
+        mutableStateListOf<String>().apply {
+            val saved = context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                .getString("profile_preferred_languages", null)
+            if (!saved.isNullOrBlank()) addAll(saved.split(","))
+        }
+    }
     var smartModeEnabled by remember {
         mutableStateOf(
             context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
@@ -1966,7 +1974,7 @@ private fun AiSettingsSubscreen(
     var subtaskIntensity by remember {
         mutableStateOf(
             context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
-                .getInt("ai_subtask_intensity", 2)
+                .getInt("ai_subtask_intensity", 1)
         )
     }
     var notifEditEnabled by remember {
@@ -1993,6 +2001,17 @@ private fun AiSettingsSubscreen(
                         .edit().putBoolean("ai_smart_mode", enabled).apply()
                 },
                 scaleFactor = scaleFactor
+            )
+
+            SettingsItemRow(
+                title = "AI Language Preferences",
+                subtitle = if (preferredLanguages.isEmpty()) "Auto-detect" else preferredLanguages.take(3).joinToString(", "),
+                icon = Icons.Default.Translate,
+                iconTint = Color(0xFF1565C0),
+                iconBgColor = Color(0xFFE3F2FD),
+                scaleFactor = scaleFactor,
+                onClick = { showLanguageSheet = true },
+                trailingContent = { Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
             )
 
             SettingsItemRow(
@@ -2079,6 +2098,22 @@ private fun AiSettingsSubscreen(
                     .edit().putBoolean("ai_notif_edit", true).apply()
                 showExperimentalSheet = false
             },
+        )
+    }
+    if (showLanguageSheet) {
+        LanguageSelectionBottomSheet(
+            selectedLanguages = preferredLanguages,
+            onDismiss = { showLanguageSheet = false },
+            onSave = { langs ->
+                preferredLanguages.clear()
+                preferredLanguages.addAll(langs)
+                context.getSharedPreferences("preamble_prefs", Context.MODE_PRIVATE)
+                    .edit().putString("profile_preferred_languages", langs.joinToString(",")).apply()
+                // Sync to Firestore
+                val profile = com.theblankstate.preamble.data.UserProfileStore.load(context)
+                com.theblankstate.preamble.data.UserProfileStore.syncToFirestore(profile.copy(preferredLanguages = langs))
+                showLanguageSheet = false
+            }
         )
     }
 }
@@ -2638,7 +2673,7 @@ private fun SmartTaskBreakdownSetting(
         )
         Slider(
             value = value.toFloat(),
-            onValueChange = { onChange(it.toInt().coerceIn(0, 3)) },
+            onValueChange = { onChange((it + 0.5f).toInt().coerceIn(0, 3)) },
             valueRange = 0f..3f,
             steps = 2,
             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
@@ -3056,6 +3091,130 @@ private fun ThemePickerCard(context: Context) {
                 }
                 Spacer(Modifier.height(4.dp))
             }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun LanguageSelectionBottomSheet(
+    selectedLanguages: List<String>,
+    onDismiss: () -> Unit,
+    onSave: (List<String>) -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val selected = remember { mutableStateListOf<String>().apply { addAll(selectedLanguages) } }
+    var searchQuery by remember { mutableStateOf("") }
+
+    // Comprehensive world languages list
+    val allLanguages = remember {
+        listOf(
+            "English", "Hindi", "Hinglish", "Spanish", "French", "German", "Portuguese", "Italian",
+            "Russian", "Japanese", "Chinese (Mandarin)", "Chinese (Cantonese)", "Korean", "Arabic",
+            "Turkish", "Dutch", "Polish", "Swedish", "Norwegian", "Danish", "Finnish",
+            "Greek", "Czech", "Romanian", "Hungarian", "Bulgarian", "Croatian", "Serbian",
+            "Slovak", "Slovenian", "Lithuanian", "Latvian", "Estonian", "Ukrainian",
+            "Bengali", "Tamil", "Telugu", "Marathi", "Gujarati", "Kannada", "Malayalam",
+            "Punjabi", "Urdu", "Odia", "Assamese", "Nepali", "Sinhala",
+            "Thai", "Vietnamese", "Indonesian", "Malay", "Filipino", "Burmese", "Khmer", "Lao",
+            "Hebrew", "Persian (Farsi)", "Pashto", "Kurdish", "Azerbaijani", "Georgian", "Armenian",
+            "Swahili", "Amharic", "Hausa", "Yoruba", "Igbo", "Zulu", "Afrikaans",
+            "Maori", "Samoan", "Tongan", "Hawaiian",
+            "Catalan", "Basque", "Galician", "Welsh", "Irish", "Scottish Gaelic",
+            "Icelandic", "Maltese", "Albanian", "Macedonian", "Bosnian", "Montenegrin",
+            "Kazakh", "Uzbek", "Tajik", "Kyrgyz", "Turkmen", "Mongolian",
+            "Tibetan", "Uyghur", "Javanese", "Sundanese", "Cebuano", "Tagalog",
+        )
+    }
+
+    val filteredLanguages = remember(searchQuery) {
+        if (searchQuery.isBlank()) allLanguages
+        else allLanguages.filter { it.contains(searchQuery, ignoreCase = true) }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("AI Language Preferences", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(
+                "Select up to 4 languages you commonly use. AI will auto-detect your input language and respond in the same language & script.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            // Selected chips
+            if (selected.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    selected.forEachIndexed { index, lang ->
+                        InputChip(
+                            selected = true,
+                            onClick = { selected.remove(lang) },
+                            label = { Text(". ") },
+                            trailingIcon = { Icon(Icons.Filled.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp)) },
+                        )
+                    }
+                }
+            }
+
+            // Search
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                placeholder = { Text("Search languages...") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            )
+
+            // Language list
+            androidx.compose.foundation.lazy.LazyColumn(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                items(filteredLanguages.size) { index ->
+                    val lang = filteredLanguages[index]
+                    val isSelected = lang in selected
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                if (isSelected) {
+                                    selected.remove(lang)
+                                } else if (selected.size < 4) {
+                                    selected.add(lang)
+                                }
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(lang, style = MaterialTheme.typography.bodyMedium)
+                        if (isSelected) {
+                            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                        }
+                    }
+                }
+            }
+
+            // Save button
+            Button(
+                onClick = { onSave(selected.toList()) },
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            ) {
+                Text(if (selected.isEmpty()) "Use Auto-Detect" else "Save ( selected)")
+            }
+
+            Spacer(Modifier.height(8.dp))
         }
     }
 }

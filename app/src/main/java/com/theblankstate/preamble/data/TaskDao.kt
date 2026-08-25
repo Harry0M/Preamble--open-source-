@@ -59,6 +59,10 @@ interface TaskDao {
     @Query("SELECT * FROM tasks")
     suspend fun getAllTasks(): List<Task>
 
+    @Query("SELECT * FROM tasks WHERE createdDate >= :startDate AND createdDate <= :endDate AND parentTaskId IS NULL ORDER BY createdDate ASC, isCompleted ASC, priority DESC, createdTimestamp DESC")
+    suspend fun getTasksBetweenDates(startDate: String, endDate: String): List<Task>
+
+
     @Query("SELECT * FROM tasks WHERE parentTaskId IS NULL ORDER BY createdDate DESC, isCompleted ASC, priority DESC, createdTimestamp DESC")
     fun getAllTasksFlow(): Flow<List<Task>>
 
@@ -79,6 +83,9 @@ interface TaskDao {
 
     @Delete
     suspend fun deleteTask(task: Task)
+
+    @Query("DELETE FROM tasks WHERE id = :taskId")
+    suspend fun deleteTaskById(taskId: String)
 
     // ── Batch stats queries (avoids N+1 per-day queries) ──
 

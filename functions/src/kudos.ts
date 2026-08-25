@@ -94,12 +94,21 @@ export const onCollaborativeTaskReaction = onDocumentUpdated(
 
       const body = `${reactorName} reacted ${emoji} to '${taskTitle}'`;
 
+      // Batch-fetch all FCM tokens in a single round-trip (replaces N individual reads)
+      const recipientRefs = recipients.map(uid => db.collection("users").doc(uid));
+      const recipientSnaps = recipientRefs.length > 0 ? await db.getAll(...recipientRefs) : [];
+      const recipientTokens = new Map<string, string>();
+      for (const snap of recipientSnaps) {
+        const token = snap.data()?.fcmToken;
+        if (typeof token === "string" && token.length > 0) {
+          recipientTokens.set(snap.id, token);
+        }
+      }
+
       for (const recipientUid of recipients) {
         try {
-          const userSnap = await db.collection("users").doc(recipientUid).get();
-          const fcmToken = userSnap.data()?.fcmToken;
-          if (typeof fcmToken !== "string" || fcmToken.length === 0) continue;
-
+          const fcmToken = recipientTokens.get(recipientUid);
+          if (!fcmToken) continue;
           await getMessaging().send({
             token: fcmToken,
             data: {

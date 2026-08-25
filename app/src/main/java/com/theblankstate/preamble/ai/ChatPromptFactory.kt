@@ -69,8 +69,15 @@ object ChatPromptFactory {
             "my todo", "my to-do", "what's on my plate", "what is on my plate",
             "what should i focus", "plan my day", "got done", "completed this week",
             "task banana", "task banao", "kaam add", "yaad dilana",
-            "hata do", "delete karo", "complete kar", "done mark",
+            "hata do", "delete karo", "complete kar", "done mark", "ho gaya", "kar liya",
             "shift karo", "badal do", "kal shift", "aaj ke tasks",
+            // Analysis / productivity review patterns
+            "last week", "last month", "last year", "pichle hafte", "pichle mahine",
+            "how productive", "kitna productive", "analyse my", "analyze my",
+            "review my", "my progress", "mera progress", "productivity report",
+            "how many tasks", "kitne tasks", "completed tasks", "custom range",
+            "last 7 days", "last 30 days", "last 14 days", "pichle",
+            "is week", "is mahine", "is month", "this week", "this month",
         )
         if (directSignals.any { it in lower }) return true
         if (Regex("\\b(tasks?|todos?|to-dos?|reminders?)\\b").containsMatchIn(lower)) return true

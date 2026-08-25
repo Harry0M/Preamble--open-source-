@@ -64,6 +64,7 @@ object CloudAiService {
         model: String? = null,
         mode: String = "concise",
         smartMode: Boolean = true,
+        tasks: List<com.theblankstate.preamble.data.Task> = emptyList(),
         onDelta: suspend (String) -> Unit = {},
         onThinking: suspend (String) -> Unit = {},
         onToolCalls: suspend (List<CloudToolCall>) -> Unit = {},
@@ -87,6 +88,22 @@ object CloudAiService {
             if (!assistantMessageId.isNullOrBlank()) put("assistantMessageId", assistantMessageId)
             if (!model.isNullOrBlank()) put("model", model)
             put("appVersionCode", com.theblankstate.preamble.BuildConfig.VERSION_CODE)
+
+            // Send local Room DB tasks so Cloud Function needs zero Firestore reads
+            if (tasks.isNotEmpty()) {
+                val tasksArr = JSONArray()
+                tasks.take(24).forEach { t ->
+                    tasksArr.put(JSONObject().apply {
+                        put("title", t.title)
+                        put("createdDate", t.createdDate ?: "")
+                        put("deadlineTime", t.deadlineTime ?: "")
+                        put("priority", t.priority ?: 0)
+                        put("isCompleted", t.isCompleted)
+                        put("isSyncing", t.isSyncing)
+                    })
+                }
+                put("tasks", tasksArr)
+            }
         }
 
         val request = Request.Builder()
@@ -94,6 +111,8 @@ object CloudAiService {
             .addHeader("Authorization", "Bearer $token")
             .post(body.toString().toRequestBody(JSON_MEDIA))
             .build()
+
+        Log.i("Preamble_AiChat", "[REQUEST] conversationId=$conversationId model=${model ?: "default"} text=\"$message\"")
 
         try {
             val response = client.newCall(request).execute()
@@ -268,24 +287,53 @@ object CloudAiService {
      * @return ParseTaskResult with tool calls, or null on failure
      */
     suspend fun parseTask(
+        context: android.content.Context,
         rawText: String,
-        subtaskIntensity: Int = 0,
+        subtaskIntensity: Int = 1,
         isNotificationEdit: Boolean = false,
+        tasks: List<com.theblankstate.preamble.data.Task> = emptyList(),
     ): ParseTaskResult? = withContext(Dispatchers.IO) {
         val token = runCatching { getAuthToken() }.getOrNull() ?: return@withContext null
+
+        val prefs = context.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
+        val langString = prefs.getString("profile_preferred_languages", null)
 
         val body = JSONObject().apply {
             put("text", rawText)
             put("subtaskIntensity", subtaskIntensity)
             put("isNotificationEdit", isNotificationEdit)
             put("appVersionCode", com.theblankstate.preamble.BuildConfig.VERSION_CODE)
+
+            if (!langString.isNullOrBlank()) {
+                put("preferredLanguages", org.json.JSONArray(langString.split(",")))
+            }
+
+            // Send local Room DB tasks so Cloud Function needs zero Firestore reads
+            if (tasks.isNotEmpty()) {
+                val tasksArr = org.json.JSONArray()
+                val limit = if (isNotificationEdit) 40 else 20
+                tasks.take(limit).forEach { t ->
+                    tasksArr.put(JSONObject().apply {
+                        put("title", t.title)
+                        put("createdDate", t.createdDate ?: "")
+                        put("deadlineTime", t.deadlineTime ?: "")
+                        put("priority", t.priority ?: 0)
+                        put("isCompleted", t.isCompleted)
+                        put("isSyncing", t.isSyncing)
+                    })
+                }
+                put("tasks", tasksArr)
+            }
         }
+
+        Log.i("Preamble_TaskParser", "[REQUEST] text=\"$rawText\" subtaskIntensity=$subtaskIntensity isNotificationEdit=$isNotificationEdit appVersionCode=${com.theblankstate.preamble.BuildConfig.VERSION_CODE} preferredLanguages=${langString ?: "auto"} taskCount=${tasks.size}")
 
         val request = Request.Builder()
             .url("$BASE_URL/aiParseTask")
             .addHeader("Authorization", "Bearer $token")
             .post(body.toString().toRequestBody(JSON_MEDIA))
             .build()
+
 
         try {
             val response = client.newCall(request).execute()
@@ -310,6 +358,8 @@ object CloudAiService {
                 }
                 CloudToolCall(name = tc.optString("name"), args = args)
             }
+            
+            Log.i("Preamble_TaskParser", "[RESPONSE] model=${json.optString("model", "unknown")} toolCalls=${toolCalls.size} tools=[${toolCalls.joinToString { "${it.name}(${it.args})" }}]")
 
             ParseTaskResult(
                 toolCalls = toolCalls,
@@ -490,13 +540,17 @@ object CloudAiService {
                         }
                         CloudToolCall(name = c.optString("name"), args = args)
                     }
+                    Log.i("Preamble_AiChat", "  ToolCall: ${toolCalls.joinToString { "${it.name}(${it.args})" }}")
                     onToolCalls(toolCalls)
                 }
                 "done" -> {
                     val renderBlocks = json.optJSONArray("renderBlocks")
+                    val modelName = json.optString("model", "")
+                    val remaining = json.optInt("tokensRemaining", -1)
+                    Log.i("Preamble_AiChat", "[RESPONSE DONE] model=$modelName tokensRemaining=$remaining")
                     onDone(CloudChatResult(
-                        tokensRemaining = json.optInt("tokensRemaining", -1),
-                        model = json.optString("model", ""),
+                        tokensRemaining = remaining,
+                        model = modelName,
                         hasToolCalls = json.optBoolean("hasToolCalls", false),
                         inputTokens = json.optInt("inputTokens", 0),
                         outputTokens = json.optInt("outputTokens", 0),

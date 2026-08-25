@@ -69,17 +69,18 @@ import java.util.concurrent.TimeUnit
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 
-private const val ONBOARDING_PAGES = 10
+private const val ONBOARDING_PAGES = 11
 private const val PAGE_WELCOME = 0
 private const val PAGE_LOGIN = 1
 private const val PAGE_WELCOME_BACK = 2
 private const val PAGE_NAME = 3
 private const val PAGE_AGE_GENDER = 4
 private const val PAGE_ROLE = 5
-private const val PAGE_TASKS_GOAL = 6
-private const val PAGE_NOTATIONS = 7
-private const val PAGE_PERMISSIONS = 8
-private const val PAGE_REVEAL = 9
+private const val PAGE_LANGUAGE = 6
+private const val PAGE_TASKS_GOAL = 7
+private const val PAGE_NOTATIONS = 8
+private const val PAGE_PERMISSIONS = 9
+private const val PAGE_REVEAL = 10
 
 /**
  * Records a referral attribution for a brand-new account (Growth-loops
@@ -157,6 +158,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
             }
         )
     ) { mutableStateOf(emptySet()) }
+    val profileLanguages = remember { mutableStateListOf<String>() }
 
     fun buildProfile(): UserProfile = UserProfile(
         name = profileName.trim().ifBlank { null },
@@ -166,6 +168,7 @@ fun OnboardingScreen(onComplete: () -> Unit) {
         tasksPerDay = profileTasks,
         goal = profileGoals.firstOrNull(),
         goals = profileGoals,
+        preferredLanguages = profileLanguages.toList(),
     )
 
     // Gate advancement per-page based on required answers
@@ -270,6 +273,13 @@ fun OnboardingScreen(onComplete: () -> Unit) {
                         PAGE_ROLE -> RoleQuestionPage(
                             role = profileRole,
                             onRoleChange = { profileRole = it }
+                        )
+                        PAGE_LANGUAGE -> LanguageSelectionPage(
+                            selectedLanguages = profileLanguages,
+                            onLanguagesChange = { langs ->
+                                profileLanguages.clear()
+                                profileLanguages.addAll(langs)
+                            }
                         )
                         PAGE_TASKS_GOAL -> TasksGoalQuestionPage(
                             tasksPerDay = profileTasks,
@@ -564,7 +574,13 @@ fun LoginPage(
                         if (result.isSuccess) {
                             onLoginResult(result.getOrNull())
                         } else {
-                            Toast.makeText(context, "Sign in failed", Toast.LENGTH_SHORT).show()
+                            val error = result.exceptionOrNull()
+                            val message = if (error is androidx.credentials.exceptions.GetCredentialException) {
+                                "Sign-in unavailable. Please check storage space or try again."
+                            } else {
+                                "Sign in failed. Please try again."
+                            }
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                         }
                     }
                 },
@@ -1575,6 +1591,166 @@ fun RevealPage(profile: UserProfile, onFinish: () -> Unit) {
             modifier = Modifier.fillMaxWidth().height(56.dp)
         ) {
             Text("Let's go", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+@Composable
+fun LanguageSelectionPage(
+    selectedLanguages: List<String>,
+    onLanguagesChange: (List<String>) -> Unit,
+) {
+    val selected = remember { mutableStateListOf<String>().apply { addAll(selectedLanguages) } }
+    var searchQuery by remember { mutableStateOf("") }
+
+    // Comprehensive world languages list
+    val allLanguages = remember {
+        listOf(
+            "English", "Hindi", "Hinglish", "Spanish", "French", "German", "Portuguese", "Italian",
+            "Russian", "Japanese", "Chinese (Mandarin)", "Chinese (Cantonese)", "Korean", "Arabic",
+            "Turkish", "Dutch", "Polish", "Swedish", "Norwegian", "Danish", "Finnish",
+            "Greek", "Czech", "Romanian", "Hungarian", "Bulgarian", "Croatian", "Serbian",
+            "Slovak", "Slovenian", "Lithuanian", "Latvian", "Estonian", "Ukrainian",
+            "Bengali", "Tamil", "Telugu", "Marathi", "Gujarati", "Kannada", "Malayalam",
+            "Punjabi", "Urdu", "Odia", "Assamese", "Nepali", "Sinhala",
+            "Thai", "Vietnamese", "Indonesian", "Malay", "Filipino", "Burmese", "Khmer", "Lao",
+            "Hebrew", "Persian (Farsi)", "Pashto", "Kurdish", "Azerbaijani", "Georgian", "Armenian",
+            "Swahili", "Amharic", "Hausa", "Yoruba", "Igbo", "Zulu", "Afrikaans",
+            "Maori", "Samoan", "Tongan", "Hawaiian",
+            "Catalan", "Basque", "Galician", "Welsh", "Irish", "Scottish Gaelic",
+            "Icelandic", "Maltese", "Albanian", "Macedonian", "Bosnian", "Montenegrin",
+            "Kazakh", "Uzbek", "Tajik", "Kyrgyz", "Turkmen", "Mongolian",
+            "Tibetan", "Uyghur", "Javanese", "Sundanese", "Cebuano", "Tagalog",
+        )
+    }
+
+    val filteredLanguages = remember(searchQuery) {
+        if (searchQuery.isBlank()) allLanguages
+        else allLanguages.filter { it.contains(searchQuery, ignoreCase = true) }
+    }
+
+    // Sync back to parent whenever selection changes
+    LaunchedEffect(selected.toList()) {
+        onLanguagesChange(selected.toList())
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp, vertical = 32.dp),
+        verticalArrangement = Arrangement.Top,
+    ) {
+        Text(
+            "What languages do you use?",
+            style = MaterialTheme.typography.displaySmall.copy(
+                fontWeight = FontWeight.Black,
+                letterSpacing = (-1).sp,
+            ),
+            color = Color.Black,
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+        Text(
+            "Select up to 4 languages you use most. AI will auto-detect your input and respond in the same language & script.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.Gray,
+            lineHeight = 22.sp,
+            modifier = Modifier.padding(bottom = 16.dp),
+        )
+
+        // Selected chips
+        if (selected.isNotEmpty()) {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                selected.forEachIndexed { index, lang ->
+                    InputChip(
+                        selected = true,
+                        onClick = { selected.remove(lang) },
+                        label = { Text("${index + 1}. $lang", fontWeight = FontWeight.SemiBold) },
+                        trailingIcon = {
+                            Icon(Icons.Filled.Close, contentDescription = "Remove", modifier = Modifier.size(16.dp))
+                        },
+                        colors = InputChipDefaults.inputChipColors(
+                            selectedContainerColor = Color.Black,
+                            selectedLabelColor = Color.White,
+                            selectedTrailingIconColor = Color.White,
+                        ),
+                    )
+                }
+            }
+        }
+
+        // Search
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("Search languages...", color = Color.Gray) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = Color.Gray) },
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color.Black,
+                unfocusedBorderColor = Color.Black.copy(alpha = 0.15f),
+            ),
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Language list
+        androidx.compose.foundation.lazy.LazyColumn(
+            modifier = Modifier.fillMaxWidth().weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            items(filteredLanguages.size) { index ->
+                val lang = filteredLanguages[index]
+                val isSelected = lang in selected
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(if (isSelected) Color.Black.copy(alpha = 0.06f) else Color.Transparent)
+                        .clickable {
+                            if (isSelected) {
+                                selected.remove(lang)
+                            } else if (selected.size < 4) {
+                                selected.add(lang)
+                            } else {
+                                // Max 4 — could show toast but skip for clean UX
+                            }
+                        }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        lang,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                        color = Color.Black,
+                    )
+                    if (isSelected) {
+                        Icon(
+                            Icons.Filled.CheckCircle,
+                            contentDescription = null,
+                            tint = Color.Black,
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        if (selected.isEmpty()) {
+            Text(
+                "Skip to use auto-detect",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+            )
         }
     }
 }

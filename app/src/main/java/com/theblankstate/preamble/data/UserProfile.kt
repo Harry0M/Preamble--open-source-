@@ -49,6 +49,7 @@ data class UserProfile(
     val onboardingCompletedAt: Long = 0L,
     val preambleId: String? = null,
     val photoUrl: String? = null,
+    val preferredLanguages: List<String> = emptyList(),
 ) {
     val discountEligible: Boolean
         get() = role == UserRole.STUDENT || (age != null && age < 25)
@@ -98,6 +99,7 @@ object UserProfileStore {
     private const val K_COMPLETED_AT = "profile_completed_at"
     private const val K_PREAMBLE_ID = "profile_preamble_id"
     private const val K_PHOTO_URL = "profile_photo_url"
+    private const val K_PREFERRED_LANGUAGES = "profile_preferred_languages"
 
     fun save(ctx: Context, p: UserProfile) {
         val score = if (p.baselineScore > 0) p.baselineScore else computeBaselineScore(p)
@@ -121,6 +123,9 @@ object UserProfileStore {
             putLong(K_COMPLETED_AT, completedAt)
             putString(K_PREAMBLE_ID, preambleIdToSave)
             p.photoUrl?.let { putString(K_PHOTO_URL, it) }
+            if (p.preferredLanguages.isNotEmpty()) {
+                putString(K_PREFERRED_LANGUAGES, p.preferredLanguages.joinToString(","))
+            }
             apply()
         }
 
@@ -151,6 +156,9 @@ object UserProfileStore {
                 if (goalsToSave.isNotEmpty()) {
                     repo.save("primary_goals", goalsToSave.joinToString(", ") { it.label }, "goal", 1.0f, source = "onboarding")
                 }
+                if (p.preferredLanguages.isNotEmpty()) {
+                    repo.save("language", p.preferredLanguages.first(), "identity", 1.0f, source = "onboarding")
+                }
             } catch (e: Exception) {
                 android.util.Log.w("UserProfileStore", "Memory bridge failed", e)
             }
@@ -177,6 +185,10 @@ object UserProfileStore {
             onboardingCompletedAt = sp.getLong(K_COMPLETED_AT, 0L),
             preambleId = sp.getString(K_PREAMBLE_ID, null),
             photoUrl = sp.getString(K_PHOTO_URL, null),
+            preferredLanguages = sp.getString(K_PREFERRED_LANGUAGES, null)
+                ?.split(',')
+                ?.filter { it.isNotBlank() }
+                ?: emptyList(),
         )
     }
 
@@ -230,7 +242,8 @@ object UserProfileStore {
                             percentile = doc.getLong("percentile")?.toInt() ?: 0,
                             onboardingCompletedAt = doc.getLong("onboardingCompletedAt") ?: 0L,
                             preambleId = doc.getString("preambleId"),
-                            photoUrl = doc.getString("photoUrl")
+                            photoUrl = doc.getString("photoUrl"),
+                            preferredLanguages = (doc.get("preferredLanguages") as? List<*>)?.mapNotNull { it as? String } ?: emptyList(),
                         )
                         // Note: Ignoring goals list for now to keep it simple, 
                         // as we just need the Preamble ID mostly.
@@ -278,6 +291,9 @@ object UserProfileStore {
         // Usually syncToFirestore is called with the object from load() or immediately after save().
         profile.preambleId?.let { data["preambleId"] = it }
         profile.photoUrl?.let { data["photoUrl"] = it }
+        if (profile.preferredLanguages.isNotEmpty()) {
+            data["preferredLanguages"] = profile.preferredLanguages
+        }
         
         if (data.isEmpty()) { onResult(false); return }
         try {

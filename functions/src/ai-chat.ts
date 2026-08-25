@@ -255,17 +255,19 @@ export const aiChat = onRequest(
         ? buildMemoryContext(memoryFacts, userName, message || undefined)
         : "";
 
-      // --- Pull task context only for task-related turns ---
+      // --- Pull task context only for task-related turns (Zero Firestore reads: client sends Room DB tasks) ---
       let taskContext = "";
       if (taskToolsEnabled) {
-        const tasksSnap = await db.collection("tasks").where("uid", "==", uid).limit(24).get();
-        const tasks: TaskSnapshot[] = tasksSnap.docs.map(d => ({
-          title: d.data().title,
-          createdDate: d.data().createdDate || "",
-          deadlineTime: d.data().deadlineTime || undefined,
-          priority: d.data().priority || 0,
-          isCompleted: d.data().isCompleted || false,
-        }));
+        const clientTasks = req.body.tasks;
+        const tasks: TaskSnapshot[] = Array.isArray(clientTasks)
+          ? clientTasks.map((t: any) => ({
+              title: String(t.title || ""),
+              createdDate: String(t.createdDate || ""),
+              deadlineTime: t.deadlineTime || undefined,
+              priority: Number(t.priority) || 0,
+              isCompleted: Boolean(t.isCompleted),
+            }))
+          : [];
         taskContext = buildTaskContext(tasks);
       }
 

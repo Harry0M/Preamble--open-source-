@@ -1,6 +1,7 @@
 package com.theblankstate.preamble.sync
 
 import android.content.Context
+import android.content.SharedPreferences
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -8,7 +9,6 @@ import android.net.NetworkRequest
 import android.util.Log
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
 import com.theblankstate.preamble.data.Task
 import com.theblankstate.preamble.data.TaskDao
 import com.theblankstate.preamble.data.TaskTagOverride
@@ -24,6 +24,7 @@ class FirebaseTaskSyncManager(
     context: Context,
     private val dao: TaskDao
 ) {
+    private val prefs: SharedPreferences = context.getSharedPreferences("preamble_sync_prefs", Context.MODE_PRIVATE)
     private val auth = FirebaseAuth.getInstance()
     private val firestore = FirebaseFirestore.getInstance(FIRESTORE_DATABASE_ID)
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -34,8 +35,6 @@ class FirebaseTaskSyncManager(
     private val recentLocalWrites = ConcurrentHashMap<String, Long>()
 
     private var activeUid: String? = null
-    private var activeTasksListener: ListenerRegistration? = null
-    private var activeTagOverridesListener: ListenerRegistration? = null
     private var parityCheckedUid: String? = null
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var started = false
@@ -199,18 +198,11 @@ class FirebaseTaskSyncManager(
             return
         }
         Log.i(TAG, "forceSyncBidirectional started for uid=$uid")
+        // Reset last sync timestamps to force a full re-fetch
+        prefs.edit().remove(PREFS_LAST_TASK_SYNC).remove(PREFS_LAST_TAG_SYNC).apply()
         syncAllLocalToRemote()
-        try {
-            val remoteTasks = tasksQueryForUid(uid).get().await().documents.mapNotNull { doc ->
-                val remote = doc.toObject(RemoteTask::class.java) ?: return@mapNotNull null
-                remote.toLocal(decodeFirestoreDocId(doc.id))
-            }
-            Log.d(TAG, "forceSyncBidirectional: fetched ${remoteTasks.size} remote tasks for uid=$uid")
-            mergeRemoteIntoLocal(remoteTasks)
-            Log.i(TAG, "forceSyncBidirectional completed for uid=$uid")
-        } catch (e: Exception) {
-            Log.e(TAG, "forceSyncBidirectional read failed", e)
-        }
+        syncDelta()
+        Log.i(TAG, "forceSyncBidirectional completed for uid=$uid")
     }
 
     suspend fun flushPendingWrites(timeoutMs: Long = 8000L): Boolean {
@@ -234,19 +226,17 @@ class FirebaseTaskSyncManager(
     private suspend fun handleAuthChanged(uid: String?) {
         Log.d(TAG, "handleAuthChanged: uid=$uid activeUid=$activeUid")
         if (uid == activeUid) return
-        detachRealtimeListener()
-        detachTagOverridesListener()
         activeUid = uid
         parityCheckedUid = null
         if (uid == null) {
-            Log.d(TAG, "User signed out, skipping sync setup")
+            Log.d(TAG, "User signed out, resetting sync timestamps")
+            prefs.edit().remove(PREFS_LAST_TASK_SYNC).remove(PREFS_LAST_TAG_SYNC).apply()
             return
         }
-        Log.d(TAG, "User signed in: uid=$uid, setting up listeners")
+        Log.d(TAG, "User signed in: uid=$uid, starting delta sync")
         ensureUserProfile(uid)
-        attachRealtimeListener(uid)
-        attachTagOverridesListener(uid)
-        syncAllLocalToRemote()
+        syncAllLocalToRemote()  // push local → remote (existing)
+        syncDelta()             // pull remote → local (delta)
         if (parityCheckedUid != uid) {
             verifyMirrorParity(uid)
             parityCheckedUid = uid
@@ -254,63 +244,95 @@ class FirebaseTaskSyncManager(
         Log.i(TAG, "handleAuthChanged completed for uid=$uid")
     }
 
-    private fun attachRealtimeListener(uid: String) {
-        Log.d(TAG, "Attaching Firestore listener at query=tasks where uid=$uid")
-        activeTasksListener = tasksQueryForUid(uid).addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                Log.e(TAG, "Firestore tasks listener error for uid=$uid: ${error.message}", error)
-                return@addSnapshotListener
+    /**
+     * Incrementally sync tasks changed since lastSyncAt.
+     * Reads only the delta — drastically cheaper than a full collection snapshot listener.
+     */
+    suspend fun syncDelta() {
+        val uid = auth.currentUser?.uid ?: return
+        Log.d(TAG, "syncDelta started for uid=$uid")
+        try {
+            // -- Tasks delta --
+            val lastTaskSync = prefs.getLong(PREFS_LAST_TASK_SYNC, 0L)
+            val now = System.currentTimeMillis()
+
+            val deltaQuery = if (lastTaskSync > 0L) {
+                Log.i(COST_OPT_TAG, "[DELTA_QUERY] tasks: fetching only changed since ${lastTaskSync}ms ago — SAVES reading all unchanged tasks")
+                tasksQueryForUid(uid).whereGreaterThan("updatedTimestamp", lastTaskSync)
+            } else {
+                Log.i(COST_OPT_TAG, "[FULL_QUERY] tasks: first-ever sync, reading full collection (one-time cost)")
+                tasksQueryForUid(uid)
             }
 
-            val docCount = snapshot?.documents?.size ?: 0
-            Log.d(TAG, "Firestore snapshot received: $docCount documents")
-
-            val remoteTasks = snapshot?.documents?.mapNotNull { doc ->
+            val changedTasks = deltaQuery.get().await().documents.mapNotNull { doc ->
                 val remote = doc.toObject(RemoteTask::class.java) ?: return@mapNotNull null
                 remote.toLocal(decodeFirestoreDocId(doc.id))
-            } ?: emptyList()
-
-            appScope.launch {
-                mergeRemoteIntoLocal(remoteTasks)
             }
-        }
-    }
-
-    private fun detachRealtimeListener() {
-        val listener = activeTasksListener ?: return
-        Log.d(TAG, "Detaching Firestore listener from tasks query for uid=$activeUid")
-        listener.remove()
-        activeTasksListener = null
-    }
-
-    // ── Tag Overrides Realtime Listener (cross-device sync) ──
-
-    private fun attachTagOverridesListener(uid: String) {
-        Log.d(TAG, "Attaching Firestore tag overrides listener at query=tagOverrides where uid=$uid")
-        activeTagOverridesListener = tagOverridesQueryForUid(uid).addSnapshotListener { snapshot, error ->
-            if (error != null) {
-                Log.e(TAG, "Firestore tag overrides listener cancelled for uid=$uid", error)
-                return@addSnapshotListener
+            Log.i(COST_OPT_TAG, "[DELTA_RESULT] tasks: read ${changedTasks.size} docs (vs full collection without optimization)")
+            if (changedTasks.isNotEmpty()) {
+                mergeRemoteIntoLocal(changedTasks, isFull = lastTaskSync == 0L)
             }
 
-            val overrides = snapshot?.documents?.mapNotNull { doc ->
+            // -- Deleted tasks (tombstone collection) --
+            if (lastTaskSync > 0L) {
+                Log.d(COST_OPT_TAG, "[TOMBSTONE] querying deletedTasks since lastSync=$lastTaskSync")
+                val deletedIds = firestore.collection("deletedTasks")
+                    .whereEqualTo("uid", uid)
+                    .whereGreaterThan("deletedAt", lastTaskSync)
+                    .get().await()
+                    .documents.mapNotNull { it.getString("taskId") }
+                Log.i(COST_OPT_TAG, "[TOMBSTONE] found ${deletedIds.size} deleted tasks to remove locally")
+                for (taskId in deletedIds) {
+                    if (!pendingUpserts.contains(taskId) && !isRecentLocalWrite(taskId, now)) {
+                        dao.deleteTaskById(taskId)
+                        Log.d(COST_OPT_TAG, "[TOMBSTONE] removed local task $taskId")
+                    }
+                }
+            }
+
+            // -- Tag overrides delta --
+            val lastTagSync = prefs.getLong(PREFS_LAST_TAG_SYNC, 0L)
+            val tagDeltaQuery = if (lastTagSync > 0L) {
+                Log.i(COST_OPT_TAG, "[DELTA_QUERY] tagOverrides: fetching only changed since ${lastTagSync}ms ago")
+                tagOverridesQueryForUid(uid).whereGreaterThan("updatedTimestamp", lastTagSync)
+            } else {
+                Log.i(COST_OPT_TAG, "[FULL_QUERY] tagOverrides: first-ever sync")
+                tagOverridesQueryForUid(uid)
+            }
+            val changedOverrides = tagDeltaQuery.get().await().documents.mapNotNull { doc ->
                 val googleId = doc.getString("googleId") ?: decodeFirestoreDocId(doc.id)
                 val tags = doc.getString("tags") ?: return@mapNotNull null
                 val updatedTs = doc.getLong("updatedTimestamp") ?: System.currentTimeMillis()
                 TaskTagOverride(googleId = googleId, tags = tags, updatedTimestamp = updatedTs)
-            } ?: emptyList()
-
-            appScope.launch {
-                mergeTagOverridesFromRemote(overrides)
             }
+            Log.i(COST_OPT_TAG, "[DELTA_RESULT] tagOverrides: read ${changedOverrides.size} docs")
+            if (changedOverrides.isNotEmpty()) {
+                mergeTagOverridesFromRemote(changedOverrides)
+            }
+
+            prefs.edit()
+                .putLong(PREFS_LAST_TASK_SYNC, now)
+                .putLong(PREFS_LAST_TAG_SYNC, now)
+                .apply()
+            Log.i(COST_OPT_TAG, "[SYNC_DONE] syncDelta completed — tasks:${changedTasks.size} tagOverrides:${changedOverrides.size} uid=$uid")
+        } catch (e: Exception) {
+            Log.e(TAG, "syncDelta failed", e)
         }
     }
 
-    private fun detachTagOverridesListener() {
-        val listener = activeTagOverridesListener ?: return
-        Log.d(TAG, "Detaching Firestore tag overrides listener from tagOverrides query for uid=$activeUid")
-        listener.remove()
-        activeTagOverridesListener = null
+    /** Called by FCM data message or foreground transition. Debounced by DELTA_SYNC_THRESHOLD_MS. */
+    fun triggerSyncIfNeeded() {
+        appScope.launch {
+            val uid = auth.currentUser?.uid ?: return@launch
+            val lastSync = prefs.getLong(PREFS_LAST_TASK_SYNC, 0L)
+            val elapsed = System.currentTimeMillis() - lastSync
+            if (elapsed >= DELTA_SYNC_THRESHOLD_MS) {
+                Log.i(COST_OPT_TAG, "[TRIGGER] triggerSyncIfNeeded: firing delta sync (${elapsed}ms since last sync)")
+                syncDelta()
+            } else {
+                Log.d(COST_OPT_TAG, "[TRIGGER_DEBOUNCED] skipped delta — only ${elapsed}ms since last sync (threshold=${DELTA_SYNC_THRESHOLD_MS}ms)")
+            }
+        }
     }
 
     private suspend fun mergeTagOverridesFromRemote(remoteOverrides: List<TaskTagOverride>) {
@@ -326,8 +348,8 @@ class FirebaseTaskSyncManager(
         Log.d(TAG, "mergeTagOverridesFromRemote completed: upserts=$upserts")
     }
 
-    private suspend fun mergeRemoteIntoLocal(remoteTasks: List<Task>) {
-        Log.d(TAG, "mergeRemoteIntoLocal: received ${remoteTasks.size} tasks from Firestore")
+    private suspend fun mergeRemoteIntoLocal(remoteTasks: List<Task>, isFull: Boolean = false) {
+        Log.d(TAG, "mergeRemoteIntoLocal: received ${remoteTasks.size} tasks from Firestore (isFull=$isFull)")
         // Only load local-origin tasks for merging (skip calendar/google-tasks)
         val localTasks = dao.getAllLocalTasks()
         val localById = localTasks.associateBy { it.id }
@@ -353,13 +375,18 @@ class FirebaseTaskSyncManager(
             dao.insertTasks(upserts)
         }
 
-        val now = System.currentTimeMillis()
-        val deletions = localTasks.filter { local ->
-            remoteById[local.id] == null &&
-                !pendingUpserts.contains(local.id) &&
-                !pendingDeletes.contains(local.id) &&
-                !isRecentLocalWrite(local.id, now)
-        }
+        // Only prune local tasks absent from remote when this is a FULL sync result.
+        // During delta sync, missing = not changed, NOT deleted. Deletions are handled
+        // by the tombstone mechanism in syncDelta() via the deletedTasks collection.
+        val deletions = if (isFull) {
+            val now = System.currentTimeMillis()
+            localTasks.filter { local ->
+                remoteById[local.id] == null &&
+                    !pendingUpserts.contains(local.id) &&
+                    !pendingDeletes.contains(local.id) &&
+                    !isRecentLocalWrite(local.id, now)
+            }
+        } else emptyList()
 
         deletions.forEach { dao.deleteTask(it) }
         Log.d(
@@ -476,9 +503,10 @@ class FirebaseTaskSyncManager(
 
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
-                Log.i(TAG, "Network became available; triggering syncAllLocalToRemote")
+                Log.i(TAG, "Network became available; triggering delta sync")
                 appScope.launch {
-                    syncAllLocalToRemote()
+                    syncAllLocalToRemote() // push pending local writes
+                    syncDelta()            // pull remote changes
                 }
             }
         }
@@ -550,9 +578,14 @@ class FirebaseTaskSyncManager(
 
     companion object {
         private const val TAG = "FirebaseTaskSync"
+        /** Unified cost-optimization tag — filter Logcat with: tag:COST_OPT */
+        const val COST_OPT_TAG = "COST_OPT"
         private const val LOCAL_WRITE_GRACE_MS = 15_000L
         private const val PARITY_SAMPLE_LIMIT = 10
         private const val FIRESTORE_DATABASE_ID = "preamble"
+        private const val PREFS_LAST_TASK_SYNC = "last_task_sync_at"
+        private const val PREFS_LAST_TAG_SYNC = "last_tag_override_sync_at"
+        private const val DELTA_SYNC_THRESHOLD_MS = 60_000L
 
         @Volatile
         private var persistenceInitialized = false

@@ -9,7 +9,8 @@ import {
   FileText, 
   MessageSquare, 
   LogOut,
-  LineChart
+  LineChart,
+  Bot
 } from 'lucide-react';
 
 export default function Sidebar({ user, onLogout }) {
@@ -24,6 +25,7 @@ export default function Sidebar({ user, onLogout }) {
     { name: 'Reports', path: '/reports', icon: FileText },
     { name: 'PM Messages', path: '/pm-messages', icon: MessageSquare },
     { name: 'Telemetry', path: '/posthog-analytics', icon: LineChart },
+    { name: 'AI Config', path: '/ai-config', icon: Bot },
   ];
 
   return (

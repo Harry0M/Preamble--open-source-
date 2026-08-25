@@ -193,19 +193,19 @@ class VoiceTaskService : Service() {
             Log.d("PreambleAI", "  Input: '$title'")
             Log.d("PreambleAI", "  ExistingTaskId: $existingTaskId")
 
-            // Match the in-app voice/add-sheet behavior: logged-in users parse through
-            // the Cloud Function instead of relying on API keys embedded in the APK.
+            // ADD-ONLY MODE: Voice and notification only add new tasks.
+            // All edit/delete/complete operations have been removed — voice and notification
+            // are pure input channels. Edits happen in-app only.
+            //
+            // Cloud path: logged-in users always go to AiParsingWorker (background job)
+            // which calls the Cloud Function with tasks from Room DB.
             if (com.google.firebase.auth.FirebaseAuth.getInstance().currentUser != null && existingTaskId != null) {
-                val aiNotifEditEnabled = getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
-                    .getBoolean("ai_notif_edit", false)
-                if (!isNotification || !aiNotifEditEnabled) {
-                    Log.d("PreambleAI", "  Routing optimistic task through cloud AiParsingWorker")
-                    scheduleAiRetry(existingTaskId, title)
-                    CoroutineScope(Dispatchers.Main).launch {
-                        stopSelf()
-                    }
-                    return@launch
+                Log.d("PreambleAI", "  Routing optimistic task through cloud AiParsingWorker (add-only)")
+                scheduleAiRetry(existingTaskId, title)
+                CoroutineScope(Dispatchers.Main).launch {
+                    stopSelf()
                 }
+                return@launch
             }
             
             val provider = getOrCreateProvider()
@@ -213,32 +213,33 @@ class VoiceTaskService : Service() {
             
             if (provider != null) {
                 try {
-                    // Fetch existing tasks for AI context (modify/delete operations)
+                    // Fetch TODAY's tasks for duplicate detection context
+                    val todayStr = java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(java.util.Date())
                     val allTasks = app.repository.tasksFlow.firstOrNull() ?: emptyList()
                     val subtaskIntensity = applicationContext.getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
-                            .getInt("ai_subtask_intensity", 0)
-                    Log.d("PreambleAI", "  SubtaskIntensity: $subtaskIntensity")
-                    Log.d("PreambleAI", "  Context tasks: ${allTasks.size}")
-
-                    val aiNotifEditEnabled = getSharedPreferences("preamble_prefs", android.content.Context.MODE_PRIVATE)
-                            .getBoolean("ai_notif_edit", false)
-                    val toolsToUse = if (isNotification && !aiNotifEditEnabled) {
-                        com.theblankstate.preamble.ai.TaskTools.tools
-                            .filter { it.name in listOf("add_task", "set_reminder") }
-                    } else {
-                        com.theblankstate.preamble.ai.TaskTools.tools
+                        .getInt("ai_subtask_intensity", 1)
+                    // Include today's tasks + rollover tasks (recurrenceType == "rollover")
+                    val todayTasks = allTasks.filter { task ->
+                        !task.isCompleted && !task.isSyncing &&
+                        (task.createdDate == todayStr || task.recurrenceType == "rollover")
                     }
+                    Log.d("PreambleAI", "  subtaskIntensity=$subtaskIntensity, todayTasks=${todayTasks.size}")
+
+                    // ADD-ONLY MODE — only allow add_task, set_reminder, and duplicate_task
+                    val toolsToUse = com.theblankstate.preamble.ai.TaskTools.tools
+                        .filter { it.name in listOf("add_task", "set_reminder", "duplicate_task") }
 
                     val systemMsg = com.theblankstate.preamble.ai.ChatMessage("system",
                         com.theblankstate.preamble.ai.AiPromptFactory.buildSystemPrompt(
-                            allTasks,
+                            todayTasks,
                             subtaskIntensity = subtaskIntensity,
-                            isNotificationEdit = isNotification && aiNotifEditEnabled
+                            isNotificationEdit = false  // edit mode permanently disabled
                         )
                     )
                     val userMsg = com.theblankstate.preamble.ai.ChatMessage("user", title)
 
-                    Log.d("PreambleAI", "  Calling AI... (notif=$isNotification, editEnabled=$aiNotifEditEnabled, tools=${toolsToUse.map { it.name }})")
+                    Log.d("PreambleAI", "  Calling AI... (notif=$isNotification, tools=${toolsToUse.map { it.name }})")
+
                     val response = provider.chat(
                         listOf(systemMsg, userMsg),
                         toolsToUse
@@ -284,33 +285,10 @@ class VoiceTaskService : Service() {
 
                                     Log.d("PreambleAI", "  Parsed: title='$taskTitle', date=$date, time=$time, tags=$tags, pri=$priority, desc=${description?.take(50)}, subtasks=${subtasksList.size}, rollover=$rolloverDecision, effRec=$effectiveRecurrence, isHabit=$finalIsHabit, isEvent=$isEvent, interval=$recurrenceInterval, days=$recurrenceDays")
 
-                                    // set_reminder from notification (only when feature is ON):
-                                    // if an existing task matches the title, add the alarm to THAT task.
-                                    val handledAsReminderOnExisting = if (call.name == "set_reminder" && isNotification && aiNotifEditEnabled && time != null) {
-                                        val allCurrentTasks = app.repository.tasksFlow.firstOrNull() ?: emptyList()
-                                        val matchedTask = com.theblankstate.preamble.ai.TaskTools.findMatchingTask(taskTitle, allCurrentTasks)
-                                        if (matchedTask != null) {
-                                            Log.d("PreambleAI", "  set_reminder → adding alarm to existing task '${matchedTask.title}'")
-                                            val triggerMs = timeStringToEpochMs(time, date)
-                                            if (triggerMs != null) {
-                                                val currentReminders = matchedTask.localReminders.toMutableList()
-                                                if (currentReminders.size < com.theblankstate.preamble.data.Reminder.MAX_REMINDERS) {
-                                                    currentReminders.add(com.theblankstate.preamble.data.Reminder(epochMs = triggerMs, type = "exact"))
-                                                    val updated = matchedTask.copy(
-                                                        remindersJson = com.theblankstate.preamble.data.Reminder.toJson(currentReminders),
-                                                        updatedTimestamp = System.currentTimeMillis()
-                                                    )
-                                                    app.repository.updateTask(updated)
-                                                    TaskAlarmManager.scheduleReminders(applicationContext, updated)
-                                                }
-                                            }
-                                            cleanupPlaceholder(app, existingTaskId)
-                                            CoroutineScope(Dispatchers.Main).launch {
-                                                Toast.makeText(applicationContext, "✓ Reminder added to: ${matchedTask.title}", Toast.LENGTH_SHORT).show()
-                                            }
-                                            true
-                                        } else false
-                                    } else false
+                                    // Edit mode permanently disabled — set_reminder always creates a new task.
+                                    // (Matching an existing task by title and adding an alarm is no longer supported
+                                    //  via voice/notification; users can do this inside the app.)
+                                    val handledAsReminderOnExisting = false
 
                                     if (!handledAsReminderOnExisting) {
                                         if (existingTaskId != null) {
@@ -325,57 +303,33 @@ class VoiceTaskService : Service() {
                                             }
                                         }
                                     }
-                                }
-                                "modify_task" -> {
-                                    val targetTitle = call.arguments["target_title"] ?: title
-                                    val newTitle = call.arguments["new_title"]
-                                    val newDate = call.arguments["new_date"]
-                                    val newTime = call.arguments["new_time"]
-                                    val newPriority = call.arguments["new_priority"]?.toIntOrNull()
-                                    val newTags = call.arguments["new_tags"]
-                                    Log.d("PreambleAI", "  modify_task: target='$targetTitle'")
-                                    val modified = modifyInterpretedTask(app, targetTitle, newTitle, newDate, newTime, newPriority, newTags)
-                                    // Remove optimistic placeholder since we modified an existing task
+                            }
+                                "duplicate_task" -> {
+                                    // Task already exists in today's list
+                                    val existingTitle = call.arguments["existing_title"] ?: title
+                                    Log.i("PreambleAI", "  [DUPLICATE] Task already exists: \"$existingTitle\"")
+                                    // Remove the optimistic placeholder since we are NOT adding
                                     cleanupPlaceholder(app, existingTaskId)
                                     if (isNotification) {
-                                        val msg = if (modified) "✓ Task updated: ${newTitle ?: targetTitle}" else "⚠ Task not found: $targetTitle"
+                                        // Show as a separate notification (no FCM needed)
+                                        showDuplicateNotification(existingTitle)
+                                    } else {
+                                        // Voice FAB — show as Toast
                                         CoroutineScope(Dispatchers.Main).launch {
-                                            Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
+                                            Toast.makeText(
+                                                applicationContext,
+                                                "⚠️ Task already exists: \"$existingTitle\"",
+                                                Toast.LENGTH_LONG
+                                            ).show()
                                         }
                                     }
                                 }
-                                "delete_task" -> {
-                                    val targetTitle = call.arguments["title"] ?: title
-                                    Log.d("PreambleAI", "  delete_task: target='$targetTitle'")
-                                    val deleted = deleteInterpretedTask(app, targetTitle)
-                                    // Remove optimistic placeholder
-                                    cleanupPlaceholder(app, existingTaskId)
-                                    if (isNotification) {
-                                        val msg = if (deleted) "✓ Task deleted: $targetTitle" else "⚠ Task not found: $targetTitle"
-                                        CoroutineScope(Dispatchers.Main).launch {
-                                            Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                }
-                                "complete_task" -> {
-                                    val targetTitle = call.arguments["title"] ?: title
-                                    Log.d("PreambleAI", "  complete_task: target='$targetTitle'")
-                                    val completed = completeInterpretedTask(app, targetTitle)
-                                    // Remove optimistic placeholder
-                                    cleanupPlaceholder(app, existingTaskId)
-                                    if (isNotification) {
-                                        val msg = if (completed) "✓ Task completed: $targetTitle" else "⚠ Task not found: $targetTitle"
-                                        CoroutineScope(Dispatchers.Main).launch {
-                                            Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                }
-                                "list_tasks" -> {
-                                    // List is informational — just clean up placeholder
-                                    Log.d("PreambleAI", "  list_tasks — cleaning up placeholder")
-                                    cleanupPlaceholder(app, existingTaskId)
-                                }
+                                // ── EDIT OPERATIONS DISABLED ────────────────────────────────────────────────────
+                                // Voice and notification are add-only channels. Editing is in-app only.
+                                // "modify_task", "delete_task", "complete_task", "list_tasks"
+                                // are no longer offered via voice or notification.
                                 else -> {
+                                    Log.d("PreambleAI", "  Ignored non-add tool in add-only mode: ${call.name}")
                                     if (existingTaskId != null) {
                                         clearSyncing(app, existingTaskId)
                                     } else {
@@ -738,6 +692,27 @@ class VoiceTaskService : Service() {
         Log.d("PreambleAlarm", "Scheduled reminders for '${task.title}'")
     }
 
+    /** Post a local notification when AI detects a duplicate task. No FCM needed. */
+    private fun showDuplicateNotification(existingTitle: String) {
+        val nm = getSystemService(android.app.NotificationManager::class.java)
+        val channelId = "preamble_ai_feedback"
+        val channel = android.app.NotificationChannel(
+            channelId, "Preamble AI Feedback",
+            android.app.NotificationManager.IMPORTANCE_DEFAULT
+        ).apply { description = "AI task parsing feedback" }
+        nm.createNotificationChannel(channel)
+
+        val notification = androidx.core.app.NotificationCompat.Builder(this, channelId)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("Task already exists")
+            .setContentText("\"$existingTitle\" is already in today's list")
+            .setPriority(androidx.core.app.NotificationCompat.PRIORITY_DEFAULT)
+            .setAutoCancel(true)
+            .build()
+        nm.notify(DUPLICATE_NOTIFICATION_ID, notification)
+        Log.i("PreambleAI", "[DUPLICATE_NOTIF] Shown for: \"$existingTitle\"")
+    }
+
     override fun onDestroy() {
         speechRecognizer?.destroy()
         speechRecognizer = null
@@ -748,6 +723,7 @@ class VoiceTaskService : Service() {
     companion object {
         private const val VOICE_CHANNEL_ID = "preamble_voice_input"
         private const val VOICE_NOTIFICATION_ID = 1002
+        private const val DUPLICATE_NOTIFICATION_ID = 1099  // AI duplicate detection feedback
         const val EXTRA_TEXT_COMMAND = "extra_text_command"
         const val EXTRA_TASK_ID = "extra_task_id"
         const val EXTRA_IS_NOTIFICATION = "is_notification"

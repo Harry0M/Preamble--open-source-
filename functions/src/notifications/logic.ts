@@ -199,6 +199,7 @@ export function buildPayload(input: {
         deepLink: "preamble://social",
         type,
         channelType: "social_invites",
+        syncType: "social",
       };
     case "task_assigned":
       return {
@@ -207,6 +208,7 @@ export function buildPayload(input: {
         deepLink: `preamble://task/${taskId ?? ""}`,
         type,
         channelType: "social_collab",
+        syncType: "collab",
       };
     case "task_changed":
       return {
@@ -215,6 +217,7 @@ export function buildPayload(input: {
         deepLink: `preamble://task/${taskId ?? ""}`,
         type,
         channelType: "social_collab",
+        syncType: "collab",
       };
     case "task_completed":
       return {
@@ -223,6 +226,7 @@ export function buildPayload(input: {
         deepLink: `preamble://task/${taskId ?? ""}`,
         type,
         channelType: "social_collab",
+        syncType: "collab",
       };
   }
 }

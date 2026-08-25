@@ -26,6 +26,12 @@ class AiMemoryRepository private constructor(
 ) {
     private val firestore by lazy { FirebaseFirestore.getInstance("preamble") }
 
+    private val prefs by lazy {
+        appContext.getSharedPreferences("preamble_ai_memory_sync", Context.MODE_PRIVATE)
+    }
+    private val AI_MEMORY_LAST_SYNC_AT = "ai_memory_last_sync_at"
+    private val AI_MEMORY_TTL_MS = 6 * 60 * 60 * 1000L  // 6 hours
+
     /** Always returns a usable userId — real Firebase uid or stable local fallback. */
     private fun uid(): String = FirebaseAuth.getInstance().currentUser?.uid ?: LOCAL_USER
 
@@ -137,9 +143,26 @@ class AiMemoryRepository private constructor(
     suspend fun pullRemote(): Int = withContext(Dispatchers.IO) {
         if (!isLoggedIn()) return@withContext 0
         val u = uid()
+        val now = System.currentTimeMillis()
+        val lastSync = prefs.getLong(AI_MEMORY_LAST_SYNC_AT, 0L)
+
+        // TTL guard: skip if synced within last 6 hours
+        if (lastSync > 0L && (now - lastSync) < AI_MEMORY_TTL_MS) {
+            val ageMins = (now - lastSync) / 60_000
+            Log.i("COST_OPT", "[CACHE_HIT] ai_memory TTL: skipping Firestore read (cache is ${ageMins}min old, TTL=${AI_MEMORY_TTL_MS / 60_000}min) — 0 docs read")
+            return@withContext 0
+        }
+
         runCatching {
-            val snapshot = firestore.collection("users").document(u)
-                .collection("ai_memory").get().await()
+            val collection = firestore.collection("users").document(u).collection("ai_memory")
+            val query = if (lastSync > 0L) {
+                Log.i("COST_OPT", "[DELTA_QUERY] ai_memory: fetching only entries changed since last sync (${(now - lastSync) / 60_000}min ago)")
+                collection.whereGreaterThan("lastUsedAt", lastSync)
+            } else {
+                Log.i("COST_OPT", "[FULL_QUERY] ai_memory: first sync, reading full collection")
+                collection
+            }
+            val snapshot = query.get().await()
             val remote = snapshot.documents.mapNotNull { doc ->
                 val key = cleanMemoryKey(doc.getString("key") ?: return@mapNotNull null)
                 if (key.isBlank()) return@mapNotNull null
@@ -157,8 +180,10 @@ class AiMemoryRepository private constructor(
                     syncPending = 0,
                 )
             }
+            Log.i("COST_OPT", "[DELTA_RESULT] ai_memory: read ${remote.size} docs")
             if (remote.isNotEmpty()) dao.upsertAll(remote)
             pruneDuplicateKeys(u)
+            prefs.edit().putLong(AI_MEMORY_LAST_SYNC_AT, now).apply()
             remote.size
         }.onFailure { Log.w(TAG, "pullRemote failed", it) }.getOrDefault(0)
     }

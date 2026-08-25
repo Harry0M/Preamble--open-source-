@@ -235,6 +235,14 @@ class TaskViewModel(
         }
     }
 
+    /**
+     * Fetch ALL tasks whose createdDate falls within [startDate, endDate] from local Room DB.
+     * Used by the get_tasks_range AI tool — zero Firestore reads.
+     */
+    suspend fun allTasksForRange(startDate: String, endDate: String): List<Task> {
+        return repository.getTasksBetweenDates(startDate, endDate)
+    }
+
     // Search
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()

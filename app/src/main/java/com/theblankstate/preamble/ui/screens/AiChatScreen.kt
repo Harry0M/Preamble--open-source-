@@ -1725,49 +1725,178 @@ private fun SuggestionCard(
     onDismiss: () -> Unit,
 ) {
     val title = args["title"] ?: return
-    val tags = args["tags"]
-    val priority = args["priority"]?.toIntOrNull() ?: 0
     val description = args["description"]
+    val tags = args["tags"]?.split("|")?.firstOrNull()
+    val priority = args["priority"]?.toIntOrNull() ?: 0
+    val deadlineTime = args["deadline_time"]
+    val recurrence = args["recurrence"]
+    val isHabit = args["is_habit"]?.lowercase() == "true"
+    val isEvent = args["is_event"]?.lowercase() == "true"
+    val eventIcon = args["event_icon"]
+    val eventColor = args["event_color"]?.let {
+        runCatching {
+            val hex = it.trimStart('#')
+            Color(android.graphics.Color.parseColor("#$hex"))
+        }.getOrNull()
+    }
 
-    Column(modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (isPressed) 0.97f else 1f, label = "suggest_press")
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+            .scale(scale),
+    ) {
         Text(
-            "Suggested task",
+            "✨ Suggested task",
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
-            modifier = Modifier.padding(bottom = 3.dp),
-        )
-        Text(
-            title,
-            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
             fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(bottom = 4.dp),
         )
-        if (!description.isNullOrBlank()) {
-            Text(
-                description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-        Row(
-            modifier = Modifier.padding(top = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
+
+        Surface(
+            shape = RoundedCornerShape(14.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+            tonalElevation = 0.dp,
         ) {
-            Text(
-                "Add task",
-                modifier = Modifier.clickable { onApprove() },
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                "Dismiss",
-                modifier = Modifier.clickable { onDismiss() },
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
-            )
+            Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+
+                // Title row with optional event icon or priority
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    if (isEvent && !eventIcon.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .background(
+                                    eventColor?.copy(alpha = 0.2f)
+                                        ?: MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                    CircleShape,
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(eventIcon, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    } else if (isHabit) {
+                        Box(
+                            modifier = Modifier
+                                .size(28.dp)
+                                .background(
+                                    MaterialTheme.colorScheme.tertiary.copy(alpha = 0.15f),
+                                    CircleShape,
+                                ),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("🔥", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    Text(
+                        title,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    if (priority >= 2) {
+                        val priColor = if (priority == 3) Color(0xFFE53935) else Color(0xFFFF9800)
+                        Text(
+                            "P$priority",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = priColor,
+                        )
+                    }
+                }
+
+                // Description
+                if (!description.isNullOrBlank()) {
+                    Text(
+                        description,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+
+                // Metadata pills row
+                val hasMeta = !tags.isNullOrBlank() || !deadlineTime.isNullOrBlank() ||
+                    !recurrence.isNullOrBlank() || isHabit || isEvent
+                if (hasMeta) {
+                    Row(
+                        modifier = Modifier.padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        // Tag pill
+                        tags?.takeIf { it.isNotBlank() }?.let { tag ->
+                            SuggestionPill(label = "#$tag")
+                        }
+                        // Time pill
+                        deadlineTime?.takeIf { it.isNotBlank() }?.let { t ->
+                            SuggestionPill(label = "⏰ $t")
+                        }
+                        // Recurrence pill
+                        recurrence?.takeIf { it.isNotBlank() }?.let { r ->
+                            val label = when (r) {
+                                "daily" -> if (isHabit) "🔥 Habit" else "🔁 Daily"
+                                "weekly" -> "🔁 Weekly"
+                                "monthly" -> "🔁 Monthly"
+                                "rollover" -> "↩ Rollover"
+                                else -> "🔁 $r"
+                            }
+                            SuggestionPill(label = label)
+                        }
+                        // Event type pill (if is_event but no recurrence)
+                        if (isEvent && recurrence.isNullOrBlank()) {
+                            SuggestionPill(label = "📅 Event")
+                        }
+                    }
+                }
+
+                // Action buttons
+                Row(
+                    modifier = Modifier.padding(top = 10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Text(
+                        "＋ Add task",
+                        modifier = Modifier.clickable(
+                            interactionSource = interactionSource,
+                            indication = null,
+                        ) { onApprove() },
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        "Dismiss",
+                        modifier = Modifier.clickable { onDismiss() },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    )
+                }
+            }
         }
+    }
+}
+
+@Composable
+private fun SuggestionPill(label: String) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -2269,23 +2398,98 @@ private fun RichMarkdownText(
 
 @Composable
 private fun MarkdownTextLine(line: String, codeBackground: Color, color: Color) {
+    // Strip SUGGEST markers from display entirely
     if (line.trimStart().startsWith("[SUGGEST:")) return
+
+    val trimmed = line.trimStart()
+    val accentColor = MaterialTheme.colorScheme.primary
+
     when {
+        // Blank line → small spacer
         line.isBlank() -> Spacer(Modifier.height(4.dp))
+
+        // Horizontal rule: EXACTLY "---" (3+ hyphens), nothing else on the line
+        trimmed.matches(Regex("^-{3,}$")) -> {
+            Spacer(Modifier.height(4.dp))
+            androidx.compose.material3.HorizontalDivider(
+                modifier = Modifier.padding(vertical = 4.dp),
+                thickness = 0.8.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+            )
+            Spacer(Modifier.height(4.dp))
+        }
+
+        // H1: "# Text" — only when line starts with exactly "# " (not "##", "###")
+        line.startsWith("# ") && !line.startsWith("## ") -> Text(
+            parseInlineMarkdown(line.removePrefix("# "), codeBackground),
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color = color,
+            modifier = Modifier.padding(top = 2.dp, bottom = 2.dp),
+        )
+
+        // H2: "## Text"
+        line.startsWith("## ") && !line.startsWith("### ") -> Text(
+            parseInlineMarkdown(line.removePrefix("## "), codeBackground),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = color,
+            modifier = Modifier.padding(top = 2.dp),
+        )
+
+        // H3: "### Text"
         line.startsWith("### ") -> Text(
             parseInlineMarkdown(line.removePrefix("### "), codeBackground),
             style = MaterialTheme.typography.titleSmall,
             fontWeight = FontWeight.Bold,
             color = color,
         )
-        line.startsWith("## ") -> Text(
-            parseInlineMarkdown(line.removePrefix("## "), codeBackground),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = color,
-        )
-        line.trimStart().startsWith("- ") || line.trimStart().startsWith("* ") -> {
-            val content = line.trimStart().drop(2)
+
+        // Blockquote: "> Text" → left accent bar + indented italic text
+        trimmed.startsWith("> ") -> {
+            val content = trimmed.removePrefix("> ")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 2.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(3.dp)
+                        .heightIn(min = 20.dp)
+                        .background(
+                            accentColor.copy(alpha = 0.55f),
+                            RoundedCornerShape(2.dp),
+                        )
+                        .align(Alignment.CenterVertically),
+                )
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    parseInlineMarkdown(content, codeBackground),
+                    style = MaterialTheme.typography.bodyLarge.copy(
+                        fontStyle = FontStyle.Italic,
+                    ),
+                    color = color.copy(alpha = 0.8f),
+                )
+            }
+        }
+
+        // Nested bullet: "  - " or "    - " (2+ leading spaces)
+        line.startsWith("  ") && (trimmed.startsWith("- ") || trimmed.startsWith("* ")) -> {
+            val content = trimmed.drop(2)
+            Row(modifier = Modifier.padding(start = 24.dp)) {
+                Text("◦  ", color = color.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    parseInlineMarkdown(content, codeBackground),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = color.copy(alpha = 0.9f),
+                )
+            }
+        }
+
+        // Top-level bullet: "- " or "* "
+        trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
+            val content = trimmed.drop(2)
             Row(modifier = Modifier.padding(start = 8.dp)) {
                 Text("•  ", color = color, style = MaterialTheme.typography.bodyLarge)
                 Text(
@@ -2295,9 +2499,11 @@ private fun MarkdownTextLine(line: String, codeBackground: Color, color: Color) 
                 )
             }
         }
-        line.trimStart().matches(Regex("^\\d+\\.\\s.*")) -> {
-            val num = line.trimStart().substringBefore(".")
-            val content = line.trimStart().substringAfter(". ")
+
+        // Numbered list: "1. text"
+        trimmed.matches(Regex("^\\d+\\.\\s.*")) -> {
+            val num = trimmed.substringBefore(".")
+            val content = trimmed.substringAfter(". ")
             Row(modifier = Modifier.padding(start = 8.dp)) {
                 Text(
                     "$num. ",
@@ -2312,11 +2518,19 @@ private fun MarkdownTextLine(line: String, codeBackground: Color, color: Color) 
                 )
             }
         }
-        else -> Text(
-            parseInlineMarkdown(line, codeBackground),
-            style = MaterialTheme.typography.bodyLarge,
-            color = color,
-        )
+
+        // Plain text (fallback) — strip any stray leading # that shouldn't be there
+        else -> {
+            val displayLine = if (trimmed.startsWith("#") && !trimmed.startsWith("# ")) {
+                // Rogue "#something" with no space — strip the hash(es)
+                trimmed.trimStart('#').trimStart()
+            } else line
+            Text(
+                parseInlineMarkdown(displayLine, codeBackground),
+                style = MaterialTheme.typography.bodyLarge,
+                color = color,
+            )
+        }
     }
 }
 

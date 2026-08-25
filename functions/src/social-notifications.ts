@@ -100,20 +100,29 @@ async function sendToRecipients(
   payload: NotificationPayload,
   ctx: Record<string, unknown>
 ): Promise<void> {
+  if (recipientUids.length === 0) return;
+  
+  // Batch-fetch all FCM tokens in one round-trip (replaces N individual reads)
+  const refs = recipientUids.map(uid => db.collection("users").doc(uid));
+  const snaps = await db.getAll(...refs);
+  const tokenMap = new Map<string, string>();
+  for (const snap of snaps) {
+    const token = snap.data()?.fcmToken;
+    if (typeof token === "string" && token.length > 0) {
+      tokenMap.set(snap.id, token);
+    }
+  }
+  
   for (const recipientUid of recipientUids) {
     try {
-      const userSnap = await db.collection("users").doc(recipientUid).get();
-      const fcmToken = userSnap.data()?.fcmToken;
-      if (typeof fcmToken !== "string" || fcmToken.length === 0) continue;
-
+      const fcmToken = tokenMap.get(recipientUid);
+      if (!fcmToken) continue;
       await getMessaging().send({
         token: fcmToken,
         data: payload,
         android: { priority: "high" },
       });
     } catch (err: any) {
-      // Per-recipient failure is logged and swallowed; other recipients are
-      // still attempted and the data operation is unaffected.
       console.error("sendToRecipients: FCM delivery failed", {
         ...ctx,
         recipientUid,

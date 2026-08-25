@@ -2,6 +2,9 @@ package com.theblankstate.preamble
 
 import android.app.Application
 import android.content.Context
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -126,6 +129,16 @@ class PreambleApplication : Application() {
 
         syncManager?.start()
         timerSessionRepository.startSync()
+
+        // Register foreground observer: trigger a delta sync each time the app returns to
+        // foreground (replaces the always-on Firestore snapshot listener for task sync).
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                // App came to foreground (from background or fresh launch)
+                android.util.Log.i("COST_OPT", "[FOREGROUND_TRIGGER] app moved to foreground — calling triggerSyncIfNeeded() (replaces always-on listener)")
+                syncManager?.triggerSyncIfNeeded()
+            }
+        })
         TaskNotificationManager.createChannel(this)
         com.theblankstate.preamble.notification.PreambleFcmService.createChannels(this)
         persistFcmToken()

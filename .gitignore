@@ -35,5 +35,9 @@ functions/lib/
 .tmp-design/
 screenshots/
 build_output.txt
+build_errors.txt
+build_out.txt
+firebase-debug.log
+firestore-debug.log
 compile_error*.txt
 tmpclaude-*
