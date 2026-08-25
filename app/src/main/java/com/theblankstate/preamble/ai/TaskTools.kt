@@ -166,6 +166,15 @@ object TaskTools {
                 ToolParam("existing_title", "string", "The exact title of the matching task that already exists in today's list.", required = true),
                 ToolParam("user_input", "string", "What the user typed or said.", required = true)
             )
+        ),
+        AiTool(
+            name = "get_tasks_range",
+            description = "Fetch the user's tasks for a date range from the local database. Use when the user asks about past productivity or custom date ranges.",
+            parameters = listOf(
+                ToolParam("start_date", "string", "Start date in YYYY-MM-DD format (inclusive).", required = true),
+                ToolParam("end_date", "string", "End date in YYYY-MM-DD format (inclusive).", required = true),
+                ToolParam("include_completed", "string", "true to include completed tasks (default true).", required = false)
+            )
         )
     )
 

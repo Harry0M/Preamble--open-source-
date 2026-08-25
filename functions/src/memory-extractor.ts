@@ -61,6 +61,7 @@ export function hasExplicitMemoryIntent(userMessage: string): boolean {
   const lower = userMessage.toLowerCase().trim();
   if (lower.length < 4) return false;
   return (
+    /\b(remember that|remember:|please remember|always remember)\b/.test(lower) ||
     /\b(remember|save|memorize|store|update|change|set|correct)\b.{0,80}\b(name|preference|goal|memory|remember)\b/.test(lower) ||
     /\b(name|preference|goal)\b.{0,40}\b(as|to|is)\b/.test(lower) ||
     /\b(call me|you can call me|my name is|my name's)\b/.test(lower) ||

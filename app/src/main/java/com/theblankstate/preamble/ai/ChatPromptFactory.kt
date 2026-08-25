@@ -126,7 +126,8 @@ object ChatPromptFactory {
     fun hasExplicitMemoryIntent(text: String): Boolean {
         val lower = text.lowercase().trim()
         if (lower.length < 4) return false
-        return Regex("\\b(remember|save|memorize|store|update|change|set|correct)\\b.{0,80}\\b(name|preference|goal|memory|remember)\\b").containsMatchIn(lower) ||
+        return Regex("\\b(remember that|remember:|please remember|always remember)\\b").containsMatchIn(lower) ||
+            Regex("\\b(remember|save|memorize|store|update|change|set|correct)\\b.{0,80}\\b(name|preference|goal|memory|remember)\\b").containsMatchIn(lower) ||
             Regex("\\b(name|preference|goal)\\b.{0,40}\\b(as|to|is)\\b").containsMatchIn(lower) ||
             Regex("\\b(call me|you can call me|my name is|my name's)\\b").containsMatchIn(lower) ||
             Regex("\\b(forget|remove|delete|don't remember|do not remember|stop remembering)\\b").containsMatchIn(lower) ||
