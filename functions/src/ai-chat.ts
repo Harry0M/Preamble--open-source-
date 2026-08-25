@@ -153,8 +153,16 @@ export const aiChat = onRequest(
     const appVersionCode: number = req.body.appVersionCode || 0;
     const userMessageId = safeClientMessageId(req.body.userMessageId);
     const assistantMessageId = safeClientMessageId(req.body.assistantMessageId);
-    const message: string | null = req.body.message ?? null;
-    const toolResults: Array<{ name: string; result: string }> | null = req.body.toolResults ?? null;
+    const rawMessage = req.body.message;
+    const message: string | null = (typeof rawMessage === "string" && rawMessage.trim().length > 0)
+      ? rawMessage.trim().slice(0, 2000)
+      : null;
+    const toolResults: Array<{ name: string; result: string }> | null = Array.isArray(req.body.toolResults)
+      ? req.body.toolResults.slice(0, 10).map((r: any) => ({
+          name: String(r.name || "").slice(0, 64),
+          result: String(r.result || "").slice(0, 4000),
+        }))
+      : null;
 
     if (!message && !toolResults) {
       res.status(400).json({ error: "message or toolResults required" });
@@ -252,11 +260,11 @@ export const aiChat = onRequest(
       if (taskToolsEnabled) {
         const clientTasks = req.body.tasks;
         const tasks: TaskSnapshot[] = Array.isArray(clientTasks)
-          ? clientTasks.map((t: any) => ({
-              title: String(t.title || ""),
-              createdDate: String(t.createdDate || ""),
-              deadlineTime: t.deadlineTime || undefined,
-              priority: Number(t.priority) || 0,
+          ? clientTasks.slice(0, 24).map((t: any) => ({
+              title: String(t.title || "").slice(0, 120),
+              createdDate: String(t.createdDate || "").slice(0, 10),
+              deadlineTime: typeof t.deadlineTime === "string" ? t.deadlineTime.slice(0, 5) : undefined,
+              priority: Math.min(3, Math.max(0, Number(t.priority) || 0)),
               isCompleted: Boolean(t.isCompleted),
             }))
           : [];

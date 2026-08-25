@@ -42,36 +42,39 @@ export const aiParseTask = onRequest(
     }
 
     const {
-      text,
+      text: rawText,
       subtaskIntensity = 1,
       isNotificationEdit = false,
       appVersionCode = 11,
       preferredLanguages,
-      // Client sends task context from local Room DB — no Firestore read needed
       tasks: clientTasks,
     } = req.body;
 
-    if (!text || typeof text !== "string") {
+    if (!rawText || typeof rawText !== "string" || !rawText.trim()) {
       res.status(400).json({ error: "text required" });
       return;
     }
 
+    // Anti-abuse: Cap input text length to 1000 chars
+    const text = rawText.trim().slice(0, 1000);
+
     try {
-      // Use task context sent by client (from Room DB on device — free)
-      // Falls back to empty array if client doesn't send tasks (older app versions)
+      // Anti-abuse: Cap context to 40 tasks maximum, truncate long titles
       const tasks: TaskSnapshot[] = Array.isArray(clientTasks)
-        ? clientTasks.map((t: any) => ({
-            title: String(t.title || ""),
-            createdDate: String(t.createdDate || ""),
-            deadlineTime: t.deadlineTime || undefined,
-            priority: Number(t.priority) || 0,
+        ? clientTasks.slice(0, 40).map((t: any) => ({
+            title: String(t.title || "").slice(0, 120),
+            createdDate: String(t.createdDate || "").slice(0, 10),
+            deadlineTime: typeof t.deadlineTime === "string" ? t.deadlineTime.slice(0, 5) : undefined,
+            priority: Math.min(3, Math.max(0, Number(t.priority) || 0)),
             isCompleted: Boolean(t.isCompleted),
             isSyncing: Boolean(t.isSyncing),
           }))
         : [];
 
       // Preferred languages sent by client from SharedPreferences (free)
-      const langs: string[] = Array.isArray(preferredLanguages) ? preferredLanguages : [];
+      const langs: string[] = Array.isArray(preferredLanguages)
+        ? preferredLanguages.slice(0, 5).map(l => String(l).slice(0, 10))
+        : [];
 
       // Build system prompt
       const systemPrompt = buildSystemPrompt({
