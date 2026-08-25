@@ -22,6 +22,7 @@ import {
   MEMORY_MODEL,
   DEFAULT_MODEL,
   DEFAULT_MODE,
+  isMistralModel,
   isMistralPremium,
   // Flash limits
   flashDailyMsgField,
@@ -47,10 +48,6 @@ import { buildRenderBlocks } from "./render-blocks";
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const MISTRAL_KEY = process.env.MISTRAL_API_KEY || "";
 const HISTORY_WINDOW = 12;
-
-function isMistralModel(model: string): boolean {
-  return model.includes("mistral") || model.includes("mixtral");
-}
 
 async function verifyAuth(authHeader: string | undefined): Promise<string | null> {
   if (!authHeader?.startsWith("Bearer ")) return null;

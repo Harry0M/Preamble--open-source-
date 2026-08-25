@@ -54,10 +54,17 @@ export function getFlashMsgsRemaining(model: string, usedToday: number): number 
 // Mistral models (premium — daily token budget, refillable with ads)
 // ---------------------------------------------------------------------------
 
-/** Whether a model uses the Mistral token-budget system. */
-export function isMistralPremium(model: string): boolean {
-  return model.includes("mistral") || model.includes("mixtral");
+/** Whether a model is from Mistral AI provider. */
+export function isMistralModel(model: string): boolean {
+  return (
+    model.includes("mistral") ||
+    model.includes("ministral") ||
+    model.includes("mixtral") ||
+    model.includes("codestral") ||
+    model.includes("pixtral")
+  );
 }
+export const isMistralPremium = isMistralModel;
 
 /** Daily FREE token baseline per Mistral model (resets midnight UTC). */
 export const MISTRAL_DAILY_FREE_TOKENS: Record<string, number> = {

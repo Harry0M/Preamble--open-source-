@@ -28,6 +28,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getAiConfig } from "./ai-config";
 import {
   DEFAULT_MODEL,
+  isMistralModel,
   isMistralPremium,
   flashDailyMsgField,
   getFlashMsgsRemaining,
@@ -48,10 +49,6 @@ async function verifyAuth(authHeader: string | undefined): Promise<string | null
   } catch {
     return null;
   }
-}
-
-function isMistralModel(model: string): boolean {
-  return model.includes("mistral") || model.includes("mixtral");
 }
 
 interface SchedulableDto {

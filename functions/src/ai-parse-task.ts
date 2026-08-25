@@ -12,7 +12,7 @@ import { GoogleGenAI } from "@google/genai";
 import { getAuth } from "firebase-admin/auth";
 import { buildSystemPrompt, TaskSnapshot } from "./prompt-builder";
 import { TASK_TOOLS_V2, TASK_TOOLS, toGeminiFunctionDeclarations } from "./tools-schema";
-import { PARSE_MODEL } from "./config";
+import { PARSE_MODEL, isMistralModel } from "./config";
 
 const GEMINI_KEY = process.env.GEMINI_API_KEY || "";
 const MISTRAL_KEY = process.env.MISTRAL_API_KEY || "";
@@ -86,7 +86,7 @@ export const aiParseTask = onRequest(
       });
 
       const parseModel = PARSE_MODEL;
-      const isMistral = parseModel.includes("mistral") || parseModel.includes("mixtral");
+      const isMistral = isMistralModel(parseModel);
 
       let toolCalls: Array<{ name: string; args: Record<string, string> }> = [];
       let responseText = "";
