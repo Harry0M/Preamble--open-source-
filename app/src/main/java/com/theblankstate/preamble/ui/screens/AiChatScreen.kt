@@ -114,6 +114,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -2267,67 +2268,70 @@ private fun MarkdownTextLine(line: String, codeBackground: Color, color: Color) 
     // Strip SUGGEST markers from display entirely
     if (line.trimStart().startsWith("[SUGGEST:")) return
 
-    val trimmed = line.trimStart()
+    val trimmed = line.trim()
     val accentColor = MaterialTheme.colorScheme.primary
 
     when {
         // Blank line → small spacer
         line.isBlank() -> Spacer(Modifier.height(4.dp))
 
-        // Horizontal rule: EXACTLY "---" (3+ hyphens), nothing else on the line
-        trimmed.matches(Regex("^-{3,}$")) -> {
-            Spacer(Modifier.height(4.dp))
+        // Horizontal rule: "---", "***", "___" (3+ hyphens/stars/underscores)
+        trimmed.matches(Regex("^[-*_]{3,}$")) -> {
+            Spacer(Modifier.height(6.dp))
             androidx.compose.material3.HorizontalDivider(
                 modifier = Modifier.padding(vertical = 4.dp),
                 thickness = 0.8.dp,
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(6.dp))
         }
 
-        // H1: "# Text" — only when line starts with exactly "# " (not "##", "###")
-        line.startsWith("# ") && !line.startsWith("## ") -> Text(
-            parseInlineMarkdown(line.removePrefix("# "), codeBackground),
-            style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.Bold,
-            color = color,
-            modifier = Modifier.padding(top = 2.dp, bottom = 2.dp),
-        )
+        // Headings: "#", "##", "###", "####", etc.
+        trimmed.startsWith("#") -> {
+            val hashCount = trimmed.takeWhile { it == '#' }.length
+            val headingText = trimmed.drop(hashCount).trimStart()
+            when {
+                hashCount == 1 -> Text(
+                    parseInlineMarkdown(headingText, codeBackground),
+                    style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = color,
+                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
+                )
+                hashCount == 2 -> Text(
+                    parseInlineMarkdown(headingText, codeBackground),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = color,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 2.dp),
+                )
+                else -> Text(
+                    parseInlineMarkdown(headingText, codeBackground),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = color,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 1.dp),
+                )
+            }
+        }
 
-        // H2: "## Text"
-        line.startsWith("## ") && !line.startsWith("### ") -> Text(
-            parseInlineMarkdown(line.removePrefix("## "), codeBackground),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = color,
-            modifier = Modifier.padding(top = 2.dp),
-        )
-
-        // H3: "### Text"
-        line.startsWith("### ") -> Text(
-            parseInlineMarkdown(line.removePrefix("### "), codeBackground),
-            style = MaterialTheme.typography.titleSmall,
-            fontWeight = FontWeight.Bold,
-            color = color,
-        )
-
-        // Blockquote: "> Text" → left accent bar + indented italic text
-        trimmed.startsWith("> ") -> {
-            val content = trimmed.removePrefix("> ")
+        // Blockquote: "> Text", ">> Text", ">Text" → left accent bar + italic text
+        trimmed.startsWith(">") -> {
+            val content = trimmed.replaceFirst(Regex("^>+\\s*"), "")
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 2.dp),
+                    .padding(vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
                     modifier = Modifier
-                        .width(3.dp)
+                        .width(3.5.dp)
                         .heightIn(min = 20.dp)
                         .background(
-                            accentColor.copy(alpha = 0.55f),
+                            accentColor.copy(alpha = 0.7f),
                             RoundedCornerShape(2.dp),
                         )
-                        .align(Alignment.CenterVertically),
                 )
                 Spacer(Modifier.width(10.dp))
                 Text(
@@ -2335,64 +2339,68 @@ private fun MarkdownTextLine(line: String, codeBackground: Color, color: Color) 
                     style = MaterialTheme.typography.bodyLarge.copy(
                         fontStyle = FontStyle.Italic,
                     ),
-                    color = color.copy(alpha = 0.8f),
+                    color = color.copy(alpha = 0.85f),
                 )
             }
         }
 
-        // Nested bullet: "  - " or "    - " (2+ leading spaces)
-        line.startsWith("  ") && (trimmed.startsWith("- ") || trimmed.startsWith("* ")) -> {
-            val content = trimmed.drop(2)
-            Row(modifier = Modifier.padding(start = 24.dp)) {
-                Text("◦  ", color = color.copy(alpha = 0.7f), style = MaterialTheme.typography.bodyMedium)
+        // Bullet list item: "-", "*", "+", "•", "◦", "○", "▪"
+        trimmed.matches(Regex("^[-*+•◦○▪–—]\\s+.*")) || trimmed.matches(Regex("^[•◦○▪–—].*")) -> {
+            val isNested = line.startsWith("  ") || line.startsWith("\t")
+            val content = trimmed.replaceFirst(Regex("^[-*+•◦○▪–—]\\s*"), "")
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = if (isNested) 20.dp else 6.dp, top = 2.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
                 Text(
-                    parseInlineMarkdown(content, codeBackground),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = color.copy(alpha = 0.9f),
+                    text = if (isNested) "◦ " else "• ",
+                    color = if (isNested) color.copy(alpha = 0.6f) else accentColor,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
                 )
-            }
-        }
-
-        // Top-level bullet: "- " or "* "
-        trimmed.startsWith("- ") || trimmed.startsWith("* ") -> {
-            val content = trimmed.drop(2)
-            Row(modifier = Modifier.padding(start = 8.dp)) {
-                Text("•  ", color = color, style = MaterialTheme.typography.bodyLarge)
+                Spacer(Modifier.width(4.dp))
                 Text(
                     parseInlineMarkdown(content, codeBackground),
                     style = MaterialTheme.typography.bodyLarge,
                     color = color,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
 
-        // Numbered list: "1. text"
-        trimmed.matches(Regex("^\\d+\\.\\s.*")) -> {
-            val num = trimmed.substringBefore(".")
-            val content = trimmed.substringAfter(". ")
-            Row(modifier = Modifier.padding(start = 8.dp)) {
+        // Numbered list: "1. text", "1) text", "(1) text"
+        trimmed.matches(Regex("^\\(?\\d+[.)]\\s+.*")) -> {
+            val match = Regex("^\\(?(\\d+)[.)]\\s+(.*)").find(trimmed)
+            val num = match?.groupValues?.getOrNull(1) ?: "1"
+            val content = match?.groupValues?.getOrNull(2) ?: trimmed
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 6.dp, top = 2.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
                 Text(
                     "$num. ",
-                    color = color,
+                    color = accentColor,
                     style = MaterialTheme.typography.bodyLarge,
                     fontWeight = FontWeight.SemiBold,
                 )
+                Spacer(Modifier.width(2.dp))
                 Text(
                     parseInlineMarkdown(content, codeBackground),
                     style = MaterialTheme.typography.bodyLarge,
                     color = color,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }
 
-        // Plain text (fallback) — strip any stray leading # that shouldn't be there
+        // Plain text fallback (clean any stray unparsed markers)
         else -> {
-            val displayLine = if (trimmed.startsWith("#") && !trimmed.startsWith("# ")) {
-                // Rogue "#something" with no space — strip the hash(es)
-                trimmed.trimStart('#').trimStart()
-            } else line
             Text(
-                parseInlineMarkdown(displayLine, codeBackground),
+                parseInlineMarkdown(trimmed, codeBackground),
                 style = MaterialTheme.typography.bodyLarge,
                 color = color,
             )
@@ -2441,37 +2449,130 @@ private fun parseInlineMarkdown(text: String, codeBg: Color): androidx.compose.u
         var i = 0
         while (i < text.length) {
             when {
-                // **bold**
-                text.startsWith("**", i) -> {
-                    val end = text.indexOf("**", i + 2)
+                // Bold + Italic: ***text*** or ___text___
+                text.startsWith("***", i) || text.startsWith("___", i) -> {
+                    val delim = text.substring(i, i + 3)
+                    val end = text.indexOf(delim, i + 3)
                     if (end > i) {
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) {
+                            append(text.substring(i + 3, end))
+                        }
+                        i = end + 3
+                    } else {
+                        // Unclosed *** → treat remainder as Bold+Italic (strip delimiter)
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, fontStyle = FontStyle.Italic)) {
+                            append(text.substring(i + 3))
+                        }
+                        i = text.length
+                    }
+                }
+
+                // Bold: **text** or __text__
+                text.startsWith("**", i) || text.startsWith("__", i) -> {
+                    val delim = text.substring(i, i + 2)
+                    val end = text.indexOf(delim, i + 2)
+                    if (end > i) {
+                        val inner = text.substring(i + 2, end)
                         withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                            if (inner.contains("*")) {
+                                append(parseItalicsOnly(inner))
+                            } else {
+                                append(inner)
+                            }
+                        }
+                        i = end + 2
+                    } else {
+                        // Unclosed ** → treat remainder as bold (strip delimiter)
+                        withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                            append(text.substring(i + 2))
+                        }
+                        i = text.length
+                    }
+                }
+
+                // Strikethrough: ~~text~~
+                text.startsWith("~~", i) -> {
+                    val end = text.indexOf("~~", i + 2)
+                    if (end > i) {
+                        withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
                             append(text.substring(i + 2, end))
                         }
                         i = end + 2
-                    } else { append(text[i]); i++ }
+                    } else {
+                        withStyle(SpanStyle(textDecoration = TextDecoration.LineThrough)) {
+                            append(text.substring(i + 2))
+                        }
+                        i = text.length
+                    }
                 }
-                // `code`
+
+                // Inline code: `code`
                 text.startsWith("`", i) && !text.startsWith("``", i) -> {
                     val end = text.indexOf("`", i + 1)
                     if (end > i) {
-                        withStyle(SpanStyle(fontFamily = FontFamily.Monospace, background = codeBg)) {
+                        withStyle(SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, background = codeBg)) {
                             append(" ${text.substring(i + 1, end)} ")
                         }
                         i = end + 1
-                    } else { append(text[i]); i++ }
+                    } else {
+                        withStyle(SpanStyle(fontFamily = FontFamily.Monospace, fontSize = 13.sp, background = codeBg)) {
+                            append(" ${text.substring(i + 1)} ")
+                        }
+                        i = text.length
+                    }
                 }
-                // *italic*
-                text.startsWith("*", i) && !text.startsWith("**", i) -> {
-                    val end = text.indexOf("*", i + 1)
-                    if (end > i) {
+
+                // Italic: *text* or _text_
+                (text.startsWith("*", i) || text.startsWith("_", i)) -> {
+                    val delim = text[i].toString()
+                    val end = text.indexOf(delim, i + 1)
+                    if (end > i + 1 && !text[i + 1].isWhitespace()) {
                         withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
                             append(text.substring(i + 1, end))
                         }
                         i = end + 1
-                    } else { append(text[i]); i++ }
+                    } else if (end > i + 1) {
+                        withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                            append(text.substring(i + 1, end))
+                        }
+                        i = end + 1
+                    } else {
+                        // Stray delimiter — omit if at boundaries so raw asterisks don't leak
+                        if (i == text.length - 1 || text[i + 1].isWhitespace() || (i > 0 && text[i - 1].isWhitespace())) {
+                            i++
+                        } else {
+                            append(text[i])
+                            i++
+                        }
+                    }
                 }
-                else -> { append(text[i]); i++ }
+
+                else -> {
+                    append(text[i])
+                    i++
+                }
+            }
+        }
+    }
+}
+
+private fun parseItalicsOnly(text: String): androidx.compose.ui.text.AnnotatedString {
+    return buildAnnotatedString {
+        var i = 0
+        while (i < text.length) {
+            if (text.startsWith("*", i)) {
+                val end = text.indexOf("*", i + 1)
+                if (end > i) {
+                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                        append(text.substring(i + 1, end))
+                    }
+                    i = end + 1
+                } else {
+                    i++
+                }
+            } else {
+                append(text[i])
+                i++
             }
         }
     }
