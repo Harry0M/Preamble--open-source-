@@ -29,6 +29,8 @@ object GatingDecision {
         PremiumFeature.STATS_EXTENDED_RANGE,
         PremiumFeature.STATS_DEDICATED_SCREEN,
         PremiumFeature.UNLIMITED_AI_CREDITS,    // unlimited AI credits
+        PremiumFeature.CIRCLES_COLLABORATION,   // circles & team collaboration
+        PremiumFeature.TASK_SHARING,            // assigning/sharing tasks with friends
     )
 
     /**

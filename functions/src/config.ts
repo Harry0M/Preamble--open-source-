@@ -106,16 +106,26 @@ export function mistralBonusField(model: string): string {
   return `ai_mt_bonus_${tier}_${date}`;
 }
 
-/** Total daily budget = free baseline + ad bonuses. */
-export function getMistralDailyBudget(model: string, bonusToday: number): number {
-  return (MISTRAL_DAILY_FREE_TOKENS[model] ?? 3_000) + bonusToday;
+/** Pro subscriber daily token baseline (5x limit). */
+export const MISTRAL_DAILY_PRO_TOKENS: Record<string, number> = {
+  "ministral-8b-latest": 50_000,
+  "mistral-small-latest":  30_000,
+  "mistral-medium-latest":  2_500,
+};
+
+/** Total daily budget = baseline (Free or Pro) + ad bonuses. */
+export function getMistralDailyBudget(model: string, bonusToday: number, isPro = false): number {
+  const base = isPro
+    ? (MISTRAL_DAILY_PRO_TOKENS[model] ?? 50_000)
+    : (MISTRAL_DAILY_FREE_TOKENS[model] ?? 10_000);
+  return base + bonusToday;
 }
 
 /** Remaining weighted tokens in today's budget. */
 export function getMistralTokensRemaining(
-  model: string, usedToday: number, bonusToday: number,
+  model: string, usedToday: number, bonusToday: number, isPro = false,
 ): number {
-  return Math.max(0, getMistralDailyBudget(model, bonusToday) - usedToday);
+  return Math.max(0, getMistralDailyBudget(model, bonusToday, isPro) - usedToday);
 }
 
 // ---------------------------------------------------------------------------

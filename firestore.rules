@@ -10,6 +10,14 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
+    // ── PREMIUM / PRO VERIFICATION (Server-Side) ───────────────────────────
+    function isCallerPremium() {
+      let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return userData.get('is_premium', false) == true
+        || (userData.get('entitlement_tier', '') in ['PRO', 'PROMOTIONAL'] 
+            && userData.get('expires_at', 0) > request.time.toMillis());
+    }
+
     function isValidTaskData(data) {
       return data.title is string
         && data.title.size() >= 1
@@ -306,7 +314,19 @@ service cloud.firestore {
 
     // User profile and private subcollections.
     match /users/{uid} {
-      allow read, write: if isOwner(uid);
+      allow read: if isOwner(uid);
+
+      // Prevent client from injecting or tampering with Pro/Premium flags on create or update
+      allow create: if isOwner(uid)
+        && !request.resource.data.keys().hasAny(['is_premium', 'entitlement_tier', 'expires_at', 'plan_id']);
+
+      allow update: if isOwner(uid)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'is_premium', 'entitlement_tier', 'expires_at', 'plan_id',
+            'revenuecat_id', 'ai_daily_limit_override'
+          ]);
+
+      allow delete: if isOwner(uid);
 
       // Task Timer focus sessions (per-user cloud sync)
       match /timer_sessions/{sessionId} {
@@ -333,17 +353,18 @@ service cloud.firestore {
         allow delete: if isOwner(uid) || (signedIn() && friendId == request.auth.uid);
       }
 
+      // Invites are Pro-only for the sender
       match /invites/{inviteId} {
         allow get: if isOwner(uid) || (signedIn() && inviteId == request.auth.uid);
         allow list: if isOwner(uid);
-        allow create: if signedIn() && isValidInviteFor(uid, inviteId);
+        allow create: if signedIn() && isValidInviteFor(uid, inviteId) && isCallerPremium();
         allow update: if false;
         allow delete: if isOwner(uid) || (signedIn() && inviteId == request.auth.uid);
       }
 
       match /outgoingInvites/{targetId} {
         allow read: if isOwner(uid);
-        allow create: if isOwner(uid);
+        allow create: if isOwner(uid) && isCallerPremium();
         allow update: if false;
         allow delete: if isOwner(uid);
       }
@@ -370,11 +391,11 @@ service cloud.firestore {
       allow create, update: if writesOwnLegacyDocument();
     }
 
-    // Canonical collaborative tasks.
+    // Canonical collaborative tasks (Gated to Pro members for creating/sharing).
     match /collaborativeTasks/{taskId} {
       allow get: if isCollabMember();
       allow list: if isQueryableCollabMember();
-      allow create: if isCollaborativeAdminCreate(taskId);
+      allow create: if isCollaborativeAdminCreate(taskId) && isCallerPremium();
       allow update: if isCollaborativeAdminUpdate(taskId)
         || updatesOwnMemberStatusOnly()
         || updatesOwnSubtaskStateOnly()
@@ -383,10 +404,11 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.adminUid == request.auth.uid;
     }
 
+    // Circles (Gated to Pro members for creating)
     match /circles/{circleId} {
       allow get: if circleIsMember();
       allow list: if circleIsQueryableMember();
-      allow create: if isCircleAdminCreate(circleId);
+      allow create: if isCircleAdminCreate(circleId) && isCallerPremium();
       allow update: if isCircleAdminUpdate(circleId)
         || removesSelfFromCircleOnly();
       allow delete: if signedIn() && resource.data.adminUid == request.auth.uid;

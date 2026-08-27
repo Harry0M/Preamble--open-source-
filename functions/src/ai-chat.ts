@@ -170,19 +170,21 @@ export const aiChat = onRequest(
     const userDoc = await userDocRef.get();
     const userData = userDoc.data() || {};
 
+    const isPro = userData.is_premium === true || (userData.entitlement_tier === "PRO" && Number(userData.expires_at || 0) > Date.now());
+
     if (isMistralPremium(model)) {
-      // --- Mistral: check daily token budget ---
+      // --- Mistral: check daily token budget (Free = 10k tokens, Pro = 50k tokens) ---
       const usedField  = mistralUsedField(model);
       const bonusField = mistralBonusField(model);
       const usedToday  = (userData[usedField]  ?? 0) as number;
       const bonusToday = (userData[bonusField] ?? 0) as number;
-      const tokensLeft = getMistralTokensRemaining(model, usedToday, bonusToday);
+      const tokensLeft = getMistralTokensRemaining(model, usedToday, bonusToday, isPro);
       if (tokensLeft <= 0) {
         res.status(429).json({
           error: "Daily token budget exhausted for this model.",
           tokensRemaining: 0,
           resetAt: "midnight UTC",
-          hint: "Watch an ad to refill your budget.",
+          hint: isPro ? "Limit resets at midnight UTC." : "Upgrade to Pro for 5x daily messages.",
         });
         return;
       }
@@ -500,7 +502,7 @@ export const aiChat = onRequest(
         usageUpdate[usedField] = FieldValue.increment(weighted);
         const prevUsed  = (userData[usedField]  ?? 0) as number;
         const prevBonus = (userData[bonusField] ?? 0) as number;
-        tokensRemaining = getMistralTokensRemaining(model, prevUsed + weighted, prevBonus);
+        tokensRemaining = getMistralTokensRemaining(model, prevUsed + weighted, prevBonus, isPro);
       } else {
         const fmField = flashDailyMsgField(model);
         usageUpdate[fmField] = FieldValue.increment(1);

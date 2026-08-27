@@ -115,4 +115,6 @@ private fun featureDisplayName(feature: PremiumFeature): String = when (feature)
     PremiumFeature.STATS_DEDICATED_SCREEN -> "Advanced statistics"
     PremiumFeature.AI_AUTO_PLANNING -> "Plan my day"
     PremiumFeature.UNLIMITED_AI_CREDITS -> "Unlimited AI credits"
+    PremiumFeature.CIRCLES_COLLABORATION -> "Circles & Collaboration"
+    PremiumFeature.TASK_SHARING -> "Task Sharing & Friends"
 }

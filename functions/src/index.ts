@@ -39,3 +39,7 @@ export { onReferralFriendship } from "./referrals";
 
 // Shared circles: membership propagation + delete cascade trigger (Admin-SDK fan-out)
 export { onCirclesMembershipChanged } from "./circles";
+
+// RevenueCat Subscription Webhook (server-to-server entitlement sync)
+export { revenueCatWebhook } from "./revenuecat-webhook";
+
