@@ -2239,7 +2239,7 @@ private fun RichMarkdownText(
     color: Color = MaterialTheme.colorScheme.onSurface,
 ) {
     val codeBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-    val lines = text.split("\n")
+    val lines = normalizeMarkdownLines(text)
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         var index = 0
         while (index < lines.size) {
@@ -2261,6 +2261,37 @@ private fun RichMarkdownText(
             }
         }
     }
+}
+
+private fun normalizeMarkdownLines(raw: String): List<String> {
+    val rawLines = raw.lines()
+    val merged = mutableListOf<String>()
+    var i = 0
+    while (i < rawLines.size) {
+        val current = rawLines[i].trimEnd()
+        val trimmed = current.trim()
+
+        // 1. If current line is an orphan bullet symbol ("◦", "•", "-", "*", "+", "○", "▪", "–", "—") and next line has content
+        if (trimmed.matches(Regex("^[-*+•◦○▪–—]$")) && i + 1 < rawLines.size && rawLines[i + 1].isNotBlank()) {
+            val indent = if (current.startsWith("  ") || current.startsWith("\t")) "  " else ""
+            val next = rawLines[i + 1].trimStart()
+            merged.add("$indent- $next")
+            i += 2
+            continue
+        }
+
+        // 2. If current line is an orphan number ("1.", "2)", "3.") and next line has content
+        if (trimmed.matches(Regex("^\\(?\\d+[.)]$")) && i + 1 < rawLines.size && rawLines[i + 1].isNotBlank()) {
+            val next = rawLines[i + 1].trimStart()
+            merged.add("$trimmed $next")
+            i += 2
+            continue
+        }
+
+        merged.add(current)
+        i++
+    }
+    return merged
 }
 
 @Composable
