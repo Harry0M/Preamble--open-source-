@@ -145,6 +145,7 @@ class PreambleApplication : Application() {
         GoogleCalendarManager.init(this)
         GoogleTasksManager.init(this)
         FeatureGateManager.init(this)
+        com.theblankstate.preamble.billing.RevenueCatManager.initialize(this)
 
         // PM Messages: Firestore se override messages fetch karo (background mein)
         kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {

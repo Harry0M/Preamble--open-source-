@@ -169,6 +169,9 @@ dependencies {
     implementation(libs.play.app.update)
     implementation(libs.play.app.update.ktx)
 
+    // RevenueCat Purchases SDK (In-App Subscriptions & Purchases)
+    implementation("com.revenuecat.purchases:purchases:8.12.2")
+
     // Play In-App Reviews
     implementation(libs.play.review)
     implementation(libs.play.review.ktx)
