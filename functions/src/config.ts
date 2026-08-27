@@ -32,6 +32,18 @@ export const MEMORY_MODEL = "gemini-2.5-flash-lite";  // Background memory extra
 export const DEFAULT_MODEL = CHAT_MODEL;
 export const DEFAULT_MODE  = "concise";
 
+// ---------------------------------------------------------------------------
+// Admin UIDs (Unlimited AI Tokens & Full Access)
+// ---------------------------------------------------------------------------
+export const ADMIN_UIDS: string[] = [
+  "Esi6UQ7UebS9izgOHNQDBHIi0t32", // palhariom698@gmail.com
+];
+
+export function isAdminUid(uid?: string): boolean {
+  if (!uid) return false;
+  return ADMIN_UIDS.includes(uid);
+}
+
 /** Daily message caps for free (Gemini) models — anti-abuse only. -1 = unlimited. */
 export const FLASH_DAILY_MSG_LIMITS: Record<string, number> = {
   "gemini-2.5-flash-lite": -1,   // unlimited

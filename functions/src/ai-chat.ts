@@ -33,6 +33,7 @@ import {
   getMistralDailyBudget,
   getMistralTokensRemaining,
   mistralWeightedTokens,
+  isAdminUid,
 } from "./config";
 import { extractMemoryFacts, hasExplicitMemoryIntent, shouldAttemptMemoryExtraction } from "./memory-extractor";
 import {
@@ -170,9 +171,10 @@ export const aiChat = onRequest(
     const userDoc = await userDocRef.get();
     const userData = userDoc.data() || {};
 
-    const isPro = userData.is_premium === true || (userData.entitlement_tier === "PRO" && Number(userData.expires_at || 0) > Date.now());
+    const isAdmin = isAdminUid(uid);
+    const isPro = isAdmin || userData.is_premium === true || (userData.entitlement_tier === "PRO" && Number(userData.expires_at || 0) > Date.now());
 
-    if (isMistralPremium(model)) {
+    if (!isAdmin && isMistralPremium(model)) {
       // --- Mistral: check daily token budget (Free = 10k tokens, Pro = 50k tokens) ---
       const usedField  = mistralUsedField(model);
       const bonusField = mistralBonusField(model);
@@ -188,7 +190,7 @@ export const aiChat = onRequest(
         });
         return;
       }
-    } else {
+    } else if (!isAdmin) {
       // --- Flash: check daily message limit (anti-abuse) ---
       const fmField  = flashDailyMsgField(model);
       const fmUsed   = (userData[fmField] ?? 0) as number;
