@@ -96,6 +96,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
@@ -376,6 +377,23 @@ fun AiChatScreen(
                     .padding(bottom = if (isImeVisible) 8.dp else 12.dp),
             )
         }
+
+        // Top Soft Gradient Scrim / Fade (prevents messages from mixing with status bar & header)
+        val headerFadeHeight = if (showInternalHeader) statusBarTop + 72.dp else statusBarTop + 24.dp
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(headerFadeHeight)
+                .background(
+                    Brush.verticalGradient(
+                        0.0f to MaterialTheme.colorScheme.surface,
+                        0.55f to MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                        0.80f to MaterialTheme.colorScheme.surface.copy(alpha = 0.60f),
+                        1.0f to Color.Transparent
+                    )
+                )
+        )
 
         if (showInternalHeader) {
             AiChatHeader(
