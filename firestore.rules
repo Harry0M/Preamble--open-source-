@@ -10,16 +10,11 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
-    function isSuperAdmin() {
-      return signedIn() && request.auth.uid == 'Esi6UQ7UebS9izgOHNQDBHIi0t32';
-    }
-
     // ── PREMIUM / PRO VERIFICATION (Server-Side) ───────────────────────────
     function isCallerPremium() {
-      return isSuperAdmin()
-        || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('is_premium', false) == true
-        || (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('entitlement_tier', '') in ['PRO', 'PROMOTIONAL'] 
-            && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('expires_at', 0) > request.time.toMillis());
+      let userData = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return (userData.get('is_premium', false) == true || userData.get('entitlement_tier', '') in ['PRO', 'PROMOTIONAL'])
+        && userData.get('expires_at', 0) > request.time.toMillis();
     }
 
     function isValidTaskData(data) {
@@ -318,19 +313,19 @@ service cloud.firestore {
 
     // User profile and private subcollections.
     match /users/{uid} {
-      allow read: if isOwner(uid) || isSuperAdmin();
+      allow read: if isOwner(uid);
 
-      // Prevent client from injecting or tampering with Pro/Premium flags on create or update (SuperAdmin has full access)
-      allow create: if (isOwner(uid) || isSuperAdmin())
-        && (isSuperAdmin() || !request.resource.data.keys().hasAny(['is_premium', 'entitlement_tier', 'expires_at', 'plan_id']));
+      // Prevent client from injecting or tampering with Pro/Premium flags on create or update
+      allow create: if isOwner(uid)
+        && !request.resource.data.keys().hasAny(['is_premium', 'entitlement_tier', 'expires_at', 'plan_id']);
 
-      allow update: if (isOwner(uid) || isSuperAdmin())
-        && (isSuperAdmin() || !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+      allow update: if isOwner(uid)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny([
             'is_premium', 'entitlement_tier', 'expires_at', 'plan_id',
             'revenuecat_id', 'ai_daily_limit_override'
-          ]));
+          ]);
 
-      allow delete: if isOwner(uid) || isSuperAdmin();
+      allow delete: if isOwner(uid);
 
       // Task Timer focus sessions (per-user cloud sync)
       match /timer_sessions/{sessionId} {

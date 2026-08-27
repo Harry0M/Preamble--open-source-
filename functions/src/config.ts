@@ -33,11 +33,9 @@ export const DEFAULT_MODEL = CHAT_MODEL;
 export const DEFAULT_MODE  = "concise";
 
 // ---------------------------------------------------------------------------
-// Admin UIDs (Unlimited AI Tokens & Full Access)
+// Admin UIDs (Optional developer overrides)
 // ---------------------------------------------------------------------------
-export const ADMIN_UIDS: string[] = [
-  "Esi6UQ7UebS9izgOHNQDBHIi0t32", // palhariom698@gmail.com
-];
+export const ADMIN_UIDS: string[] = [];
 
 export function isAdminUid(uid?: string): boolean {
   if (!uid) return false;
