@@ -465,9 +465,10 @@ fun PreambleApp(
     val pastTasks by viewModel.pastTasks.collectAsState()
     val stats by viewModel.statsState.collectAsState()
     val habitStreaks by viewModel.habitStreaks.collectAsState()
+    var isAiChatVisible by remember { mutableStateOf(false) }
     val density = LocalDensity.current
     val isImeVisible = WindowInsets.ime.getBottom(density) > 0
-    val showBottomBar = !(selectedTab == 3 && isImeVisible)
+    val showBottomBar = !isAiChatVisible && !(selectedTab == 3 && isImeVisible)
 
     val incomingAssignments by workspaceViewModel.incomingAssignments.collectAsState()
     val requestsSections by workspaceViewModel.requestsSections.collectAsState()
@@ -646,6 +647,7 @@ fun PreambleApp(
                 onAdminTaskAction = { viewModel.adminTaskActioned(it) },
                 isSignedIn = AuthManager.isSignedIn(),
                 habitStreaks = habitStreaks,
+                onAiChatVisibilityChanged = { isAiChatVisible = it },
                 modifier = Modifier.padding(innerPadding)
             )
             1 -> StatsScreenHost(

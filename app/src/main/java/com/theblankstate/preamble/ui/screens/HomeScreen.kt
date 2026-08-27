@@ -223,6 +223,7 @@ fun HomeScreen(
     onAdminTaskAction: ((String) -> Unit)? = null,
     isSignedIn: Boolean = true,
     habitStreaks: Map<String, com.theblankstate.preamble.repository.TaskRepository.HabitStreakData> = emptyMap(),
+    onAiChatVisibilityChanged: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var showAddSheet by remember { mutableStateOf(false) }
@@ -261,9 +262,10 @@ fun HomeScreen(
             factory = com.theblankstate.preamble.viewmodel.DayPlanViewModel.Factory(planApp.repository, planTaskViewModel)
         )
     val dayPlanState by dayPlanViewModel.state.collectAsState()
-    // Drives the full-screen Planning_Screen overlay (Req 18.1). Owned here; the alive FAB
-    // entry point that sets this true is wired by task 13.2.
     var showPlanningScreen by remember { mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(showPlanningScreen) {
+        onAiChatVisibilityChanged(showPlanningScreen)
+    }
     // Non-null while a locked feature's upsell is being shown (Req 11.1, 11.3).
     var upsellFeature by remember { mutableStateOf<com.theblankstate.preamble.data.PremiumFeature?>(null) }
 

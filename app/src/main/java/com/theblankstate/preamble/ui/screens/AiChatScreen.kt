@@ -33,7 +33,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.graphics.shapes.CornerRounding
 import androidx.graphics.shapes.Morph
 import androidx.graphics.shapes.RoundedPolygon
@@ -223,6 +226,9 @@ fun AiChatScreen(
         }
     }
 
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val topHeaderOffset = if (showInternalHeader) statusBarTop + 60.dp else 44.dp
+
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -233,10 +239,10 @@ fun AiChatScreen(
             modifier = Modifier.fillMaxSize()
         ) {
             if (messages == null || (visibleMessages.isEmpty() && !isHistoryReady)) {
-                Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(top = 44.dp))
+                Box(modifier = Modifier.weight(1f).fillMaxWidth().padding(top = topHeaderOffset))
             } else if (visibleMessages.isEmpty()) {
                 EmptyChatPlaceholder(
-                    modifier = Modifier.weight(1f).padding(top = 44.dp),
+                    modifier = Modifier.weight(1f).padding(top = topHeaderOffset),
                     onSuggestion = { suggestion ->
                         input = suggestion
                     }
@@ -246,7 +252,7 @@ fun AiChatScreen(
                     modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
                     state = listState,
                     verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(top = 52.dp, bottom = 170.dp)
+                    contentPadding = PaddingValues(top = topHeaderOffset, bottom = 96.dp)
                 ) {
                     items(visibleMessages, key = { it.id }) { msg ->
                         MessageRow(
@@ -334,7 +340,7 @@ fun AiChatScreen(
                     .navigationBarsPadding()
                     .imePadding()
                     .padding(horizontal = 14.dp)
-                    .padding(bottom = if (isImeVisible) 8.dp else 104.dp),
+                    .padding(bottom = if (isImeVisible) 8.dp else 12.dp),
             )
         } else {
             AiChatComposer(
@@ -367,7 +373,7 @@ fun AiChatScreen(
                     .navigationBarsPadding()
                     .imePadding()
                     .padding(horizontal = 14.dp)
-                    .padding(bottom = if (isImeVisible) 8.dp else 104.dp),
+                    .padding(bottom = if (isImeVisible) 8.dp else 12.dp),
             )
         }
 
@@ -375,7 +381,9 @@ fun AiChatScreen(
             AiChatHeader(
                 onOpenChats = { showChatSheet = true },
                 onClose = onClose,
-                modifier = Modifier.align(Alignment.TopCenter),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding(),
             )
         }
     }
