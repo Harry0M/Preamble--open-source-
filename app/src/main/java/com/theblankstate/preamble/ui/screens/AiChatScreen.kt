@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.graphics.shapes.CornerRounding
@@ -334,6 +335,25 @@ fun AiChatScreen(
         }
 
         val isImeVisible = WindowInsets.isImeVisible
+        val navBarBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+        val bottomFadeHeight = navBarBottom + if (isImeVisible) 80.dp else 98.dp
+
+        // Bottom Soft Gradient Scrim / Fade (prevents messages from clashing with composer & bottom nav)
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(bottomFadeHeight)
+                .background(
+                    Brush.verticalGradient(
+                        0.0f to Color.Transparent,
+                        0.25f to MaterialTheme.colorScheme.surface.copy(alpha = 0.50f),
+                        0.60f to MaterialTheme.colorScheme.surface.copy(alpha = 0.95f),
+                        1.0f to MaterialTheme.colorScheme.surface
+                    )
+                )
+        )
+
         if (isDailyLimitReached) {
             AiChatDailyLimitCard(
                 modifier = Modifier
